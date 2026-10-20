@@ -31,3 +31,24 @@ export function formatMoney(amount: number, symbol: string, minorUnits = 2): str
 }
 
 export const HIDDEN_AMOUNT = "•••";
+
+/**
+ * Разобрать сумму, введённую пользователем, в минимальные единицы.
+ * Правила совпадают с budget_core::money::parse_amount. `null` — ошибка ввода.
+ */
+export function parseAmount(input: string, minorUnits = 2): number | null {
+  const cleaned = input.replace(/[\s  ]/g, "");
+  const m = /^([+\-−]?)(\d*)(?:[.,](\d*))?$/.exec(cleaned);
+  if (!m) return null;
+  const [, sign, intPart, fracPart = ""] = m;
+  if ((intPart === "" && fracPart === "") || fracPart.length > minorUnits) return null;
+  const value = BigInt(intPart || "0") * 10n ** BigInt(minorUnits) + BigInt((fracPart || "0").padEnd(minorUnits, "0"));
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  const n = Number(value);
+  return sign === "-" || sign === "−" ? -n : n;
+}
+
+/** Сумма для поля ввода: «1234,5» без разделителей разрядов. */
+export function amountToInput(amount: number, minorUnits = 2): string {
+  return formatAmount(amount, minorUnits).replace(/ /g, "").replace("−", "-");
+}

@@ -3,9 +3,14 @@
 
 use std::collections::BTreeMap;
 
-use budget_core::currencies::{self, Currency};
-use budget_core::storage::Storage;
-use budget_core::{settings, storage};
+use budget_core::accounts::{self, Account, AccountInput, Totals};
+use budget_core::categories::{self, Category, CategoryInput};
+use budget_core::currencies::{self, Currency, ExchangeRate};
+use budget_core::onboarding::{self, Setup};
+use budget_core::reports::{self, PeriodSummary};
+use budget_core::storage::{self, Storage};
+use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
+use budget_core::{settings, time};
 use serde::Serialize;
 use tauri::State;
 
@@ -15,13 +20,13 @@ type CmdResult<T> = Result<T, String>;
 
 fn with_db<T>(
     state: &State<AppState>,
-    f: impl FnOnce(&Storage) -> budget_core::Result<T>,
+    f: impl FnOnce(&mut Storage) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
-    let guard = state
+    let mut guard = state
         .db
         .lock()
         .map_err(|_| "база данных недоступна".to_string())?;
-    let db = guard.as_ref().map_err(Clone::clone)?;
+    let db = guard.as_mut().map_err(|e| e.clone())?;
     f(db).map_err(|e| e.to_string())
 }
 
@@ -33,6 +38,8 @@ pub struct AppInfo {
     supported_schema_version: i64,
     db_path: String,
     pre_migration_backup: Option<String>,
+    onboarding_done: bool,
+    today: String,
 }
 
 #[tauri::command]
@@ -44,9 +51,13 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
             supported_schema_version: storage::LATEST_VERSION,
             db_path: db.path().display().to_string(),
             pre_migration_backup: db.pre_migration_backup().map(|p| p.display().to_string()),
+            onboarding_done: onboarding::is_done(db.conn())?,
+            today: time::today_local(),
         })
     })
 }
+
+// --- Настройки и валюты ---
 
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> CmdResult<BTreeMap<String, String>> {
@@ -61,4 +72,191 @@ pub fn set_setting(state: State<AppState>, key: String, value: String) -> CmdRes
 #[tauri::command]
 pub fn list_currencies(state: State<AppState>) -> CmdResult<Vec<Currency>> {
     with_db(&state, |db| currencies::list(db.conn()))
+}
+
+#[tauri::command]
+pub fn list_rates(state: State<AppState>) -> CmdResult<Vec<ExchangeRate>> {
+    with_db(&state, |db| currencies::list_rates(db.conn()))
+}
+
+#[tauri::command]
+pub fn set_rate(
+    state: State<AppState>,
+    date: String,
+    from: String,
+    to: String,
+    rate: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        currencies::set_rate(db.conn(), &date, &from, &to, &rate)
+    })
+}
+
+#[tauri::command]
+pub fn delete_rate(
+    state: State<AppState>,
+    date: String,
+    from: String,
+    to: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        currencies::delete_rate(db.conn(), &date, &from, &to)
+    })
+}
+
+#[tauri::command]
+pub fn rate_on(
+    state: State<AppState>,
+    from: String,
+    to: String,
+    date: String,
+) -> CmdResult<Option<String>> {
+    with_db(&state, |db| {
+        currencies::rate_on(db.conn(), &from, &to, &date)
+    })
+}
+
+// --- Первый запуск ---
+
+#[tauri::command]
+pub fn finish_onboarding(state: State<AppState>, setup: Setup) -> CmdResult<()> {
+    with_db(&state, |db| onboarding::finish(db.conn_mut(), &setup))
+}
+
+// --- Счета ---
+
+#[tauri::command]
+pub fn list_accounts(state: State<AppState>, include_archived: bool) -> CmdResult<Vec<Account>> {
+    with_db(&state, |db| accounts::list(db.conn(), include_archived))
+}
+
+#[tauri::command]
+pub fn create_account(state: State<AppState>, input: AccountInput) -> CmdResult<String> {
+    with_db(&state, |db| accounts::create(db.conn(), &input))
+}
+
+#[tauri::command]
+pub fn update_account(state: State<AppState>, id: String, input: AccountInput) -> CmdResult<()> {
+    with_db(&state, |db| accounts::update(db.conn(), &id, &input))
+}
+
+#[tauri::command]
+pub fn archive_account(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
+    with_db(&state, |db| {
+        accounts::set_archived(db.conn(), &id, archived)
+    })
+}
+
+#[tauri::command]
+pub fn adjust_balance(
+    state: State<AppState>,
+    id: String,
+    actual_balance: i64,
+    date: String,
+    note: Option<String>,
+) -> CmdResult<Option<String>> {
+    with_db(&state, |db| {
+        accounts::adjust_balance(db.conn(), &id, actual_balance, &date, note.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn totals(state: State<AppState>, date: String) -> CmdResult<Totals> {
+    with_db(&state, |db| accounts::totals(db.conn(), &date))
+}
+
+// --- Категории ---
+
+#[tauri::command]
+pub fn list_categories(state: State<AppState>, include_archived: bool) -> CmdResult<Vec<Category>> {
+    with_db(&state, |db| categories::list(db.conn(), include_archived))
+}
+
+#[tauri::command]
+pub fn create_category(state: State<AppState>, input: CategoryInput) -> CmdResult<String> {
+    with_db(&state, |db| categories::create(db.conn(), &input))
+}
+
+#[tauri::command]
+pub fn update_category(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    parent_id: Option<String>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        categories::update(db.conn(), &id, &name, parent_id.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn archive_category(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
+    with_db(&state, |db| {
+        categories::set_archived(db.conn(), &id, archived)
+    })
+}
+
+#[tauri::command]
+pub fn delete_category(
+    state: State<AppState>,
+    id: String,
+    move_to: Option<String>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        categories::delete(db.conn_mut(), &id, move_to.as_deref())
+    })
+}
+
+// --- Операции ---
+
+#[tauri::command]
+pub fn list_transactions(state: State<AppState>, filter: Filter) -> CmdResult<Page> {
+    with_db(&state, |db| transactions::list(db.conn(), &filter))
+}
+
+#[tauri::command]
+pub fn get_transaction(state: State<AppState>, id: String) -> CmdResult<Txn> {
+    with_db(&state, |db| transactions::get(db.conn(), &id))
+}
+
+#[tauri::command]
+pub fn create_transaction(state: State<AppState>, input: TxnInput) -> CmdResult<String> {
+    with_db(&state, |db| transactions::create(db.conn(), &input))
+}
+
+#[tauri::command]
+pub fn update_transaction(state: State<AppState>, id: String, input: TxnInput) -> CmdResult<()> {
+    with_db(&state, |db| transactions::update(db.conn(), &id, &input))
+}
+
+#[tauri::command]
+pub fn delete_transaction(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_db(&state, |db| transactions::delete(db.conn(), &id))
+}
+
+#[tauri::command]
+pub fn payee_hints(
+    state: State<AppState>,
+    kind: String,
+    query: String,
+) -> CmdResult<Vec<PayeeHint>> {
+    with_db(&state, |db| {
+        transactions::payee_hints(db.conn(), &kind, &query, 8)
+    })
+}
+
+#[tauri::command]
+pub fn transaction_defaults(state: State<AppState>, kind: String) -> CmdResult<Defaults> {
+    with_db(&state, |db| transactions::defaults(db.conn(), &kind))
+}
+
+// --- Отчёты ---
+
+#[tauri::command]
+pub fn period_summary(
+    state: State<AppState>,
+    from: String,
+    to: String,
+) -> CmdResult<PeriodSummary> {
+    with_db(&state, |db| reports::period_summary(db.conn(), &from, &to))
 }

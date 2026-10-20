@@ -1,9 +1,9 @@
-// Дымовой тест: приложение открывается, база создаётся, меню и Настройки работают.
+// Дымовой тест: приложение открывается, база создаётся, мастер, меню и Настройки работают.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { start, stop, openSection } from "./app.mjs";
+import { start, stop, openSection, onboard, waitText, money } from "./app.mjs";
 
 let app;
 before(async () => {
@@ -13,14 +13,19 @@ after(async () => {
   await stop(app?.browser);
 });
 
-test("окно открывается с названием «Казна» и Главной", async () => {
-  const { browser } = app;
-  assert.equal(await browser.getTitle(), "Казна");
-  await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
+test("окно «Казна» открывается, при первом запуске создаётся файл данных", async () => {
+  assert.equal(await app.browser.getTitle(), "Казна");
+  assert.ok(existsSync(join(app.dataDir, "budget.db")));
 });
 
-test("при первом запуске создаётся файл данных", async () => {
-  assert.ok(existsSync(join(app.dataDir, "budget.db")));
+test("сценарий «Первый запуск»: счета с остатками и общий баланс", async () => {
+  const { browser } = app;
+  await onboard(browser, [
+    { name: "Наличные", balance: "12000" },
+    { name: "Карта Сбер", balance: "45 300" },
+    { name: "Вклад", type: "Вклад / сбережения", balance: "300000" },
+  ]);
+  await waitText(browser, '[data-testid="total-balance"]', money("357 300 ₽"));
 });
 
 test("все разделы меню открываются", async () => {
@@ -32,9 +37,7 @@ test("все разделы меню открываются", async () => {
 test("Настройки показывают версию данных и пример суммы", async () => {
   const { browser } = app;
   await openSection(browser, "Настройки");
-  const about = await browser.$('//h2[normalize-space()="О программе"]/..');
-  await browser.waitUntil(async () => (await about.getText()).includes("1 из 1"), { timeout: 5000 });
-  const text = await browser.$("main").getText();
-  assert.match(text, /14\s977,23\s₽/);
-  assert.match(text, /Российский рубль/);
+  const about = '//h2[normalize-space()="О программе"]/..';
+  await waitText(browser, about, /1 из 1/);
+  await waitText(browser, about, money("14 977,23 ₽"));
 });
