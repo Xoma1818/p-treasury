@@ -14,3 +14,8 @@ export function describeCbrImport(r: CbrImport, formatDate: (d: string) => strin
 export function rateSource(source: string): string {
   return source === "cbr" ? "ЦБ РФ" : "вручную";
 }
+
+/** Курс из базы («92.15») так, как его пишут по-русски: «92,15». */
+export function formatRate(rate: string | null): string {
+  return rate ? rate.replace(".", ",") : "—";
+}

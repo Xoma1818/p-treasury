@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
+import { CushionCard } from "../components/Cushion";
 import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
 import { TemplatesCard } from "../components/Templates";
@@ -95,6 +96,8 @@ export function Home() {
           <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed />}</div>
         </div>
       </div>
+
+      <CushionCard />
 
       <TemplatesCard />
 

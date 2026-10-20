@@ -13,6 +13,7 @@ pub mod compare;
 pub mod csv_import;
 pub mod currencies;
 pub mod debts;
+pub mod demo;
 pub mod error;
 pub mod export;
 pub mod ids;
@@ -28,6 +29,8 @@ pub mod templates;
 pub mod time;
 pub mod transactions;
 pub mod undo;
+pub mod views;
+pub mod wealth;
 
 pub use error::{Error, Result};
 /// Соединение SQLite: тип нужен оболочке приложения для журнала отмены.

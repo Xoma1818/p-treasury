@@ -7,13 +7,14 @@ use std::path::Path;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::backups::{self, BackupInfo};
-use budget_core::budgets::{self, Budget, Period};
+use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::cbr;
 use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
+use budget_core::demo;
 use budget_core::export;
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
@@ -24,6 +25,8 @@ use budget_core::storage::{self, Storage};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
 use budget_core::undo::UndoState;
+use budget_core::views::{self, SavedView, ViewInput};
+use budget_core::wealth::{self, Cushion, FxReport};
 use budget_core::{settings, time, Connection};
 use serde::Serialize;
 use tauri::State;
@@ -194,6 +197,25 @@ async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {
 #[tauri::command]
 pub fn finish_onboarding(state: State<AppState>, setup: Setup) -> CmdResult<()> {
     with_db(&state, |db| onboarding::finish(db.conn_mut(), &setup))
+}
+
+/// «Посмотреть на примере»: заполнить пустую базу пробными данными.
+#[tauri::command]
+pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
+    with_db(&state, |db| demo::seed(db.conn_mut(), &time::today_local()))
+}
+
+/// Удалить пример и вернуться к мастеру первого запуска. Отменить нельзя:
+/// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
+#[tauri::command]
+pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
+    with_db(&state, |db| demo::clear(db.conn_mut()))?;
+    state
+        .undo
+        .lock()
+        .map_err(|_| "журнал отмены недоступен".to_string())?
+        .clear();
+    Ok(())
 }
 
 // --- Счета ---
@@ -394,11 +416,49 @@ pub fn set_budget_note(
     })
 }
 
+/// Заполнить лимиты по истории; возвращает число заданных лимитов.
+#[tauri::command]
+pub fn fill_budget(
+    state: State<AppState>,
+    budget_id: String,
+    mode: FillMode,
+    category_id: Option<String>,
+) -> CmdResult<usize> {
+    with_undo(&state, "Бюджет по истории", |c| {
+        budgets::fill(c, &budget_id, mode, category_id.as_deref())
+    })
+}
+
 #[tauri::command]
 pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление бюджета", |c| {
         budgets::delete(c, &budget_id)
     })
+}
+
+#[tauri::command]
+pub fn cushion(state: State<AppState>) -> CmdResult<Cushion> {
+    with_db(&state, |db| wealth::cushion(db.conn(), &time::today_local()))
+}
+
+#[tauri::command]
+pub fn report_fx(state: State<AppState>, from: String, to: String) -> CmdResult<FxReport> {
+    with_db(&state, |db| wealth::fx_gain(db.conn(), &from, &to))
+}
+
+#[tauri::command]
+pub fn list_views(state: State<AppState>, kind: Option<String>) -> CmdResult<Vec<SavedView>> {
+    with_db(&state, |db| views::list(db.conn(), kind.as_deref()))
+}
+
+#[tauri::command]
+pub fn create_view(state: State<AppState>, input: ViewInput) -> CmdResult<String> {
+    with_undo(&state, "Сохранение вида", |c| views::create(c, &input))
+}
+
+#[tauri::command]
+pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление вида", |c| views::delete(c, &id))
 }
 
 #[tauri::command]

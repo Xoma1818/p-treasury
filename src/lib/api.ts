@@ -410,7 +410,57 @@ export interface Budget {
   actualIncome: number;
   unbudgetedExpense: number;
   safeToSpendToday: number | null;
+  /** Расходы по лимитам к концу месяца при текущем темпе (только текущий месяц). */
+  forecastExpense: number | null;
   missingRates: string[];
+}
+
+/** Откуда брать лимиты: среднее за 3 месяца или тот же месяц год назад. */
+export type FillMode = "average3" | "last_year";
+
+export interface Cushion {
+  baseCurrency: string;
+  baseSymbol: string;
+  liquid: number;
+  avgMonthlyExpense: number | null;
+  /** Месяцы в десятых: 42 = 4,2 месяца. */
+  monthsTenths: number | null;
+  monthsCounted: number;
+  goalMonths: number;
+  missingRates: string[];
+}
+
+export interface FxRow {
+  accountId: string;
+  name: string;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  startBalance: number;
+  endBalance: number;
+  startRate: string | null;
+  endRate: string | null;
+  gain: number | null;
+  avgBuyRate: string | null;
+  bought: number;
+}
+
+export interface FxReport {
+  baseCurrency: string;
+  baseSymbol: string;
+  rows: FxRow[];
+  totalGain: number;
+  missingRates: string[];
+}
+
+export type ViewKind = "transactions" | "report";
+
+export interface SavedView {
+  id: string;
+  name: string;
+  kind: ViewKind;
+  /** JSON с параметрами вида. */
+  params: string;
 }
 
 export interface Setup {
@@ -625,6 +675,8 @@ export const api = {
   rateOn: (from: string, to: string, date: string) => invoke<string | null>("rate_on", { from, to, date }),
   loadCbrRates: (date: string) => invoke<CbrImport>("load_cbr_rates", { date }),
   finishOnboarding: (setup: Setup) => invoke<void>("finish_onboarding", { setup }),
+  seedDemo: () => invoke<void>("seed_demo"),
+  clearDemo: () => invoke<void>("clear_demo"),
   listAccounts: (includeArchived = false) => invoke<Account[]>("list_accounts", { includeArchived }),
   createAccount: (input: AccountInput) => invoke<string>("create_account", { input }),
   updateAccount: (id: string, input: AccountInput) => invoke<void>("update_account", { id, input }),
@@ -668,6 +720,14 @@ export const api = {
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
+  fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
+    invoke<number>("fill_budget", { budgetId, mode, categoryId }),
+  cushion: () => invoke<Cushion>("cushion"),
+  reportFx: (from: string, to: string) => invoke<FxReport>("report_fx", { from, to }),
+  listViews: (kind: ViewKind | null = null) => invoke<SavedView[]>("list_views", { kind }),
+  createView: (name: string, kind: ViewKind, params: unknown) =>
+    invoke<string>("create_view", { input: { name, kind, params: JSON.stringify(params) } }),
+  deleteView: (id: string) => invoke<void>("delete_view", { id }),
   calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
   calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),

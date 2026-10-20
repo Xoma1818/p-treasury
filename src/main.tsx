@@ -5,6 +5,7 @@ import { App } from "./App";
 import { installPressEffect } from "./lib/press";
 import { applyTheme, savedTheme } from "./lib/theme";
 import "./styles.css";
+import "./features.css";
 
 installPressEffect();
 applyTheme(savedTheme());

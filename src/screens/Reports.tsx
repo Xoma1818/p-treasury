@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
+import { FxGain } from "./FxGain";
+import { SavedViews } from "../components/SavedViews";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportPeriodKind, type Period } from "../lib/api";
@@ -13,7 +15,14 @@ import { ScreenTitle } from "../components/SectionIcon";
 
 const M = BaseMoney;
 
-type Tab = "structure" | "months" | "balances" | "compare";
+type Tab = "structure" | "months" | "balances" | "compare" | "fx";
+
+/** Сохранённый вид отчёта: вкладка и вид периода; период берётся текущий. */
+interface ReportView {
+  tab: Tab;
+  kind: Kind;
+  custom?: { start: string; end: string } | null;
+}
 type Kind = ReportPeriodKind | "custom";
 
 const KINDS: [Kind, string][] = [
@@ -110,7 +119,7 @@ export function Reports() {
               </div>
             )
           )}
-          {tab !== "balances" && (
+          {tab !== "balances" && tab !== "fx" && (
             <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
               Выгрузить
             </button>
@@ -161,6 +170,16 @@ export function Reports() {
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
 
+      <SavedViews<ReportView>
+        kind="report"
+        current={{ tab, kind, custom: kind === "custom" ? custom : null }}
+        onApply={(v) => {
+          setTab(v.tab);
+          setKind(v.kind);
+          setAnchor(null);
+          if (v.custom) setCustom(v.custom);
+        }}
+      />
       <div className="tabs report-tabs" role="tablist">
         {(
           [
@@ -168,6 +187,7 @@ export function Reports() {
             ["months", "По месяцам"],
             ["balances", "Остатки на дату"],
             ["compare", "Сравнение"],
+            ["fx", "Курсовая разница"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
@@ -180,6 +200,7 @@ export function Reports() {
       {period && tab === "months" && <Months period={period} kind={kind} />}
       {period && tab === "balances" && <Balances period={period} />}
       {tab === "compare" && <Compare />}
+      {period && tab === "fx" && <FxGain period={period} />}
     </section>
   );
 }

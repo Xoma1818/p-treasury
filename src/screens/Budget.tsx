@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
-import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind } from "../lib/api";
+import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
 import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/queries";
@@ -56,19 +56,43 @@ export function Budget() {
 
 function NoBudget({ month }: { month: string }) {
   const create = useAction((copy: boolean) => api.createBudget(month, copy));
+  // Бюджет создаётся пустым и сразу заполняется по тратам трёх прошлых месяцев.
+  const byAverage = useAction(async () => {
+    const id = await api.createBudget(month, false);
+    await api.fillBudget(id, "average3");
+  });
+  const busy = create.busy || byAverage.busy;
   return (
     <div className="card empty-budget">
       <p>Бюджета на {monthTitle(month).toLowerCase()} пока нет.</p>
       <div className="btn-group">
-        <button className="btn primary" onClick={() => create.run(true)} disabled={create.busy}>
+        <button className="btn primary" onClick={() => create.run(true)} disabled={busy}>
           Скопировать из {monthGenitive(shiftMonth(month, -1))}
         </button>
-        <button className="btn" onClick={() => create.run(false)} disabled={create.busy}>
+        <button className="btn" onClick={() => byAverage.run()} disabled={busy} aria-busy={byAverage.busy}>
+          По тратам за 3 месяца
+        </button>
+        <button className="btn" onClick={() => create.run(false)} disabled={busy}>
           Создать пустой
         </button>
       </div>
-      <p className="hint">Копируются лимиты и валюта. Если прошлого бюджета нет, создастся пустой.</p>
-      <ErrorText error={create.error} />
+      <p className="hint">
+        Копируются лимиты и валюта. «По тратам за 3 месяца» ставит лимиты по средним расходам и доходам прошлых месяцев, с округлением до
+        100 ₽.
+      </p>
+      <ErrorText error={create.error ?? byAverage.error} />
+    </div>
+  );
+}
+
+/** Строка прогноза под «Можно тратить сегодня»: что будет к концу месяца при текущем темпе. */
+function Forecast({ b, minor }: { b: BudgetData; minor: number }) {
+  if (b.forecastExpense == null || b.plannedExpense === 0) return null;
+  const left = b.plannedExpense - b.forecastExpense;
+  return (
+    <div className={left < 0 ? "hint warn" : "hint"} data-testid="budget-forecast">
+      При таком темпе к концу месяца {left < 0 ? "перерасход" : "останется"}{" "}
+      <Money amount={Math.abs(left)} symbol={b.currencySymbol} minorUnits={minor} />
     </div>
   );
 }
@@ -115,6 +139,7 @@ function BudgetView({ b }: { b: BudgetData }) {
             {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} minorUnits={minor} /> : <span className="muted">—</span>}
           </div>
           <div className="hint">{b.safeToSpendToday != null ? "остаток лимитов на оставшиеся дни" : "только для текущего месяца"}</div>
+          <Forecast b={b} minor={minor} />
         </div>
       </div>
 
@@ -162,6 +187,11 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   });
   const income = kind === "income";
   const sym = b.currencySymbol;
+  const [filled, setFilled] = useState<string | null>(null);
+  const fill = useAction(
+    (mode: FillMode, categoryId: string | null) => api.fillBudget(b.id!, mode, categoryId),
+    (n) => setFilled(n === 1 ? "Лимит обновлён по истории." : `Обновлено лимитов: ${n}.`),
+  );
 
   const submit = () => {
     const v = parseAmount(newLimit, minor);
@@ -172,7 +202,26 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
 
   return (
     <div className="card" data-testid={`budget-${kind}`}>
-      <h2>{income ? "Доходы" : "Расходы"}</h2>
+      <div className="notes-head">
+        <h2>{income ? "Доходы" : "Расходы"}</h2>
+        {!income && (
+          <div className="btn-group" data-testid="budget-fill">
+            <button
+              className="btn small"
+              title="Лимиты верхних категорий по средним тратам трёх прошлых месяцев"
+              onClick={() => fill.run("average3", null)}
+              disabled={fill.busy}
+              aria-busy={fill.busy}
+            >
+              По среднему за 3 месяца
+            </button>
+            <button className="btn small" title="Лимиты по тратам этого месяца год назад" onClick={() => fill.run("last_year", null)} disabled={fill.busy}>
+              Как в прошлом году
+            </button>
+          </div>
+        )}
+      </div>
+      {filled && !fill.error && <p className="hint" data-testid="budget-filled">{filled}</p>}
       {lines.length === 0 && <p className="muted">{income ? "Ожидаемые доходы не заданы." : "Лимитов пока нет. Добавьте категорию ниже."}</p>}
       {lines.length > 0 && (
         <table className="table budget-table">
@@ -188,7 +237,20 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           <tbody>
             {lines.map((l) => (
               <tr key={l.categoryId} data-testid="budget-line" data-category={l.categoryName} className={l.over && !income ? "over-row" : undefined}>
-                <td className={l.parentId ? "child-name" : "main"}>{l.categoryName}</td>
+                <td className={l.parentId ? "child-name" : "main"}>
+                  {l.categoryName}
+                  {!l.parentId && (
+                    <button
+                      className="icon-btn row-action"
+                      aria-label={`Лимит «${l.categoryName}» по среднему за 3 месяца`}
+                      title="Поставить лимит по среднему за 3 месяца"
+                      onClick={() => fill.run("average3", l.categoryId)}
+                      disabled={fill.busy}
+                    >
+                      ↺
+                    </button>
+                  )}
+                </td>
                 <td className="num">
                   <LimitInput budgetId={b.id!} line={l} minor={minor} />
                 </td>
@@ -222,6 +284,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           Расходы по категориям без лимита: <Money amount={b.unbudgetedExpense} symbol={sym} minorUnits={minor} />
         </p>
       )}
+      <ErrorText error={fill.error} />
       <div className="inline-form add-line">
         <CategorySelect
           name={`add-${kind}`}

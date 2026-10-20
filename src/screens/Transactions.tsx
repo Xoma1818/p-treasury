@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useExport } from "../components/DataTools";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
+import { SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
 import { api, TXN_TYPES, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, today } from "../lib/dates";
@@ -60,6 +61,15 @@ export function Transactions() {
         </p>
       )}
       <ErrorText error={exp.error} />
+      <SavedViews
+        kind="transactions"
+        current={{ filter: { ...f, search: undefined }, search }}
+        onApply={(v: { filter: TxnFilter; search: string }) => {
+          setLimit(PAGE);
+          setSearch(v.search ?? "");
+          setF({ ...v.filter, search: v.search || undefined });
+        }}
+      />
       <div className="card filters">
         <input type="date" aria-label="С даты" name="dateFrom" value={f.dateFrom ?? ""} onChange={(e) => set({ dateFrom: e.target.value || undefined })} />
         <span className="muted">—</span>

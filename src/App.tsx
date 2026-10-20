@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { DemoBanner } from "./components/DemoBanner";
 import { MissedReminders } from "./components/MissedReminders";
 import { HotkeysHelp, UndoBar } from "./components/Convenience";
 import { UpdatePrompt } from "./components/DataTools";
@@ -104,7 +105,10 @@ export function App() {
   return (
     <div className="layout">
       <Sidebar />
-      <main className="content">{Screen ? <Screen key={visit} /> : <Placeholder id={section} />}</main>
+      <main className="content">
+        <DemoBanner />
+        {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
+      </main>
       <MissedReminders />
       <UpdatePrompt />
       <UndoBar />
