@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { CbrButton } from "../components/CbrButton";
 import { BackupCard, ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -7,6 +8,7 @@ import { Money } from "../components/Money";
 import { api } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
+import { rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
 
 export function Settings() {
@@ -140,50 +142,70 @@ export function Settings() {
   );
 }
 
+const RATES_SHOWN = 12;
+
 function Rates({ base }: { base: string }) {
   const currencies = useCurrencies().data ?? [];
   const rates = useQuery({ queryKey: ["rates"], queryFn: api.listRates });
+  const [cbrDate, setCbrDate] = useState(today());
   const [date, setDate] = useState(today());
   const [from, setFrom] = useState("USD");
   const [rate, setRate] = useState("");
+  const [all, setAll] = useState(false);
   const add = useAction(api.setRate, () => setRate(""));
   const remove = useAction(api.deleteRate);
   const symbol = (code: string) => currencies.find((c) => c.code === code)?.symbol ?? code;
+  const list = rates.data ?? [];
+  const shown = all ? list : list.slice(0, RATES_SHOWN);
 
   return (
-    <div className="card">
+    <div className="card" data-testid="rates-card">
       <h2>Курсы валют</h2>
       <p className="muted">
         Курс к основной валюте на дату. Для пересчёта берётся последний известный курс на день операции.
       </p>
-      <form className="inline-form" onSubmit={(e) => (e.preventDefault(), add.run(date, from, base, rate))}>
-        <input type="date" aria-label="Дата курса" name="rateDate" value={date} onChange={(e) => setDate(e.target.value)} />
-        <span>1</span>
-        <select aria-label="Валюта" name="rateFrom" value={from} onChange={(e) => setFrom(e.target.value)}>
-          {currencies
-            .filter((c) => c.code !== base)
-            .map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code}
-              </option>
-            ))}
-        </select>
-        <span>=</span>
-        <input aria-label="Курс" name="rate" className="amount" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="92,15" />
-        <span>{symbol(base)}</span>
-        <button className="btn" type="submit" disabled={add.busy || !rate.trim()}>
-          Добавить
-        </button>
-      </form>
-      <ErrorText error={add.error ?? remove.error} />
-      {rates.data && rates.data.length > 0 && (
-        <table className="table compact" data-testid="rates">
+      <div className="rates-block">
+        <h3>Официальный курс ЦБ РФ</h3>
+        <div className="inline-form">
+          <input type="date" aria-label="Дата курсов ЦБ" name="cbrDate" value={cbrDate} max={today()} onChange={(e) => setCbrDate(e.target.value)} />
+          <CbrButton date={cbrDate} />
+        </div>
+        <p className="hint">Загружаются курсы всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
+      </div>
+      <div className="rates-block">
+        <h3>Ввести вручную</h3>
+        <form className="inline-form" onSubmit={(e) => (e.preventDefault(), add.run(date, from, base, rate))}>
+          <input type="date" aria-label="Дата курса" name="rateDate" value={date} onChange={(e) => setDate(e.target.value)} />
+          <span>1</span>
+          <select aria-label="Валюта" name="rateFrom" value={from} onChange={(e) => setFrom(e.target.value)}>
+            {currencies
+              .filter((c) => c.code !== base)
+              .map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+          </select>
+          <span>=</span>
+          <input aria-label="Курс" name="rate" className="amount" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="92,15" />
+          <span>{symbol(base)}</span>
+          <button className="btn" type="submit" aria-busy={add.busy} disabled={add.busy || !rate.trim()}>
+            Добавить
+          </button>
+        </form>
+        <ErrorText error={add.error ?? remove.error} />
+      </div>
+      {list.length > 0 && (
+        <table className="table compact rates-table" data-testid="rates">
           <tbody>
-            {rates.data.map((r) => (
-              <tr key={`${r.date}-${r.fromCode}-${r.toCode}`}>
-                <td>{formatDate(r.date)}</td>
+            {shown.map((r) => (
+              <tr key={`${r.date}-${r.fromCode}-${r.toCode}`} data-source={r.source}>
+                <td className="date">{formatDate(r.date)}</td>
                 <td>
                   1 {r.fromCode} = {r.rate.replace(".", ",")} {symbol(r.toCode)}
+                </td>
+                <td>
+                  <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span>
                 </td>
                 <td className="row-actions">
                   <button className="link danger" onClick={() => remove.run(r.date, r.fromCode, r.toCode)}>
@@ -194,6 +216,11 @@ function Rates({ base }: { base: string }) {
             ))}
           </tbody>
         </table>
+      )}
+      {list.length > RATES_SHOWN && (
+        <button className="link table-foot" onClick={() => setAll(!all)}>
+          {all ? "Свернуть" : `Показать все (${list.length})`}
+        </button>
       )}
     </div>
   );

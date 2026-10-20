@@ -302,7 +302,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
             Отмена
           </button>
           {!isAdjustment && (
-            <button type="submit" className="btn primary" disabled={save.busy} title="Ctrl+Enter">
+            <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy} title="Ctrl+Enter">
               Сохранить
             </button>
           )}

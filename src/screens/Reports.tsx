@@ -110,7 +110,7 @@ export function Reports() {
             )
           )}
           {tab !== "balances" && (
-            <button className="btn" onClick={exp.run} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
+            <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
               Выгрузить
             </button>
           )}

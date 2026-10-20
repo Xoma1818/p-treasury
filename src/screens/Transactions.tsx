@@ -46,7 +46,7 @@ export function Transactions() {
       <div className="screen-head">
         <h1>Операции</h1>
         <span className="spacer" />
-        <button className="btn" onClick={exp.run} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
+        <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
           Выгрузить
         </button>
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">

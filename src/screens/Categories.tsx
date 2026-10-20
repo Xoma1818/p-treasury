@@ -108,7 +108,7 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -149,7 +149,7 @@ function DeleteForm({ category, all, onClose }: { category: Category; all: Categ
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn danger" disabled={remove.busy || (used > 0 && !target)}>
+          <button type="submit" className="btn danger" aria-busy={remove.busy} disabled={remove.busy || (used > 0 && !target)}>
             Удалить
           </button>
         </div>

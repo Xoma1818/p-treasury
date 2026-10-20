@@ -232,7 +232,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           exclude={(c) => lines.some((l) => l.categoryId === c.id)}
         />
         <AmountInput name={`add-${kind}-limit`} value={newLimit} onChange={setNewLimit} minorUnits={minor} />
-        <button className="btn small" onClick={submit} disabled={add.busy}>
+        <button className="btn small" onClick={submit} aria-busy={add.busy} disabled={add.busy}>
           Добавить
         </button>
       </div>

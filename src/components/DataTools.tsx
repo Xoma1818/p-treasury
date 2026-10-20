@@ -70,7 +70,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={onClose}>
             Закрыть
           </button>
-          <button type="button" className="btn primary" disabled={run.busy || !from || !to} onClick={() => run.run()}>
+          <button type="button" className="btn primary" aria-busy={run.busy} disabled={run.busy || !from || !to} onClick={() => run.run()}>
             Скачать
           </button>
         </div>

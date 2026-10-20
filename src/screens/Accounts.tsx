@@ -142,7 +142,7 @@ function AccountForm({ account, onClose }: { account: Account | null; onClose: (
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -181,7 +181,7 @@ function AdjustForm({ account, onClose }: { account: Account; onClose: () => voi
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy || value === null}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy || value === null}>
             Сверить
           </button>
         </div>
