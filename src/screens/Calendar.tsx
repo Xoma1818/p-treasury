@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { OccurrenceItem, ReminderForm } from "../components/Reminders";
-import { TxnTable } from "../components/TxnTable";
+import { TXN_DRAG, TxnTable } from "../components/TxnTable";
+import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
 import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, WEEKDAYS, weekStart } from "../lib/dates";
 import { useUi } from "../lib/store";
@@ -107,6 +109,9 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
   const q = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) });
   const m = q.data;
   const t = today();
+  // Перетаскивание операции из панели дня на другой день.
+  const [over, setOver] = useState<string | null>(null);
+  const move = useAction(api.moveTransaction, () => {});
   // Пустые клетки до первого числа: неделя с понедельника.
   const lead = m ? (new Date(`${month}-01T00:00`).getDay() + 6) % 7 : 0;
   return (
@@ -140,17 +145,42 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
             {m.days.map((d) => (
               <div
                 key={d.date}
-                className={["cal-cell", d.date === t && "today", d.date === selected && "selected", d.date > t && "future"].filter(Boolean).join(" ")}
+                className={["cal-cell", d.date === t && "today", d.date === selected && "selected", d.date > t && "future", d.noSpend && "no-spend", d.date === over && "drop-over"]
+                  .filter(Boolean)
+                  .join(" ")}
                 data-testid="cal-day"
                 data-date={d.date}
                 onClick={() => select(d.date)}
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes(TXN_DRAG)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setOver(d.date);
+                }}
+                onDragLeave={() => setOver((cur) => (cur === d.date ? null : cur))}
+                onDrop={(e) => {
+                  const id = e.dataTransfer.getData(TXN_DRAG);
+                  setOver(null);
+                  if (!id) return;
+                  e.preventDefault();
+                  move.run(id, d.date);
+                }}
               >
-                <div className="cal-num">{Number(d.date.slice(8))}</div>
+                <div className="cal-num">
+                  {Number(d.date.slice(8))}
+                  {d.noSpend && (
+                    <span className="no-spend-mark" title="День без трат" data-testid="no-spend">
+                      ✓
+                    </span>
+                  )}
+                </div>
                 <DayChips day={d} m={m} />
               </div>
             ))}
           </div>
+          <ErrorText error={move.error} />
           <Totals m={m} />
+          <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />
         </>
       )}
     </>
@@ -219,7 +249,8 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
       </div>
       <h3>Операции</h3>
       {txns && txns.items.length === 0 && <p className="muted small">Операций нет.</p>}
-      {txns && txns.items.length > 0 && <TxnTable items={txns.items} compact />}
+      {txns && txns.items.length > 0 && <TxnTable items={txns.items} compact draggable />}
+      {txns && txns.items.length > 0 && <p className="hint">Операцию можно перетащить на другой день календаря.</p>}
       {day && day.debts.length > 0 && (
         <>
           <h3>Платежи по долгам</h3>

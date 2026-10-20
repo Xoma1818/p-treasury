@@ -6,9 +6,11 @@ use chrono::{Datelike, Duration, NaiveDate};
 use rusqlite::Connection;
 
 use crate::accounts::{self, AccountInput};
+use crate::assets::{self, AssetInput};
 use crate::budgets::{self, FillMode};
 use crate::debts::{self, DebtInput};
 use crate::error::invalid;
+use crate::events::{self, EventInput};
 use crate::notes::{self, NoteInput};
 use crate::reminders::{self, ReminderInput};
 use crate::templates::{self, TemplateInput};
@@ -276,7 +278,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             term_months: None,
             first_payment_date: None,
             maturity_date: Some((now + Duration::days(120)).to_string()),
-            account_id: Some(card),
+            account_id: Some(card.clone()),
         },
     )?;
     let month = budgets::month_of(conn, today)?.month;
@@ -290,7 +292,72 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             ..Default::default()
         },
     )?;
+
+    // Имущество (с переоценкой) и прошлая поездка со своим бюджетом.
+    let asset = |name: &str, kind: &str, value: i64, date: NaiveDate| AssetInput {
+        name: name.into(),
+        kind: kind.into(),
+        currency_code: "RUB".into(),
+        value,
+        date: date.to_string(),
+        note: None,
+    };
+    let flat = assets::create(conn, &asset("Квартира", "realty", 950_000_000, first))?;
+    assets::set_value(conn, &flat, today, 980_000_000)?;
+    assets::create(conn, &asset("Машина", "vehicle", 120_000_000, now))?;
+    let start = day(month_start(now, 2), 20);
+    let trip = events::create(
+        conn,
+        &EventInput {
+            name: "Поездка в Казань".into(),
+            start_date: start.to_string(),
+            end_date: (start + Duration::days(3)).to_string(),
+            budget: Some(4_000_000),
+            note: None,
+        },
+    )?;
+    let mut spent = Vec::new();
+    for (offset, amount, category, payee) in [
+        (0, 1_240_000, "Путешествия", "РЖД"),
+        (1, 380_000, "Кафе и рестораны", "Чак-чак"),
+        (2, 165_000, "Такси", "Яндекс Go"),
+        (3, 520_000, "Путешествия", "Гостиница"),
+    ] {
+        spent.push(transactions::create(
+            conn,
+            &mk_expense(
+                conn,
+                start + Duration::days(offset),
+                &card,
+                amount,
+                category,
+                payee,
+            )?,
+        )?);
+    }
+    events::assign(conn, Some(&trip), &spent)?;
     Ok(())
+}
+
+fn mk_expense(
+    conn: &Connection,
+    date: NaiveDate,
+    account: &str,
+    amount: i64,
+    category: &str,
+    payee: &str,
+) -> Result<TxnInput> {
+    Ok(TxnInput {
+        kind: "expense".into(),
+        date: date.to_string(),
+        account_id: account.into(),
+        amount,
+        category_id: Some(cat(conn, category, "expense")?),
+        to_account_id: None,
+        to_amount: None,
+        payee: Some(payee.into()),
+        note: None,
+    })
 }
 
 /// Удалить все данные примера и вернуться к мастеру первого запуска.
@@ -313,6 +380,9 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
         "transaction_templates",
         "saved_views",
         "payee_rules",
+        "asset_values",
+        "assets",
+        "events",
         "transactions",
         "debts",
         "recurring_rules",
@@ -345,6 +415,15 @@ mod tests {
         let c = db.conn();
         assert!(onboarding::is_done(c).unwrap() && is_demo(c).unwrap());
         assert_eq!(accounts::list(c, false).unwrap().len(), 5);
+        assert_eq!(
+            crate::assets::total(c, "2026-10-20").unwrap().0,
+            1_100_000_000
+        );
+        let trip = &crate::events::list(c, "2026-10-20").unwrap()[0];
+        assert_eq!(
+            (trip.count, trip.spent, trip.state.as_str()),
+            (4, 2_305_000, "past")
+        );
         let b = budgets::get(c, "2026-10", "2026-10-20").unwrap();
         assert!(
             b.id.is_some() && b.planned_expense > 0,
@@ -372,7 +451,8 @@ mod tests {
         let left: i64 = c
             .query_row(
                 "SELECT (SELECT count(*) FROM transactions) + (SELECT count(*) FROM debts)
-                      + (SELECT count(*) FROM notes) + (SELECT count(*) FROM categories)",
+                      + (SELECT count(*) FROM notes) + (SELECT count(*) FROM categories)
+                      + (SELECT count(*) FROM assets) + (SELECT count(*) FROM events)",
                 [],
                 |r| r.get(0),
             )

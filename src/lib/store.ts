@@ -23,6 +23,7 @@ export interface TxnJump {
   categoryId?: string;
   dateFrom?: string;
   dateTo?: string;
+  eventId?: string;
 }
 
 interface UiState {

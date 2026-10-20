@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Occurrence};
-use budget_core::{money, settings, time};
+use budget_core::{habits, money, settings, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -41,6 +41,7 @@ fn text(o: &Occurrence) -> String {
 }
 
 fn tick(app: &AppHandle) {
+    weekly(app);
     let state = app.state::<AppState>();
     let due = {
         let Ok(mut guard) = state.db.lock() else {
@@ -78,6 +79,27 @@ fn tick(app: &AppHandle) {
         ));
     }
     let _ = app.emit("reminders-due", due.len());
+}
+
+/// Итог прошлой недели — одним уведомлением в понедельник (или при первом запуске после).
+fn weekly(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let summary = {
+        let Ok(mut guard) = state.db.lock() else {
+            return;
+        };
+        let Ok(db) = guard.as_mut() else { return };
+        match habits::weekly_due(db.conn(), time::now_local()) {
+            Ok(Some(s)) => s,
+            _ => return,
+        }
+    };
+    let _ = app
+        .notification()
+        .builder()
+        .title("P-Treasury")
+        .body(habits::weekly_text(&summary))
+        .show();
 }
 
 pub fn show_main(app: &AppHandle) {

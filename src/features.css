@@ -60,3 +60,54 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .rules-table td:last-child { text-align: right; width: 1%; white-space: nowrap; }
 .rules-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .rules-form input[name="rulePattern"] { min-width: 200px; }
+
+/* Общие траты */
+.split { border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.split-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.split-head .muted { font-size: 12px; }
+.split-row { display: flex; gap: 8px; align-items: center; }
+.split-row input[name^="friend"]:not([name^="friendAmount"]) { flex: 1; }
+.split-row .amount { width: 120px; }
+.split-foot { display: flex; gap: 14px; align-items: center; font-size: 13px; }
+.split-foot span { margin-left: auto; }
+
+/* Поездки и события */
+.event-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; }
+.event-list { list-style: none; margin: 0; padding: 0; }
+.event-list li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.event-list li:first-child { border-top: 0; }
+.event-main { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.event-main .main { font-weight: 600; color: var(--text); font-size: 14px; }
+.event-sum { display: flex; flex-direction: column; gap: 6px; }
+.event-sum .bar { width: 100%; }
+.event-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 13px; }
+
+/* Имущество */
+.asset-history ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+
+/* Перетаскивание */
+.draggable { cursor: grab; }
+.draggable:active { cursor: grabbing; }
+.drop-over { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft) !important; }
+
+/* Календарь: дни без трат и итог недели */
+.no-spend-mark { margin-left: 6px; color: var(--ok); font-size: 12px; font-weight: 700; }
+.cal-cell.no-spend .cal-num { color: var(--ok); }
+.habits { margin-top: 16px; }
+.habit-big { font-size: 16px; margin: 8px 0; }
+.habit-big b { font-size: 26px; }
+.ok-text { color: var(--ok); }
+
+/* Главная: «Куда тратите» и настройка карточек */
+.spend-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.spend-chip { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; transition: box-shadow var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.spend-chip:hover { border-color: var(--accent); box-shadow: var(--shadow-md); }
+.home-block + .home-block { margin-top: 0; }
+.home-block > .card, .home-block > .tiles, .home-block > .columns { margin-bottom: 16px; }
+.home-block.editing { border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 8px 10px 0; margin-bottom: 12px; cursor: grab; }
+.home-block.editing.hidden-block { opacity: 0.55; padding-bottom: 8px; }
+.home-block-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+.home-block-bar .grip { color: var(--muted); font-size: 16px; }
+.home-block-body { pointer-events: none; }
+.home-edit-hint { margin-bottom: 12px; }
+.split-foot .warn, .habit-big .warn { color: var(--over); }

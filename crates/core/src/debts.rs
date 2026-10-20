@@ -263,6 +263,15 @@ fn interest_category(conn: &Connection, direction: &str) -> Result<String> {
 }
 
 pub fn create(conn: &mut Connection, input: &DebtInput) -> Result<String> {
+    let tx = conn.transaction()?;
+    let id = create_in(&tx, input)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// Как [`create`], но внутри уже открытой транзакции (общие траты пишут
+/// расход и несколько долгов вместе).
+pub fn create_in(conn: &Connection, input: &DebtInput) -> Result<String> {
     if !matches!(input.direction.as_str(), "lent" | "borrowed") {
         return invalid("направление: «я дал» или «я взял»");
     }
@@ -298,7 +307,7 @@ pub fn create(conn: &mut Connection, input: &DebtInput) -> Result<String> {
         _ => schedule.rows.first().map(|r| r.due_date.clone()),
     };
 
-    let tx = conn.transaction()?;
+    let tx = conn;
     let now = time::now_utc();
     let account = ids::new_id();
     let sign = if input.direction == "lent" { 1 } else { -1 };
@@ -345,7 +354,7 @@ pub fn create(conn: &mut Connection, input: &DebtInput) -> Result<String> {
             (account.as_str(), acc, "Получение долга")
         };
         insert_txn(
-            &tx,
+            tx,
             "transfer",
             &input.issue_date,
             from,
@@ -357,8 +366,7 @@ pub fn create(conn: &mut Connection, input: &DebtInput) -> Result<String> {
             &id,
         )?;
     }
-    rebuild(&tx, &id)?;
-    tx.commit()?;
+    rebuild(tx, &id)?;
     Ok(id)
 }
 
@@ -841,7 +849,9 @@ pub struct Summary {
     pub owed_to_me: i64,
     /// Сколько должен я.
     pub i_owe: i64,
-    /// Счета («в общем балансе») + должны мне − должен я.
+    /// Имущество по последней оценке, в основной валюте.
+    pub assets: i64,
+    /// Счета («в общем балансе») + имущество + должны мне − должен я.
     pub net_worth: i64,
     pub accounts_total: i64,
     pub missing_rates: Vec<String>,
@@ -853,6 +863,12 @@ pub struct Summary {
 pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<Summary> {
     let totals = accounts::totals(conn, today)?;
     let mut missing_rates = totals.missing_rates.clone();
+    let (assets, assets_missing) = crate::assets::total(conn, today)?;
+    for c in assets_missing {
+        if !missing_rates.contains(&c) {
+            missing_rates.push(c);
+        }
+    }
     let (mut owed_to_me, mut i_owe) = (0, 0);
     for d in list(conn, today)?
         .into_iter()
@@ -901,7 +917,8 @@ pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<
         base_symbol: totals.base_symbol,
         owed_to_me,
         i_owe,
-        net_worth: totals.total + owed_to_me - i_owe,
+        assets,
+        net_worth: totals.total + assets + owed_to_me - i_owe,
         accounts_total: totals.total,
         missing_rates,
         upcoming,

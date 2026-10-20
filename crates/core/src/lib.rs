@@ -4,6 +4,7 @@
 //! обращаются к базе только через [`storage`].
 
 pub mod accounts;
+pub mod assets;
 pub mod backups;
 pub mod budgets;
 pub mod calendar;
@@ -15,7 +16,9 @@ pub mod currencies;
 pub mod debts;
 pub mod demo;
 pub mod error;
+pub mod events;
 pub mod export;
+pub mod habits;
 pub mod ids;
 pub mod loan_calc;
 pub mod money;
@@ -26,6 +29,7 @@ pub mod reminders;
 pub mod reports;
 pub mod rules;
 pub mod settings;
+pub mod split;
 pub mod storage;
 pub mod templates;
 pub mod time;

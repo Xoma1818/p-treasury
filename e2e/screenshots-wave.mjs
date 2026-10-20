@@ -48,6 +48,35 @@ try {
   await click(browser, "☆ Сохранить вид");
   await browser.pause(300);
   await shot(browser, "views");
+  // Этап 3.
+  await openSection(browser, "Счета");
+  await browser.$('[data-testid="assets"]').scrollIntoView();
+  await browser.pause(300);
+  await shot(browser, "assets");
+  await openSection(browser, "Бюджет");
+  await browser.$('[data-testid="events"]').scrollIntoView();
+  await browser.pause(300);
+  await shot(browser, "events");
+  await openSection(browser, "Календарь");
+  await browser.pause(400);
+  await shot(browser, "calendar");
+  await browser.$('[data-testid="week-summary"]').scrollIntoView();
+  await browser.pause(300);
+  await shot(browser, "habits");
+  await openSection(browser, "Главная");
+  await click(browser, "Настроить");
+  await browser.pause(400);
+  await shot(browser, "home-edit");
+  await click(browser, "Готово");
+  await click(browser, "+ Расход");
+  await browser.$('[name="amount"]').setValue("3000");
+  await click(browser, "Разделить с друзьями");
+  await browser.$('[name="friend0"]').setValue("Аня");
+  await click(browser, "+ ещё человек");
+  await browser.$('[name="friend1"]').setValue("Петя");
+  await click(browser, "Поровну");
+  await browser.pause(300);
+  await shot(browser, "split");
 } finally {
   await stop(browser);
 }

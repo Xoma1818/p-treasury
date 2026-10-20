@@ -116,6 +116,8 @@ export interface Txn {
   payee: string | null;
   note: string | null;
   debtId: string | null;
+  eventId: string | null;
+  eventName: string | null;
 }
 
 export interface TxnFilter {
@@ -125,6 +127,8 @@ export interface TxnFilter {
   categoryId?: string;
   types?: TxnType[];
   search?: string;
+  /** Операции поездки или события. */
+  eventId?: string;
   limit?: number;
   offset?: number;
 }
@@ -364,6 +368,8 @@ export interface DebtSummary {
   baseSymbol: string;
   owedToMe: number;
   iOwe: number;
+  /** Имущество по последней оценке. */
+  assets: number;
   netWorth: number;
   accountsTotal: number;
   missingRates: string[];
@@ -484,6 +490,79 @@ export interface RuleInput {
   pattern: string;
   categoryId: string;
   payee: string | null;
+}
+
+export type AssetKind = "realty" | "vehicle" | "other";
+
+export interface AssetInput {
+  name: string;
+  kind: AssetKind;
+  currencyCode: string;
+  value: number;
+  date: string;
+  note: string | null;
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  kind: AssetKind;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  note: string | null;
+  value: number;
+  valuedOn: string;
+  history: { date: string; value: number }[];
+}
+
+export interface EventInput {
+  name: string;
+  startDate: string;
+  endDate: string;
+  budget: number | null;
+  note: string | null;
+}
+
+export interface BudgetEvent {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  budget: number | null;
+  note: string | null;
+  spent: number;
+  count: number;
+  unassigned: number;
+  baseSymbol: string;
+  baseMinorUnits: number;
+  state: "upcoming" | "current" | "past";
+  missingRates: string[];
+}
+
+export interface SplitInput {
+  date: string;
+  accountId: string;
+  categoryId: string;
+  payee: string | null;
+  note: string | null;
+  total: number;
+  myShare: number;
+  friends: { name: string; amount: number }[];
+}
+
+export interface WeekSummary {
+  from: string;
+  to: string;
+  expense: number;
+  income: number;
+  prevExpense: number;
+  noSpendDays: number;
+  topCategory: string | null;
+  topAmount: number;
+  streak: number;
+  currencySymbol: string;
+  minorUnits: number;
 }
 
 export interface SavedView {
@@ -608,6 +687,8 @@ export interface CalendarDay {
   debts: DebtDue[];
   reminders: Occurrence[];
   notes: number;
+  /** День без трат (прошедший, учёт уже вёлся). */
+  noSpend: boolean;
 }
 
 export interface CalendarMonth {
@@ -723,7 +804,9 @@ export const api = {
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
-  createTransaction: (input: TxnInput) => invoke<string>("create_transaction", { input }),
+  createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
+  moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
+  splitExpense: (input: SplitInput) => invoke<{ expenseId: string | null; debtIds: string[] }>("split_expense", { input }),
   updateTransaction: (id: string, input: TxnInput) => invoke<void>("update_transaction", { id, input }),
   deleteTransaction: (id: string) => invoke<void>("delete_transaction", { id }),
   payeeHints: (kind: TxnType, query: string) => invoke<PayeeHint[]>("payee_hints", { kind, query }),
@@ -768,6 +851,19 @@ export const api = {
   openQuick: () => invoke<void>("open_quick"),
   hideQuick: (saved: boolean) => invoke<void>("hide_quick", { saved }),
   setQuickHotkey: (hotkey: string) => invoke<void>("set_quick_hotkey", { hotkey }),
+  listAssets: () => invoke<Asset[]>("list_assets"),
+  createAsset: (input: AssetInput) => invoke<string>("create_asset", { input }),
+  updateAsset: (id: string, input: AssetInput) => invoke<void>("update_asset", { id, input }),
+  deleteAsset: (id: string) => invoke<void>("delete_asset", { id }),
+  listEvents: () => invoke<BudgetEvent[]>("list_events"),
+  createEvent: (input: EventInput) => invoke<string>("create_event", { input }),
+  updateEvent: (id: string, input: EventInput) => invoke<void>("update_event", { id, input }),
+  deleteEvent: (id: string) => invoke<void>("delete_event", { id }),
+  assignEvent: (eventId: string | null, txnIds: string[]) => invoke<number>("assign_event", { eventId, txnIds }),
+  eventCandidates: (id: string) => invoke<string[]>("event_candidates", { id }),
+  eventsOn: (date: string) => invoke<[string, string][]>("events_on", { date }),
+  lastWeek: () => invoke<WeekSummary>("last_week"),
+  noSpendStreak: () => invoke<number>("no_spend_streak"),
   calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
   calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),

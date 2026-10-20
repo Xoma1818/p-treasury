@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
+use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::backups::{self, BackupInfo};
 use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::calendar::{self, Month};
@@ -15,7 +16,9 @@ use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::demo;
+use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
+use budget_core::habits::{self, WeekSummary};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
@@ -23,6 +26,7 @@ use budget_core::quick::{self, Draft};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::rules::{self, Rule, RuleInput};
+use budget_core::split::{self, SplitInput, SplitResult};
 use budget_core::storage::{self, Storage};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
@@ -323,9 +327,31 @@ pub fn get_transaction(state: State<AppState>, id: String) -> CmdResult<Txn> {
 }
 
 #[tauri::command]
-pub fn create_transaction(state: State<AppState>, input: TxnInput) -> CmdResult<String> {
+pub fn create_transaction(
+    state: State<AppState>,
+    input: TxnInput,
+    event_id: Option<String>,
+) -> CmdResult<String> {
     with_undo(&state, "Новая операция", |c| {
-        transactions::create(c, &input)
+        let id = transactions::create(c, &input)?;
+        if let Some(e) = event_id.as_deref() {
+            events::assign(c, Some(e), std::slice::from_ref(&id))?;
+        }
+        Ok(id)
+    })
+}
+
+#[tauri::command]
+pub fn move_transaction(state: State<AppState>, id: String, date: String) -> CmdResult<()> {
+    with_undo(&state, "Перенос операции", |c| {
+        transactions::move_to(c, &id, &date)
+    })
+}
+
+#[tauri::command]
+pub fn split_expense(state: State<AppState>, input: SplitInput) -> CmdResult<SplitResult> {
+    with_undo(&state, "Общая трата", |c| {
+        split::create(c, &input)
     })
 }
 
@@ -535,6 +561,92 @@ pub fn set_quick_hotkey(app: AppHandle, state: State<AppState>, hotkey: String) 
     with_db(&state, |db| {
         settings::set(db.conn(), "quick_hotkey", &hotkey)
     })
+}
+
+#[tauri::command]
+pub fn list_assets(state: State<AppState>) -> CmdResult<Vec<Asset>> {
+    with_db(&state, |db| assets::list(db.conn()))
+}
+
+#[tauri::command]
+pub fn create_asset(state: State<AppState>, input: AssetInput) -> CmdResult<String> {
+    with_undo(&state, "Новое имущество", |c| {
+        assets::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn update_asset(state: State<AppState>, id: String, input: AssetInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение имущества", |c| {
+        assets::update(c, &id, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_asset(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление имущества", |c| {
+        assets::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn list_events(state: State<AppState>) -> CmdResult<Vec<Event>> {
+    with_db(&state, |db| events::list(db.conn(), &time::today_local()))
+}
+
+#[tauri::command]
+pub fn create_event(state: State<AppState>, input: EventInput) -> CmdResult<String> {
+    with_undo(&state, "Новое событие", |c| {
+        events::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn update_event(state: State<AppState>, id: String, input: EventInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение события", |c| {
+        events::update(c, &id, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_event(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление события", |c| {
+        events::delete(c, &id)
+    })
+}
+
+/// Отнести операции к событию; без `event_id` — снять отметку.
+#[tauri::command]
+pub fn assign_event(
+    state: State<AppState>,
+    event_id: Option<String>,
+    txn_ids: Vec<String>,
+) -> CmdResult<usize> {
+    with_undo(&state, "Операции события", |c| {
+        events::assign(c, event_id.as_deref(), &txn_ids)
+    })
+}
+
+#[tauri::command]
+pub fn event_candidates(state: State<AppState>, id: String) -> CmdResult<Vec<String>> {
+    with_db(&state, |db| events::candidates(db.conn(), &id))
+}
+
+#[tauri::command]
+pub fn events_on(state: State<AppState>, date: String) -> CmdResult<Vec<(String, String)>> {
+    with_db(&state, |db| events::on_date(db.conn(), &date))
+}
+
+#[tauri::command]
+pub fn last_week(state: State<AppState>) -> CmdResult<WeekSummary> {
+    with_db(&state, |db| {
+        habits::last_week(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn no_spend_streak(state: State<AppState>) -> CmdResult<u32> {
+    with_db(&state, |db| habits::streak(db.conn(), &time::today_local()))
 }
 
 #[tauri::command]

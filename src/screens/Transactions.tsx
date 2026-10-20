@@ -21,6 +21,7 @@ export function Transactions() {
   const [f, setF] = useState<TxnFilter>({ dateFrom: from, dateTo: to });
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(PAGE);
+  const events = useQuery({ queryKey: ["events"], queryFn: api.listEvents }).data ?? [];
 
   // Переход с фильтром со Счетов или Категорий: за всё время.
   useEffect(() => {
@@ -84,8 +85,16 @@ export function Transactions() {
             </option>
           ))}
         </select>
+        {f.eventId && (
+          <span className="view-chip" data-testid="filter-event">
+            <span className="view-apply">{events.find((e) => e.id === f.eventId)?.name ?? "Событие"}</span>
+            <button className="view-del" aria-label="Убрать фильтр по событию" onClick={() => set({ eventId: undefined })}>
+              ✕
+            </button>
+          </span>
+        )}
         <input type="search" name="search" data-search placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined }))}>
+        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined }))}>
           Сбросить
         </button>
       </div>

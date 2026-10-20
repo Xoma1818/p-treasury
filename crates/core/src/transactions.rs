@@ -46,6 +46,9 @@ pub struct Txn {
     pub payee: Option<String>,
     pub note: Option<String>,
     pub debt_id: Option<String>,
+    /// Поездка или событие, к которому отнесена операция.
+    pub event_id: Option<String>,
+    pub event_name: Option<String>,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -219,6 +222,23 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     Ok(())
 }
 
+/// Перенести операцию на другой день (перетаскиванием в календаре).
+pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
+    time::check_date(date)?;
+    let old = existing(conn, id)?;
+    if old.debt_id.is_some() {
+        return invalid("это платёж по долгу: дату меняют в карточке долга");
+    }
+    if old.kind == "adjustment" {
+        return invalid("корректировку нельзя перенести: сделайте сверку заново");
+    }
+    conn.execute(
+        "UPDATE transactions SET date = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, date, time::now_utc()],
+    )?;
+    Ok(())
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     let old = existing(conn, id)?;
     if old.debt_id.is_some() {
@@ -241,6 +261,8 @@ pub struct Filter {
     pub types: Vec<String>,
     /// Текст в получателе или комментарии, либо сумма («2340» или «2 340,50»).
     pub search: Option<String>,
+    /// Операции поездки или события.
+    pub event_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -256,14 +278,15 @@ const SELECT: &str =
     "SELECT t.id, t.type, t.date, t.account_id, a.name, ca.symbol, ca.minor_units, t.amount,
         t.to_account_id, ta.name, ct.symbol, ct.minor_units, t.to_amount, t.category_id,
         CASE WHEN p.name IS NULL THEN c.name ELSE p.name || ' → ' || c.name END,
-        t.payee, t.note, t.debt_id
+        t.payee, t.note, t.debt_id, t.event_id, e.name
  FROM transactions t
  JOIN accounts a ON a.id = t.account_id
  JOIN currencies ca ON ca.code = a.currency_code
  LEFT JOIN accounts ta ON ta.id = t.to_account_id
  LEFT JOIN currencies ct ON ct.code = ta.currency_code
  LEFT JOIN categories c ON c.id = t.category_id
- LEFT JOIN categories p ON p.id = c.parent_id";
+ LEFT JOIN categories p ON p.id = c.parent_id
+ LEFT JOIN events e ON e.id = t.event_id";
 
 fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
     Ok(Txn {
@@ -285,6 +308,8 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
         payee: r.get(15)?,
         note: r.get(16)?,
         debt_id: r.get(17)?,
+        event_id: r.get(18)?,
+        event_name: r.get(19)?,
     })
 }
 
@@ -315,6 +340,9 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     if let Some(c) = &f.category_id {
         let p = arg(c.clone().into());
         wh.push(format!("(t.category_id = {p} OR c.parent_id = {p})"));
+    }
+    if let Some(e) = &f.event_id {
+        wh.push(format!("t.event_id = {}", arg(e.clone().into())));
     }
     if !f.types.is_empty() {
         let ps: Vec<String> = f.types.iter().map(|t| arg(t.clone().into())).collect();
