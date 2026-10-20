@@ -31,6 +31,22 @@ try {
   await openSection(browser, "Настройки");
   await fill(browser, "rate", "92,15");
   await click(browser, "Добавить");
+  await openSection(browser, "Бюджет");
+  await click(browser, "Создать пустой");
+  for (const [category, limit] of [["Продукты", "25000"], ["Кафе и рестораны", "2000"], ["Жильё", "6000"], ["Транспорт", "5000"], ["Развлечения", "4000"]]) {
+    await choose(browser, "add-expense", category);
+    await fill(browser, "add-expense-limit", limit);
+    await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');
+    await browser.$(`//tr[@data-category="${category}"]`).waitForExist({ timeout: 5000 });
+  }
+  await choose(browser, "add-income", "Зарплата");
+  await fill(browser, "add-income-limit", "85000");
+  await click(browser, "Добавить", '//*[@data-testid="budget-income"]');
+  await fill(browser, "budgetNote", "В ноябре день рождения мамы: отложить 5 000 на подарок");
+  await (await browser.$("h1")).click();
+  await browser.execute(() => document.querySelector(".content")?.scrollTo(0, 0) ?? window.scrollTo(0, 0));
+  await browser.pause(500);
+  await browser.saveScreenshot(out("screen-budget"));
   await openSection(browser, "Главная");
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-home"));
@@ -49,6 +65,8 @@ try {
   await browser.saveScreenshot(out("screen-accounts"));
   await openSection(browser, "Категории");
   await browser.saveScreenshot(out("screen-categories"));
+  await openSection(browser, "Настройки");
+  await browser.saveScreenshot(out("screen-settings"));
 } finally {
   await stop(browser);
 }

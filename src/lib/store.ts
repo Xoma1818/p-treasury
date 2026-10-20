@@ -4,12 +4,20 @@ import type { SectionId } from "./sections";
 
 export type TxnFormState = { mode: "new"; type: TxnType; date?: string } | { mode: "edit"; txn: Txn } | null;
 
+/** Фильтр перехода в «Операции»; без дат — за всё время. */
+export interface TxnJump {
+  accountId?: string;
+  categoryId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 interface UiState {
   section: SectionId;
   go: (section: SectionId) => void;
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
-  txnFilter: { accountId?: string; categoryId?: string } | null;
-  showTransactions: (f: { accountId?: string; categoryId?: string }) => void;
+  txnFilter: TxnJump | null;
+  showTransactions: (f: TxnJump) => void;
   txnForm: TxnFormState;
   openTxnForm: (s: TxnFormState) => void;
 }

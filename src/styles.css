@@ -175,3 +175,26 @@ input.invalid { border-color: var(--over); }
 .grid-form th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px; }
 .grid-form td { padding: 4px; }
 .grid-form input, .grid-form select { width: 100%; }
+
+/* Бюджет */
+.month-switch { display: flex; align-items: center; gap: 10px; text-align: center; }
+.month-switch .main { min-width: 140px; }
+.tile-value.over, .num.over, .budget-brief li.over { color: var(--over); }
+.budget-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px 8px; }
+.budget-table th.num { text-align: right; }
+.budget-table input.amount { width: 110px; text-align: right; }
+.budget-table .child-name { padding-left: 28px; }
+.budget-table .link.fact { font-size: 14px; color: var(--text); text-decoration: underline dotted; }
+.bar-col { width: 200px; white-space: nowrap; }
+.bar { display: inline-block; vertical-align: middle; width: 140px; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+.bar.over > span { background: var(--over); }
+.percent { font-size: 12px; color: var(--muted); margin-left: 8px; font-variant-numeric: tabular-nums; }
+.over-row .percent { color: var(--over); font-weight: 600; }
+.add-line { margin-top: 12px; margin-bottom: 0; }
+.empty-budget { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.empty-budget p { margin: 0; }
+textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
+.budget-brief { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.budget-brief li { display: grid; grid-template-columns: 180px 1fr 60px; align-items: center; gap: 8px; }
+.budget-brief .bar { width: 100%; }

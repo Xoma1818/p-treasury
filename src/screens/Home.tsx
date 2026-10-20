@@ -2,18 +2,25 @@ import { useQuery } from "@tanstack/react-query";
 import { Money } from "../components/Money";
 import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
-import { monthBounds, monthTitle, today } from "../lib/dates";
-import { useAccounts } from "../lib/queries";
+import { monthTitle, today } from "../lib/dates";
+import { useAccounts, useBudget, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
 
 export function Home() {
   const date = today();
-  const [from, to] = monthBounds(date);
+  // Месяц считается от настройки «первый день месяца», как в бюджете.
+  const period = useMonthOf(date).data;
   const totals = useQuery({ queryKey: ["totals", date], queryFn: () => api.totals(date) });
-  const month = useQuery({ queryKey: ["summary", from, to], queryFn: () => api.periodSummary(from, to) });
+  const month = useQuery({
+    queryKey: ["summary", period?.start, period?.end],
+    queryFn: () => api.periodSummary(period!.start, period!.end),
+    enabled: !!period,
+  });
+  const budget = useBudget(period?.month).data;
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
-  const { openTxnForm, showTransactions } = useUi();
+  const { openTxnForm, showTransactions, go } = useUi();
+  const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   const symbol = totals.data?.baseSymbol ?? "₽";
 
   return (
@@ -42,11 +49,11 @@ export function Home() {
           )}
         </div>
         <div className="card tile" data-testid="month-income">
-          <div className="tile-label">Доходы, {monthTitle(date).toLowerCase()}</div>
+          <div className="tile-label">Доходы, {monthName}</div>
           <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} />}</div>
         </div>
         <div className="card tile" data-testid="month-expense">
-          <div className="tile-label">Расходы, {monthTitle(date).toLowerCase()}</div>
+          <div className="tile-label">Расходы, {monthName}</div>
           <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} />}</div>
         </div>
         <div className="card tile">
@@ -73,7 +80,35 @@ export function Home() {
           {recent.data && <TxnTable items={recent.data.items} compact />}
         </div>
       </div>
-      <div className="card empty small">Бюджет месяца появится здесь на этапе 2, ближайшие платежи по долгам на этапе 4.</div>
+      <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
+        <h2>Бюджет, {monthName}</h2>
+        {budget && !budget.id && <p className="muted">Бюджета на этот месяц нет. Нажмите, чтобы составить.</p>}
+        {budget?.id && (
+          <>
+            <p>
+              Можно тратить сегодня:{" "}
+              <b data-testid="home-safe-to-spend">
+                {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
+              </b>
+            </p>
+            <ul className="budget-brief">
+              {budget.lines
+                .filter((l) => l.kind === "expense" && !l.parentId)
+                .sort((a, b) => b.percent - a.percent)
+                .slice(0, 5)
+                .map((l) => (
+                  <li key={l.categoryId} className={l.over ? "over" : undefined}>
+                    <span>{l.categoryName}</span>
+                    <div className={l.over ? "bar over" : "bar"}>
+                      <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
+                    </div>
+                    <span className="percent">{l.percent} %</span>
+                  </li>
+                ))}
+            </ul>
+          </>
+        )}
+      </div>
     </section>
   );
 }

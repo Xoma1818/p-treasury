@@ -4,6 +4,7 @@
 //! обращаются к базе только через [`storage`].
 
 pub mod accounts;
+pub mod budgets;
 pub mod categories;
 pub mod currencies;
 pub mod error;

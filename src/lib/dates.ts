@@ -23,9 +23,21 @@ export function formatDate(date: string): string {
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+
+/** «октября»: месяц в родительном падеже («скопировать из октября»). */
+export const monthGenitive = (month: string) => MONTHS_GEN[Number(month.split("-")[1]) - 1];
+
 /** «Октябрь 2026» */
 export function monthTitle(date: string): string {
   const [y, m] = date.split("-").map(Number);
   const name = MONTHS[m - 1];
   return `${name[0].toUpperCase()}${name.slice(1)} ${y}`;
+}
+
+/** Сдвиг месяца «2026-11» на delta месяцев. */
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const i = y * 12 + (m - 1) + delta;
+  return `${Math.floor(i / 12)}-${pad((i % 12) + 1)}`;
 }

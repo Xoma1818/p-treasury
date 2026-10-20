@@ -33,6 +33,17 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Месяц начинается" hint="Для бюджета и итогов месяца, например с дня зарплаты.">
+            {(id) => (
+              <select id={id} name="monthStartDay" value={settings?.month_start_day ?? "1"} onChange={(e) => setSetting.run("month_start_day", e.target.value)}>
+                {Array.from({ length: 28 }, (_, i) => String(i + 1)).map((d) => (
+                  <option key={d} value={d}>
+                    {d === "1" ? "1-го числа" : `${d}-го числа`}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
           <Field label="Скрыть суммы" hint="Все суммы заменяются на «•••».">
             {(id) => (
               <select id={id} name="hideAmounts" value={settings?.hide_amounts ?? "0"} onChange={(e) => setSetting.run("hide_amounts", e.target.value)}>

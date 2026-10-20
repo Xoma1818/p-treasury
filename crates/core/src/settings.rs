@@ -24,6 +24,7 @@ pub fn all(conn: &Connection) -> Result<BTreeMap<String, String>> {
 /// Изменить существующую настройку. Неизвестный ключ — ошибка, чтобы опечатка
 /// в UI не создавала мусорных записей.
 pub fn set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    validate(key, value)?;
     let changed = conn.execute(
         "UPDATE settings SET value = ?2 WHERE key = ?1",
         params![key, value],
@@ -32,6 +33,23 @@ pub fn set(conn: &Connection, key: &str, value: &str) -> Result<()> {
         return Err(Error::UnknownSetting(key.to_string()));
     }
     Ok(())
+}
+
+/// Значения, от которых зависят расчёты, проверяются здесь, а не только в UI.
+fn validate(key: &str, value: &str) -> Result<()> {
+    let ok = match key {
+        "month_start_day" => value.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d)),
+        "hide_amounts" | "close_to_tray" | "onboarding_done" => matches!(value, "0" | "1"),
+        "debt_reminder_days_before" | "autobackup_keep" => value.parse::<u32>().is_ok(),
+        _ => true,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::Validation(format!(
+            "недопустимое значение настройки {key}: {value}"
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -52,5 +70,25 @@ mod tests {
             set(db.conn(), "nope", "1"),
             Err(Error::UnknownSetting(_))
         ));
+    }
+
+    #[test]
+    fn month_start_day_is_validated() {
+        let db = Storage::open_in_memory().unwrap();
+        set(db.conn(), "month_start_day", "25").unwrap();
+        for bad in ["0", "32", "abc", ""] {
+            assert!(
+                matches!(
+                    set(db.conn(), "month_start_day", bad),
+                    Err(Error::Validation(_))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(set(db.conn(), "hide_amounts", "yes").is_err());
+        assert_eq!(
+            get(db.conn(), "month_start_day").unwrap().as_deref(),
+            Some("25")
+        );
     }
 }

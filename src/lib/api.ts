@@ -145,6 +145,41 @@ export interface PeriodSummary {
   missingRates: string[];
 }
 
+export interface Period {
+  /** «2026-11» */
+  month: string;
+  start: string;
+  end: string;
+}
+
+export interface BudgetLine {
+  categoryId: string;
+  categoryName: string;
+  parentId: string | null;
+  kind: CategoryKind;
+  limit: number;
+  actual: number;
+  remaining: number;
+  percent: number;
+  over: boolean;
+}
+
+export interface Budget {
+  id: string | null;
+  period: Period;
+  currencyCode: string;
+  currencySymbol: string;
+  note: string | null;
+  lines: BudgetLine[];
+  plannedExpense: number;
+  plannedIncome: number;
+  actualExpense: number;
+  actualIncome: number;
+  unbudgetedExpense: number;
+  safeToSpendToday: number | null;
+  missingRates: string[];
+}
+
 export interface Setup {
   baseCurrency: string;
   accounts: AccountInput[];
@@ -186,6 +221,13 @@ export const api = {
   payeeHints: (kind: TxnType, query: string) => invoke<PayeeHint[]>("payee_hints", { kind, query }),
   transactionDefaults: (kind: TxnType) => invoke<Defaults>("transaction_defaults", { kind }),
   periodSummary: (from: string, to: string) => invoke<PeriodSummary>("period_summary", { from, to }),
+  getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
+  monthOf: (date: string) => invoke<Period>("month_of", { date }),
+  createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
+  setBudgetLimit: (budgetId: string, categoryId: string, limit: number | null) =>
+    invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
+  setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
+  deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {

@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
+use budget_core::budgets::{self, Budget, Period};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::onboarding::{self, Setup};
@@ -259,4 +260,57 @@ pub fn period_summary(
     to: String,
 ) -> CmdResult<PeriodSummary> {
     with_db(&state, |db| reports::period_summary(db.conn(), &from, &to))
+}
+
+// --- Бюджеты ---
+
+#[tauri::command]
+pub fn get_budget(state: State<AppState>, month: String) -> CmdResult<Budget> {
+    with_db(&state, |db| {
+        budgets::get(db.conn(), &month, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn month_of(state: State<AppState>, date: String) -> CmdResult<Period> {
+    with_db(&state, |db| budgets::month_of(db.conn(), &date))
+}
+
+#[tauri::command]
+pub fn create_budget(
+    state: State<AppState>,
+    month: String,
+    copy_previous: bool,
+) -> CmdResult<String> {
+    with_db(&state, |db| {
+        budgets::create(db.conn_mut(), &month, copy_previous)
+    })
+}
+
+#[tauri::command]
+pub fn set_budget_limit(
+    state: State<AppState>,
+    budget_id: String,
+    category_id: String,
+    limit: Option<i64>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        budgets::set_limit(db.conn(), &budget_id, &category_id, limit)
+    })
+}
+
+#[tauri::command]
+pub fn set_budget_note(
+    state: State<AppState>,
+    budget_id: String,
+    note: Option<String>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        budgets::set_note(db.conn(), &budget_id, note.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()> {
+    with_db(&state, |db| budgets::delete(db.conn(), &budget_id))
 }

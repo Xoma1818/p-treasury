@@ -6,6 +6,7 @@ import { useAppInfo } from "./lib/queries";
 import { SECTIONS, type SectionId } from "./lib/sections";
 import { useUi } from "./lib/store";
 import { Accounts } from "./screens/Accounts";
+import { Budget } from "./screens/Budget";
 import { Categories } from "./screens/Categories";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
@@ -16,6 +17,7 @@ import { Transactions } from "./screens/Transactions";
 const SCREENS: Partial<Record<SectionId, () => React.JSX.Element>> = {
   home: Home,
   transactions: Transactions,
+  budget: Budget,
   accounts: Accounts,
   categories: Categories,
   settings: Settings,
