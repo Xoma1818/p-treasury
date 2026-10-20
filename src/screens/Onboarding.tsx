@@ -155,7 +155,7 @@ export function Onboarding() {
               Далее
             </button>
           ) : (
-            <button className="btn primary" onClick={submit} disabled={finish.busy}>
+            <button className="btn primary" onClick={submit} aria-busy={finish.busy} disabled={finish.busy}>
               Начать
             </button>
           )}

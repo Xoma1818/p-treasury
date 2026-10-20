@@ -83,6 +83,7 @@ pub fn run() {
             commands::set_rate,
             commands::delete_rate,
             commands::rate_on,
+            commands::load_cbr_rates,
             commands::finish_onboarding,
             commands::list_accounts,
             commands::create_account,

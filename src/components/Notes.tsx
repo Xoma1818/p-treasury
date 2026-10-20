@@ -43,7 +43,7 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>

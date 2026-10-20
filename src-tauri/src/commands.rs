@@ -10,6 +10,7 @@ use budget_core::backups::{self, BackupInfo};
 use budget_core::budgets::{self, Budget, Period};
 use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
+use budget_core::cbr;
 use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
@@ -147,6 +148,45 @@ pub fn rate_on(
     with_db(&state, |db| {
         currencies::rate_on(db.conn(), &from, &to, &date)
     })
+}
+
+/// Загрузить официальные курсы ЦБ РФ на дату и записать их к основной валюте.
+/// Сеть — до блокировки базы, чтобы окно не подвисало, пока ждём ответа.
+#[tauri::command]
+pub async fn load_cbr_rates(
+    state: State<'_, AppState>,
+    date: String,
+) -> CmdResult<cbr::ImportResult> {
+    let base = std::env::var("PTREASURY_CBR_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| cbr::DAILY_URL.to_string());
+    let url = cbr::daily_url(&base, &date).map_err(|e| e.to_string())?;
+    let bytes = fetch_cbr(&url).await?;
+    let daily = cbr::parse_daily(&bytes).map_err(|e| e.to_string())?;
+    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+}
+
+async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {
+    let offline =
+        |_| "Нет связи с сайтом ЦБ РФ. Проверьте интернет и попробуйте ещё раз.".to_string();
+    // Шифрование как у модуля обновлений: ring, если поставщик ещё не выбран.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent(concat!("P-Treasury/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client.get(url).send().await.map_err(offline)?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Сайт ЦБ РФ ответил ошибкой {}. Попробуйте позже.",
+            response.status().as_u16()
+        ));
+    }
+    Ok(response.bytes().await.map_err(offline)?.to_vec())
 }
 
 // --- Первый запуск ---
@@ -905,4 +945,47 @@ pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -
 #[tauri::command]
 pub fn changelog() -> &'static str {
     include_str!("../../CHANGELOG.md")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// Сервер на один ответ вместо cbr.ru (из тестовой среды сайт ЦБ недоступен).
+    fn serve_once(status: &str, body: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let head = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf);
+            s.write_all(head.as_bytes()).unwrap();
+            s.write_all(body).unwrap();
+        });
+        format!("http://{addr}/scripts/XML_daily.asp")
+    }
+
+    #[test]
+    fn fetch_returns_body_and_explains_errors() {
+        let block_on = tauri::async_runtime::block_on;
+        let url = serve_once("200 OK", b"<ValCurs/>");
+        assert_eq!(block_on(super::fetch_cbr(&url)).unwrap(), b"<ValCurs/>");
+
+        let url = serve_once("503 Service Unavailable", b"");
+        let err = block_on(super::fetch_cbr(&url)).unwrap_err();
+        assert!(err.contains("ошибкой 503"), "{err}");
+
+        // Порт, который никто не слушает: как будто нет интернета.
+        let free = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let err = block_on(super::fetch_cbr(&format!("http://{free}/"))).unwrap_err();
+        assert!(err.starts_with("Нет связи с сайтом ЦБ РФ"), "{err}");
+    }
 }

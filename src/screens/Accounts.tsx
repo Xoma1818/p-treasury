@@ -9,6 +9,7 @@ import { parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 export function Accounts() {
   const [showArchived, setShowArchived] = useState(false);
@@ -22,7 +23,7 @@ export function Accounts() {
   return (
     <section className="screen">
       <div className="screen-head">
-        <h1>Счета</h1>
+        <ScreenTitle id="accounts" />
         <button className="btn primary" onClick={() => setEditing("new")}>
           + Новый счёт
         </button>
@@ -142,7 +143,7 @@ function AccountForm({ account, onClose }: { account: Account | null; onClose: (
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -181,7 +182,7 @@ function AdjustForm({ account, onClose }: { account: Account; onClose: () => voi
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy || value === null}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy || value === null}>
             Сверить
           </button>
         </div>

@@ -8,6 +8,7 @@ import { api, TXN_TYPES, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, today } from "../lib/dates";
 import { useAccounts, useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
+import { ScreenTitle } from "../components/SectionIcon";
 
 const PAGE = 100;
 
@@ -44,9 +45,9 @@ export function Transactions() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Операции</h1>
+        <ScreenTitle id="transactions" />
         <span className="spacer" />
-        <button className="btn" onClick={exp.run} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
+        <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
           Выгрузить
         </button>
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
