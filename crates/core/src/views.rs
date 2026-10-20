@@ -83,8 +83,16 @@ mod tests {
             kind: kind.into(),
             params: params.into(),
         };
-        let cafe = create(c, &input(" Кафе за год ", "transactions", r#"{"categoryId":"x"}"#)).unwrap();
-        create(c, &input("Структура расходов", "report", r#"{"tab":"categories"}"#)).unwrap();
+        let cafe = create(
+            c,
+            &input(" Кафе за год ", "transactions", r#"{"categoryId":"x"}"#),
+        )
+        .unwrap();
+        create(
+            c,
+            &input("Структура расходов", "report", r#"{"tab":"categories"}"#),
+        )
+        .unwrap();
         assert!(create(c, &input("", "report", "{}")).is_err());
         assert!(create(c, &input("Х", "nope", "{}")).is_err());
         assert!(create(c, &input("Х", "report", "{не json")).is_err());

@@ -449,7 +449,12 @@ pub fn suggest(conn: &Connection, month: &str, mode: FillMode) -> Result<Vec<(St
     let cats = categories::list(conn, false)?;
     let top_of: HashMap<&str, &str> = cats
         .iter()
-        .map(|c| (c.id.as_str(), c.parent_id.as_deref().unwrap_or(c.id.as_str())))
+        .map(|c| {
+            (
+                c.id.as_str(),
+                c.parent_id.as_deref().unwrap_or(c.id.as_str()),
+            )
+        })
         .collect();
     let mut sums: HashMap<String, i64> = HashMap::new();
     let mut counted = 0i64;
@@ -479,7 +484,7 @@ pub fn suggest(conn: &Connection, month: &str, mode: FillMode) -> Result<Vec<(St
             (avg > 0).then(|| (c.id.clone(), avg))
         })
         .collect();
-    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out.sort_by_key(|x| std::cmp::Reverse(x.1));
     Ok(out)
 }
 
@@ -840,7 +845,11 @@ mod tests {
         );
         let c = f.db.conn();
         assert_eq!(limit(c, "Транспорт"), Some(300_000));
-        assert_eq!(limit(c, "Продукты"), Some(1_280_000), "остальные не тронуты");
+        assert_eq!(
+            limit(c, "Продукты"),
+            Some(1_280_000),
+            "остальные не тронуты"
+        );
         let mar = create(f.db.conn_mut(), "2027-03", false).unwrap();
         assert!(fill(f.db.conn_mut(), &mar, FillMode::LastYear, None).is_err());
         assert_eq!(round_up_hundred(1, 0), 100);
@@ -860,7 +869,10 @@ mod tests {
         spend(c, &f.card, "2026-10-02", 600_000, "ЖКХ");
         let b = get(c, "2026-10", "2026-10-10").unwrap();
         assert_eq!(b.forecast_expense, Some(3_100_000 + 600_000));
-        assert_eq!(get(c, "2026-10", "2026-11-10").unwrap().forecast_expense, None);
+        assert_eq!(
+            get(c, "2026-10", "2026-11-10").unwrap().forecast_expense,
+            None
+        );
     }
 
     #[test]

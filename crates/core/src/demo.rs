@@ -70,12 +70,24 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
     settings::set(&tx, "month_start_day", "1")?;
     categories::seed_defaults(&tx)?;
     let cash = accounts::create(&tx, &account("Наличные", "cash", "RUB", 800_000, &opened))?;
-    let card = accounts::create(&tx, &account("Карта Сбер", "debit", "RUB", 1_500_000, &opened))?;
-    accounts::create(&tx, &account("Вклад", "savings", "RUB", 15_000_000, &opened))?;
+    let card = accounts::create(
+        &tx,
+        &account("Карта Сбер", "debit", "RUB", 1_500_000, &opened),
+    )?;
+    accounts::create(
+        &tx,
+        &account("Вклад", "savings", "RUB", 15_000_000, &opened),
+    )?;
     let usd = accounts::create(&tx, &account("Доллары", "savings", "USD", 150_000, &opened))?;
     accounts::create(&tx, &account("Кредитка", "credit", "RUB", 0, &opened))?;
     currencies::set_rate(&tx, &opened, "USD", "RUB", "90")?;
-    currencies::set_rate(&tx, &(now - Duration::days(30)).to_string(), "USD", "RUB", "91.5")?;
+    currencies::set_rate(
+        &tx,
+        &(now - Duration::days(30)).to_string(),
+        "USD",
+        "RUB",
+        "91.5",
+    )?;
     currencies::set_rate(&tx, today, "USD", "RUB", "92.4")?;
 
     // Траты месяца: (день, сумма в копейках, категория, получатель, счёт).
@@ -97,7 +109,12 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
         (26, 290_000, "Кино и театр", "Кинотеатр", true),
         (28, 95_000, "Кафе и рестораны", "Обеды", true),
     ];
-    let mk = |kind: &str, date: NaiveDate, account: &str, amount: i64, category: &str, payee: &str| TxnInput {
+    let mk = |kind: &str,
+              date: NaiveDate,
+              account: &str,
+              amount: i64,
+              category: &str,
+              payee: &str| TxnInput {
         kind: kind.into(),
         date: date.to_string(),
         account_id: account.into(),
@@ -114,11 +131,24 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
         let k = [100, 92, 108, 97][back as usize % 4];
         let salary = day(m, 5);
         if salary <= now {
-            transactions::create(&tx, &mk("income", salary, &card, 8_500_000, "Зарплата", "ООО «Ромашка»"))?;
+            transactions::create(
+                &tx,
+                &mk(
+                    "income",
+                    salary,
+                    &card,
+                    8_500_000,
+                    "Зарплата",
+                    "ООО «Ромашка»",
+                ),
+            )?;
         }
         let cashback = day(m, 25);
         if cashback <= now {
-            transactions::create(&tx, &mk("income", cashback, &card, 84_000, "Кешбэк и бонусы", "Сбер"))?;
+            transactions::create(
+                &tx,
+                &mk("income", cashback, &card, 84_000, "Кешбэк и бонусы", "Сбер"),
+            )?;
         }
         for &(d, amount, category, payee, on_card) in plan {
             let date = day(m, d);
@@ -126,11 +156,13 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
                 continue;
             }
             let acc = if on_card { &card } else { &cash };
-            let amount = if category == "ЖКХ" || category == "Подписки" || category == "Интернет и связь" {
-                amount
-            } else {
-                amount * k / 100
-            };
+            let amount =
+                if category == "ЖКХ" || category == "Подписки" || category == "Интернет и связь"
+                {
+                    amount
+                } else {
+                    amount * k / 100
+                };
             transactions::create(&tx, &mk("expense", date, acc, amount, category, payee))?;
         }
     }
@@ -188,7 +220,10 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
                 if this >= now {
                     this
                 } else {
-                    day(month_start(day(month_start(now, 0), 28) + Duration::days(7), 0), 10)
+                    day(
+                        month_start(day(month_start(now, 0), 28) + Duration::days(7), 0),
+                        10,
+                    )
                 }
             }),
             repeat: "monthly".into(),
@@ -289,7 +324,10 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
     settings::set(&tx, "base_currency", "RUB")?;
     settings::set(&tx, "onboarding_done", "0")?;
     settings::set(&tx, "demo_data", "0")?;
-    tx.execute("UPDATE settings SET value = '' WHERE key = 'last_backup_at'", [])?;
+    tx.execute(
+        "UPDATE settings SET value = '' WHERE key = 'last_backup_at'",
+        [],
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -307,14 +345,24 @@ mod tests {
         assert!(onboarding::is_done(c).unwrap() && is_demo(c).unwrap());
         assert_eq!(accounts::list(c, false).unwrap().len(), 5);
         let b = budgets::get(c, "2026-10", "2026-10-20").unwrap();
-        assert!(b.id.is_some() && b.planned_expense > 0, "бюджет заполнен по среднему");
+        assert!(
+            b.id.is_some() && b.planned_expense > 0,
+            "бюджет заполнен по среднему"
+        );
         let july = crate::reports::period_summary(c, "2026-07-01", "2026-07-31").unwrap();
         assert!(july.expense > 0 && july.income == 8_584_000);
         let future: i64 = c
-            .query_row("SELECT count(*) FROM transactions WHERE date > '2026-10-20'", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE date > '2026-10-20'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(future, 0, "операций в будущем нет");
-        assert!(seed(db.conn_mut(), "2026-10-20").is_err(), "второй раз нельзя");
+        assert!(
+            seed(db.conn_mut(), "2026-10-20").is_err(),
+            "второй раз нельзя"
+        );
 
         clear(db.conn_mut()).unwrap();
         let c = db.conn();
@@ -329,7 +377,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0);
-        assert!(clear(db.conn_mut()).is_err(), "свои данные так не удаляются");
+        assert!(
+            clear(db.conn_mut()).is_err(),
+            "свои данные так не удаляются"
+        );
         // После очистки мастер первого запуска проходит как обычно.
         seed(db.conn_mut(), "2027-01-15").unwrap();
     }

@@ -438,7 +438,9 @@ pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()>
 
 #[tauri::command]
 pub fn cushion(state: State<AppState>) -> CmdResult<Cushion> {
-    with_db(&state, |db| wealth::cushion(db.conn(), &time::today_local()))
+    with_db(&state, |db| {
+        wealth::cushion(db.conn(), &time::today_local())
+    })
 }
 
 #[tauri::command]
@@ -453,12 +455,16 @@ pub fn list_views(state: State<AppState>, kind: Option<String>) -> CmdResult<Vec
 
 #[tauri::command]
 pub fn create_view(state: State<AppState>, input: ViewInput) -> CmdResult<String> {
-    with_undo(&state, "Сохранение вида", |c| views::create(c, &input))
+    with_undo(&state, "Сохранение вида", |c| {
+        views::create(c, &input)
+    })
 }
 
 #[tauri::command]
 pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
-    with_undo(&state, "Удаление вида", |c| views::delete(c, &id))
+    with_undo(&state, "Удаление вида", |c| {
+        views::delete(c, &id)
+    })
 }
 
 #[tauri::command]

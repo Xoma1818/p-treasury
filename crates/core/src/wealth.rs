@@ -180,7 +180,9 @@ pub fn fx_gain(conn: &Connection, from: &str, to: &str) -> Result<FxReport> {
         if start_balance == 0 && end_balance == 0 && flows.is_empty() {
             continue;
         }
-        let conv = |amount: i64, date: &str| currencies::convert(conn, amount, &a.currency_code, &base, date);
+        let conv = |amount: i64, date: &str| {
+            currencies::convert(conn, amount, &a.currency_code, &base, date)
+        };
         let mut gain = Some(0i64);
         for (amount, date) in [(end_balance, to), (-start_balance, before.as_str())] {
             if amount != 0 {
@@ -274,7 +276,10 @@ mod tests {
         credit.opening_date = "2026-01-01".into();
         accounts::create(c, &credit).unwrap();
         let empty = cushion(c, "2026-10-20").unwrap();
-        assert_eq!((empty.avg_monthly_expense, empty.months_tenths), (None, None));
+        assert_eq!(
+            (empty.avg_monthly_expense, empty.months_tenths),
+            (None, None)
+        );
         assert_eq!(empty.goal_months, 6);
 
         let food = category(c, "Продукты");
@@ -283,7 +288,11 @@ mod tests {
         income.category_id = Some(salary);
         transactions::create(c, &income).unwrap();
         // Август 30 000 ₽, сентябрь 50 000 ₽, октябрь (текущий) не считается.
-        for (date, amount) in [("2026-08-10", 3_000_000), ("2026-09-10", 5_000_000), ("2026-10-10", 9_000_000)] {
+        for (date, amount) in [
+            ("2026-08-10", 3_000_000),
+            ("2026-09-10", 5_000_000),
+            ("2026-10-10", 9_000_000),
+        ] {
             let mut t = txn("expense", date, &card, amount);
             t.category_id = Some(food.clone());
             transactions::create(c, &t).unwrap();
