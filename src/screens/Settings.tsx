@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { BackupCard, ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
+import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
@@ -124,6 +125,7 @@ export function Settings() {
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
 
       <BackupCard />
+      <BudgetFilesCard />
       <UpdatesCard />
 
       <div className="card">

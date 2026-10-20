@@ -418,6 +418,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
  "tauri-plugin-updater",
+ "tempfile",
 ]
 
 [[package]]

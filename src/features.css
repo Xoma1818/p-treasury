@@ -111,3 +111,12 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .home-block-body { pointer-events: none; }
 .home-edit-hint { margin-bottom: 12px; }
 .split-foot .warn, .habit-big .warn { color: var(--over); }
+
+/* Файлы бюджета */
+.file-list { list-style: none; margin: 8px 0 12px; padding: 0; }
+.file-list li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.file-list li:first-child { border-top: 0; }
+.file-list .file-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.file-list .file-name .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-list .file-name .event-tag { margin-left: 0; align-self: flex-start; }
+.file-list .row-actions { display: flex; gap: 10px; white-space: nowrap; }

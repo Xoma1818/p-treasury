@@ -1,5 +1,6 @@
 mod background;
 mod commands;
+mod files;
 mod quick_window;
 
 use std::path::PathBuf;
@@ -16,6 +17,8 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// Журнал отмены и повтора (в памяти, очищается при закрытии).
     pub undo: Mutex<budget_core::undo::Journal>,
+    /// Переносная версия: данные в папке `data` рядом с программой.
+    pub portable: bool,
 }
 
 impl AppState {
@@ -42,16 +45,19 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(quick_window::plugin())
         .setup(|app| {
-            let data_dir = match data_dir_override() {
-                Some(dir) => dir,
-                None => app.path().app_data_dir()?,
+            let portable = files::portable_dir();
+            let data_dir = match (data_dir_override(), &portable) {
+                (Some(dir), _) => dir,
+                (None, Some(dir)) => dir.clone(),
+                (None, None) => app.path().app_data_dir()?,
             };
             let state = AppState {
                 db: Mutex::new(Err(String::new())),
                 data_dir: data_dir.clone(),
                 undo: Mutex::default(),
+                portable: portable.is_some(),
             };
-            let db = Storage::open(&data_dir.join("budget.db"), &state.open_options())
+            let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
             *state.db.lock().expect("база ещё не используется") = db;
             app.manage(state);
@@ -150,6 +156,12 @@ pub fn run() {
             commands::events_on,
             commands::last_week,
             commands::no_spend_streak,
+            commands::list_files,
+            commands::create_file,
+            commands::open_file,
+            commands::switch_file,
+            commands::rename_file,
+            commands::forget_file,
             commands::open_quick,
             commands::hide_quick,
             commands::set_quick_hotkey,

@@ -83,6 +83,9 @@ pub struct AppInfo {
     pre_migration_backup: Option<String>,
     onboarding_done: bool,
     today: String,
+    /// Переносная версия: обновления ставятся вручную, данные рядом с программой.
+    portable: bool,
+    data_dir: String,
 }
 
 #[tauri::command]
@@ -96,6 +99,8 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
             pre_migration_backup: db.pre_migration_backup().map(|p| p.display().to_string()),
             onboarding_done: onboarding::is_done(db.conn())?,
             today: time::today_local(),
+            portable: state.portable,
+            data_dir: state.data_dir.display().to_string(),
         })
     })
 }
@@ -647,6 +652,42 @@ pub fn last_week(state: State<AppState>) -> CmdResult<WeekSummary> {
 #[tauri::command]
 pub fn no_spend_streak(state: State<AppState>) -> CmdResult<u32> {
     with_db(&state, |db| habits::streak(db.conn(), &time::today_local()))
+}
+
+// --- Файлы бюджета ---
+
+#[tauri::command]
+pub fn list_files(state: State<AppState>) -> CmdResult<Vec<crate::files::FileRow>> {
+    let current = with_db(&state, |db| Ok(db.path().to_path_buf()))?;
+    Ok(crate::files::list(&state.data_dir, &current))
+}
+
+#[tauri::command]
+pub fn create_file(state: State<AppState>, name: String) -> CmdResult<String> {
+    crate::files::create(&state, &name)
+}
+
+#[tauri::command]
+pub fn open_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::files::open_existing(&state, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    if !Path::new(&path).exists() {
+        return Err("файла нет на месте: проверьте флешку или папку".into());
+    }
+    crate::files::switch(&state, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn rename_file(state: State<AppState>, path: String, name: String) -> CmdResult<()> {
+    crate::files::rename(&state, &path, &name)
+}
+
+#[tauri::command]
+pub fn forget_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::files::forget(&state, &path)
 }
 
 #[tauri::command]

@@ -9,6 +9,17 @@ export interface AppInfo {
   preMigrationBackup: string | null;
   onboardingDone: boolean;
   today: string;
+  /** Переносная версия: данные в папке data рядом с программой. */
+  portable: boolean;
+  dataDir: string;
+}
+
+export interface BudgetFileRow {
+  name: string;
+  path: string;
+  current: boolean;
+  missing: boolean;
+  main: boolean;
 }
 
 export interface Currency {
@@ -864,6 +875,12 @@ export const api = {
   eventsOn: (date: string) => invoke<[string, string][]>("events_on", { date }),
   lastWeek: () => invoke<WeekSummary>("last_week"),
   noSpendStreak: () => invoke<number>("no_spend_streak"),
+  listFiles: () => invoke<BudgetFileRow[]>("list_files"),
+  createFile: (name: string) => invoke<string>("create_file", { name }),
+  openFile: (path: string) => invoke<void>("open_file", { path }),
+  switchFile: (path: string) => invoke<void>("switch_file", { path }),
+  renameFile: (path: string, name: string) => invoke<void>("rename_file", { path, name }),
+  forgetFile: (path: string) => invoke<void>("forget_file", { path }),
   calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
   calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),
