@@ -78,7 +78,7 @@ PTREASURY_OLD_BIN=путь/к/старой/сборке node --test e2e/upgrade.
 ```
 
 **Установщик для Windows** (`P-Treasury_0.9.0_x64-setup.exe`) собирается одним из двух способов:
-- на GitHub: `.github/workflows/windows-installer.yml` (Actions → «Установщик для Windows»), ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
+- на GitHub: пробный — `.github/workflows/windows-installer.yml` на каждый PR (Actions → «Установщик для Windows»), выпуск — `.github/workflows/release.yml` по тегу `vX.Y.Z` (см. [выпуски](releasing.md)); ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
 - на компьютере с Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` (что установить заранее, написано в начале скрипта).
 
 **Дальше:** сборка установщика и ручная проверка по [списку](testing/owner-checklist.md).
