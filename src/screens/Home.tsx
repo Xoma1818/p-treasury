@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { CushionCard } from "../components/Cushion";
+import { QuickEntry } from "../components/QuickEntry";
 import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
 import { TemplatesCard } from "../components/Templates";
@@ -60,6 +61,10 @@ export function Home() {
           </button>
         </div>
       )}
+
+      <div className="card quick-card">
+        <QuickEntry />
+      </div>
 
       <div className="tiles">
         <div className="card tile" data-testid="total-balance">

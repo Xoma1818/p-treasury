@@ -455,6 +455,37 @@ export interface FxReport {
 
 export type ViewKind = "transactions" | "report";
 
+/** Черновик операции из строки быстрого ввода или текста SMS банка. */
+export interface QuickDraft {
+  type: "expense" | "income" | "transfer";
+  amount: number | null;
+  date: string;
+  accountId: string | null;
+  toAccountId: string | null;
+  categoryId: string | null;
+  payee: string | null;
+  merchant: string | null;
+  ruleId: string | null;
+  source: "line" | "sms";
+  missing: string[];
+}
+
+/** Правило автокатегоризации: текст получателя → категория. */
+export interface Rule {
+  id: string;
+  pattern: string;
+  categoryId: string;
+  categoryName: string;
+  kind: "expense" | "income";
+  payee: string | null;
+}
+
+export interface RuleInput {
+  pattern: string;
+  categoryId: string;
+  payee: string | null;
+}
+
 export interface SavedView {
   id: string;
   name: string;
@@ -728,6 +759,15 @@ export const api = {
   createView: (name: string, kind: ViewKind, params: unknown) =>
     invoke<string>("create_view", { input: { name, kind, params: JSON.stringify(params) } }),
   deleteView: (id: string) => invoke<void>("delete_view", { id }),
+  quickParse: (text: string) => invoke<QuickDraft>("quick_parse", { text }),
+  rememberRule: (merchant: string, categoryId: string, payee: string | null) =>
+    invoke<string>("remember_rule", { merchant, categoryId, payee }),
+  listRules: () => invoke<Rule[]>("list_rules"),
+  createRule: (input: RuleInput) => invoke<string>("create_rule", { input }),
+  deleteRule: (id: string) => invoke<void>("delete_rule", { id }),
+  openQuick: () => invoke<void>("open_quick"),
+  hideQuick: (saved: boolean) => invoke<void>("hide_quick", { saved }),
+  setQuickHotkey: (hotkey: string) => invoke<void>("set_quick_hotkey", { hotkey }),
   calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
   calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),

@@ -24,6 +24,16 @@ try {
   }
   await browser.pause(600);
   await shot(browser, "home");
+  // Быстрый ввод: текст SMS банка разобран в черновик.
+  await browser.$('textarea[name="quickText"]').setValue("Покупка 2 340,50р Карта*1234 PYATEROCHKA 1520 Баланс: 10 000р");
+  await browser.$('[data-testid="quick-draft"]').waitForDisplayed({ timeout: 5000 });
+  await browser.pause(500);
+  await shot(browser, "quick");
+  await setDate(browser, "quickText", "");
+  await openSection(browser, "Категории");
+  await browser.$('[data-testid="rules"]').scrollIntoView();
+  await browser.pause(300);
+  await shot(browser, "rules");
   await openSection(browser, "Бюджет");
   await browser.pause(400);
   await shot(browser, "budget");

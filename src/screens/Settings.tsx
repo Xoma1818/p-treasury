@@ -16,6 +16,7 @@ export function Settings() {
   const info = useAppInfo();
   const settings = useSettings().data;
   const currencies = useCurrencies().data ?? [];
+  const setHotkey = useAction(api.setQuickHotkey);
   const setSetting = useAction(api.setSetting);
   const base = settings?.base_currency ?? "RUB";
   const [dialog, setDialog] = useState<"summary" | "import" | null>(null);
@@ -89,8 +90,20 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Быстрый ввод из любой программы" hint="Маленькое окно: «пятёрочка 1250» или текст SMS банка, Enter — записано.">
+            {(id) => (
+              <select id={id} name="quickHotkey" value={settings?.quick_hotkey ?? "Ctrl+Alt+P"} onChange={(e) => setHotkey.run(e.target.value)}>
+                {["Ctrl+Alt+P", "Ctrl+Shift+Space", "Ctrl+Alt+N"].map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+                <option value="">Выключен</option>
+              </select>
+            )}
+          </Field>
         </div>
-        <ErrorText error={setSetting.error} />
+        <ErrorText error={setSetting.error ?? setHotkey.error} />
       </div>
 
       <Rates base={base} />

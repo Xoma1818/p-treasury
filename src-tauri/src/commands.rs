@@ -19,8 +19,10 @@ use budget_core::export;
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
+use budget_core::quick::{self, Draft};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
+use budget_core::rules::{self, Rule, RuleInput};
 use budget_core::storage::{self, Storage};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
@@ -29,7 +31,7 @@ use budget_core::views::{self, SavedView, ViewInput};
 use budget_core::wealth::{self, Cushion, FxReport};
 use budget_core::{settings, time, Connection};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 
@@ -464,6 +466,74 @@ pub fn create_view(state: State<AppState>, input: ViewInput) -> CmdResult<String
 pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление вида", |c| {
         views::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn quick_parse(state: State<AppState>, text: String) -> CmdResult<Draft> {
+    with_db(&state, |db| {
+        quick::parse(db.conn(), &text, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn remember_rule(
+    state: State<AppState>,
+    merchant: String,
+    category_id: String,
+    payee: Option<String>,
+) -> CmdResult<String> {
+    with_undo(&state, "Правило для категории", |c| {
+        quick::remember(c, &merchant, &category_id, payee.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn list_rules(state: State<AppState>) -> CmdResult<Vec<Rule>> {
+    with_db(&state, |db| rules::list(db.conn()))
+}
+
+#[tauri::command]
+pub fn create_rule(state: State<AppState>, input: RuleInput) -> CmdResult<String> {
+    with_undo(&state, "Правило для категории", |c| {
+        rules::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление правила", |c| {
+        rules::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn open_quick(app: AppHandle) -> CmdResult<()> {
+    crate::quick_window::open(&app).map_err(|e| e.to_string())
+}
+
+/// Операция записана в окне быстрого ввода: окно прячется, главное обновляет данные.
+#[tauri::command]
+pub fn hide_quick(app: AppHandle, saved: bool) {
+    crate::quick_window::hide(&app);
+    if saved {
+        let _ = app.emit("data-changed", ());
+    }
+}
+
+#[tauri::command]
+pub fn set_quick_hotkey(app: AppHandle, state: State<AppState>, hotkey: String) -> CmdResult<()> {
+    if !settings::QUICK_HOTKEYS.contains(&hotkey.as_str()) {
+        return Err(format!("сочетание «{hotkey}» не поддерживается"));
+    }
+    let old = crate::quick_window::saved_hotkey(&app);
+    if let Err(e) = crate::quick_window::register(&app, &hotkey) {
+        // Не получилось: прежнее сочетание продолжает работать.
+        let _ = crate::quick_window::register(&app, &old);
+        return Err(e);
+    }
+    with_db(&state, |db| {
+        settings::set(db.conn(), "quick_hotkey", &hotkey)
     })
 }
 

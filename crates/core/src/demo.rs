@@ -312,6 +312,7 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
         "budgets",
         "transaction_templates",
         "saved_views",
+        "payee_rules",
         "transactions",
         "debts",
         "recurring_rules",

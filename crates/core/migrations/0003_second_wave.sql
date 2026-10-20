@@ -15,3 +15,17 @@ CREATE TABLE saved_views (
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+
+-- Правила автокатегоризации: текст в получателе или SMS банка → категория.
+CREATE TABLE payee_rules (
+    id           TEXT PRIMARY KEY,
+    pattern      TEXT NOT NULL,
+    -- Текст для поиска: нижний регистр, «ё» как «е».
+    pattern_norm TEXT NOT NULL UNIQUE,
+    category_id  TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    payee        TEXT,
+    created_at   TEXT NOT NULL
+);
+
+-- Быстрый ввод из любого места: горячая клавиша ('' — выключено).
+INSERT INTO settings (key, value) VALUES ('quick_hotkey', 'Ctrl+Alt+P');

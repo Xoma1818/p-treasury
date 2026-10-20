@@ -91,8 +91,9 @@ pub fn show_main(app: &AppHandle) {
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Открыть", true, None::<&str>)?;
     let add = MenuItem::with_id(app, "add", "Добавить операцию", true, None::<&str>)?;
+    let quick = MenuItem::with_id(app, "quick", "Быстрый ввод", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &add, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &add, &quick, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("P-Treasury")
         .menu(&menu)
@@ -102,6 +103,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "add" => {
                 show_main(app);
                 let _ = app.emit("tray-add-transaction", ());
+            }
+            "quick" => {
+                let _ = crate::quick_window::open(app);
             }
             "quit" => app.exit(0),
             _ => {}
