@@ -1,6 +1,6 @@
-# Установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
-# Запуск: на каждый запрос на слияние, вкладка Actions → «Установщик для Windows» → Run workflow,
-# или при теге вида v0.8.0. Готовый .exe — в Artifacts запуска.
+# Пробный установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
+# Запуск: на каждый запрос на слияние или вкладка Actions → «Установщик для Windows» → Run workflow.
+# Готовый .exe — в Artifacts запуска. Выпуски по тегу vX.Y.Z собирает release.yml.
 # Ключ подписи обновлений хранится в секрете TAURI_SIGNING_PRIVATE_KEY (не в репозитории).
 # Без секрета установщик собирается без файла подписи для автообновления.
 name: Установщик для Windows
@@ -8,15 +8,13 @@ name: Установщик для Windows
 on:
   workflow_dispatch:
   pull_request:
-  push:
-    tags: ["v*"]
 
 jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with: { components: "rustfmt, clippy" }
@@ -28,8 +26,8 @@ jobs:
     needs: check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
@@ -44,7 +42,7 @@ jobs:
           else
             npx tauri build --bundles nsis --config src-tauri/tauri.nokey.conf.json
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: p-treasury-windows-installer
           path: |
