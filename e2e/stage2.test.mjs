@@ -72,7 +72,9 @@ test("контроль: «Кафе 90 %» без отметки, перерас�
   assert.match(await browser.$(line("Кафе и рестораны")).getAttribute("class"), /over-row/);
   await waitText(browser, line("Кафе и рестораны"), money("−500 ₽"));
   const color = await browser.$(`${line("Кафе и рестораны")}/td[4]`).getCSSProperty("color");
-  assert.equal(color.parsed.hex, "#c2410c", "остаток при перерасходе оранжевый");
+  // Оттенок оранжевого свой у светлой и тёмной темы.
+  const dark = (await browser.execute(() => document.documentElement.dataset.theme)) === "dark";
+  assert.equal(color.parsed.hex, dark ? "#fb923c" : "#c2410c", "остаток при перерасходе оранжевый");
 });
 
 test("расход 45 € входит в рублёвый бюджет по курсу дня", async () => {

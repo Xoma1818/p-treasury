@@ -34,7 +34,7 @@ export async function stop(browser) {
   } finally {
     driver?.kill();
     // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
-    if (currentDir) spawnSync("pkill", ["-f", `--data-dir=${currentDir}`]);
+    if (currentDir) spawnSync("pkill", ["-f", "--", `--data-dir=${currentDir}`]);
     // WebKitWebDriver иногда переживает сессию и держит порт: следующий запуск попал бы в старый процесс.
     spawnSync("pkill", ["-x", "WebKitWebDriver"]);
     await new Promise((r) => setTimeout(r, 300));
