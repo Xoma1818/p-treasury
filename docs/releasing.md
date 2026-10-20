@@ -39,8 +39,10 @@
 
 1. OTTO разрешил слить PR с новой версией → PR сливается в `main`.
 2. На слитый коммит ставится тег `vX.Y.Z` (например `v0.9.0`) и отправляется на GitHub.
-3. Тег запускает `.github/workflows/release.yml`: проверки, установщик для Windows, подпись и файл `latest.json` для автообновления. Выпуск «P-Treasury vX.Y.Z» появляется в [Releases](https://github.com/Xoma1818/p-treasury/releases) с описанием из CHANGELOG и строкой о том, как установить.
-4. Программы, собранные выпуском, сами находят следующую версию по адресу `releases/latest/download/latest.json`.
+3. Тег запускает `.github/workflows/release.yml`: проверки, установщик для Windows, подпись и файл `latest.json` для автообновления. Выпуск «P-Treasury vX.Y.Z» с описанием из CHANGELOG и строкой о том, как установить, публикуется в открытом репозитории [p-treasury-releases](https://github.com/Xoma1818/p-treasury-releases/releases).
+4. Программы, собранные выпуском, сами находят следующую версию по адресу `https://github.com/Xoma1818/p-treasury-releases/releases/latest/download/latest.json`.
+
+Почему два репозитория: код в `p-treasury` закрыт, а файлы закрытого репозитория программа без входа в GitHub скачать не может. В `p-treasury-releases` только README и выпуски, кода там нет и не будет.
 
 Если сборка выпуска упала, тег удаляется (только с согласия OTTO), ошибка исправляется отдельным PR, тег ставится заново на исправленный `main`.
 
@@ -55,6 +57,7 @@
 ## Секреты и настройки репозитория
 
 - `TAURI_SIGNING_PRIVATE_KEY` (Settings → Secrets and variables → Actions) — содержимое файла `p-treasury-updater.key` из общей папки проекта `app-signing/`. Без него выпуск не собирается. Сам ключ в репозиторий не кладётся никогда.
+- `RELEASES_TOKEN` — токен GitHub (fine-grained) с доступом только к `p-treasury-releases` и правом Contents: Read and write. Им выпуск публикуется в открытый репозиторий. Когда срок токена кончается, выпуск падает на шаге «Секреты на месте» или публикации — нужен новый токен.
 - Settings → General → «Automatically delete head branches» включено: слитые ветки удаляются сами.
 
 ## Что не хранится в репозитории
