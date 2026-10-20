@@ -1,0 +1,78 @@
+# Выпуск P-Treasury на GitHub Releases.
+# Запускается тегом vX.Y.Z на main (ставится после слияния, см. docs/releasing.md).
+# Делает: проверку, установщик для Windows, подпись для автообновления, latest.json
+# и выпуск с описанием из раздела «## X.Y.Z» в CHANGELOG.md.
+# Нужен секрет TAURI_SIGNING_PRIVATE_KEY: без него выпуск не собирается,
+# иначе установленные программы не смогли бы обновиться.
+name: Выпуск
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Версия в теге совпадает с версией приложения
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for v in "$(jq -r .version package.json)" "$(jq -r .version src-tauri/tauri.conf.json)" \
+                   "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; do
+            [ "$v" = "$tag" ] || { echo "::error::Тег $GITHUB_REF_NAME, а в файлах версия $v"; exit 1; }
+          done
+          grep -q "^## $tag\b" CHANGELOG.md || { echo "::error::В CHANGELOG.md нет раздела «## $tag»"; exit 1; }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy" }
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+      - run: scripts/check.sh
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Описание выпуска из CHANGELOG.md
+        id: notes
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          {
+            echo 'body<<NOTES_END'
+            awk -v t="$tag" '/^## /{p = ($2 == t)} p && !/^## /' CHANGELOG.md
+            echo
+            echo '**Как установить:** скачайте `P-Treasury_'"$tag"'_x64-setup.exe` ниже и запустите. Windows может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае». Данные прежней версии сохраняются.'
+            echo 'NOTES_END'
+          } >> "$GITHUB_OUTPUT"
+      - name: Ключ подписи на месте
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: '[ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::Нет секрета TAURI_SIGNING_PRIVATE_KEY (Settings → Secrets and variables → Actions)"; exit 1; }'
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # Адрес, по которому установленная программа ищет обновления (вшивается при сборке).
+          PTREASURY_UPDATE_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: P-Treasury ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
