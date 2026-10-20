@@ -17,7 +17,7 @@ type Filter = { name: string; extensions: string[] };
 
 export const XLSX: Filter = { name: "Книга Excel", extensions: ["xlsx"] };
 export const CSV: Filter = { name: "CSV (разделитель ;)", extensions: ["csv"] };
-export const DB: Filter = { name: "Копия «Казны»", extensions: ["db"] };
+export const DB: Filter = { name: "Копия P-Treasury", extensions: ["db"] };
 
 /** Куда сохранить файл; `null`, если пользователь передумал. */
 export async function pickSave(defaultPath: string, filters: Filter[]): Promise<string | null> {

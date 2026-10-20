@@ -11,14 +11,16 @@ use crate::error::invalid;
 use crate::storage::{backup_to, prune_backups, LATEST_VERSION};
 use crate::{settings, time, Error, Result};
 
-/// Префикс автокопий: `kazna-auto-20261020-141530.db`.
-pub const AUTO_PREFIX: &str = "kazna-auto";
+/// Префикс автокопий: `p-treasury-auto-20261020-141530.db`.
+pub const AUTO_PREFIX: &str = "p-treasury-auto";
+/// Автокопии, сделанные до переименования приложения: тоже считаются в лимит и удаляются первыми.
+pub const LEGACY_AUTO_PREFIX: &str = "kazna-auto";
 /// Через сколько дней без копии напоминать о ней (если автокопия выключена).
 pub const REMIND_AFTER_DAYS: i64 = 30;
 
 /// Имя файла ручной копии по умолчанию.
 pub fn default_name() -> String {
-    format!("kazna-{}.db", time::file_stamp())
+    format!("p-treasury-{}.db", time::file_stamp())
 }
 
 /// Сделать копию в файл и запомнить время последней копии.
@@ -42,6 +44,11 @@ pub fn autobackup(conn: &Connection) -> Result<Option<PathBuf>> {
     let dest = dir.join(format!("{AUTO_PREFIX}-{}.db", time::file_stamp()));
     backup(conn, &dest)?;
     prune_backups(&dir, AUTO_PREFIX, keep)?;
+    let fresh = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with(AUTO_PREFIX))
+        .count();
+    prune_backups(&dir, LEGACY_AUTO_PREFIX, keep.saturating_sub(fresh))?;
     Ok(Some(dest))
 }
 
@@ -56,9 +63,9 @@ pub struct BackupInfo {
     pub last_date: Option<String>,
 }
 
-/// Проверить, что файл — копия «Казны», которую эта версия может открыть.
+/// Проверить, что файл — копия P-Treasury, которую эта версия может открыть.
 pub fn inspect(path: &Path) -> Result<BackupInfo> {
-    let not_ours = || Error::Validation("это не файл данных «Казны»".into());
+    let not_ours = || Error::Validation("это не файл данных P-Treasury".into());
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| not_ours())?;
     let version: i64 = conn
@@ -170,7 +177,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = Storage::open_in_memory().unwrap();
         assert_eq!(autobackup(db.conn()).unwrap(), None);
-        let cloud = dir.path().join("Яндекс.Диск/Казна");
+        let cloud = dir.path().join("Яндекс.Диск/P-Treasury");
         settings::set(db.conn(), "autobackup_dir", cloud.to_str().unwrap()).unwrap();
         settings::set(db.conn(), "autobackup_keep", "3").unwrap();
         for i in 0..5 {
@@ -192,6 +199,50 @@ mod tests {
             files.iter().all(|f| f.ends_with(".db")),
             "недописанных .part нет: {files:?}"
         );
+    }
+
+    #[test]
+    fn autocopies_from_before_the_rename_count_toward_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Storage::open_in_memory().unwrap();
+        settings::set(db.conn(), "autobackup_dir", dir.path().to_str().unwrap()).unwrap();
+        settings::set(db.conn(), "autobackup_keep", "2").unwrap();
+        for i in 1..=3 {
+            std::fs::write(
+                dir.path()
+                    .join(format!("{LEGACY_AUTO_PREFIX}-2026010{i}-000000.db")),
+                b"",
+            )
+            .unwrap();
+        }
+        // Первая новая копия: старых остаётся одна (самая свежая), всего две.
+        let first = autobackup(db.conn()).unwrap().unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert_eq!(names[0], format!("{LEGACY_AUTO_PREFIX}-20260103-000000.db"));
+        assert!(first
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("p-treasury-auto-"));
+        // Вторая новая копия вытесняет последнюю старую.
+        std::fs::rename(
+            &first,
+            dir.path().join(format!("{AUTO_PREFIX}-20260104-000000.db")),
+        )
+        .unwrap();
+        autobackup(db.conn()).unwrap();
+        let left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(left.len(), 2, "{left:?}");
+        assert!(left.iter().all(|n| n.starts_with(AUTO_PREFIX)), "{left:?}");
     }
 
     #[test]

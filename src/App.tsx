@@ -85,7 +85,7 @@ export function App() {
   }, [go, openTxnForm, setHelp, hidden, setSetting.run]);
 
   if (!isTauri()) {
-    return <div className="wizard"><div className="card wizard-card">Казна работает как приложение для ПК. Откройте её через установленную программу.</div></div>;
+    return <div className="wizard"><div className="card wizard-card">P-Treasury работает как приложение для ПК. Откройте его через установленную программу.</div></div>;
   }
   if (info.error) {
     return (

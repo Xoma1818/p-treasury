@@ -64,7 +64,7 @@ fn tick(app: &AppHandle) {
         let _ = app
             .notification()
             .builder()
-            .title("Казна")
+            .title("P-Treasury")
             .body(body)
             .show();
     };
@@ -94,7 +94,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &add, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Казна")
+        .tooltip("P-Treasury")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {

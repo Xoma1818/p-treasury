@@ -49,7 +49,7 @@ export function Compare() {
     queryFn: () => api.comparePeriods(kind, by, periods!),
     enabled: valid,
   });
-  const exp = useExport(`Казна — сравнение ${periods ? `${periods.aFrom} — ${periods.aTo} и ${periods.bFrom} — ${periods.bTo}` : ""}`, async (path) => {
+  const exp = useExport(`P-Treasury — сравнение ${periods ? `${periods.aFrom} — ${periods.aTo} и ${periods.bFrom} — ${periods.bTo}` : ""}`, async (path) => {
     if (periods) await api.exportComparison(kind, by, periods, path);
   });
   const edit = (k: keyof ComparePeriods, v: string) => {

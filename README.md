@@ -1,4 +1,4 @@
-# Казна — десктопное приложение для личного и семейного бюджета
+# P-Treasury — десктопное приложение для личного и семейного бюджета
 
 Стек и устройство описаны в [architecture.md](../architecture/architecture.md), состав функций в [mvp-features.md](../product/mvp-features.md), дизайн в [design/README.md](../design/README.md).
 
@@ -36,7 +36,7 @@ KAZNA_VOLUME_DIR=папка node --test e2e/volume.test.mjs                     
 KAZNA_OLD_BIN=путь/к/старой/сборке node --test e2e/upgrade.test.mjs           # обновление со старой версии
 ```
 
-**Установщик для Windows** (`Казна_0.7.0_x64-setup.exe`) собирается одним из двух способов:
+**Установщик для Windows** (`P-Treasury_0.8.0_x64-setup.exe`) собирается одним из двух способов:
 - на GitHub: `.github/workflows/windows-installer.yml` (Actions → «Установщик для Windows»), ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
 - на компьютере с Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` (что установить заранее, написано в начале скрипта).
 
@@ -76,4 +76,4 @@ scripts/check.sh      проверка всего проекта одной ко
 
 Правило границ: UI вызывает только команды ядра, ядро обращается к базе только через `storage`.
 
-Название «Казна» и иконка взяты из треда дизайна (`design/icons/kazna/`).
+Приложение называлось «Казна», с версии 0.8 — P-Treasury (папка данных прежняя, `app.kazna.desktop`, данные при обновлении остаются на месте). Иконка «Дверца сейфа» из треда дизайна (`design/icons/p-treasury/`).

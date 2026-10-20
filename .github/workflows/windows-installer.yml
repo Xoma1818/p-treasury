@@ -1,4 +1,4 @@
-# Установщик «Казны» для Windows: собирается на машине GitHub с Windows.
+# Установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
 # Запуск: вкладка Actions → «Установщик для Windows» → Run workflow,
 # или автоматически при теге вида v0.7.0. Готовый .exe — в Artifacts запуска.
 # Ключ подписи обновлений хранится в секрете TAURI_SIGNING_PRIVATE_KEY (не в репозитории).

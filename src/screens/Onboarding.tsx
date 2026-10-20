@@ -51,7 +51,7 @@ export function Onboarding() {
   return (
     <div className="wizard">
       <div className="card wizard-card">
-        <div className="brand big">Казна</div>
+        <div className="brand big">P-Treasury</div>
         <div className="steps">Шаг {step} из 3</div>
 
         {step === 1 && (

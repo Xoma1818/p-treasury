@@ -56,7 +56,7 @@ export function Reports() {
   const s = summary.data;
   const showTransactions = useUi((u) => u.showTransactions);
   const all = () => period && showTransactions({ dateFrom: period.start, dateTo: period.end });
-  const exp = useExport(`Казна — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
+  const exp = useExport(`P-Treasury — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
     if (!period) return;
     if (tab === "structure") return api.exportReport("categories", period.start, period.end, path);
     // 28-е число всегда внутри своего расчётного месяца при любом «первом дне месяца» (1–28).

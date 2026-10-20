@@ -6,7 +6,7 @@ export function Sidebar() {
   const { section, go, setHelp } = useUi();
   return (
     <nav className="sidebar" aria-label="Разделы">
-      <div className="brand">Казна</div>
+      <div className="brand">P-Treasury</div>
       <ul>
         {SECTIONS.map((s, i) => (
           <li key={s.id}>

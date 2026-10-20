@@ -13,8 +13,8 @@ after(async () => {
   await stop(app?.browser);
 });
 
-test("окно «Казна» открывается, при первом запуске создаётся файл данных", async () => {
-  assert.equal(await app.browser.getTitle(), "Казна");
+test("окно P-Treasury открывается, при первом запуске создаётся файл данных", async () => {
+  assert.equal(await app.browser.getTitle(), "P-Treasury");
   assert.ok(existsSync(join(app.dataDir, "budget.db")));
 });
 

@@ -1,4 +1,4 @@
-# Сборка установщика «Казны» на компьютере с Windows.
+# Сборка установщика P-Treasury на компьютере с Windows.
 #   1. Один раз установить: Node.js 22 (nodejs.org), Rust (rustup.rs),
 #      «Средства сборки Visual Studio» с компонентом «Разработка классических приложений на C++».
 #   2. В папке с кодом: powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1

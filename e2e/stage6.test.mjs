@@ -178,7 +178,7 @@ test("закрытие окна: по умолчанию в трей, с нас�
   await browser.waitUntil(async () => !appPid(), { timeout: 10000 });
   const copies = readdirSync(cloud);
   assert.equal(copies.length, 1, String(copies));
-  assert.match(copies[0], /^kazna-auto-\d{8}-\d{6}\.db$/);
+  assert.match(copies[0], /^p-treasury-auto-\d{8}-\d{6}\.db$/);
   await stop(browser).catch(() => {});
   browser = null;
 });
