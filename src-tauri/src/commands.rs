@@ -829,9 +829,9 @@ pub struct UpdateInfo {
 /// Адрес файла с описанием последней версии: переменная окружения (для тестов)
 /// или адрес, вшитый при сборке выпуска.
 fn update_endpoint() -> Option<String> {
-    std::env::var("KAZNA_UPDATE_URL")
+    std::env::var("PTREASURY_UPDATE_URL")
         .ok()
-        .or_else(|| option_env!("KAZNA_UPDATE_ENDPOINT").map(str::to_string))
+        .or_else(|| option_env!("PTREASURY_UPDATE_ENDPOINT").map(str::to_string))
         .filter(|u| !u.is_empty())
 }
 

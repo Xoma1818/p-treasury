@@ -1,5 +1,5 @@
 // Приёмочные тесты этапа 6 «Данные и настройки»: сценарии из product/mvp-features.md, разделы 11–12.
-// Системные окна выбора файла тест не нажимает: ответы подкладываются в window.__kaznaPick.
+// Системные окна выбора файла тест не нажимает: ответы подкладываются в window.__ptPick.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -13,7 +13,7 @@ const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
 const ru = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 const daysAgo = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - n);
-const files = mkdtempSync(join(tmpdir(), "kazna-files-"));
+const files = mkdtempSync(join(tmpdir(), "p-treasury-files-"));
 
 let browser, dataDir;
 before(async () => {
@@ -28,7 +28,7 @@ after(async () => {
 });
 
 /** Подложить ответы для следующих окон выбора файла. */
-const pick = (...paths) => browser.execute((p) => (window.__kaznaPick = p), paths);
+const pick = (...paths) => browser.execute((p) => (window.__ptPick = p), paths);
 const card = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
 const csv = (rows) => "\uFEFFДата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма;Счёт зачисления\n" + rows.map((r) => r.join(";")).join("\n") + "\n";
@@ -155,7 +155,7 @@ test("новый компьютер: восстановление из копи�
 });
 
 test("закрытие окна: по умолчанию в трей, с настройкой — выход с автокопией в выбранную папку", async () => {
-  const cloud = mkdtempSync(join(tmpdir(), "kazna-cloud-"));
+  const cloud = mkdtempSync(join(tmpdir(), "p-treasury-cloud-"));
   await openSection(browser, "Настройки");
   await pick(cloud);
   await click(browser, "Включить автокопию");
@@ -191,13 +191,13 @@ test("обновление: при запуске приложение сооб�
         version: "9.9.9",
         notes: "Новые отчёты",
         pub_date: new Date().toISOString(),
-        platforms: { "linux-x86_64": { signature: "test", url: "http://127.0.0.1/kazna.AppImage.tar.gz" } },
+        platforms: { "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" } },
       }),
     );
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
-    ({ browser, dataDir } = await start(undefined, { env: { KAZNA_UPDATE_URL: `http://127.0.0.1:${server.address().port}/latest.json` } }));
+    ({ browser, dataDir } = await start(undefined, { env: { PTREASURY_UPDATE_URL: `http://127.0.0.1:${server.address().port}/latest.json` } }));
     await onboard(browser, [{ name: "Карта", balance: "0" }]);
     await waitText(browser, '[data-testid="update-version"]', /Доступна версия 9\.9\.9 \(у вас \d+\.\d+\.\d+\)/, 15000);
     await waitText(browser, '[role="dialog"]', /Новые отчёты/);

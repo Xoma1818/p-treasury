@@ -1,7 +1,7 @@
 // Скриншот вкладки «Сравнение»: node e2e/screenshot-compare.mjs (под xvfb-run на Linux).
 import { start, stop, onboard, fill, choose, click, save, setDate, openSection } from "./app.mjs";
 
-const out = (name) => new URL(`../docs/${name}.png`, import.meta.url).pathname;
+const out = (name) => new URL(`../docs/design/screens/${name}.png`, import.meta.url).pathname;
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
 const day = (back, d) => {

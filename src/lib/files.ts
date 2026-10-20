@@ -1,15 +1,15 @@
 // Выбор файлов и папок системными окнами. Сквозные тесты не могут нажимать в
-// системных окнах, поэтому подкладывают ответы в window.__kaznaPick.
+// системных окнах, поэтому подкладывают ответы в window.__ptPick.
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 declare global {
   interface Window {
-    __kaznaPick?: (string | null)[];
+    __ptPick?: (string | null)[];
   }
 }
 
 function testAnswer(): string | null | undefined {
-  const q = window.__kaznaPick;
+  const q = window.__ptPick;
   return q && q.length > 0 ? q.shift() : undefined;
 }
 

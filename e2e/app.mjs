@@ -7,12 +7,12 @@ import { join, resolve } from "node:path";
 import { remote } from "webdriverio";
 
 const ROOT = resolve(import.meta.dirname, "..");
-export const APP_BIN = process.env.KAZNA_BIN ?? join(ROOT, "target/debug/budget-app");
+export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, "target/debug/budget-app");
 
 let driver;
 let currentDir;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-")), { env = {}, bin = APP_BIN } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN } = {}) {
   currentDir = dataDir;
   // Переменные окружения доходят до приложения через tauri-driver.
   driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });

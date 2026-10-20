@@ -140,7 +140,7 @@ mod tests {
         )
         .unwrap();
         accounts::create(old.conn(), &input("Карта", "debit", "RUB", 1_234_500)).unwrap();
-        let flash = dir.path().join("flash/kazna.db");
+        let flash = dir.path().join("flash/p-treasury.db");
         backup(old.conn(), &flash).unwrap();
         assert!(settings::get(old.conn(), "last_backup_at")
             .unwrap()

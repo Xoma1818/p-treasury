@@ -27,11 +27,11 @@ impl AppState {
 }
 
 /// Папка данных для сквозных тестов: аргумент `--data-dir=<путь>` или
-/// переменная KAZNA_DATA_DIR. Каждый прогон тестов идёт с чистой базой.
+/// переменная PTREASURY_DATA_DIR. Каждый прогон тестов идёт с чистой базой.
 fn data_dir_override() -> Option<PathBuf> {
     std::env::args()
         .find_map(|a| a.strip_prefix("--data-dir=").map(PathBuf::from))
-        .or_else(|| std::env::var_os("KAZNA_DATA_DIR").map(PathBuf::from))
+        .or_else(|| std::env::var_os("PTREASURY_DATA_DIR").map(PathBuf::from))
 }
 
 pub fn run() {

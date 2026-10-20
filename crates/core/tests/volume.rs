@@ -1,7 +1,7 @@
 //! Объём (большой итоговый тест, пункт 4): 10 лет учёта, около 100 000 операций.
 //! Тест отдельный и долгий, запускается вручную:
 //!   cargo test --release -p budget-core --test volume -- --ignored --nocapture
-//! С переменной KAZNA_VOLUME_DIR база остаётся в этой папке (для сквозного
+//! С переменной PTREASURY_VOLUME_DIR база остаётся в этой папке (для сквозного
 //! теста окна приложения на большой базе).
 
 use std::path::Path;
@@ -186,7 +186,7 @@ fn timed<T>(what: &str, limit: Duration, f: impl FnOnce() -> T) -> T {
 #[test]
 #[ignore = "долгий тест объёма; запускается вручную в release"]
 fn ten_years_of_records_stay_fast() {
-    let keep = std::env::var("KAZNA_VOLUME_DIR").ok();
+    let keep = std::env::var("PTREASURY_VOLUME_DIR").ok();
     let tmp = tempfile::tempdir().unwrap();
     let dir = keep.as_deref().map(Path::new).unwrap_or(tmp.path());
     std::fs::create_dir_all(dir).unwrap();

@@ -2,7 +2,7 @@
 //! убивают посреди записи и посреди резервной копии. После этого база цела,
 //! каждая сохранённая операция записана целиком, а недописанной копии нет.
 //!
-//! Тест запускает сам себя дочерним процессом (переменная KAZNA_CRASH_CHILD)
+//! Тест запускает сам себя дочерним процессом (переменная PTREASURY_CRASH_CHILD)
 //! и убивает его через SIGKILL — как выключение света или «снять задачу».
 
 use std::path::{Path, PathBuf};
@@ -15,8 +15,8 @@ use budget_core::storage::{backup_to, OpenOptions, Storage};
 use budget_core::transactions::{self, TxnInput};
 use rusqlite::{Connection, OpenFlags};
 
-const CHILD: &str = "KAZNA_CRASH_CHILD";
-const DIR: &str = "KAZNA_CRASH_DIR";
+const CHILD: &str = "PTREASURY_CRASH_CHILD";
+const DIR: &str = "PTREASURY_CRASH_DIR";
 
 fn opts(dir: &Path) -> OpenOptions {
     OpenOptions {
@@ -111,7 +111,7 @@ fn crash_child() {
             }
         }
         "backup" => loop {
-            backup_to(db.conn(), &dir.join("flash/kazna.db")).unwrap();
+            backup_to(db.conn(), &dir.join("flash/p-treasury.db")).unwrap();
         },
         _ => unreachable!(),
     }
@@ -192,7 +192,7 @@ fn killed_during_backup_leaves_no_broken_copy() {
         kill_after(spawn(dir.path(), "backup"), 300 + 70 * round);
         assert_eq!(integrity(&dir.path().join("budget.db")), "ok");
         // Под именем копии лежит только целая копия (если успела записаться).
-        let copy = flash.join("kazna.db");
+        let copy = flash.join("p-treasury.db");
         if copy.exists() {
             assert_eq!(integrity(&copy), "ok");
             backups::inspect(&copy).unwrap();
@@ -200,10 +200,10 @@ fn killed_during_backup_leaves_no_broken_copy() {
     }
     // Следующая копия убирает недописанный остаток.
     let db = open(dir.path());
-    backups::backup(db.conn(), &flash.join("kazna.db")).unwrap();
+    backups::backup(db.conn(), &flash.join("p-treasury.db")).unwrap();
     let names: Vec<String> = std::fs::read_dir(&flash)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(names, ["kazna.db"]);
+    assert_eq!(names, ["p-treasury.db"]);
 }

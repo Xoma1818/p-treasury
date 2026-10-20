@@ -17,7 +17,7 @@ const ru = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear(
 const today = iso(now);
 /** День текущего месяца, не позже сегодняшнего. */
 const day = (n) => new Date(now.getFullYear(), now.getMonth(), Math.min(n, now.getDate()));
-const files = mkdtempSync(join(tmpdir(), "kazna-final-"));
+const files = mkdtempSync(join(tmpdir(), "p-treasury-final-"));
 
 /** Сумма в копейках так, как её пишет приложение: «1 248,13 ₽». */
 function rub(kop) {
@@ -73,7 +73,7 @@ after(async () => {
 });
 
 const accountRow = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
-const pick = (...paths) => browser.execute((p) => (window.__kaznaPick = p), paths);
+const pick = (...paths) => browser.execute((p) => (window.__ptPick = p), paths);
 
 /** Снимок всех цифр, которые видит пользователь: для сравнения до копии и после восстановления. */
 async function snapshot() {
