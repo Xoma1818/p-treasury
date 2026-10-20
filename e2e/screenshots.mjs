@@ -1,5 +1,5 @@
 // Скриншоты экранов для отчёта: node e2e/screenshots.mjs (под xvfb-run на Linux).
-import { start, stop, onboard, openSection, fill, choose, click, save } from "./app.mjs";
+import { start, stop, onboard, openSection, fill, choose, click, save, setDate } from "./app.mjs";
 
 const out = (name) => new URL(`../docs/${name}.png`, import.meta.url).pathname;
 const { browser } = await start();
@@ -47,6 +47,30 @@ try {
   await browser.execute(() => document.querySelector(".content")?.scrollTo(0, 0) ?? window.scrollTo(0, 0));
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-budget"));
+  await openSection(browser, "Долги");
+  await click(browser, "Калькулятор");
+  await browser.$('[data-testid="calc-annuity"]').waitForExist({ timeout: 5000 });
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-calculator"));
+  await click(browser, "Сохранить как долг", '//*[@data-testid="calc-annuity"]');
+  await fill(browser, "counterparty", "Т-Банк");
+  await choose(browser, "account", "Карта Сбер (₽)");
+  await save(browser);
+  await click(browser, "Оплачено");
+  await save(browser);
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-debt"));
+  await openSection(browser, "Долги");
+  await click(browser, "+ Новый долг");
+  await click(browser, "Я дал в долг", '//*[@role="dialog"]');
+  await fill(browser, "counterparty", "Иван");
+  await fill(browser, "principal", "20000");
+  await choose(browser, "repayment", "Разовый возврат в конце");
+  await setDate(browser, "maturity", `${new Date().getFullYear() + 1}-03-01`);
+  await save(browser);
+  await openSection(browser, "Долги");
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-debts"));
   await openSection(browser, "Главная");
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-home"));

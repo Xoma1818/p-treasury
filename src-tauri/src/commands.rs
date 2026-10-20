@@ -7,6 +7,8 @@ use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::budgets::{self, Budget, Period};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::currencies::{self, Currency, ExchangeRate};
+use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
+use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::onboarding::{self, Setup};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::storage::{self, Storage};
@@ -346,4 +348,69 @@ pub fn report_by_month(
 #[tauri::command]
 pub fn report_balances(state: State<AppState>, date: String) -> CmdResult<BalancesReport> {
     with_db(&state, |db| reports::balances_on(db.conn(), &date))
+}
+
+// --- Долги и калькулятор ---
+
+#[tauri::command]
+pub fn calc_loan(input: LoanInput) -> CmdResult<Schedule> {
+    loan_calc::calculate(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn compare_loans(input: LoanInput) -> CmdResult<Comparison> {
+    loan_calc::compare(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_debts(state: State<AppState>) -> CmdResult<Vec<DebtCard>> {
+    with_db(&state, |db| debts::list(db.conn(), &time::today_local()))
+}
+
+#[tauri::command]
+pub fn get_debt(state: State<AppState>, id: String) -> CmdResult<DebtDetail> {
+    with_db(&state, |db| {
+        debts::get(db.conn(), &id, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn debt_summary(state: State<AppState>) -> CmdResult<debts::Summary> {
+    with_db(&state, |db| {
+        debts::summary(db.conn(), &time::today_local(), 5)
+    })
+}
+
+#[tauri::command]
+pub fn create_debt(state: State<AppState>, input: DebtInput) -> CmdResult<String> {
+    with_db(&state, |db| debts::create(db.conn_mut(), &input))
+}
+
+#[tauri::command]
+pub fn update_debt_info(
+    state: State<AppState>,
+    id: String,
+    counterparty: String,
+    note: Option<String>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        debts::update_info(db.conn(), &id, &counterparty, note)
+    })
+}
+
+#[tauri::command]
+pub fn delete_debt(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_db(&state, |db| debts::delete(db.conn_mut(), &id))
+}
+
+#[tauri::command]
+pub fn pay_debt(state: State<AppState>, id: String, input: PaymentInput) -> CmdResult<String> {
+    with_db(&state, |db| debts::pay(db.conn_mut(), &id, &input))
+}
+
+#[tauri::command]
+pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdResult<()> {
+    with_db(&state, |db| {
+        debts::delete_payment(db.conn_mut(), &payment_id)
+    })
 }

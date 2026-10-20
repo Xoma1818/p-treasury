@@ -14,6 +14,8 @@ export interface TxnJump {
 
 interface UiState {
   section: SectionId;
+  /** Растёт при каждом переходе из меню: повторное нажатие пункта открывает раздел с начала. */
+  visit: number;
   go: (section: SectionId) => void;
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
   txnFilter: TxnJump | null;
@@ -24,7 +26,8 @@ interface UiState {
 
 export const useUi = create<UiState>((set) => ({
   section: "home",
-  go: (section) => set({ section }),
+  visit: 0,
+  go: (section) => set((s) => ({ section, visit: s.visit + 1 })),
   txnFilter: null,
   showTransactions: (txnFilter) => set({ txnFilter, section: "transactions" }),
   txnForm: null,

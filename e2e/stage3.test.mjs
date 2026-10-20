@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 3 «Отчёты»: сценарии из product/mvp-features.md, раздел 6.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate } from "./app.mjs";
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const now = new Date();
@@ -40,19 +40,6 @@ after(async () => {
 });
 
 const catRow = (name) => `//li[@data-testid="cat-row" and @data-category="${name}"]`;
-
-/** Ввести дату в поле type=date так, чтобы React увидел изменение. */
-async function setDate(name, value) {
-  await browser.execute(
-    (n, v) => {
-      const el = document.querySelector(`[name="${n}"]`);
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    },
-    name,
-    value,
-  );
-}
 
 test("итоги месяца: доли категорий «Жильё 57 %», «Продукты 28 %», «Транспорт 15 %»", async () => {
   await openSection(browser, "Отчёты");
@@ -113,7 +100,7 @@ test("остатки на дату: сегодня 110 000 ₽, вчера сч�
   await waitText(browser, '//tr[@data-account="Наличные"]', money("3 000 ₽"));
   await waitText(browser, '//tr[@data-account="Карта"]', money("107 000 ₽"));
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  await setDate("balancesDate", iso(yesterday));
+  await setDate(browser, "balancesDate", iso(yesterday));
   await waitText(browser, "main", /На эту дату счетов ещё не было/);
 });
 

@@ -238,3 +238,24 @@ textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(
 .months-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px 8px; }
 .months-table th.num { text-align: right; }
 .total-row td { font-weight: 600; border-top: 2px solid var(--border); }
+
+/* Долги */
+.link.back { padding: 0; margin-bottom: 8px; font-size: 14px; }
+.sub-title { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 10px; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; margin-left: 8px; vertical-align: 1px; background: var(--bg); color: var(--muted); }
+.badge.over { background: #fdeee6; color: var(--over); }
+.badge.good { background: var(--accent-soft); color: var(--accent); }
+.account-list li.over, li.over .main { color: var(--over); }
+.debt-columns { grid-template-columns: 2fr 1fr; margin-top: 16px; }
+.columns.home-bottom { grid-template-columns: 2fr 1fr; margin-top: 16px; }
+.columns.home-bottom .card { margin: 0; }
+.schedule th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px 8px; }
+.schedule th.num { text-align: right; }
+.schedule tr.done td { color: var(--muted); }
+.schedule tr.overdue td { color: var(--over); }
+.schedule td.status { font-size: 12px; white-space: nowrap; }
+.preview { background: var(--accent-soft); border-color: var(--accent-soft); margin: 0; }
+.variant { cursor: pointer; margin: 0; }
+.variant.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.facts dd.big { font-size: 20px; font-weight: 600; }
+.columns.variants { margin-bottom: 16px; }

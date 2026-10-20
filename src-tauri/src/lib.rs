@@ -74,6 +74,16 @@ pub fn run() {
             commands::report_by_category,
             commands::report_by_month,
             commands::report_balances,
+            commands::calc_loan,
+            commands::compare_loans,
+            commands::list_debts,
+            commands::get_debt,
+            commands::debt_summary,
+            commands::create_debt,
+            commands::update_debt_info,
+            commands::delete_debt,
+            commands::pay_debt,
+            commands::delete_debt_payment,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");

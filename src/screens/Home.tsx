@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Money } from "../components/Money";
 import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
-import { monthTitle, today } from "../lib/dates";
+import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
 
@@ -17,6 +17,7 @@ export function Home() {
     enabled: !!period,
   });
   const budget = useBudget(period?.month).data;
+  const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
   const { openTxnForm, showTransactions, go } = useUi();
@@ -46,6 +47,11 @@ export function Home() {
           <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} />}</div>
           {totals.data && totals.data.missingRates.length > 0 && (
             <div className="hint warn">Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли. Курс вводится в Настройках.</div>
+          )}
+          {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0) && (
+            <div className="hint" data-testid="home-net-worth">
+              Чистые активы с долгами: <Money amount={debts.netWorth} symbol={symbol} />
+            </div>
           )}
         </div>
         <div className="card tile" data-testid="month-income">
@@ -85,6 +91,7 @@ export function Home() {
           {recent.data && <TxnTable items={recent.data.items} compact />}
         </div>
       </div>
+      <div className="columns home-bottom">
       <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
         <h2>Бюджет, {monthName}</h2>
         {budget && !budget.id && <p className="muted">Бюджета на этот месяц нет. Нажмите, чтобы составить.</p>}
@@ -113,6 +120,21 @@ export function Home() {
             </ul>
           </>
         )}
+      </div>
+      <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
+        <h2>Ближайшие платежи по долгам</h2>
+        {debts && debts.upcoming.length === 0 && <p className="muted">Платежей нет.</p>}
+        <ul className="account-list">
+          {debts?.upcoming.slice(0, 4).map((u) => (
+            <li key={u.scheduleId} className={u.overdue ? "over" : undefined}>
+              <span>
+                {formatDate(u.dueDate)} · {u.counterparty}
+              </span>
+              <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
+            </li>
+          ))}
+        </ul>
+      </div>
       </div>
     </section>
   );

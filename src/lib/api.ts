@@ -200,6 +200,138 @@ export interface BalancesReport {
   missingRates: string[];
 }
 
+export type Repayment = "annuity" | "differentiated" | "bullet";
+export type Direction = "lent" | "borrowed";
+
+export interface LoanInput {
+  principal: number;
+  rateBp: number;
+  repayment: Repayment;
+  termMonths: number | null;
+  issueDate: string;
+  firstPaymentDate: string | null;
+  maturityDate: string | null;
+}
+
+export interface LoanRow {
+  seq: number;
+  dueDate: string;
+  payment: number;
+  principalPart: number;
+  interestPart: number;
+  balanceAfter: number;
+}
+
+export interface Schedule {
+  rows: LoanRow[];
+  firstPayment: number;
+  lastPayment: number;
+  totalPayment: number;
+  totalInterest: number;
+  maturityDate: string;
+}
+
+export interface DebtInput {
+  direction: Direction;
+  counterparty: string;
+  note: string | null;
+  currencyCode: string;
+  principal: number;
+  issueDate: string;
+  rateBp: number;
+  repaymentType: Repayment;
+  termMonths: number | null;
+  firstPaymentDate: string | null;
+  maturityDate: string | null;
+  accountId: string | null;
+}
+
+export interface ScheduleRow extends LoanRow {
+  id: string;
+  status: "pending" | "paid" | "partial";
+  overdue: boolean;
+}
+
+export interface DebtPayment {
+  id: string;
+  date: string;
+  principal: number;
+  interest: number;
+  scheduleSeq: number | null;
+  recalcMode: string | null;
+  accountName: string | null;
+}
+
+export interface DebtCard {
+  id: string;
+  direction: Direction;
+  counterparty: string;
+  note: string | null;
+  accountId: string;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  principal: number;
+  issueDate: string;
+  rateBp: number;
+  repaymentType: Repayment;
+  termMonths: number | null;
+  maturityDate: string;
+  status: "active" | "closed";
+  outstanding: number;
+  principalPaid: number;
+  interestPaid: number;
+  interestPlanned: number;
+  nextPayment: ScheduleRow | null;
+  overdueCount: number;
+  overdueAmount: number;
+  defaultAccountId: string | null;
+}
+
+export interface DebtDetail {
+  card: DebtCard;
+  schedule: ScheduleRow[];
+  payments: DebtPayment[];
+}
+
+export interface PaymentInput {
+  date: string;
+  accountId: string;
+  principal: number;
+  interest: number;
+  scheduleId: string | null;
+  recalcMode: "reduce_payment" | "reduce_term" | null;
+}
+
+export interface UpcomingPayment {
+  debtId: string;
+  scheduleId: string;
+  counterparty: string;
+  direction: Direction;
+  dueDate: string;
+  payment: number;
+  currencySymbol: string;
+  minorUnits: number;
+  overdue: boolean;
+}
+
+export interface DebtSummary {
+  baseCurrency: string;
+  baseSymbol: string;
+  owedToMe: number;
+  iOwe: number;
+  netWorth: number;
+  accountsTotal: number;
+  missingRates: string[];
+  upcoming: UpcomingPayment[];
+}
+
+export const REPAYMENTS: Record<Repayment, string> = {
+  annuity: "Аннуитет (равные платежи)",
+  differentiated: "Дифференцированный",
+  bullet: "Разовый возврат в конце",
+};
+
 export type ReportPeriodKind = "month" | "quarter" | "year";
 
 export interface Period {
@@ -282,6 +414,16 @@ export const api = {
   reportByCategory: (kind: CategoryKind, from: string, to: string) => invoke<CategoryReport>("report_by_category", { kind, from, to }),
   reportByMonth: (fromMonth: string, toMonth: string) => invoke<MonthsReport>("report_by_month", { fromMonth, toMonth }),
   reportBalances: (date: string) => invoke<BalancesReport>("report_balances", { date }),
+  calcLoan: (input: LoanInput) => invoke<Schedule>("calc_loan", { input }),
+  compareLoans: (input: LoanInput) => invoke<{ annuity: Schedule; differentiated: Schedule }>("compare_loans", { input }),
+  listDebts: () => invoke<DebtCard[]>("list_debts"),
+  getDebt: (id: string) => invoke<DebtDetail>("get_debt", { id }),
+  debtSummary: () => invoke<DebtSummary>("debt_summary"),
+  createDebt: (input: DebtInput) => invoke<string>("create_debt", { input }),
+  updateDebtInfo: (id: string, counterparty: string, note: string | null) => invoke<void>("update_debt_info", { id, counterparty, note }),
+  deleteDebt: (id: string) => invoke<void>("delete_debt", { id }),
+  payDebt: (id: string, input: PaymentInput) => invoke<string>("pay_debt", { id, input }),
+  deleteDebtPayment: (paymentId: string) => invoke<void>("delete_debt_payment", { paymentId }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),

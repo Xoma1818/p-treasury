@@ -44,9 +44,10 @@ export async function openSection(browser, title) {
 
 /** Поле по атрибуту name (в открытом диалоге, если он есть). */
 export async function field(browser, name) {
-  const dialog = await browser.$('[role="dialog"]');
-  const scope = (await dialog.isExisting()) ? dialog : browser;
-  return scope.$(`[name="${name}"]`);
+  // Один селектор вместо поиска внутри диалога: диалог может перерисоваться
+  // между поисками, и ссылка на него устареет (stale element).
+  const inDialog = await browser.$('[role="dialog"]').isExisting();
+  return browser.$(inDialog ? `[role="dialog"] [name="${name}"]` : `[name="${name}"]`);
 }
 
 export async function fill(browser, name, value) {
@@ -71,11 +72,12 @@ export async function click(browser, text, scope = "") {
 /** Нажать «Сохранить» в диалоге и дождаться, что он закрылся (или вернуть текст ошибки). */
 export async function save(browser, button = "Сохранить") {
   await click(browser, button, '//*[@role="dialog"]');
-  const dialog = await browser.$('[role="dialog"]');
-  await browser.waitUntil(async () => !(await dialog.isExisting()) || (await browser.$('[role="alert"]').isExisting()), {
+  // Каждый раз ищем заново: сохранённая ссылка на закрывшийся диалог устаревает.
+  const open = () => browser.$('[role="dialog"]').isExisting();
+  await browser.waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), {
     timeout: 5000,
   });
-  if (await dialog.isExisting()) throw new Error(`Диалог не закрылся: ${await browser.$('[role="alert"]').getText()}`);
+  if (await open()) throw new Error(`Диалог не закрылся: ${await browser.$('[role="alert"]').getText()}`);
 }
 
 export async function mainText(browser) {
@@ -123,4 +125,17 @@ export async function onboard(browser, rows, { categories = true } = {}) {
 export function money(text) {
   const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(escaped.replace(/ /g, "[\\s\\u00A0]"));
+}
+
+/** Ввести дату в поле type=date так, чтобы React увидел изменение (WebKit не печатает в такие поля). */
+export async function setDate(browser, name, value) {
+  await browser.execute(
+    (n, v) => {
+      const el = document.querySelector(`[role="dialog"] [name="${n}"]`) ?? document.querySelector(`[name="${n}"]`);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    name,
+    value,
+  );
 }

@@ -8,6 +8,7 @@ import { useUi } from "./lib/store";
 import { Accounts } from "./screens/Accounts";
 import { Budget } from "./screens/Budget";
 import { Categories } from "./screens/Categories";
+import { Debts } from "./screens/Debts";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Placeholder } from "./screens/Placeholder";
@@ -22,12 +23,13 @@ const SCREENS: Partial<Record<SectionId, () => React.JSX.Element>> = {
   reports: Reports,
   accounts: Accounts,
   categories: Categories,
+  debts: Debts,
   settings: Settings,
 };
 
 export function App() {
   const info = useAppInfo();
-  const { section, go, openTxnForm } = useUi();
+  const { section, visit, go, openTxnForm } = useUi();
 
   // Ctrl+1…9: разделы меню; Ctrl+N: новая операция; Ctrl+T: перевод.
   useEffect(() => {
@@ -69,7 +71,7 @@ export function App() {
   return (
     <div className="layout">
       <Sidebar />
-      <main className="content">{Screen ? <Screen /> : <Placeholder id={section} />}</main>
+      <main className="content">{Screen ? <Screen key={visit} /> : <Placeholder id={section} />}</main>
       <TxnForm />
     </div>
   );
