@@ -1,5 +1,6 @@
 mod commands;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use budget_core::storage::{OpenOptions, Storage};
@@ -11,10 +12,21 @@ pub struct AppState {
     pub db: Mutex<Result<Storage, String>>,
 }
 
+/// Папка данных для сквозных тестов: аргумент `--data-dir=<путь>` или
+/// переменная KAZNA_DATA_DIR. Каждый прогон тестов идёт с чистой базой.
+fn data_dir_override() -> Option<PathBuf> {
+    std::env::args()
+        .find_map(|a| a.strip_prefix("--data-dir=").map(PathBuf::from))
+        .or_else(|| std::env::var_os("KAZNA_DATA_DIR").map(PathBuf::from))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+            let data_dir = match data_dir_override() {
+                Some(dir) => dir,
+                None => app.path().app_data_dir()?,
+            };
             let opts = OpenOptions {
                 backup_dir: data_dir.join("backups"),
                 keep_backups: 10,

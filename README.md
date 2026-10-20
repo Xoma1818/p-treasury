@@ -24,12 +24,11 @@ npm run tauri dev      # окно приложения с горячей пер�
 npm run tauri build    # установщик для текущей ОС
 ```
 
-Проверки:
+Проверки (подробно в [TESTING.md](TESTING.md)):
 
 ```bash
-cargo test --workspace # ядро: база, миграции, копии, деньги
-npm test               # UI: формат сумм
-npm run typecheck
+npm run check        # формат, линтеры, все тесты ядра и UI, сборка
+npm run check:e2e    # плюс сквозные тесты на настоящем окне (нужны tauri-driver и WebKitWebDriver)
 ```
 
 Данные лежат в папке данных ОС: `%APPDATA%\app.kazna.desktop\budget.db` на Windows, `~/Library/Application Support/app.kazna.desktop/` на macOS, `~/.local/share/app.kazna.desktop/` на Linux. Копии перед обновлением: подпапка `backups`.
@@ -43,6 +42,8 @@ crates/core/          ядро на Rust (вся логика и SQL)
   tests/              тесты ядра на настоящем файле SQLite
 src-tauri/            окно Tauri и команды для UI (без SQL)
 src/                  интерфейс React + TypeScript
+e2e/                  сквозные тесты на настоящем окне (WebDriver)
+scripts/check.sh      проверка всего проекта одной командой
 ```
 
 Правило границ: UI вызывает только команды ядра, ядро обращается к базе только через `storage`.

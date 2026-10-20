@@ -16,3 +16,11 @@ pub fn today_local() -> String {
 pub fn file_stamp() -> String {
     Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
+
+/// Проверить дату операции `YYYY-MM-DD`.
+pub fn check_date(date: &str) -> crate::Result<()> {
+    match chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        Ok(_) if date.len() == 10 => Ok(()),
+        _ => crate::error::invalid(format!("некорректная дата: {date}")),
+    }
+}

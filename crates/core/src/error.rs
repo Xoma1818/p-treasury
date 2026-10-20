@@ -26,6 +26,18 @@ pub enum Error {
 
     #[error("неизвестная настройка: {0}")]
     UnknownSetting(String),
+
+    /// Нарушено бизнес-правило; текст показывается пользователю как есть.
+    #[error("{0}")]
+    Validation(String),
+
+    #[error("{0} не найден(а)")]
+    NotFound(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Короткая запись для ошибок проверки: `invalid("Сумма должна быть больше нуля")`.
+pub fn invalid<T>(msg: impl Into<String>) -> Result<T> {
+    Err(Error::Validation(msg.into()))
+}

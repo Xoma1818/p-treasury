@@ -17,3 +17,7 @@ budget-core = { path = "../crates/core" }
 tauri = { version = "2", features = [] }
 serde.workspace = true
 serde_json.workspace = true
+
+[features]
+# Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.
+custom-protocol = ["tauri/custom-protocol"]
