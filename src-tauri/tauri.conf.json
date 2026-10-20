@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "P-Treasury",
+  "mainBinaryName": "p-treasury",
+  "version": "0.8.0",
+  "identifier": "app.kazna.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "P-Treasury",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI0ODEyOEMyMkFEOEY1NEIKUldSTDlkZ3F3aWlCSk5jdEZFMjRwaElrU2ViNkdJdFVpa0VkY3ZEOEZPc0hjZGF2ZW9maWc4VDAK",
+      "endpoints": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "budget-core"
+description = "Ядро приложения: хранение, миграции, бизнес-правила. Без зависимостей от UI и Tauri."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rust_xlsxwriter = "0.100.0"
+csv = "1.4.0"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+calamine = "0.37.0"
