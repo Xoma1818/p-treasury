@@ -1,0 +1,16 @@
+[package]
+name = "budget-core"
+description = "Ядро приложения: хранение, миграции, бизнес-правила. Без зависимостей от UI и Tauri."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
