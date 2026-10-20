@@ -564,6 +564,83 @@ pub fn report_sheet(conn: &Connection, report: &str, from: &str, to: &str) -> Re
     }
 }
 
+fn ru_date(d: &str) -> String {
+    match (d.get(0..4), d.get(5..7), d.get(8..10)) {
+        (Some(y), Some(m), Some(day)) => format!("{day}.{m}.{y}"),
+        _ => d.to_string(),
+    }
+}
+
+/// Сравнение двух периодов одним листом: позиции, суммы в обоих периодах, изменение в деньгах и в %.
+#[allow(clippy::too_many_arguments)]
+pub fn comparison_sheet(
+    conn: &Connection,
+    kind: &str,
+    by: &str,
+    a_from: &str,
+    a_to: &str,
+    b_from: &str,
+    b_to: &str,
+) -> Result<Sheet> {
+    let c = crate::compare::compare(conn, kind, by, a_from, a_to, b_from, b_to)?;
+    let mu = currencies::minor_units(conn, &c.base_currency)?;
+    let first = match by {
+        "payee" => "Получатель",
+        "account" => "Счёт",
+        _ => "Категория",
+    };
+    let a = format!("Период 1: {} – {}", ru_date(a_from), ru_date(a_to));
+    let b = format!("Период 2: {} – {}", ru_date(b_from), ru_date(b_to));
+    let mut sh = Sheet::new(
+        if kind == "income" {
+            "Сравнение доходов"
+        } else {
+            "Сравнение расходов"
+        },
+        &[
+            first,
+            "Подкатегория",
+            &a,
+            &b,
+            "Изменение",
+            "Изменение, %",
+            "Где есть",
+        ],
+    );
+    let presence = |p: &str| match p {
+        "onlyA" => "только в периоде 1",
+        "onlyB" => "только в периоде 2",
+        _ => "в обоих",
+    };
+    let line = |name: &str, sub: Cell, r: &crate::compare::CompareRow| {
+        vec![
+            Cell::text(name),
+            sub,
+            Cell::Money(r.a, mu),
+            Cell::Money(r.b, mu),
+            Cell::Money(r.diff, mu),
+            Cell::Percent(r.percent),
+            Cell::text(presence(r.presence)),
+        ]
+    };
+    for r in &c.rows {
+        sh.rows.push(line(&r.name, Cell::Empty, r));
+        for ch in &r.children {
+            sh.rows.push(line(&r.name, Cell::text(&ch.name), ch));
+        }
+    }
+    sh.rows.push(vec![
+        Cell::text("Итого"),
+        Cell::Empty,
+        Cell::Money(c.total_a, mu),
+        Cell::Money(c.total_b, mu),
+        Cell::Money(c.diff, mu),
+        Cell::Percent(c.percent),
+        Cell::Empty,
+    ]);
+    Ok(sh)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,6 +811,58 @@ mod tests {
         assert_eq!(only_food.rows.len(), 1);
         assert!(report_sheet(c, "nope", "2026-10-01", "2026-10-31").is_err());
         assert!(summary_workbook(c, "2026-10-31", "2026-10-01", "2026-11-01").is_err());
+    }
+
+    #[test]
+    fn comparison_sheet_reads_back_as_numbers() {
+        let db = setup();
+        let c = db.conn();
+        let sh = comparison_sheet(
+            c,
+            "expense",
+            "category",
+            "2026-10-01",
+            "2026-10-31",
+            "2026-11-01",
+            "2026-11-30",
+        )
+        .unwrap();
+        assert_eq!(sh.name, "Сравнение расходов");
+        assert_eq!(sh.headers[2], "Период 1: 01.10.2026 – 31.10.2026");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Сравнение.xlsx");
+        write_one(&path, &sh).unwrap();
+        let mut wb: Xlsx<_> = open_workbook(&path).unwrap();
+        let range = wb.worksheet_range("Сравнение расходов").unwrap();
+        let row = |name: &str| {
+            range
+                .rows()
+                .find(|r| r[0] == Data::String(name.into()) && r[1] == Data::Empty)
+                .unwrap()
+                .to_vec()
+        };
+        let food = row("Продукты");
+        assert_eq!(
+            &food[2..6],
+            [
+                Data::Float(2340.5),
+                Data::Float(1000.0),
+                Data::Float(-1340.5),
+                Data::Float(-0.57)
+            ]
+        );
+        assert_eq!(food[6], Data::String("в обоих".into()));
+        let home = row("Жильё");
+        assert_eq!(home[6], Data::String("только в периоде 1".into()));
+        let total = row("Итого");
+        assert_eq!(
+            &total[2..5],
+            [
+                Data::Float(8570.5),
+                Data::Float(1000.0),
+                Data::Float(-7570.5)
+            ]
+        );
     }
 
     #[test]

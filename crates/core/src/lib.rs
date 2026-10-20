@@ -8,6 +8,7 @@ pub mod backups;
 pub mod budgets;
 pub mod calendar;
 pub mod categories;
+pub mod compare;
 pub mod csv_import;
 pub mod currencies;
 pub mod debts;

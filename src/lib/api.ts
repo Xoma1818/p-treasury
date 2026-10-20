@@ -161,6 +161,41 @@ export interface CategoryReport {
   missingRates: string[];
 }
 
+export type CompareBy = "category" | "payee" | "account";
+
+/** Два периода: `a` — с чем сравниваем, `b` — что сравниваем. */
+export interface ComparePeriods {
+  aFrom: string;
+  aTo: string;
+  bFrom: string;
+  bTo: string;
+}
+
+export interface CompareRow {
+  key: string;
+  name: string;
+  a: number;
+  b: number;
+  diff: number;
+  percent: number | null;
+  presence: "both" | "onlyA" | "onlyB";
+  children: CompareRow[];
+}
+
+export interface Comparison {
+  baseCurrency: string;
+  kind: CategoryKind;
+  by: CompareBy;
+  summaryA: PeriodSummary;
+  summaryB: PeriodSummary;
+  totalA: number;
+  totalB: number;
+  diff: number;
+  percent: number | null;
+  rows: CompareRow[];
+  missingRates: string[];
+}
+
 export interface MonthRow {
   period: Period;
   income: number;
@@ -603,6 +638,7 @@ export const api = {
   periodSummary: (from: string, to: string) => invoke<PeriodSummary>("period_summary", { from, to }),
   reportPeriod: (kind: ReportPeriodKind, month: string) => invoke<Period>("report_period", { kind, month }),
   reportByCategory: (kind: CategoryKind, from: string, to: string) => invoke<CategoryReport>("report_by_category", { kind, from, to }),
+  comparePeriods: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods) => invoke<Comparison>("compare_periods", { kind, by, periods }),
   reportByMonth: (fromMonth: string, toMonth: string) => invoke<MonthsReport>("report_by_month", { fromMonth, toMonth }),
   reportBalances: (date: string) => invoke<BalancesReport>("report_balances", { date }),
   calcLoan: (input: LoanInput) => invoke<Schedule>("calc_loan", { input }),
@@ -643,6 +679,8 @@ export const api = {
   exportTransactions: (filter: TxnFilter, path: string) => invoke<void>("export_transactions", { filter, path }),
   exportReport: (report: "categories" | "months", from: string, to: string, path: string) =>
     invoke<void>("export_report", { report, from, to, path }),
+  exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
+    invoke<void>("export_comparison", { kind, by, periods, path }),
   importPreview: (path: string) => invoke<ImportPreview>("import_preview", { path }),
   importCsv: (path: string, skipErrors: boolean) => invoke<number>("import_csv", { path, skipErrors }),
   writeImportTemplate: (path: string) => invoke<void>("write_import_template", { path }),

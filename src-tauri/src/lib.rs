@@ -111,6 +111,8 @@ pub fn run() {
             commands::delete_budget,
             commands::report_period,
             commands::report_by_category,
+            commands::compare_periods,
+            commands::export_comparison,
             commands::report_by_month,
             commands::report_balances,
             commands::calc_loan,

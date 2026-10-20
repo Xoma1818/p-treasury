@@ -1,22 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useExport } from "../components/DataTools";
+import { Compare } from "./Compare";
 import { ErrorText } from "../components/Modal";
-import { Money } from "../components/Money";
+import { BaseMoney, Money } from "../components/Money";
 import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportPeriodKind, type Period } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount } from "../lib/money";
-import { useCurrencies, useMonthOf, useSettings } from "../lib/queries";
+import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 
-/** Сумма в основной валюте (все отчёты считаются в ней). */
-function M(props: { amount: number; signed?: boolean }) {
-  const { data: settings } = useSettings();
-  const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
-  return <Money {...props} symbol={base?.symbol ?? "₽"} minorUnits={base?.minorUnits ?? 2} />;
-}
+const M = BaseMoney;
 
-type Tab = "structure" | "months" | "balances";
+type Tab = "structure" | "months" | "balances" | "compare";
 type Kind = ReportPeriodKind | "custom";
 
 const KINDS: [Kind, string][] = [
@@ -72,6 +68,7 @@ export function Reports() {
     <section className="screen wide">
       <div className="screen-head">
         <h1>Отчёты</h1>
+        {tab !== "compare" && (
         <div className="period-picker">
           <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {
             const k = e.target.value as Kind;
@@ -118,6 +115,7 @@ export function Reports() {
             </button>
           )}
         </div>
+        )}
       </div>
       {exp.done && (
         <p className="ok" data-testid="export-done">
@@ -126,7 +124,7 @@ export function Reports() {
       )}
       <ErrorText error={exp.error} />
 
-      {s && (
+      {s && tab !== "compare" && (
         <div className="tiles">
           <div className="card tile clickable" data-testid="report-income" onClick={all}>
             <div className="tile-label">Доходы</div>
@@ -158,7 +156,7 @@ export function Reports() {
           </div>
         </div>
       )}
-      {s && s.missingRates.length > 0 && (
+      {s && tab !== "compare" && s.missingRates.length > 0 && (
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
 
@@ -168,6 +166,7 @@ export function Reports() {
             ["structure", "Структура"],
             ["months", "По месяцам"],
             ["balances", "Остатки на дату"],
+            ["compare", "Сравнение"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
@@ -179,6 +178,7 @@ export function Reports() {
       {period && tab === "structure" && <Structure period={period} />}
       {period && tab === "months" && <Months period={period} kind={kind} />}
       {period && tab === "balances" && <Balances period={period} />}
+      {tab === "compare" && <Compare />}
     </section>
   );
 }

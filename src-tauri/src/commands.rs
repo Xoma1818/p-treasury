@@ -378,6 +378,60 @@ pub fn report_by_category(
     })
 }
 
+/// Два периода для сравнения: `a` — с чем сравниваем, `b` — что сравниваем.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparePeriods {
+    pub a_from: String,
+    pub a_to: String,
+    pub b_from: String,
+    pub b_to: String,
+}
+
+#[tauri::command]
+pub fn compare_periods(
+    state: State<AppState>,
+    kind: String,
+    by: String,
+    periods: ComparePeriods,
+) -> CmdResult<budget_core::compare::Comparison> {
+    let p = periods;
+    with_db(&state, |db| {
+        budget_core::compare::compare(
+            db.conn(),
+            &kind,
+            &by,
+            &p.a_from,
+            &p.a_to,
+            &p.b_from,
+            &p.b_to,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn export_comparison(
+    state: State<AppState>,
+    kind: String,
+    by: String,
+    periods: ComparePeriods,
+    path: String,
+) -> CmdResult<()> {
+    let p = periods;
+    with_db(&state, |db| {
+        let sheet = export::comparison_sheet(
+            db.conn(),
+            &kind,
+            &by,
+            &p.a_from,
+            &p.a_to,
+            &p.b_from,
+            &p.b_to,
+        )?;
+        export::write_one(Path::new(&path), &sheet)
+    })
+}
+
 #[tauri::command]
 pub fn report_by_month(
     state: State<AppState>,
