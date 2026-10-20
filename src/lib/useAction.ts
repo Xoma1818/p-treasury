@@ -6,15 +6,15 @@ import { useState } from "react";
  * (данные в ядре связаны: операция меняет баланс, бюджет и отчёты).
  * Текст ошибки из ядра показывается пользователю как есть.
  */
-export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>, onDone?: () => void) {
+export function useAction<A extends unknown[], P extends Promise<unknown>>(fn: (...args: A) => P, onDone?: (result: Awaited<P>) => void) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const m = useMutation({
-    mutationFn: (args: A) => fn(...args),
+    mutationFn: (args: A) => fn(...args) as Promise<Awaited<P>>,
     onMutate: () => setError(null),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await qc.invalidateQueries();
-      onDone?.();
+      onDone?.(result);
     },
     onError: (e) => setError(String(e)),
   });

@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { CbrButton } from "../components/CbrButton";
 import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
 import { TemplatesCard } from "../components/Templates";
@@ -8,9 +10,11 @@ import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
+import { ScreenTitle } from "../components/SectionIcon";
 
 export function Home() {
   const date = today();
+  const [cbrUsed, setCbrUsed] = useState(false);
   // Месяц считается от настройки «первый день месяца», как в бюджете.
   const period = useMonthOf(date).data;
   const totals = useQuery({ queryKey: ["totals", date], queryFn: () => api.totals(date) });
@@ -32,7 +36,7 @@ export function Home() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Главная</h1>
+        <ScreenTitle id="home" />
         <div className="btn-group">
           <HideAmountsButton className="btn" />
           <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>
@@ -60,8 +64,12 @@ export function Home() {
         <div className="card tile" data-testid="total-balance">
           <div className="tile-label">Общий баланс</div>
           <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} />}</div>
-          {totals.data && totals.data.missingRates.length > 0 && (
-            <div className="hint warn">Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли. Курс вводится в Настройках.</div>
+          {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
+            // После загрузки подсказка остаётся, чтобы было видно итог.
+            <div className={totals.data.missingRates.length > 0 ? "hint warn" : "hint"} data-testid="home-missing-rates">
+              {totals.data.missingRates.length > 0 && <>Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли.</>}
+              <CbrButton small label="Загрузить курс ЦБ" onLoaded={() => setCbrUsed(true)} />
+            </div>
           )}
           {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0) && (
             <div className="hint" data-testid="home-net-worth">

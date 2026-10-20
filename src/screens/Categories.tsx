@@ -5,6 +5,7 @@ import { api, type Category, type CategoryKind } from "../lib/api";
 import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -60,7 +61,7 @@ export function Categories() {
 
   return (
     <section className="screen">
-      <h1>Категории</h1>
+      <ScreenTitle id="categories" />
       <ErrorText error={archive.error} />
       <div className="columns">
         {column("expense", "Расходы")}
@@ -108,7 +109,7 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -149,7 +150,7 @@ function DeleteForm({ category, all, onClose }: { category: Category; all: Categ
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn danger" disabled={remove.busy || (used > 0 && !target)}>
+          <button type="submit" className="btn danger" aria-busy={remove.busy} disabled={remove.busy || (used > 0 && !target)}>
             Удалить
           </button>
         </div>

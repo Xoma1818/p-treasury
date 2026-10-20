@@ -8,6 +8,7 @@ import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } fro
 import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, WEEKDAYS, weekStart } from "../lib/dates";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 type Tab = "month" | "week" | "reminders";
 
@@ -21,7 +22,7 @@ export function Calendar() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Календарь</h1>
+        <ScreenTitle id="calendar" />
         <div className="btn-group">
           <button className="btn" onClick={() => setReminderDate(selected ?? today())}>
             + Напоминание

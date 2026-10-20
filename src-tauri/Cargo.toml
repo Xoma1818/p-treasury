@@ -21,6 +21,9 @@ chrono.workspace = true
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
+# Курсы ЦБ РФ; тот же reqwest, что уже приносит модуль обновлений.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [features]
 # Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.

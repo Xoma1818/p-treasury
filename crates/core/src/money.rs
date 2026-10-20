@@ -153,6 +153,21 @@ impl Rate {
         )
     }
 
+    /// Частное двух курсов с десятью знаками после запятой (для кросс-курсов и
+    /// курсов ЦБ за несколько единиц). `None`, если результат округлился до нуля.
+    pub fn divide(&self, other: &Rate) -> Option<Self> {
+        let num = self.mantissa * 10i128.pow(other.scale) * 10i128.pow(10);
+        let den = other.mantissa * 10i128.pow(self.scale);
+        let mantissa = div_round(num, den);
+        (mantissa > 0).then(|| {
+            Self {
+                mantissa,
+                scale: 10,
+            }
+            .normalized()
+        })
+    }
+
     fn normalized(mut self) -> Self {
         while self.scale > 0 && self.mantissa % 10 == 0 {
             self.mantissa /= 10;

@@ -404,10 +404,12 @@ dependencies = [
 
 [[package]]
 name = "budget-app"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "budget-core",
  "chrono",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",
@@ -419,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "budget-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "calamine",
  "chrono",

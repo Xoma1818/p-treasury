@@ -21,6 +21,7 @@ import { formatAmount, parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "calc" };
 
@@ -66,7 +67,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
   return (
     <>
       <div className="screen-head">
-        <h1>Долги</h1>
+        <ScreenTitle id="debts" />
         <div className="btn-group">
           <button className="btn" onClick={onCalc}>
             Калькулятор
@@ -404,7 +405,7 @@ function PayForm({ card, scheduled, onClose }: { card: DebtCard; scheduled: bool
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
             Сохранить
           </button>
         </div>

@@ -23,7 +23,16 @@ export interface ExchangeRate {
   fromCode: string;
   toCode: string;
   rate: string;
+  /** `manual` — введён вручную, `cbr` — загружен с сайта ЦБ РФ. */
   source: string;
+}
+
+export interface CbrImport {
+  /** Дата, на которую ЦБ установил курсы (в выходные — последний рабочий день). */
+  date: string;
+  updated: string[];
+  keptManual: string[];
+  missing: string[];
 }
 
 export type AccountType = "cash" | "debit" | "credit" | "savings";
@@ -614,6 +623,7 @@ export const api = {
   setRate: (date: string, from: string, to: string, rate: string) => invoke<void>("set_rate", { date, from, to, rate }),
   deleteRate: (date: string, from: string, to: string) => invoke<void>("delete_rate", { date, from, to }),
   rateOn: (from: string, to: string, date: string) => invoke<string | null>("rate_on", { from, to, date }),
+  loadCbrRates: (date: string) => invoke<CbrImport>("load_cbr_rates", { date }),
   finishOnboarding: (setup: Setup) => invoke<void>("finish_onboarding", { setup }),
   listAccounts: (includeArchived = false) => invoke<Account[]>("list_accounts", { includeArchived }),
   createAccount: (input: AccountInput) => invoke<string>("create_account", { input }),

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { NoteForm, NoteList } from "../components/Notes";
 import { api, type Note } from "../lib/api";
+import { ScreenTitle } from "../components/SectionIcon";
 
 /** Раздел «Заметки»: все заметки с поиском по словам. */
 export function Notes() {
@@ -17,7 +18,7 @@ export function Notes() {
   return (
     <section className="screen">
       <div className="screen-head">
-        <h1>Заметки</h1>
+        <ScreenTitle id="notes" />
         <button className="btn primary" onClick={() => setEdit("new")}>
           + Заметка
         </button>

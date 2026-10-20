@@ -74,7 +74,7 @@ export function Compare() {
             <PeriodBox n={1} from={periods.aFrom} to={periods.aTo} onFrom={(v) => edit("aFrom", v)} onTo={(v) => edit("aTo", v)} />
             <span className="vs muted" aria-hidden>→</span>
             <PeriodBox n={2} from={periods.bFrom} to={periods.bTo} onFrom={(v) => edit("bFrom", v)} onTo={(v) => edit("bTo", v)} />
-            <button className="btn" onClick={exp.run} disabled={exp.busy || !valid} title="Сравнение в Excel или CSV">
+            <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy || !valid} title="Сравнение в Excel или CSV">
               Выгрузить
             </button>
           </div>
