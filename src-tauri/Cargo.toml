@@ -14,9 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 budget-core = { path = "../crates/core" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde.workspace = true
 serde_json.workspace = true
+chrono.workspace = true
+tauri-plugin-notification = "2"
 
 [features]
 # Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.

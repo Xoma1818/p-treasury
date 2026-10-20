@@ -1,5 +1,5 @@
 // Скриншоты экранов для отчёта: node e2e/screenshots.mjs (под xvfb-run на Linux).
-import { start, stop, onboard, openSection, fill, choose, click, save, setDate } from "./app.mjs";
+import { start, stop, onboard, openSection, fill, choose, chooseLike, click, save, setDate } from "./app.mjs";
 
 const out = (name) => new URL(`../docs/${name}.png`, import.meta.url).pathname;
 const { browser } = await start();
@@ -71,6 +71,39 @@ try {
   await openSection(browser, "Долги");
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-debts"));
+  // Этап 5: напоминания, календарь, заметки.
+  const pad = (n) => String(n).padStart(2, "0");
+  const d = new Date();
+  const ymd = (x) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+  const reminder = async (title, date, time, repeat, amount, category) => {
+    await click(browser, "+ Напоминание");
+    await fill(browser, "reminderTitle", title);
+    await setDate(browser, "reminderDate", date);
+    await setDate(browser, "reminderTime", time);
+    await choose(browser, "repeat", repeat);
+    if (amount) await fill(browser, "reminderAmount", amount);
+    if (category) await chooseLike(browser, "reminderCategory", category);
+    await save(browser);
+  };
+  await openSection(browser, "Календарь");
+  await reminder("ЖКХ", ymd(d), "00:00", "Ежемесячно", "6000", "ЖКХ");
+  await reminder("Подарок маме", `${ymd(d).slice(0, 7)}-28`, "10:00", "Ежегодно", "5000", "Подарки");
+  await reminder("Интернет", ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 5)), "09:00", "Ежемесячно", "700", "Интернет и связь");
+  await (await browser.$(`[data-testid="cal-day"][data-date="${ymd(d)}"] .cal-num`)).click();
+  await fill(browser, "newNote", "Счётчики воды: передать до 25-го");
+  await click(browser, "Добавить", '//*[@data-testid="day-panel"]');
+  await browser.execute(() => document.querySelector(".content")?.scrollTo(0, 0) ?? window.scrollTo(0, 0));
+  await browser.pause(500);
+  await browser.saveScreenshot(out("screen-calendar"));
+  await click(browser, "Напоминания");
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-reminders"));
+  await openSection(browser, "Заметки");
+  await click(browser, "+ Заметка");
+  await fill(browser, "noteBody", "Холодильник: гарантия до 10.2028, чек в ящике");
+  await save(browser);
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-notes"));
   await openSection(browser, "Главная");
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-home"));

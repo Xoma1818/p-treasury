@@ -24,3 +24,12 @@ pub fn check_date(date: &str) -> crate::Result<()> {
         _ => crate::error::invalid(format!("некорректная дата: {date}")),
     }
 }
+
+/// Местные дата и время без пояса, с точностью до минуты (для напоминаний).
+pub fn now_local() -> chrono::NaiveDateTime {
+    use chrono::Timelike;
+    let n = Local::now().naive_local();
+    n.with_second(0)
+        .and_then(|n| n.with_nanosecond(0))
+        .unwrap_or(n)
+}

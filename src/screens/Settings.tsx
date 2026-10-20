@@ -52,6 +52,30 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Напоминать о платежах по долгам" hint="Уведомление приходит в 9:00.">
+            {(id) => (
+              <select
+                id={id}
+                name="debtReminderDays"
+                value={settings?.debt_reminder_days_before ?? "3"}
+                onChange={(e) => setSetting.run("debt_reminder_days_before", e.target.value)}
+              >
+                {[0, 1, 2, 3, 5, 7, 10].map((d) => (
+                  <option key={d} value={String(d)}>
+                    {d === 0 ? "в день платежа" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label="При закрытии окна" hint="В трее приложение продолжает присылать напоминания.">
+            {(id) => (
+              <select id={id} name="closeToTray" value={settings?.close_to_tray ?? "1"} onChange={(e) => setSetting.run("close_to_tray", e.target.value)}>
+                <option value="1">Сворачивать в трей</option>
+                <option value="0">Закрывать приложение</option>
+              </select>
+            )}
+          </Field>
         </div>
         <ErrorText error={setSetting.error} />
       </div>

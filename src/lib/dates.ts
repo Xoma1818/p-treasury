@@ -41,3 +41,31 @@ export function shiftMonth(month: string, delta: number): string {
   const i = y * 12 + (m - 1) + delta;
   return `${Math.floor(i / 12)}-${pad((i % 12) + 1)}`;
 }
+
+/** Местные дата и время «2026-10-20T14:05», как у напоминаний в ядре. */
+export function isoDateTime(d: Date): string {
+  return `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export const nowLocal = () => isoDateTime(new Date());
+
+/** Сдвиг даты «2026-10-20» на delta дней. */
+export function addDays(date: string, delta: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return isoDate(new Date(y, m - 1, d + delta));
+}
+
+/** Понедельник недели, в которую попадает дата. */
+export function weekStart(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const wd = (new Date(y, m - 1, d).getDay() + 6) % 7;
+  return addDays(date, -wd);
+}
+
+/** «20.10.2026 9:00» для «2026-10-20T09:00». */
+export function formatDateTime(dt: string): string {
+  const [date, time = ""] = dt.split("T");
+  return `${formatDate(date)} ${time.replace(/^0(\d)/, "$1")}`.trim();
+}
+
+export const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];

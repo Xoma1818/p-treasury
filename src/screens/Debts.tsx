@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AccountSelect, AmountInput, amountText, Field } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
+import { NotesBlock } from "../components/Notes";
 import {
   api,
   REPAYMENTS,
@@ -18,6 +19,7 @@ import {
 import { formatDate, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
+import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "calc" };
@@ -27,13 +29,18 @@ const STATUS: Record<ScheduleRow["status"], string> = { pending: "ожидает
 
 /** Раздел «Долги»: сводка, список, карточка долга с графиком, калькулятор. */
 export function Debts() {
-  const [view, setView] = useState<View>({ kind: "list" });
+  // Переход из напоминания или календаря открывает карточку долга (и отметку платежа).
+  const jump = useUi((s) => s.debtJump);
+  const [view, setView] = useState<View>(jump ? { kind: "detail", id: jump.id } : { kind: "list" });
+  useEffect(() => {
+    if (jump) useUi.setState({ debtJump: null });
+  }, [jump]);
   const [form, setForm] = useState<Partial<DebtInput> | null>(null);
 
   return (
     <section className="screen wide">
       {view.kind === "list" && <DebtList open={(id) => setView({ kind: "detail", id })} onNew={() => setForm({})} onCalc={() => setView({ kind: "calc" })} />}
-      {view.kind === "detail" && <DebtView id={view.id} back={() => setView({ kind: "list" })} />}
+      {view.kind === "detail" && <DebtView id={view.id} back={() => setView({ kind: "list" })} payNow={jump?.id === view.id && jump.pay} />}
       {view.kind === "calc" && <Calculator back={() => setView({ kind: "list" })} onSave={(p) => setForm(p)} />}
       {form && (
         <DebtForm
@@ -161,9 +168,9 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
   );
 }
 
-function DebtView({ id, back }: { id: string; back: () => void }) {
+function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?: boolean }) {
   const detail = useQuery({ queryKey: ["debt", id], queryFn: () => api.getDebt(id) });
-  const [pay, setPay] = useState<"scheduled" | "early" | null>(null);
+  const [pay, setPay] = useState<"scheduled" | "early" | null>(payNow ? "scheduled" : null);
   const [confirm, setConfirm] = useState(false);
   const [rename, setRename] = useState(false);
   const remove = useAction(() => api.deleteDebt(id), back);
@@ -326,7 +333,11 @@ function DebtView({ id, back }: { id: string; back: () => void }) {
         </div>
       </div>
 
-      {pay && <PayForm card={c} scheduled={pay === "scheduled"} onClose={() => setPay(null)} />}
+      <div className="card">
+        <NotesBlock filter={{ debtId: c.id }} initial={{ debtId: c.id }} />
+      </div>
+
+      {pay && (pay === "early" || c.nextPayment) && <PayForm card={c} scheduled={pay === "scheduled"} onClose={() => setPay(null)} />}
       {rename && <RenameForm card={c} onClose={() => setRename(false)} />}
     </>
   );

@@ -1,10 +1,11 @@
+mod background;
 mod commands;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use budget_core::storage::{OpenOptions, Storage};
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 /// Состояние приложения: одно подключение к базе на всё приложение.
 /// Если база не открылась, UI получает текст ошибки и показывает экран с ней.
@@ -22,6 +23,7 @@ fn data_dir_override() -> Option<PathBuf> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = match data_dir_override() {
                 Some(dir) => dir,
@@ -33,7 +35,22 @@ pub fn run() {
             };
             let db = Storage::open(&data_dir.join("budget.db"), &opts).map_err(|e| e.to_string());
             app.manage(AppState { db: Mutex::new(db) });
+            if let Err(e) = background::build_tray(app.handle()) {
+                eprintln!("значок в трее недоступен: {e}");
+            }
+            background::start_scheduler(app.handle().clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let Some(w) = window.app_handle().get_webview_window(window.label()) else {
+                    return;
+                };
+                if background::hide_instead_of_close(&w) {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
@@ -84,6 +101,22 @@ pub fn run() {
             commands::delete_debt,
             commands::pay_debt,
             commands::delete_debt_payment,
+            commands::calendar_month,
+            commands::calendar_range,
+            commands::reminders_overview,
+            commands::missed_reminders,
+            commands::create_reminder,
+            commands::update_reminder,
+            commands::set_reminder_active,
+            commands::delete_reminder,
+            commands::complete_reminder,
+            commands::snooze_reminder,
+            commands::dismiss_reminder,
+            commands::reopen_reminder,
+            commands::list_notes,
+            commands::create_note,
+            commands::update_note,
+            commands::delete_note,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");

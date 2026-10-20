@@ -377,6 +377,127 @@ export interface Setup {
 
 export type Settings = Record<string, string>;
 
+export type Repeat = "once" | "daily" | "weekly" | "monthly" | "yearly";
+
+export const REPEATS: Record<Repeat, string> = {
+  once: "Один раз",
+  daily: "Ежедневно",
+  weekly: "Еженедельно",
+  monthly: "Ежемесячно",
+  yearly: "Ежегодно",
+};
+
+export interface ReminderKey {
+  source: "reminder" | "debt";
+  refId: string;
+  scheduledAt: string;
+}
+
+export interface Occurrence {
+  key: ReminderKey;
+  title: string;
+  amount: number | null;
+  currencySymbol: string;
+  minorUnits: number;
+  txnType: "expense" | "income" | null;
+  accountId: string | null;
+  categoryId: string | null;
+  note: string | null;
+  debtId: string | null;
+  dueDate: string | null;
+  status: "pending" | "done" | "snoozed" | "dismissed";
+  dueAt: string;
+  notifiedAt: string | null;
+  completedAt: string | null;
+  transactionId: string | null;
+}
+
+export interface ReminderInput {
+  title: string;
+  /** «2026-11-10T09:00», местное время. */
+  startAt: string;
+  repeat: Repeat;
+  dayOfMonth: number | null;
+  endDate: string | null;
+  amount: number | null;
+  txnType: "expense" | "income" | null;
+  accountId: string | null;
+  categoryId: string | null;
+  note: string | null;
+}
+
+export interface Reminder extends ReminderInput {
+  id: string;
+  active: boolean;
+  nextAt: string | null;
+}
+
+export interface RemindersOverview {
+  overdue: Occurrence[];
+  upcoming: Occurrence[];
+  done: Occurrence[];
+  reminders: Reminder[];
+}
+
+export interface NoteInput {
+  body: string;
+  date: string | null;
+  transactionId?: string | null;
+  accountId?: string | null;
+  debtId?: string | null;
+  budgetId?: string | null;
+}
+
+export interface Note extends NoteInput {
+  id: string;
+  link: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteFilter {
+  query?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  transactionId?: string;
+  accountId?: string;
+  debtId?: string;
+  budgetId?: string;
+}
+
+export interface DebtDue {
+  debtId: string;
+  scheduleId: string;
+  counterparty: string;
+  direction: Direction;
+  payment: number;
+  currencySymbol: string;
+  minorUnits: number;
+  status: ScheduleRow["status"];
+}
+
+export interface CalendarDay {
+  date: string;
+  income: number;
+  expense: number;
+  debts: DebtDue[];
+  reminders: Occurrence[];
+  notes: number;
+}
+
+export interface CalendarMonth {
+  month: string;
+  baseCurrency: string;
+  currencySymbol: string;
+  minorUnits: number;
+  days: CalendarDay[];
+  income: number;
+  expense: number;
+  plannedExpense: number;
+  plannedIncome: number;
+  missingRates: string[];
+}
+
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export const api = {
@@ -431,6 +552,23 @@ export const api = {
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
+  calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
+  calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
+  remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),
+  missedReminders: () => invoke<Occurrence[]>("missed_reminders"),
+  createReminder: (input: ReminderInput) => invoke<string>("create_reminder", { input }),
+  updateReminder: (id: string, input: ReminderInput) => invoke<void>("update_reminder", { id, input }),
+  setReminderActive: (id: string, active: boolean) => invoke<void>("set_reminder_active", { id, active }),
+  deleteReminder: (id: string) => invoke<void>("delete_reminder", { id }),
+  completeReminder: (key: ReminderKey, transactionId: string | null = null) =>
+    invoke<void>("complete_reminder", { key, transactionId }),
+  snoozeReminder: (key: ReminderKey, until: string) => invoke<void>("snooze_reminder", { key, until }),
+  dismissReminder: (key: ReminderKey) => invoke<void>("dismiss_reminder", { key }),
+  reopenReminder: (key: ReminderKey) => invoke<void>("reopen_reminder", { key }),
+  listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
+  createNote: (input: NoteInput) => invoke<string>("create_note", { input }),
+  updateNote: (id: string, input: NoteInput) => invoke<void>("update_note", { id, input }),
+  deleteNote: (id: string) => invoke<void>("delete_note", { id }),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {

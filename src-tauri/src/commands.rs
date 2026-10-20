@@ -5,11 +5,14 @@ use std::collections::BTreeMap;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::budgets::{self, Budget, Period};
+use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
+use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
+use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::storage::{self, Storage};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
@@ -413,4 +416,106 @@ pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdRes
     with_db(&state, |db| {
         debts::delete_payment(db.conn_mut(), &payment_id)
     })
+}
+
+// --- Календарь, напоминания, заметки ---
+
+#[tauri::command]
+pub fn calendar_month(state: State<AppState>, month: String) -> CmdResult<Month> {
+    with_db(&state, |db| {
+        calendar::month(db.conn(), &month, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn calendar_range(state: State<AppState>, from: String, to: String) -> CmdResult<Month> {
+    let parse = |s: &str| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|_| format!("некорректная дата: {s}"))
+    };
+    let (from, to) = (parse(&from)?, parse(&to)?);
+    with_db(&state, |db| {
+        calendar::range(db.conn(), from, to, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn reminders_overview(state: State<AppState>) -> CmdResult<Overview> {
+    with_db(&state, |db| {
+        reminders::overview(db.conn(), time::now_local())
+    })
+}
+
+/// Наступившие и не выполненные: окно «Пропущенные напоминания» при запуске.
+#[tauri::command]
+pub fn missed_reminders(state: State<AppState>) -> CmdResult<Vec<Occurrence>> {
+    with_db(&state, |db| {
+        Ok(reminders::overview(db.conn(), time::now_local())?.overdue)
+    })
+}
+
+#[tauri::command]
+pub fn create_reminder(state: State<AppState>, input: ReminderInput) -> CmdResult<String> {
+    with_db(&state, |db| reminders::create(db.conn(), &input))
+}
+
+#[tauri::command]
+pub fn update_reminder(state: State<AppState>, id: String, input: ReminderInput) -> CmdResult<()> {
+    with_db(&state, |db| reminders::update(db.conn(), &id, &input))
+}
+
+#[tauri::command]
+pub fn set_reminder_active(state: State<AppState>, id: String, active: bool) -> CmdResult<()> {
+    with_db(&state, |db| reminders::set_active(db.conn(), &id, active))
+}
+
+#[tauri::command]
+pub fn delete_reminder(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_db(&state, |db| reminders::delete(db.conn(), &id))
+}
+
+#[tauri::command]
+pub fn complete_reminder(
+    state: State<AppState>,
+    key: Key,
+    transaction_id: Option<String>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        reminders::complete(db.conn(), &key, transaction_id.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn snooze_reminder(state: State<AppState>, key: Key, until: String) -> CmdResult<()> {
+    with_db(&state, |db| reminders::snooze(db.conn(), &key, &until))
+}
+
+#[tauri::command]
+pub fn dismiss_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
+    with_db(&state, |db| reminders::dismiss(db.conn(), &key))
+}
+
+#[tauri::command]
+pub fn reopen_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
+    with_db(&state, |db| reminders::reopen(db.conn(), &key))
+}
+
+#[tauri::command]
+pub fn list_notes(state: State<AppState>, filter: NoteFilter) -> CmdResult<Vec<Note>> {
+    with_db(&state, |db| notes::list(db.conn(), &filter))
+}
+
+#[tauri::command]
+pub fn create_note(state: State<AppState>, input: NoteInput) -> CmdResult<String> {
+    with_db(&state, |db| notes::create(db.conn(), &input))
+}
+
+#[tauri::command]
+pub fn update_note(state: State<AppState>, id: String, input: NoteInput) -> CmdResult<()> {
+    with_db(&state, |db| notes::update(db.conn(), &id, &input))
+}
+
+#[tauri::command]
+pub fn delete_note(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_db(&state, |db| notes::delete(db.conn(), &id))
 }

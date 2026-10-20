@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Money } from "../components/Money";
+import { OccurrenceItem } from "../components/Reminders";
 import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
@@ -18,6 +19,7 @@ export function Home() {
   });
   const budget = useBudget(period?.month).data;
   const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
+  const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
   const { openTxnForm, showTransactions, go } = useUi();
@@ -135,6 +137,18 @@ export function Home() {
           ))}
         </ul>
       </div>
+      </div>
+      <div className="card" data-testid="home-reminders">
+        <div className="notes-head">
+          <h2>Ближайшие напоминания</h2>
+          <button className="link" onClick={() => go("calendar")}>
+            Календарь
+          </button>
+        </div>
+        {reminders && reminders.overdue.length + reminders.upcoming.length === 0 && <p className="muted">Напоминаний нет.</p>}
+        <ul className="occ-list">
+          {reminders && [...reminders.overdue, ...reminders.upcoming].slice(0, 5).map((o) => <OccurrenceItem key={o.key.refId + o.key.scheduledAt} o={o} />)}
+        </ul>
       </div>
     </section>
   );

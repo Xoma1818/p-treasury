@@ -259,3 +259,49 @@ textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(
 .variant.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .facts dd.big { font-size: 20px; font-weight: 600; }
 .columns.variants { margin-bottom: 16px; }
+
+/* Календарь, напоминания, заметки */
+.cal-tabs { margin-bottom: 16px; }
+.period-nav { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.period-nav h2 { margin: 0; min-width: 160px; text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 10px; }
+.cal-weekday { font-size: 12px; color: var(--muted); text-align: center; padding-bottom: 4px; }
+.cal-cell { min-height: 92px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; cursor: pointer; overflow: hidden; }
+.cal-cell.empty { border: 0; cursor: default; }
+.cal-cell:not(.empty):hover { background: var(--bg); }
+.cal-cell.today { border-color: var(--accent); }
+.cal-cell.today .cal-num { color: var(--accent); font-weight: 700; }
+.cal-cell.selected { background: var(--accent-soft); }
+.cal-num { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.chips { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.chips .money { font-size: 12px; }
+.minus { color: var(--text); }
+.chip { border-radius: 4px; padding: 1px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--bg); }
+.chip.debt { background: #fff1e6; color: #9a3412; }
+.chip.debt.paid, .chip.reminder.done, .chip.reminder.dismissed { background: var(--bg); color: var(--muted); text-decoration: line-through; }
+.chip.reminder { background: var(--accent-soft); color: var(--accent); }
+.chip.note { color: var(--muted); background: none; padding-left: 0; }
+.cal-totals { margin-top: 12px; }
+.week-list { list-style: none; margin: 0; padding: 0; }
+.week-list li { display: flex; gap: 16px; padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.week-list li.selected { background: var(--accent-soft); }
+.week-list .chips { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.week-date { width: 130px; flex-shrink: 0; font-weight: 500; }
+.day-panel { margin-top: 16px; }
+.day-panel h3, .notes-block h3 { font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: var(--muted); }
+.notes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.notes-head h2 { margin: 0; }
+.occ-list { list-style: none; margin: 0; padding: 0; }
+.occurrence { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.occurrence.late .main { color: var(--over); }
+.occ-main { flex: 1; min-width: 160px; display: flex; flex-direction: column; }
+.occ-actions { display: flex; gap: 6px; }
+.note-list { list-style: none; margin: 0; padding: 0; }
+.note-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+.notes-block .note-list li { flex-direction: row; justify-content: space-between; align-items: center; }
+.note-body { white-space: pre-wrap; }
+.note-add { display: flex; gap: 8px; margin-top: 8px; }
+.note-add input { flex: 1; }
+.search { width: 100%; margin-bottom: 12px; }
+textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; width: 100%; }
+.muted.small { font-size: 13px; }

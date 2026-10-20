@@ -6,6 +6,7 @@ import { useAccounts, useCategories } from "../lib/queries";
 import { useUi, type TxnFormState } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from "./Fields";
+import { NotesBlock } from "./Notes";
 import { ErrorText, Modal } from "./Modal";
 
 const TABS: [TxnType, string][] = [
@@ -25,18 +26,19 @@ export function TxnForm() {
 
 function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; onClose: () => void }) {
   const editing = state.mode === "edit" ? state.txn : null;
+  const prefill = state.mode === "new" ? state.prefill : undefined;
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories().data ?? [];
 
   const [type, setType] = useState<TxnType>(editing?.type ?? (state.mode === "new" ? state.type : "expense"));
-  const [amount, setAmount] = useState(amountText(editing?.amount, editing?.minorUnits));
+  const [amount, setAmount] = useState(amountText(editing?.amount ?? prefill?.amount, editing?.minorUnits));
   const [toAmount, setToAmount] = useState(amountText(editing?.toAmount, editing?.toMinorUnits ?? 2));
   const [date, setDate] = useState(editing?.date ?? ((state.mode === "new" ? state.date : undefined) || today()));
-  const [accountId, setAccountId] = useState(editing?.accountId ?? "");
+  const [accountId, setAccountId] = useState(editing?.accountId ?? prefill?.accountId ?? "");
   const [toAccountId, setToAccountId] = useState(editing?.toAccountId ?? "");
-  const [categoryId, setCategoryId] = useState(editing?.categoryId ?? "");
-  const [payee, setPayee] = useState(editing?.payee ?? "");
-  const [note, setNote] = useState(editing?.note ?? "");
+  const [categoryId, setCategoryId] = useState(editing?.categoryId ?? prefill?.categoryId ?? "");
+  const [payee, setPayee] = useState(editing?.payee ?? prefill?.payee ?? "");
+  const [note, setNote] = useState(editing?.note ?? prefill?.note ?? "");
   const [hints, setHints] = useState<{ payee: string; categoryId: string | null; accountId: string }[]>([]);
 
   // Быстрый ввод: последние использованные счёт и категория для этого типа.
@@ -45,7 +47,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
     api.transactionDefaults(type).then((d) => {
       setAccountId((cur) => cur || d.accountId || accounts.find((a) => !a.archived)?.id || "");
       if (type === "transfer") setToAccountId((cur) => cur || d.toAccountId || "");
-      else setCategoryId(d.categoryId ?? "");
+      else setCategoryId((cur) => (prefill?.categoryId && cur ? cur : d.categoryId ?? ""));
     });
     // accounts нужен только как запасной вариант при первом вводе.
   }, [type, editing, accounts.length]);
@@ -62,7 +64,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
           setHints(list);
           // Имя набрано целиком быстрее, чем пришли подсказки: подставляем так же, как при выборе из списка.
           const exact = list.find((h) => h.payee.toLowerCase() === q.trim().toLowerCase());
-          if (exact && !editing) applyHint(exact);
+          if (exact && !editing && !prefill) applyHint(exact);
         }),
       150,
     );
@@ -107,10 +109,12 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
     if (hit) applyHint(hit);
   };
 
-  const save = useAction(
-    (input: TxnInput) => (editing ? api.updateTransaction(editing.id, input) : api.createTransaction(input)),
-    onClose,
-  );
+  const save = useAction(async (input: TxnInput) => {
+    if (editing) return api.updateTransaction(editing.id, input);
+    const id = await api.createTransaction(input);
+    // Операция из напоминания отмечает его выполненным.
+    if (state.mode === "new" && state.onSaved) await state.onSaved(id);
+  }, onClose);
   const remove = useAction(() => api.deleteTransaction(editing!.id), onClose);
 
   const submit = () => {
@@ -212,6 +216,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
             <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
           </>
         )}
+        {editing && <NotesBlock filter={{ transactionId: editing.id }} initial={{ transactionId: editing.id }} />}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {editing && (

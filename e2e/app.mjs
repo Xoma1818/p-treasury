@@ -1,6 +1,6 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,8 +10,10 @@ const ROOT = resolve(import.meta.dirname, "..");
 export const APP_BIN = process.env.KAZNA_BIN ?? join(ROOT, "target/debug/budget-app");
 
 let driver;
+let currentDir;
 
 export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-"))) {
+  currentDir = dataDir;
   driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"] });
   await new Promise((r) => setTimeout(r, 1500));
   const browser = await remote({
@@ -30,6 +32,9 @@ export async function stop(browser) {
     await browser?.deleteSession();
   } finally {
     driver?.kill();
+    // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
+    if (currentDir) spawnSync("pkill", ["-f", `--data-dir=${currentDir}`]);
+    await new Promise((r) => setTimeout(r, 300));
   }
 }
 
@@ -63,6 +68,22 @@ export async function choose(browser, name, visibleText) {
   await el.selectByVisibleText(visibleText);
 }
 
+/** Выбрать пункт списка, текст которого содержит `text` (подкатегории идут с отступом). */
+export async function chooseLike(browser, name, text) {
+  const el = await field(browser, name);
+  await el.waitForDisplayed({ timeout: 5000 });
+  const value = await browser.execute(
+    (n, t) => {
+      const sel = document.querySelector(`[role="dialog"] select[name="${n}"]`) ?? document.querySelector(`select[name="${n}"]`);
+      return [...sel.options].find((o) => o.text.trim() === t)?.value ?? null;
+    },
+    name,
+    text,
+  );
+  if (value === null) throw new Error(`В списке ${name} нет пункта «${text}»`);
+  await el.selectByAttribute("value", value);
+}
+
 export async function click(browser, text, scope = "") {
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
   await el.waitForClickable({ timeout: 5000 });
@@ -92,6 +113,23 @@ export async function waitText(browser, selector, re, timeout = 5000) {
       async () => {
         const el = await browser.$(selector);
         last = (await el.isExisting()) ? await el.getText() : "";
+        return re.test(last);
+      },
+      { timeout },
+    )
+    .catch(() => {
+      throw new Error(`Текст ${selector} не совпал с ${re}: «${last}»`);
+    });
+  return last;
+}
+
+/** Как waitText, но по textContent: WebKit не отдаёт через getText текст обрезаемых меток календаря. */
+export async function waitContent(browser, selector, re, timeout = 5000) {
+  let last = "";
+  await browser
+    .waitUntil(
+      async () => {
+        last = (await browser.execute((s) => document.querySelector(s)?.textContent ?? "", selector)) || "";
         return re.test(last);
       },
       { timeout },

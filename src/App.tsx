@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { MissedReminders } from "./components/MissedReminders";
 import { Sidebar } from "./components/Sidebar";
 import { TxnForm } from "./components/TxnForm";
 import { isTauri } from "./lib/api";
@@ -7,9 +8,11 @@ import { SECTIONS, type SectionId } from "./lib/sections";
 import { useUi } from "./lib/store";
 import { Accounts } from "./screens/Accounts";
 import { Budget } from "./screens/Budget";
+import { Calendar } from "./screens/Calendar";
 import { Categories } from "./screens/Categories";
 import { Debts } from "./screens/Debts";
 import { Home } from "./screens/Home";
+import { Notes } from "./screens/Notes";
 import { Onboarding } from "./screens/Onboarding";
 import { Placeholder } from "./screens/Placeholder";
 import { Reports } from "./screens/Reports";
@@ -24,6 +27,8 @@ const SCREENS: Partial<Record<SectionId, () => React.JSX.Element>> = {
   accounts: Accounts,
   categories: Categories,
   debts: Debts,
+  calendar: Calendar,
+  notes: Notes,
   settings: Settings,
 };
 
@@ -72,6 +77,7 @@ export function App() {
     <div className="layout">
       <Sidebar />
       <main className="content">{Screen ? <Screen key={visit} /> : <Placeholder id={section} />}</main>
+      <MissedReminders />
       <TxnForm />
     </div>
   );
