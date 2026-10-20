@@ -12,7 +12,7 @@ const now = new Date();
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const prev = (day) => iso(new Date(now.getFullYear(), now.getMonth() - 1, day));
 const cur = iso(new Date(now.getFullYear(), now.getMonth(), 1));
-const files = mkdtempSync(join(tmpdir(), "kazna-files-"));
+const files = mkdtempSync(join(tmpdir(), "p-treasury-files-"));
 
 let browser;
 before(async () => {
@@ -111,7 +111,7 @@ test("сравнение выгружается в Excel: лист «Сравн�
   await openCompare();
   await browser.$(row("Продукты")).waitForExist({ timeout: 5000 });
   const path = join(files, "сравнение.xlsx");
-  await browser.execute((p) => (window.__kaznaPick = p), [path]);
+  await browser.execute((p) => (window.__ptPick = p), [path]);
   await click(browser, "Выгрузить", '//*[@data-testid="compare"]');
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: сравнение\.xlsx/);
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });

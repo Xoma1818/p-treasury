@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const out = (name) => new URL(`../docs/${name}.png`, import.meta.url).pathname;
+const out = (name) => new URL(`../docs/design/screens/${name}.png`, import.meta.url).pathname;
 const { browser } = await start();
 try {
   await browser.setWindowSize(1280, 800);
@@ -162,7 +162,7 @@ try {
   await browser.pause(200);
   await browser.saveScreenshot(out("screen-data"));
   // Импорт с ошибками: строки с ошибкой видны до загрузки.
-  const csv = join(mkdtempSync(join(tmpdir(), "kazna-shot-")), "выписка.csv");
+  const csv = join(mkdtempSync(join(tmpdir(), "p-treasury-shot-")), "выписка.csv");
   writeFileSync(
     csv,
     "Дата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма\n" +
@@ -172,7 +172,7 @@ try {
       "05.10.2026;Доход;Карта Сбер;Зарплата;;аванс;40 000\n",
   );
   await click(browser, "Импорт из CSV");
-  await browser.execute((p) => (window.__kaznaPick = [p]), csv);
+  await browser.execute((p) => (window.__ptPick = [p]), csv);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await browser.$('[data-testid="import-preview"]').waitForDisplayed({ timeout: 5000 });
   await browser.saveScreenshot(out("screen-import"));

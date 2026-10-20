@@ -1,6 +1,6 @@
 // Большой итоговый тест, пункт 4: окно приложения на базе за 10 лет (около 100 000 операций).
-// Базу готовит тест ядра: KAZNA_VOLUME_DIR=<папка> cargo test --release -p budget-core --test volume -- --ignored
-// затем: KAZNA_VOLUME_DIR=<папка> node --test e2e/volume.test.mjs. Без папки тест пропускается.
+// Базу готовит тест ядра: PTREASURY_VOLUME_DIR=<папка> cargo test --release -p budget-core --test volume -- --ignored
+// затем: PTREASURY_VOLUME_DIR=<папка> node --test e2e/volume.test.mjs. Без папки тест пропускается.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync } from "node:fs";
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { start, stop } from "./app.mjs";
 
-const source = process.env.KAZNA_VOLUME_DIR;
+const source = process.env.PTREASURY_VOLUME_DIR;
 const ready = source && existsSync(join(source, "budget.db"));
 let browser;
 after(async () => {
@@ -23,9 +23,9 @@ async function timeSection(title, ready) {
   return Date.now() - t;
 }
 
-test("10 лет учёта: каждый экран открывается быстрее секунды", { skip: !ready && "нет базы KAZNA_VOLUME_DIR" }, async () => {
+test("10 лет учёта: каждый экран открывается быстрее секунды", { skip: !ready && "нет базы PTREASURY_VOLUME_DIR" }, async () => {
   // Работаем с копией, чтобы не менять подготовленную базу.
-  const dir = mkdtempSync(join(tmpdir(), "kazna-volume-"));
+  const dir = mkdtempSync(join(tmpdir(), "p-treasury-volume-"));
   cpSync(source, dir, { recursive: true });
   const t0 = Date.now();
   ({ browser } = await start(dir));

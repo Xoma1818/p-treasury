@@ -2,7 +2,7 @@
 #   1. Один раз установить: Node.js 22 (nodejs.org), Rust (rustup.rs),
 #      «Средства сборки Visual Studio» с компонентом «Разработка классических приложений на C++».
 #   2. В папке с кодом: powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
-#      Ключ подписи обновлений (необязательно): -Key путь\к\kazna-updater.key
+#      Ключ подписи обновлений (необязательно): -Key путь\к\p-treasury-updater.key
 # Готовый установщик появится в папке installer\.
 param([string]$Key = "")
 $ErrorActionPreference = "Stop"

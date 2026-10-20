@@ -1,14 +1,14 @@
 // Большой итоговый тест, пункт 3: данные старой версии открываются новой.
-// Старая программа (KAZNA_OLD_BIN, например сборка этапа 5 — версия 0.5, схема данных 1)
+// Старая программа (PTREASURY_OLD_BIN, например сборка этапа 5 — версия 0.5, схема данных 1)
 // заполняет данные, затем новая открывает ту же папку: копия перед обновлением сделана,
-// балансы, отчёты и долги не изменились. Без KAZNA_OLD_BIN тест пропускается.
+// балансы, отчёты и долги не изменились. Без PTREASURY_OLD_BIN тест пропускается.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
 
-const OLD = process.env.KAZNA_OLD_BIN;
+const OLD = process.env.PTREASURY_OLD_BIN;
 const ready = OLD && existsSync(OLD);
 let browser, dataDir;
 after(async () => {
@@ -35,7 +35,7 @@ async function figures() {
   return f;
 }
 
-test("данные версии 0.5 открываются новой версией без потерь", { skip: !ready && "нет KAZNA_OLD_BIN" }, async () => {
+test("данные версии 0.5 открываются новой версией без потерь", { skip: !ready && "нет PTREASURY_OLD_BIN" }, async () => {
   ({ browser, dataDir } = await start(undefined, { bin: OLD }));
   await onboard(browser, [
     { name: "Наличные", balance: "3000" },
