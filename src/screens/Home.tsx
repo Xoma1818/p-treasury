@@ -10,6 +10,7 @@ import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
+import { ScreenTitle } from "../components/SectionIcon";
 
 export function Home() {
   const date = today();
@@ -35,7 +36,7 @@ export function Home() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Главная</h1>
+        <ScreenTitle id="home" />
         <div className="btn-group">
           <HideAmountsButton className="btn" />
           <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>

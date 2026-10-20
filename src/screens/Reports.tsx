@@ -9,6 +9,7 @@ import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount } from "../lib/money";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
+import { ScreenTitle } from "../components/SectionIcon";
 
 const M = BaseMoney;
 
@@ -67,7 +68,7 @@ export function Reports() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Отчёты</h1>
+        <ScreenTitle id="reports" />
         {tab !== "compare" && (
         <div className="period-picker">
           <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {

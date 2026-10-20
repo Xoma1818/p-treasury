@@ -5,6 +5,7 @@ import { api, type Category, type CategoryKind } from "../lib/api";
 import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -60,7 +61,7 @@ export function Categories() {
 
   return (
     <section className="screen">
-      <h1>Категории</h1>
+      <ScreenTitle id="categories" />
       <ErrorText error={archive.error} />
       <div className="columns">
         {column("expense", "Расходы")}

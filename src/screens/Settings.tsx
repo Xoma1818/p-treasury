@@ -10,6 +10,7 @@ import { formatDate, today } from "../lib/dates";
 import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
 import { rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 export function Settings() {
   const info = useAppInfo();
@@ -21,7 +22,7 @@ export function Settings() {
 
   return (
     <section className="screen">
-      <h1>Настройки</h1>
+      <ScreenTitle id="settings" />
 
       <div className="card">
         <h2>Общие</h2>

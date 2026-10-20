@@ -8,6 +8,7 @@ import { parseAmount } from "../lib/money";
 import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { ScreenTitle } from "../components/SectionIcon";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
@@ -20,7 +21,7 @@ export function Budget() {
   return (
     <section className="screen wide">
       <div className="screen-head">
-        <h1>Бюджет</h1>
+        <ScreenTitle id="budget" />
         {month && (
           <div className="month-switch">
             <button className="icon-btn" aria-label="Предыдущий месяц" onClick={() => setPicked(shiftMonth(month, -1))}>
