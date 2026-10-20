@@ -86,7 +86,9 @@ fn crash_child() {
     match mode.as_str() {
         // Пачка из 10 операций — одна транзакция, как импорт или платёж по долгу.
         "write" => {
-            for batch in 0.. {
+            let mut batch = 0u64;
+            loop {
+                batch += 1;
                 let tx = db.conn_mut().transaction().unwrap();
                 for i in 0..10 {
                     transactions::create(
