@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MissedReminders } from "./components/MissedReminders";
+import { UpdatePrompt } from "./components/DataTools";
 import { Sidebar } from "./components/Sidebar";
 import { TxnForm } from "./components/TxnForm";
 import { isTauri } from "./lib/api";
@@ -78,6 +79,7 @@ export function App() {
       <Sidebar />
       <main className="content">{Screen ? <Screen key={visit} /> : <Placeholder id={section} />}</main>
       <MissedReminders />
+      <UpdatePrompt />
       <TxnForm />
     </div>
   );

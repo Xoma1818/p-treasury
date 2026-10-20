@@ -498,6 +498,46 @@ export interface CalendarMonth {
   missingRates: string[];
 }
 
+export interface ImportRow {
+  line: number;
+  date: string;
+  type: string;
+  account: string;
+  amount: string;
+  category: string;
+  payee: string;
+  error: string | null;
+}
+
+export interface ImportPreview {
+  rows: ImportRow[];
+  valid: number;
+  errors: number;
+}
+
+export interface BackupStatus {
+  lastBackupAt: string | null;
+  autobackupDir: string;
+  autobackupKeep: string;
+  reminderDue: boolean;
+  defaultName: string;
+}
+
+export interface BackupInfo {
+  path: string;
+  schemaVersion: number;
+  accounts: number;
+  transactions: number;
+  lastDate: string | null;
+}
+
+export interface UpdateInfo {
+  configured: boolean;
+  current: string;
+  version: string | null;
+  notes: string | null;
+}
+
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export const api = {
@@ -569,6 +609,20 @@ export const api = {
   createNote: (input: NoteInput) => invoke<string>("create_note", { input }),
   updateNote: (id: string, input: NoteInput) => invoke<void>("update_note", { id, input }),
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
+  exportSummary: (from: string, to: string, path: string) => invoke<void>("export_summary", { from, to, path }),
+  exportTransactions: (filter: TxnFilter, path: string) => invoke<void>("export_transactions", { filter, path }),
+  exportReport: (report: "categories" | "months", from: string, to: string, path: string) =>
+    invoke<void>("export_report", { report, from, to, path }),
+  importPreview: (path: string) => invoke<ImportPreview>("import_preview", { path }),
+  importCsv: (path: string, skipErrors: boolean) => invoke<number>("import_csv", { path, skipErrors }),
+  writeImportTemplate: (path: string) => invoke<void>("write_import_template", { path }),
+  backupStatus: () => invoke<BackupStatus>("backup_status"),
+  backupNow: (path: string) => invoke<void>("backup_now", { path }),
+  inspectBackup: (path: string) => invoke<BackupInfo>("inspect_backup", { path }),
+  restoreBackup: (path: string) => invoke<string>("restore_backup", { path }),
+  checkUpdate: () => invoke<UpdateInfo>("check_update"),
+  installUpdate: () => invoke<void>("install_update"),
+  changelog: () => invoke<string>("changelog"),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {

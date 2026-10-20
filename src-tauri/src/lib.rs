@@ -11,6 +11,17 @@ use tauri::{Manager, WindowEvent};
 /// Если база не открылась, UI получает текст ошибки и показывает экран с ней.
 pub struct AppState {
     pub db: Mutex<Result<Storage, String>>,
+    /// Папка данных: там же копии перед миграцией и восстановлением.
+    pub data_dir: PathBuf,
+}
+
+impl AppState {
+    pub fn open_options(&self) -> OpenOptions {
+        OpenOptions {
+            backup_dir: self.data_dir.join("backups"),
+            keep_backups: 10,
+        }
+    }
 }
 
 /// Папка данных для сквозных тестов: аргумент `--data-dir=<путь>` или
@@ -24,17 +35,21 @@ fn data_dir_override() -> Option<PathBuf> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = match data_dir_override() {
                 Some(dir) => dir,
                 None => app.path().app_data_dir()?,
             };
-            let opts = OpenOptions {
-                backup_dir: data_dir.join("backups"),
-                keep_backups: 10,
+            let state = AppState {
+                db: Mutex::new(Err(String::new())),
+                data_dir: data_dir.clone(),
             };
-            let db = Storage::open(&data_dir.join("budget.db"), &opts).map_err(|e| e.to_string());
-            app.manage(AppState { db: Mutex::new(db) });
+            let db = Storage::open(&data_dir.join("budget.db"), &state.open_options())
+                .map_err(|e| e.to_string());
+            *state.db.lock().expect("база ещё не используется") = db;
+            app.manage(state);
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");
             }
@@ -49,6 +64,10 @@ pub fn run() {
                 if background::hide_instead_of_close(&w) {
                     api.prevent_close();
                     let _ = w.hide();
+                } else {
+                    // Окно закрывается вместе с приложением: копия сейчас, пока
+                    // процесс точно жив (до события выхода дело может не дойти).
+                    background::autobackup_on_exit(w.app_handle());
                 }
             }
         })
@@ -117,7 +136,26 @@ pub fn run() {
             commands::create_note,
             commands::update_note,
             commands::delete_note,
+            commands::export_summary,
+            commands::export_transactions,
+            commands::export_report,
+            commands::import_preview,
+            commands::import_csv,
+            commands::write_import_template,
+            commands::backup_status,
+            commands::backup_now,
+            commands::inspect_backup,
+            commands::restore_backup,
+            commands::check_update,
+            commands::install_update,
+            commands::changelog,
         ])
-        .run(tauri::generate_context!())
-        .expect("не удалось запустить приложение");
+        .build(tauri::generate_context!())
+        .expect("не удалось запустить приложение")
+        .run(|app, event| {
+            // Автокопия при закрытии приложения (из трея «Выход» или закрытием окна).
+            if let tauri::RunEvent::Exit = event {
+                background::autobackup_on_exit(app);
+            }
+        });
 }

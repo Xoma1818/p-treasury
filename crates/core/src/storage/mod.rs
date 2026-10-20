@@ -116,6 +116,28 @@ impl Storage {
         schema_version(&self.conn)
     }
 
+    /// Восстановить данные из копии `src` в открытую базу. Текущие данные
+    /// перед этим сохраняются в `backup_dir` (`before-restore-*.db`); копия
+    /// из старой версии проходит миграции. Возвращает путь к этой страховке.
+    pub fn restore_from(&mut self, src: &Path, opts: &OpenOptions) -> Result<PathBuf> {
+        crate::backups::inspect(src)?;
+        fs::create_dir_all(&opts.backup_dir)?;
+        let safety = opts
+            .backup_dir
+            .join(format!("before-restore-{}.db", time::file_stamp()));
+        backup_to(&self.conn, &safety)?;
+        prune_backups(&opts.backup_dir, "before-restore", opts.keep_backups)?;
+        {
+            let source =
+                Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let backup = rusqlite::backup::Backup::new(&source, &mut self.conn)?;
+            backup.run_to_completion(256, std::time::Duration::from_millis(10), None)?;
+        }
+        configure(&self.conn)?;
+        migrate(&mut self.conn, MIGRATIONS)?;
+        Ok(safety)
+    }
+
     pub fn pre_migration_backup(&self) -> Option<&Path> {
         self.pre_migration_backup.as_deref()
     }

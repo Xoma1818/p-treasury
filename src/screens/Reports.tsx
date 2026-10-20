@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useExport } from "../components/DataTools";
+import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
 import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportPeriodKind, type Period } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
@@ -58,6 +60,13 @@ export function Reports() {
   const s = summary.data;
   const showTransactions = useUi((u) => u.showTransactions);
   const all = () => period && showTransactions({ dateFrom: period.start, dateTo: period.end });
+  const exp = useExport(`Казна — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
+    if (!period) return;
+    if (tab === "structure") return api.exportReport("categories", period.start, period.end, path);
+    // 28-е число всегда внутри своего расчётного месяца при любом «первом дне месяца» (1–28).
+    const [from, to] = monthsRange(kind, period);
+    return api.exportReport("months", `${from}-28`, `${to}-28`, path);
+  });
 
   return (
     <section className="screen wide">
@@ -103,8 +112,19 @@ export function Reports() {
               </div>
             )
           )}
+          {tab !== "balances" && (
+            <button className="btn" onClick={exp.run} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
+              Выгрузить
+            </button>
+          )}
         </div>
       </div>
+      {exp.done && (
+        <p className="ok" data-testid="export-done">
+          Выгружено: {exp.done}
+        </p>
+      )}
+      <ErrorText error={exp.error} />
 
       {s && (
         <div className="tiles">

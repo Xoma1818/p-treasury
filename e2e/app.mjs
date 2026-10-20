@@ -12,9 +12,10 @@ export const APP_BIN = process.env.KAZNA_BIN ?? join(ROOT, "target/debug/budget-
 let driver;
 let currentDir;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-"))) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-")), { env = {} } = {}) {
   currentDir = dataDir;
-  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"] });
+  // Переменные окружения доходят до приложения через tauri-driver.
+  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });
   await new Promise((r) => setTimeout(r, 1500));
   const browser = await remote({
     hostname: "127.0.0.1",
@@ -34,8 +35,25 @@ export async function stop(browser) {
     driver?.kill();
     // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
     if (currentDir) spawnSync("pkill", ["-f", `--data-dir=${currentDir}`]);
+    // WebKitWebDriver иногда переживает сессию и держит порт: следующий запуск попал бы в старый процесс.
+    spawnSync("pkill", ["-x", "WebKitWebDriver"]);
     await new Promise((r) => setTimeout(r, 300));
   }
+}
+
+/** PID приложения этого прогона (или null, если оно завершилось). */
+export function appPid(dataDir = currentDir) {
+  const r = spawnSync("pgrep", ["-f", "--", `--data-dir=${dataDir}`], { encoding: "utf8" });
+  return r.stdout.trim().split("\n").filter(Boolean)[0] ?? null;
+}
+
+/** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
+export function closeLikeUser(dataDir = currentDir) {
+  const pid = appPid(dataDir);
+  if (!pid) throw new Error("приложение не запущено");
+  const wins = spawnSync("xdotool", ["search", "--pid", pid], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
+  const r = spawnSync("python3", [join(ROOT, "e2e/wm_close.py"), ...wins], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr}`);
 }
 
 /** Нажать пункт бокового меню по названию. */
@@ -58,8 +76,13 @@ export async function field(browser, name) {
 export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
-  await el.clearValue();
+  // clearValue в WebKit не вызывает input: React при следующей перерисовке
+  // возвращал старое значение, и новое дописывалось к нему («6000» + «6230»).
+  // Очищаем так, чтобы React увидел изменение, и проверяем результат.
+  await setDate(browser, name, "");
   await el.setValue(value);
+  const got = await el.getValue();
+  if (got !== value) throw new Error(`Поле ${name}: ожидалось «${value}», в поле «${got}»`);
 }
 
 export async function choose(browser, name, visibleText) {
@@ -170,7 +193,7 @@ export async function setDate(browser, name, value) {
   await browser.execute(
     (n, v) => {
       const el = document.querySelector(`[role="dialog"] [name="${n}"]`) ?? document.querySelector(`[name="${n}"]`);
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set.call(el, v);
       el.dispatchEvent(new Event("input", { bubbles: true }));
     },
     name,

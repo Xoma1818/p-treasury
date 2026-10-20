@@ -105,7 +105,7 @@ fn upgrade_makes_backup_and_keeps_data() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("budget.db");
     let account_id = {
-        let db = Storage::open(&path, &opts(dir.path())).unwrap();
+        let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..1]).unwrap();
         insert_account(&db)
     };
 
@@ -146,7 +146,7 @@ fn failed_migration_rolls_back() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("budget.db");
     {
-        let db = Storage::open(&path, &opts(dir.path())).unwrap();
+        let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..1]).unwrap();
         insert_account(&db);
     }
 
@@ -161,7 +161,7 @@ fn failed_migration_rolls_back() {
         other => panic!("ожидалась ошибка миграции, получено {:?}", other.err()),
     }
 
-    let db = Storage::open(&path, &opts(dir.path())).unwrap();
+    let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..1]).unwrap();
     assert_eq!(db.schema_version().unwrap(), 1);
     let half: i64 = db
         .conn()
@@ -282,4 +282,49 @@ fn notes_full_text_search_in_russian() {
 
     c.execute("DELETE FROM notes WHERE id = ?1", [&id]).unwrap();
     assert_eq!(find("банка"), 0);
+}
+
+/// Настоящее обновление 1 → 2 (этап 6): данные на месте, копия сделана,
+/// новые настройки появились; копия из версии 1 восстанавливается в версии 2.
+#[test]
+fn real_upgrade_from_first_version_and_old_backup_restores() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let account_id = {
+        let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..1]).unwrap();
+        insert_account(&db)
+    };
+    let old_copy = dir.path().join("old-copy.db");
+    std::fs::copy(&path, &old_copy).unwrap();
+
+    let mut db = Storage::open(&path, &opts(dir.path())).unwrap();
+    assert_eq!(db.schema_version().unwrap(), storage::LATEST_VERSION);
+    assert!(db.pre_migration_backup().is_some());
+    let settings = budget_core::settings::all(db.conn()).unwrap();
+    assert_eq!(settings["update_check"], "1");
+    assert_eq!(settings["last_backup_at"], "");
+    let n: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM accounts WHERE id = ?1",
+            [&account_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 1);
+
+    db.conn().execute("DELETE FROM accounts", []).unwrap();
+    db.restore_from(&old_copy, &opts(dir.path())).unwrap();
+    assert_eq!(db.schema_version().unwrap(), storage::LATEST_VERSION);
+    let n: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(
+        budget_core::settings::get(db.conn(), "update_check")
+            .unwrap()
+            .as_deref(),
+        Some("1")
+    );
 }

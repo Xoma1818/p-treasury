@@ -1,6 +1,10 @@
 // Скриншоты экранов для отчёта: node e2e/screenshots.mjs (под xvfb-run на Linux).
 import { start, stop, onboard, openSection, fill, choose, chooseLike, click, save, setDate } from "./app.mjs";
 
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 const out = (name) => new URL(`../docs/${name}.png`, import.meta.url).pathname;
 const { browser } = await start();
 try {
@@ -132,6 +136,24 @@ try {
   await browser.saveScreenshot(out("screen-categories"));
   await openSection(browser, "Настройки");
   await browser.saveScreenshot(out("screen-settings"));
+  await browser.execute(() => document.querySelector('[data-testid="data-card"]').scrollIntoView());
+  await browser.pause(200);
+  await browser.saveScreenshot(out("screen-data"));
+  // Импорт с ошибками: строки с ошибкой видны до загрузки.
+  const csv = join(mkdtempSync(join(tmpdir(), "kazna-shot-")), "выписка.csv");
+  writeFileSync(
+    csv,
+    "Дата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма\n" +
+      "01.10.2026;Расход;Карта Сбер;Продукты;Перекрёсток;;1 240,90\n" +
+      "31.09.2026;Расход;Карта Сбер;Жильё;;;6230\n" +
+      "03.10.2026;Расход;Кошелёк;Транспорт;;;350\n" +
+      "05.10.2026;Доход;Карта Сбер;Зарплата;;аванс;40 000\n",
+  );
+  await click(browser, "Импорт из CSV");
+  await browser.execute((p) => (window.__kaznaPick = [p]), csv);
+  await click(browser, "Выбрать файл", '//*[@role="dialog"]');
+  await browser.$('[data-testid="import-preview"]').waitForDisplayed({ timeout: 5000 });
+  await browser.saveScreenshot(out("screen-import"));
 } finally {
   await stop(browser);
 }

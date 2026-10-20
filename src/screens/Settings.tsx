@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { BackupCard, ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
@@ -14,6 +15,7 @@ export function Settings() {
   const currencies = useCurrencies().data ?? [];
   const setSetting = useAction(api.setSetting);
   const base = settings?.base_currency ?? "RUB";
+  const [dialog, setDialog] = useState<"summary" | "import" | null>(null);
 
   return (
     <section className="screen">
@@ -68,6 +70,14 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Формат даты">
+            {(id) => (
+              <select id={id} name="dateFormat" value={settings?.date_format ?? "DD.MM.YYYY"} onChange={(e) => setSetting.run("date_format", e.target.value)}>
+                <option value="DD.MM.YYYY">ДД.ММ.ГГГГ</option>
+                <option value="YYYY-MM-DD">ГГГГ-ММ-ДД</option>
+              </select>
+            )}
+          </Field>
           <Field label="При закрытии окна" hint="В трее приложение продолжает присылать напоминания.">
             {(id) => (
               <select id={id} name="closeToTray" value={settings?.close_to_tray ?? "1"} onChange={(e) => setSetting.run("close_to_tray", e.target.value)}>
@@ -81,6 +91,24 @@ export function Settings() {
       </div>
 
       <Rates base={base} />
+
+      <div className="card" data-testid="data-card">
+        <h2>Данные</h2>
+        <p className="muted">Сводка за период в Excel, загрузка операций из CSV. Список операций и отчёты выгружаются кнопкой «Выгрузить» на своих экранах.</p>
+        <div className="btn-group">
+          <button className="btn primary" onClick={() => setDialog("summary")}>
+            Сводка в Excel
+          </button>
+          <button className="btn" onClick={() => setDialog("import")}>
+            Импорт из CSV
+          </button>
+        </div>
+      </div>
+      {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
+      {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
+
+      <BackupCard />
+      <UpdatesCard />
 
       <div className="card">
         <h2>О программе</h2>

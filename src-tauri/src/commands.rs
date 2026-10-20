@@ -3,12 +3,17 @@
 
 use std::collections::BTreeMap;
 
+use std::path::Path;
+
 use budget_core::accounts::{self, Account, AccountInput, Totals};
+use budget_core::backups::{self, BackupInfo};
 use budget_core::budgets::{self, Budget, Period};
 use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
+use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
+use budget_core::export;
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
@@ -518,4 +523,198 @@ pub fn update_note(state: State<AppState>, id: String, input: NoteInput) -> CmdR
 #[tauri::command]
 pub fn delete_note(state: State<AppState>, id: String) -> CmdResult<()> {
     with_db(&state, |db| notes::delete(db.conn(), &id))
+}
+
+// --- Данные: выгрузка, импорт, резервные копии, обновления ---
+
+#[tauri::command]
+pub fn export_summary(
+    state: State<AppState>,
+    from: String,
+    to: String,
+    path: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        let sheets = export::summary_workbook(db.conn(), &from, &to, &time::today_local())?;
+        export::write_xlsx(Path::new(&path), &sheets)
+    })
+}
+
+#[tauri::command]
+pub fn export_transactions(state: State<AppState>, filter: Filter, path: String) -> CmdResult<()> {
+    with_db(&state, |db| {
+        let sheet = export::transactions_sheet(db.conn(), &filter)?;
+        export::write_one(Path::new(&path), &sheet)
+    })
+}
+
+#[tauri::command]
+pub fn export_report(
+    state: State<AppState>,
+    report: String,
+    from: String,
+    to: String,
+    path: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        let sheet = export::report_sheet(db.conn(), &report, &from, &to)?;
+        export::write_one(Path::new(&path), &sheet)
+    })
+}
+
+#[tauri::command]
+pub fn import_preview(state: State<AppState>, path: String) -> CmdResult<Preview> {
+    with_db(&state, |db| {
+        csv_import::preview(db.conn(), Path::new(&path))
+    })
+}
+
+#[tauri::command]
+pub fn import_csv(state: State<AppState>, path: String, skip_errors: bool) -> CmdResult<usize> {
+    with_db(&state, |db| {
+        csv_import::import(db.conn_mut(), Path::new(&path), skip_errors)
+    })
+}
+
+#[tauri::command]
+pub fn write_import_template(path: String) -> CmdResult<()> {
+    csv_import::write_template(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupStatus {
+    last_backup_at: Option<String>,
+    autobackup_dir: String,
+    autobackup_keep: String,
+    reminder_due: bool,
+    default_name: String,
+}
+
+#[tauri::command]
+pub fn backup_status(state: State<AppState>) -> CmdResult<BackupStatus> {
+    with_db(&state, |db| {
+        let c = db.conn();
+        Ok(BackupStatus {
+            last_backup_at: settings::get(c, "last_backup_at")?.filter(|v| !v.is_empty()),
+            autobackup_dir: settings::get(c, "autobackup_dir")?.unwrap_or_default(),
+            autobackup_keep: settings::get(c, "autobackup_keep")?.unwrap_or_else(|| "10".into()),
+            reminder_due: backups::reminder_due(c, &time::today_local())?,
+            default_name: backups::default_name(),
+        })
+    })
+}
+
+#[tauri::command]
+pub fn backup_now(state: State<AppState>, path: String) -> CmdResult<()> {
+    with_db(&state, |db| backups::backup(db.conn(), Path::new(&path)))
+}
+
+#[tauri::command]
+pub fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
+    backups::inspect(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+/// Восстановить из копии; возвращает путь к копии прежних данных.
+#[tauri::command]
+pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String> {
+    let opts = state.open_options();
+    with_db(&state, |db| {
+        Ok(db
+            .restore_from(Path::new(&path), &opts)?
+            .display()
+            .to_string())
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    /// Адрес обновлений задан (до первой публикации его нет).
+    configured: bool,
+    current: String,
+    /// Новая версия, если есть.
+    version: Option<String>,
+    notes: Option<String>,
+}
+
+/// Адрес файла с описанием последней версии: переменная окружения (для тестов)
+/// или адрес, вшитый при сборке выпуска.
+fn update_endpoint() -> Option<String> {
+    std::env::var("KAZNA_UPDATE_URL")
+        .ok()
+        .or_else(|| option_env!("KAZNA_UPDATE_ENDPOINT").map(str::to_string))
+        .filter(|u| !u.is_empty())
+}
+
+fn updater(app: &tauri::AppHandle) -> Result<Option<tauri_plugin_updater::Updater>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let Some(url) = update_endpoint() else {
+        return Ok(None);
+    };
+    let url = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    let u = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(Some(u))
+}
+
+#[tauri::command]
+pub async fn check_update(app: tauri::AppHandle) -> CmdResult<UpdateInfo> {
+    let current = app.package_info().version.to_string();
+    let Some(u) = updater(&app)? else {
+        return Ok(UpdateInfo {
+            configured: false,
+            current,
+            version: None,
+            notes: None,
+        });
+    };
+    let update = u
+        .check()
+        .await
+        .map_err(|e| format!("не удалось проверить обновления: {e}"))?;
+    Ok(UpdateInfo {
+        configured: true,
+        current,
+        version: update.as_ref().map(|x| x.version.clone()),
+        notes: update.and_then(|x| x.body),
+    })
+}
+
+/// Скачать и поставить обновление. Перед этим — копия данных; после — перезапуск.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    {
+        let opts = state.open_options();
+        let guard = state
+            .db
+            .lock()
+            .map_err(|_| "база данных недоступна".to_string())?;
+        let db = guard.as_ref().map_err(|e| e.clone())?;
+        let dest = opts
+            .backup_dir
+            .join(format!("before-app-update-{}.db", time::file_stamp()));
+        storage::backup_to(db.conn(), &dest).map_err(|e| e.to_string())?;
+    }
+    let Some(u) = updater(&app)? else {
+        return Err("адрес обновлений не задан".into());
+    };
+    let Some(update) = u.check().await.map_err(|e| e.to_string())? else {
+        return Err("новой версии нет".into());
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("не удалось установить обновление: {e}"))?;
+    app.restart();
+}
+
+#[tauri::command]
+pub fn changelog() -> &'static str {
+    include_str!("../../CHANGELOG.md")
 }

@@ -20,6 +20,7 @@ export function Home() {
   const budget = useBudget(period?.month).data;
   const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
+  const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
   const { openTxnForm, showTransactions, go } = useUi();
@@ -42,6 +43,15 @@ export function Home() {
           </button>
         </div>
       </div>
+
+      {backup?.reminderDue && (
+        <div className="card banner warn" data-testid="backup-reminder">
+          Резервной копии не было больше месяца. Сделайте копию на флешку или включите автокопию.
+          <button className="btn" onClick={() => go("settings")}>
+            Открыть настройки
+          </button>
+        </div>
+      )}
 
       <div className="tiles">
         <div className="card tile" data-testid="total-balance">

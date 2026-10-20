@@ -38,6 +38,6 @@ test("Настройки показывают версию данных и пр�
   const { browser } = app;
   await openSection(browser, "Настройки");
   const about = '//h2[normalize-space()="О программе"]/..';
-  await waitText(browser, about, /1 из 1/);
+  await waitText(browser, about, /(\d+) из \1/);
   await waitText(browser, about, money("14 977,23 ₽"));
 });

@@ -11,7 +11,10 @@ serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+rust_xlsxwriter = "0.100.0"
+csv = "1.4.0"
 
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+calamine = "0.37.0"

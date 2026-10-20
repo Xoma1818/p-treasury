@@ -19,6 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
 
 [features]
 # Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.

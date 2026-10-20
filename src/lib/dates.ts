@@ -16,7 +16,17 @@ export function monthBounds(date: string): [string, string] {
 }
 
 /** «20.10.2026» */
+export type DateFormat = "DD.MM.YYYY" | "YYYY-MM-DD";
+let dateFormat: DateFormat = "DD.MM.YYYY";
+
+/** Формат дат из настроек (date_format); задаётся при загрузке настроек. */
+export function setDateFormat(f: string | undefined) {
+  dateFormat = f === "YYYY-MM-DD" ? "YYYY-MM-DD" : "DD.MM.YYYY";
+}
+
+/** «20.10.2026» (или «2026-10-20» по настройке). */
 export function formatDate(date: string): string {
+  if (dateFormat === "YYYY-MM-DD") return date;
   const [y, m, d] = date.split("-");
   return `${d}.${m}.${y}`;
 }

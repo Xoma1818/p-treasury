@@ -1,6 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useExport } from "../components/DataTools";
 import { AccountSelect, CategorySelect } from "../components/Fields";
+import { ErrorText } from "../components/Modal";
 import { TxnTable } from "../components/TxnTable";
 import { api, TXN_TYPES, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, today } from "../lib/dates";
@@ -33,6 +35,7 @@ export function Transactions() {
 
   const query = { ...f, limit };
   const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
+  const exp = useExport(`Казна — операции ${today()}`, (path) => api.exportTransactions(f, path));
   const set = (patch: Partial<TxnFilter>) => {
     setLimit(PAGE);
     setF({ ...f, ...patch });
@@ -42,10 +45,20 @@ export function Transactions() {
     <section className="screen wide">
       <div className="screen-head">
         <h1>Операции</h1>
+        <span className="spacer" />
+        <button className="btn" onClick={exp.run} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
+          Выгрузить
+        </button>
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
           + Операция
         </button>
       </div>
+      {exp.done && (
+        <p className="ok" data-testid="export-done">
+          Выгружено: {exp.done}
+        </p>
+      )}
+      <ErrorText error={exp.error} />
       <div className="card filters">
         <input type="date" aria-label="С даты" name="dateFrom" value={f.dateFrom ?? ""} onChange={(e) => set({ dateFrom: e.target.value || undefined })} />
         <span className="muted">—</span>

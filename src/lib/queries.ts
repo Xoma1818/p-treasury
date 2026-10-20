@@ -1,9 +1,18 @@
 // Общие запросы к ядру с едиными ключами кеша.
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
+import { setDateFormat } from "./dates";
 
 export const useAppInfo = () => useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo });
-export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
+export const useSettings = () =>
+  useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => {
+      const s = await api.getSettings();
+      setDateFormat(s.date_format);
+      return s;
+    },
+  });
 export const useCurrencies = () => useQuery({ queryKey: ["currencies"], queryFn: api.listCurrencies, staleTime: Infinity });
 export const useAccounts = (includeArchived = false) =>
   useQuery({ queryKey: ["accounts", includeArchived], queryFn: () => api.listAccounts(includeArchived) });

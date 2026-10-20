@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, formatDateTime, isoDateTime, monthBounds, monthGenitive, monthTitle, shiftMonth, weekStart } from "./dates";
+import { addDays, formatDate, setDateFormat, formatDateTime, isoDateTime, monthBounds, monthGenitive, monthTitle, shiftMonth, weekStart } from "./dates";
 
 describe("dates", () => {
   it("границы месяца с учётом високосного года", () => {
@@ -32,5 +32,11 @@ describe("dates", () => {
     expect(isoDateTime(new Date(2026, 9, 5, 9, 7))).toBe("2026-10-05T09:07");
     expect(formatDateTime("2026-11-10T09:00")).toBe("10.11.2026 9:00");
     expect(formatDateTime("2026-11-10T18:30")).toBe("10.11.2026 18:30");
+  });
+  it("формат даты из настроек", () => {
+    setDateFormat("YYYY-MM-DD");
+    expect(formatDate("2026-10-05")).toBe("2026-10-05");
+    setDateFormat("что-то другое");
+    expect(formatDate("2026-10-05")).toBe("05.10.2026");
   });
 });
