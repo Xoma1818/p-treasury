@@ -34,7 +34,11 @@ KAZNA_VOLUME_DIR=папка node --test e2e/volume.test.mjs                     
 KAZNA_OLD_BIN=путь/к/старой/сборке node --test e2e/upgrade.test.mjs           # обновление со старой версии
 ```
 
-**Дальше:** установщик для Windows и ручная проверка по [списку](docs/owner-checklist.md).
+**Установщик для Windows** (`Казна_0.7.0_x64-setup.exe`) собирается одним из двух способов:
+- на GitHub: `.github/workflows/windows-installer.yml` (Actions → «Установщик для Windows»), ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
+- на компьютере с Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` (что установить заранее, написано в начале скрипта).
+
+**Дальше:** сборка установщика и ручная проверка по [списку](docs/owner-checklist.md).
 
 ## Как запустить
 
