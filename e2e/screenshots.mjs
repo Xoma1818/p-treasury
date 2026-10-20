@@ -108,9 +108,31 @@ try {
   await save(browser);
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-notes"));
+  // Шаблоны: «Кофе 250 ₽» и «Обед 450 ₽».
   await openSection(browser, "Главная");
-  await browser.pause(500);
+  for (const [name, amount] of [["Кофе", "250"], ["Обед", "450"]]) {
+    await click(browser, "+ Расход");
+    await fill(browser, "amount", amount);
+    await choose(browser, "account", "Карта Сбер (₽)");
+    await choose(browser, "category", "Кафе и рестораны");
+    await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
+    await fill(browser, "templateName", name);
+    await click(browser, "Сохранить шаблон", '//*[@role="dialog"]');
+    await browser.$('[data-testid="template-saved"]').waitForDisplayed({ timeout: 5000 });
+    await click(browser, "Отмена", '//*[@role="dialog"]');
+  }
+  // Новая операция с выражением в сумме.
+  await click(browser, "+ Расход");
+  await fill(browser, "amount", "1890+455");
+  await browser.pause(200);
+  await browser.saveScreenshot(out("screen-amount-calc"));
+  await click(browser, "Отмена", '//*[@role="dialog"]');
+  await browser.pause(300);
   await browser.saveScreenshot(out("screen-home"));
+  await (await browser.$('//*[@data-testid="template" and @data-name="Кофе"]//button')).click();
+  await browser.$('[data-testid="undo-bar"]').waitForDisplayed({ timeout: 5000 });
+  await browser.pause(300);
+  await browser.saveScreenshot(out("screen-templates"));
   await openSection(browser, "Операции");
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-transactions"));

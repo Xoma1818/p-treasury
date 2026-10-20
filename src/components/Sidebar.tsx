@@ -1,8 +1,9 @@
 import { SECTIONS } from "../lib/sections";
 import { useUi } from "../lib/store";
+import { HideAmountsButton } from "./Convenience";
 
 export function Sidebar() {
-  const { section, go } = useUi();
+  const { section, go, setHelp } = useUi();
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">Казна</div>
@@ -19,6 +20,12 @@ export function Sidebar() {
           </li>
         ))}
       </ul>
+      <div className="sidebar-foot">
+        <HideAmountsButton />
+        <button className="link" onClick={() => setHelp(true)} title="F1">
+          Горячие клавиши
+        </button>
+      </div>
     </nav>
   );
 }

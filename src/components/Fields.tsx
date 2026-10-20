@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 import type { Account, Category, CategoryKind } from "../lib/api";
-import { amountToInput, parseAmount } from "../lib/money";
+import { amountToInput, formatAmount, isExpression, parseAmount } from "../lib/money";
 
 export function Field({ label, children, hint }: { label: string; children: (id: string) => ReactNode; hint?: ReactNode }) {
   const id = useId();
@@ -33,17 +33,27 @@ export function AmountInput({
 }) {
   const parsed = parseAmount(value, minorUnits);
   const bad = value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
+  const calc = !bad && parsed !== null && isExpression(value);
   return (
-    <input
-      id={id}
-      name={name}
-      className={bad ? "amount invalid" : "amount"}
-      inputMode="decimal"
-      autoComplete="off"
-      value={value}
-      autoFocus={autoFocus}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <span className="amount-field">
+      <input
+        id={id}
+        name={name}
+        className={bad ? "amount invalid" : "amount"}
+        inputMode="decimal"
+        autoComplete="off"
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)}
+        // Уход с поля заменяет выражение результатом: «1890+455» → «2345».
+        onBlur={() => calc && onChange(amountToInput(parsed, minorUnits))}
+      />
+      {calc && (
+        <span className="amount-calc" data-testid={`${name}-calc`}>
+          = {formatAmount(parsed, minorUnits)}
+        </span>
+      )}
+    </span>
   );
 }
 

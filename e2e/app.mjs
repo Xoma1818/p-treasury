@@ -12,7 +12,7 @@ export const APP_BIN = process.env.KAZNA_BIN ?? join(ROOT, "target/debug/budget-
 let driver;
 let currentDir;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-")), { env = {} } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-")), { env = {}, bin = APP_BIN } = {}) {
   currentDir = dataDir;
   // Переменные окружения доходят до приложения через tauri-driver.
   driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });
@@ -22,7 +22,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "kazna-e2e-")),
     port: 4444,
     logLevel: "error",
     capabilities: {
-      "tauri:options": { application: APP_BIN, args: [`--data-dir=${dataDir}`] },
+      "tauri:options": { application: bin, args: [`--data-dir=${dataDir}`] },
     },
   });
   return { browser, dataDir };

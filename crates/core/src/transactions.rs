@@ -430,7 +430,7 @@ pub fn defaults(conn: &Connection, kind: &str) -> Result<Defaults> {
             "SELECT t.account_id, t.category_id, t.to_account_id FROM transactions t
              JOIN accounts a ON a.id = t.account_id
              WHERE t.type = ?1 AND a.archived_at IS NULL AND a.type <> 'debt'
-             ORDER BY t.created_at DESC LIMIT 1",
+             ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1",
             [kind],
             |r| {
                 Ok(Defaults {
@@ -713,6 +713,31 @@ mod tests {
         let d = defaults(c, "expense").unwrap();
         assert_eq!(d.account_id.as_deref(), Some(f.card.as_str()));
         assert_eq!(defaults(c, "income").unwrap().account_id, None);
+    }
+
+    #[test]
+    fn defaults_take_the_last_entered_within_one_millisecond() {
+        // Две операции в одну миллисекунду (платёж по долгу пишет перевод и расход сразу):
+        // по умолчанию предлагается счёт последней записанной, а не случайной из двух.
+        let f = fx();
+        let c = f.db.conn();
+        create(
+            c,
+            &txn("expense", "2026-10-01", &f.cash, 100, Some(&f.food)),
+        )
+        .unwrap();
+        create(
+            c,
+            &txn("expense", "2026-10-01", &f.card, 100, Some(&f.food)),
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE transactions SET created_at = '2026-10-01T12:00:00.000Z'",
+            [],
+        )
+        .unwrap();
+        let d = defaults(c, "expense").unwrap();
+        assert_eq!(d.account_id.as_deref(), Some(f.card.as_str()));
     }
 
     #[test]

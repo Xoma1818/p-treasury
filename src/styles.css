@@ -31,6 +31,12 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
   background: var(--card);
   border-right: 1px solid var(--border);
   padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 .brand { font-weight: 700; font-size: 16px; padding: 4px 12px 16px; color: var(--accent); }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
@@ -318,3 +324,24 @@ tr.bad td { background: #fdeee6; }
 .update-notes { white-space: pre-wrap; max-height: 320px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .card .facts + .btn-group { margin-top: 12px; }
 .card > .btn-group + .hint { margin-top: 10px; }
+
+/* Этап 7: удобство. */
+.amount-field { display: inline-flex; align-items: center; gap: 8px; }
+.amount-calc { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.field .amount-field { display: flex; }
+.amount-field input { flex: 1; min-width: 0; }
+.sidebar-foot { margin-top: auto; padding: 12px 8px 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; }
+.template-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.template { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
+.template-main { border: 0; background: none; font: inherit; padding: 5px 4px 5px 12px; cursor: pointer; display: inline-flex; gap: 6px; color: var(--text); }
+.template-main:last-child { padding-right: 12px; }
+.template-main .money { color: var(--muted); }
+.template:hover { border-color: var(--accent); }
+.template-del { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px 10px 4px 4px; font-size: 15px; line-height: 1; }
+.template-del:hover { color: var(--over); }
+.undo-bar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; background: #1c2430; color: #fff; padding: 10px 12px 10px 16px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.undo-bar .link { color: #9db8ff; font-weight: 600; }
+.undo-bar .icon-btn { color: #c9cfd8; background: none; }
+.undo-bar.error { background: #7c2d12; }
+kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+.hotkeys td:first-child { width: 1%; padding-right: 16px; }

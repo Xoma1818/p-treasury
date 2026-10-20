@@ -538,6 +538,36 @@ export interface UpdateInfo {
   notes: string | null;
 }
 
+export interface TemplateInput {
+  name: string;
+  type: "expense" | "income" | "transfer";
+  amount: number | null;
+  accountId: string | null;
+  toAccountId: string | null;
+  categoryId: string | null;
+  payee: string | null;
+  note: string | null;
+}
+
+export interface Template extends TemplateInput {
+  id: string;
+  currencySymbol: string | null;
+  minorUnits: number;
+  /** Хватает данных, чтобы создать операцию сразу. */
+  complete: boolean;
+  useCount: number;
+}
+
+export interface UndoStep {
+  id: number;
+  label: string;
+}
+
+export interface UndoState {
+  undo: UndoStep | null;
+  redo: UndoStep | null;
+}
+
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export const api = {
@@ -623,6 +653,14 @@ export const api = {
   checkUpdate: () => invoke<UpdateInfo>("check_update"),
   installUpdate: () => invoke<void>("install_update"),
   changelog: () => invoke<string>("changelog"),
+  listTemplates: () => invoke<Template[]>("list_templates"),
+  createTemplate: (input: TemplateInput) => invoke<string>("create_template", { input }),
+  deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
+  applyTemplate: (id: string, date: string) => invoke<string>("apply_template", { id, date }),
+  templateUsed: (id: string) => invoke<void>("template_used", { id }),
+  undoState: () => invoke<UndoState>("undo_state"),
+  undo: () => invoke<string | null>("undo"),
+  redo: () => invoke<string | null>("redo"),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {

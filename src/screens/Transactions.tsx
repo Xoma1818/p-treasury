@@ -73,7 +73,7 @@ export function Transactions() {
             </option>
           ))}
         </select>
-        <input type="search" name="search" placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input type="search" name="search" data-search placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => setSearch(e.target.value)} />
         <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined }))}>
           Сбросить
         </button>

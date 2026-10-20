@@ -23,7 +23,7 @@ export function Notes() {
         </button>
       </div>
       <div className="card">
-        <input name="noteSearch" className="search" placeholder="Поиск по заметкам" value={text} onChange={(e) => setText(e.target.value)} />
+        <input name="noteSearch" data-search className="search" placeholder="Поиск по заметкам" value={text} onChange={(e) => setText(e.target.value)} />
         {notes.data && notes.data.length === 0 && <p className="muted">{query.trim() ? "Ничего не нашлось." : "Заметок пока нет. Их можно добавить и в карточке операции, долга или дня календаря."}</p>}
         {notes.data && <NoteList notes={notes.data} onOpen={setEdit} />}
       </div>

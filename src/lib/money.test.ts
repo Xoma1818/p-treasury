@@ -25,7 +25,7 @@ describe("formatMoney", () => {
   });
 });
 
-import { parseAmount, amountToInput } from "./money";
+import { parseAmount, amountToInput, isExpression } from "./money";
 
 describe("parseAmount", () => {
   it("совпадает с разбором в ядре", () => {
@@ -49,5 +49,33 @@ describe("parseAmount", () => {
     for (const v of [0, 5, 123_456, -987_650]) {
       expect(parseAmount(amountToInput(v))).toBe(v);
     }
+  });
+});
+
+describe("арифметика в поле суммы", () => {
+  it("чек из двух частей и другие выражения", () => {
+    expect(parseAmount("1890+455")).toBe(234_500);
+    expect(parseAmount("1 890 + 455")).toBe(234_500);
+    expect(parseAmount("250+180")).toBe(43_000);
+    expect(parseAmount("1500*3")).toBe(450_000);
+    expect(parseAmount("1500×3")).toBe(450_000);
+    expect(parseAmount("(1200-200)/2")).toBe(50_000);
+    expect(parseAmount("100,5−0,25")).toBe(10_025);
+    expect(parseAmount("-(10+5)")).toBe(-1_500);
+  });
+  it("точно считает дроби и округляет до копейки от нуля", () => {
+    expect(parseAmount("0,1+0,2")).toBe(30);
+    expect(parseAmount("100/3")).toBe(3_333);
+    expect(parseAmount("200/3")).toBe(6_667);
+    expect(parseAmount("0,005*1")).toBe(1);
+    expect(parseAmount("10/3", 0)).toBe(3);
+  });
+  it("ошибки ввода — null, код не выполняется", () => {
+    for (const bad of ["1+", "(1+2", "1/0", "1++", "alert(1)", "1+2)", "2**3", "1e3+1", ""]) expect(parseAmount(bad), bad).toBe(null);
+  });
+  it("простые числа разбираются как раньше", () => {
+    expect(isExpression("-350")).toBe(false);
+    expect(isExpression("1890+455")).toBe(true);
+    expect(parseAmount("-350")).toBe(-35_000);
   });
 });

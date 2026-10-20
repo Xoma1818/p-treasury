@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
+import { TemplatesCard } from "../components/Templates";
 import { OccurrenceItem } from "../components/Reminders";
 import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
@@ -32,6 +34,7 @@ export function Home() {
       <div className="screen-head">
         <h1>Главная</h1>
         <div className="btn-group">
+          <HideAmountsButton className="btn" />
           <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>
             + Доход
           </button>
@@ -84,6 +87,8 @@ export function Home() {
           <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed />}</div>
         </div>
       </div>
+
+      <TemplatesCard />
 
       <div className="columns home">
         <div className="card">

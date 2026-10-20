@@ -19,18 +19,45 @@ pub fn backup_to(conn: &Connection, dest: &Path) -> Result<()> {
     let mut tmp_name = dest.as_os_str().to_owned();
     tmp_name.push(".part");
     let tmp = Path::new(&tmp_name);
+    // Остатки копии, прерванной падением или выключением компьютера.
+    remove_part(tmp)?;
     {
         let mut target = Connection::open(tmp)?;
         let backup = Backup::new(conn, &mut target)?;
         backup.run_to_completion(256, Duration::from_millis(10), None)?;
+        drop(backup);
+        // Копия — один самостоятельный файл: без режима WAL её открытие (проверка
+        // перед восстановлением) не оставит рядом файлов -wal и -shm.
+        target.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))?;
     }
     fs::rename(tmp, dest)?;
     Ok(())
 }
 
-/// Оставить в папке `keep` самых новых копий с данным префиксом.
+/// Удалить недописанную копию вместе со служебными файлами SQLite.
+fn remove_part(tmp: &Path) -> Result<()> {
+    for suffix in ["", "-journal", "-wal", "-shm"] {
+        let mut name = tmp.as_os_str().to_owned();
+        name.push(suffix);
+        let p = Path::new(&name);
+        if p.exists() {
+            fs::remove_file(p)?;
+        }
+    }
+    Ok(())
+}
+
+/// Оставить в папке `keep` самых новых копий с данным префиксом и убрать
+/// недописанные (`.part`), оставшиеся после прерванного копирования.
 /// Имена копий содержат метку времени, поэтому порядок по имени = по времени.
 pub fn prune_backups(dir: &Path, prefix: &str, keep: usize) -> Result<()> {
+    for e in fs::read_dir(dir)?.filter_map(|e| e.ok()) {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(prefix) && name.ends_with(".db.part") {
+            remove_part(&e.path())?;
+        }
+    }
     let mut files: Vec<_> = fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())

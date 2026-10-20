@@ -22,7 +22,11 @@ pub mod reminders;
 pub mod reports;
 pub mod settings;
 pub mod storage;
+pub mod templates;
 pub mod time;
 pub mod transactions;
+pub mod undo;
 
 pub use error::{Error, Result};
+/// Соединение SQLite: тип нужен оболочке приложения для журнала отмены.
+pub use rusqlite::Connection;

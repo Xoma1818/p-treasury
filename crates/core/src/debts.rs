@@ -738,7 +738,7 @@ fn card(conn: &Connection, t: &Terms, schedule: &[ScheduleRow]) -> Result<DebtCa
     let default_account_id: Option<String> = conn
         .query_row(
             "SELECT CASE WHEN account_id = ?2 THEN to_account_id ELSE account_id END FROM transactions
-             WHERE debt_id = ?1 ORDER BY date DESC, created_at DESC LIMIT 1",
+             WHERE debt_id = ?1 ORDER BY date DESC, created_at DESC, rowid DESC LIMIT 1",
             params![t.id, t.account_id],
             |r| r.get(0),
         )
@@ -782,7 +782,7 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
          LEFT JOIN transactions it ON it.id = p.interest_transaction_id
          LEFT JOIN accounts pa ON pa.id = (CASE WHEN pt.account_id = ?2 THEN pt.to_account_id ELSE pt.account_id END)
          LEFT JOIN accounts ia ON ia.id = it.account_id
-         WHERE p.debt_id = ?1 ORDER BY p.date DESC, p.created_at DESC",
+         WHERE p.debt_id = ?1 ORDER BY p.date DESC, p.created_at DESC, p.rowid DESC",
     )?;
     let payments = stmt
         .query_map(params![id, t.account_id], |r| {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type TxnInput, type TxnType } from "../lib/api";
+import { api, type Template, type TxnInput, type TxnType } from "../lib/api";
 import { today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
 import { useAccounts, useCategories } from "../lib/queries";
@@ -7,6 +7,7 @@ import { useUi, type TxnFormState } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from "./Fields";
 import { NotesBlock } from "./Notes";
+import { TemplateButtons, useTemplates } from "./Templates";
 import { ErrorText, Modal } from "./Modal";
 
 const TABS: [TxnType, string][] = [
@@ -35,7 +36,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const [toAmount, setToAmount] = useState(amountText(editing?.toAmount, editing?.toMinorUnits ?? 2));
   const [date, setDate] = useState(editing?.date ?? ((state.mode === "new" ? state.date : undefined) || today()));
   const [accountId, setAccountId] = useState(editing?.accountId ?? prefill?.accountId ?? "");
-  const [toAccountId, setToAccountId] = useState(editing?.toAccountId ?? "");
+  const [toAccountId, setToAccountId] = useState(editing?.toAccountId ?? prefill?.toAccountId ?? "");
   const [categoryId, setCategoryId] = useState(editing?.categoryId ?? prefill?.categoryId ?? "");
   const [payee, setPayee] = useState(editing?.payee ?? prefill?.payee ?? "");
   const [note, setNote] = useState(editing?.note ?? prefill?.note ?? "");
@@ -117,6 +118,38 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   }, onClose);
   const remove = useAction(() => api.deleteTransaction(editing!.id), onClose);
 
+  // Шаблоны: подставить сохранённую операцию или сохранить текущую.
+  const templates = useTemplates().data ?? [];
+  const [templateName, setTemplateName] = useState<string | null>(null);
+  const [templateSaved, setTemplateSaved] = useState<string | null>(null);
+  const pickTemplate = (t: Template) => {
+    setType(t.type);
+    if (t.amount != null) setAmount(amountText(t.amount, t.minorUnits));
+    if (t.accountId) setAccountId(t.accountId);
+    setToAccountId(t.toAccountId ?? "");
+    setCategoryId(t.categoryId ?? "");
+    setPayee(t.payee ?? "");
+    setNote(t.note ?? "");
+    appliedFor.current = t.payee;
+    setHintRev((r) => r + 1);
+    api.templateUsed(t.id);
+  };
+  const saveTemplate = useAction(async (name: string) => {
+    await api.createTemplate({
+      name,
+      type: type === "adjustment" ? "expense" : type,
+      amount: amountValue && amountValue > 0 ? amountValue : null,
+      accountId: accountId || null,
+      toAccountId: type === "transfer" ? toAccountId || null : null,
+      categoryId: type === "transfer" ? null : categoryId || null,
+      payee: payee || null,
+      note: note || null,
+    });
+    setTemplateName(null);
+    setTemplateSaved(name);
+  });
+  const suggestedName = () => payee.trim() || categories.find((c) => c.id === categoryId)?.name || "";
+
   const submit = () => {
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (crossCurrency && (toAmountValue === null || toAmountValue <= 0)) return save.setError("Введите сумму зачисления");
@@ -158,6 +191,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
           </p>
         ) : (
           <>
+            {!editing && templates.length > 0 && <TemplateButtons items={templates} onPick={pickTemplate} />}
             <div className="tabs" role="tablist">
               {TABS.map(([t, label]) => (
                 <button
@@ -217,6 +251,45 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
           </>
         )}
         {editing && <NotesBlock filter={{ transactionId: editing.id }} initial={{ transactionId: editing.id }} />}
+        {!editing &&
+          (templateName === null ? (
+            <div>
+              <button type="button" className="link" onClick={() => (setTemplateSaved(null), setTemplateName(suggestedName()))}>
+                Сохранить как шаблон
+              </button>
+              {templateSaved && (
+                <span className="ok" data-testid="template-saved">
+                  {" "}
+                  Шаблон «{templateSaved}» сохранён
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="inline-form">
+              <input
+                name="templateName"
+                aria-label="Название шаблона"
+                placeholder="Название, например «Кофе»"
+                value={templateName}
+                autoFocus
+                onChange={(e) => setTemplateName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter сохраняет шаблон, а не операцию.
+                  if (e.key === "Enter" && !e.ctrlKey) {
+                    e.preventDefault();
+                    saveTemplate.run(templateName.trim());
+                  }
+                }}
+              />
+              <button type="button" className="btn" disabled={!templateName.trim() || saveTemplate.busy} onClick={() => saveTemplate.run(templateName.trim())}>
+                Сохранить шаблон
+              </button>
+              <button type="button" className="link" onClick={() => setTemplateName(null)}>
+                Не нужно
+              </button>
+            </div>
+          ))}
+        <ErrorText error={saveTemplate.error} />
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {editing && (

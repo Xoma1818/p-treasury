@@ -13,6 +13,8 @@ pub struct AppState {
     pub db: Mutex<Result<Storage, String>>,
     /// Папка данных: там же копии перед миграцией и восстановлением.
     pub data_dir: PathBuf,
+    /// Журнал отмены и повтора (в памяти, очищается при закрытии).
+    pub undo: Mutex<budget_core::undo::Journal>,
 }
 
 impl AppState {
@@ -45,6 +47,7 @@ pub fn run() {
             let state = AppState {
                 db: Mutex::new(Err(String::new())),
                 data_dir: data_dir.clone(),
+                undo: Mutex::default(),
             };
             let db = Storage::open(&data_dir.join("budget.db"), &state.open_options())
                 .map_err(|e| e.to_string());
@@ -149,6 +152,14 @@ pub fn run() {
             commands::check_update,
             commands::install_update,
             commands::changelog,
+            commands::list_templates,
+            commands::create_template,
+            commands::delete_template,
+            commands::apply_template,
+            commands::template_used,
+            commands::undo_state,
+            commands::undo,
+            commands::redo,
         ])
         .build(tauri::generate_context!())
         .expect("не удалось запустить приложение")
