@@ -11,6 +11,7 @@ import { Categories } from "./screens/Categories";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Placeholder } from "./screens/Placeholder";
+import { Reports } from "./screens/Reports";
 import { Settings } from "./screens/Settings";
 import { Transactions } from "./screens/Transactions";
 
@@ -18,6 +19,7 @@ const SCREENS: Partial<Record<SectionId, () => React.JSX.Element>> = {
   home: Home,
   transactions: Transactions,
   budget: Budget,
+  reports: Reports,
   accounts: Accounts,
   categories: Categories,
   settings: Settings,

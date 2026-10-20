@@ -61,6 +61,14 @@ try {
   await browser.pause(300);
   await browser.saveScreenshot(out("screen-transfer"));
   await browser.keys("Escape");
+  await openSection(browser, "Отчёты");
+  await (await browser.$('button[aria-label="Раскрыть"]')).click().catch(() => {});
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-reports"));
+  await choose(browser, "periodKind", "Год");
+  await click(browser, "По месяцам");
+  await browser.pause(400);
+  await browser.saveScreenshot(out("screen-reports-months"));
   await openSection(browser, "Счета");
   await browser.saveScreenshot(out("screen-accounts"));
   await openSection(browser, "Категории");

@@ -51,6 +51,11 @@ export function Home() {
         <div className="card tile" data-testid="month-income">
           <div className="tile-label">Доходы, {monthName}</div>
           <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} />}</div>
+          {month.data?.savingsRate != null && (
+            <div className="hint" data-testid="home-savings-rate">
+              Норма сбережений {month.data.savingsRate} %
+            </div>
+          )}
         </div>
         <div className="card tile" data-testid="month-expense">
           <div className="tile-label">Расходы, {monthName}</div>

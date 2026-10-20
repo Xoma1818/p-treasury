@@ -142,8 +142,65 @@ export interface PeriodSummary {
   income: number;
   expense: number;
   adjustments: number;
+  savingsRate: number | null;
   missingRates: string[];
 }
+
+export interface CategoryItem {
+  categoryId: string;
+  name: string;
+  amount: number;
+  percent: number;
+  children: CategoryItem[];
+}
+
+export interface CategoryReport {
+  baseCurrency: string;
+  total: number;
+  items: CategoryItem[];
+  missingRates: string[];
+}
+
+export interface MonthRow {
+  period: Period;
+  income: number;
+  expense: number;
+  balance: number;
+  savingsRate: number | null;
+}
+
+export interface MonthsReport {
+  baseCurrency: string;
+  months: MonthRow[];
+  income: number;
+  expense: number;
+  balance: number;
+  savingsRate: number | null;
+  missingRates: string[];
+}
+
+export interface BalanceRow {
+  accountId: string;
+  name: string;
+  type: string;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  balance: number;
+  baseValue: number | null;
+  includeInTotal: boolean;
+  archived: boolean;
+}
+
+export interface BalancesReport {
+  date: string;
+  baseCurrency: string;
+  rows: BalanceRow[];
+  total: number;
+  missingRates: string[];
+}
+
+export type ReportPeriodKind = "month" | "quarter" | "year";
 
 export interface Period {
   /** «2026-11» */
@@ -221,6 +278,10 @@ export const api = {
   payeeHints: (kind: TxnType, query: string) => invoke<PayeeHint[]>("payee_hints", { kind, query }),
   transactionDefaults: (kind: TxnType) => invoke<Defaults>("transaction_defaults", { kind }),
   periodSummary: (from: string, to: string) => invoke<PeriodSummary>("period_summary", { from, to }),
+  reportPeriod: (kind: ReportPeriodKind, month: string) => invoke<Period>("report_period", { kind, month }),
+  reportByCategory: (kind: CategoryKind, from: string, to: string) => invoke<CategoryReport>("report_by_category", { kind, from, to }),
+  reportByMonth: (fromMonth: string, toMonth: string) => invoke<MonthsReport>("report_by_month", { fromMonth, toMonth }),
+  reportBalances: (date: string) => invoke<BalancesReport>("report_balances", { date }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),

@@ -70,6 +70,10 @@ pub fn run() {
             commands::set_budget_limit,
             commands::set_budget_note,
             commands::delete_budget,
+            commands::report_period,
+            commands::report_by_category,
+            commands::report_by_month,
+            commands::report_balances,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");

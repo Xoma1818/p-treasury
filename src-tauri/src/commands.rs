@@ -8,7 +8,7 @@ use budget_core::budgets::{self, Budget, Period};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::onboarding::{self, Setup};
-use budget_core::reports::{self, PeriodSummary};
+use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::storage::{self, Storage};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
 use budget_core::{settings, time};
@@ -313,4 +313,37 @@ pub fn set_budget_note(
 #[tauri::command]
 pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()> {
     with_db(&state, |db| budgets::delete(db.conn(), &budget_id))
+}
+
+#[tauri::command]
+pub fn report_period(state: State<AppState>, kind: String, month: String) -> CmdResult<Period> {
+    with_db(&state, |db| reports::period_of(db.conn(), &kind, &month))
+}
+
+#[tauri::command]
+pub fn report_by_category(
+    state: State<AppState>,
+    kind: String,
+    from: String,
+    to: String,
+) -> CmdResult<CategoryReport> {
+    with_db(&state, |db| {
+        reports::by_category(db.conn(), &kind, &from, &to)
+    })
+}
+
+#[tauri::command]
+pub fn report_by_month(
+    state: State<AppState>,
+    from_month: String,
+    to_month: String,
+) -> CmdResult<MonthsReport> {
+    with_db(&state, |db| {
+        reports::by_month(db.conn(), &from_month, &to_month)
+    })
+}
+
+#[tauri::command]
+pub fn report_balances(state: State<AppState>, date: String) -> CmdResult<BalancesReport> {
+    with_db(&state, |db| reports::balances_on(db.conn(), &date))
 }
