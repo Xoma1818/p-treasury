@@ -1,11 +1,13 @@
 # Установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
-# Запуск: вкладка Actions → «Установщик для Windows» → Run workflow,
-# или автоматически при теге вида v0.7.0. Готовый .exe — в Artifacts запуска.
+# Запуск: на каждый запрос на слияние, вкладка Actions → «Установщик для Windows» → Run workflow,
+# или при теге вида v0.8.0. Готовый .exe — в Artifacts запуска.
 # Ключ подписи обновлений хранится в секрете TAURI_SIGNING_PRIVATE_KEY (не в репозитории).
+# Без секрета установщик собирается без файла подписи для автообновления.
 name: Установщик для Windows
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     tags: ["v*"]
 
@@ -32,10 +34,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - name: Сборка установщика
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npx tauri build --bundles nsis
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            npx tauri build --bundles nsis
+          else
+            npx tauri build --bundles nsis --config src-tauri/tauri.nokey.conf.json
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: kazna-windows-installer
