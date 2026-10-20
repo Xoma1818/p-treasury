@@ -24,7 +24,8 @@
   /* Серии графиков (проверены на различимость, в том числе при нарушениях цветового зрения). */
   --series-income: #2f5fd0;
   --series-expense: #1baf7a;
-  font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Шрифт Windows по просьбе владельца (0.9); на других системах — системный. */
+  font-family: "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
