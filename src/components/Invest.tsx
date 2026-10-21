@@ -10,6 +10,7 @@ import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 const useOverview = () => useQuery({ queryKey: ["investOverview"], queryFn: api.investOverview }).data;
 
@@ -112,7 +113,10 @@ export function InvestCard() {
   return (
     <div className="card invest-card" data-testid="home-invest">
       <div className="notes-head">
-        <h2>Инвестиции, {monthTitle(o.month.month).toLowerCase()}</h2>
+        <h2>
+          Инвестиции, {monthTitle(o.month.month).toLowerCase()}
+          <Hint of="invest" />
+        </h2>
         <button className="link" onClick={() => setDialog("calc")} data-testid="invest-calc-open">
           Калькулятор
         </button>
@@ -182,7 +186,7 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
   const [amount, setAmount] = useState(m.plan.mode === "amount" ? amountText(m.plan.value) : "");
   const [percent, setPercent] = useState(m.plan.mode === "percent" ? String(m.plan.value) : "10");
   const [onlyMonth, setOnlyMonth] = useState(!!month && m.plan.onlyMonth);
-  const save = useAction(api.setInvestPlan, onClose);
+  const save = useAction(api.setInvestPlan, onClose, { celebrate: true });
   const reset = useAction(api.clearInvestMonthPlan, onClose);
   const target = onlyMonth ? m.month : null;
   const submit = () => {
@@ -237,7 +241,7 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -252,7 +256,7 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
   const a = accounts.find((x) => x.id === id);
   const [value, setValue] = useState(a ? amountText(a.value, a.minorUnits) : "");
   const [date, setDate] = useState(today());
-  const save = useAction(api.setInvestValue, onClose);
+  const save = useAction(api.setInvestValue, onClose, { celebrate: true });
   const remove = useAction(api.deleteInvestValue);
   if (!a) return null;
   const parsed = parseAmount(value, a.minorUnits);
@@ -314,7 +318,7 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy || parsed === null}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || parsed === null}>
             Сохранить
           </button>
         </div>
@@ -373,7 +377,7 @@ function Calculator({ o, onClose }: { o: InvestOverview; onClose: () => void }) 
           ))}
         </div>
         <div className="hint">
-          <span className="legend invested" /> вложено · <span className="legend value" /> доход и вычеты
+          <span className="legend-dot invested" /> вложено · <span className="legend-dot value" /> доход и вычеты
         </div>
         <div className="actions">
           <span className="spacer" />

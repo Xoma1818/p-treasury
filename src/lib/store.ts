@@ -24,6 +24,8 @@ export interface TxnJump {
   dateFrom?: string;
   dateTo?: string;
   eventId?: string;
+  /** Поиск по получателю, комментарию или сумме. */
+  search?: string;
 }
 
 interface UiState {
@@ -42,6 +44,12 @@ interface UiState {
   /** Сохранённый вид, открытый из бокового меню: раздел применяет его и очищает. */
   viewJump: SavedView | null;
   openView: (v: SavedView) => void;
+  /** Вкладка Отчётов, открытая из другого раздела (например, «Подписки» с Главной). */
+  reportTab: string | null;
+  openReport: (tab: string) => void;
+  /** Поиск по всему (Ctrl+K). */
+  palette: boolean;
+  setPalette: (open: boolean) => void;
   /** Справка по горячим клавишам (F1). */
   help: boolean;
   setHelp: (open: boolean) => void;
@@ -59,6 +67,10 @@ export const useUi = create<UiState>((set) => ({
   openDebt: (id, pay = false) => set((s) => ({ debtJump: { id, pay }, section: "debts", visit: s.visit + 1 })),
   viewJump: null,
   openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1 })),
+  reportTab: null,
+  openReport: (reportTab) => set((s) => ({ reportTab, section: "reports", visit: s.visit + 1 })),
+  palette: false,
+  setPalette: (palette) => set({ palette }),
   help: false,
   setHelp: (help) => set({ help }),
 }));

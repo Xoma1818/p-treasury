@@ -25,7 +25,7 @@ export function CbrButton({
         type="button"
         className={small ? "btn small" : "btn primary"}
         data-testid="cbr-load"
-        aria-busy={load.busy}
+        aria-busy={load.busy} data-done={load.done || undefined}
         disabled={load.busy}
         onClick={() => (setResult(null), onLoaded?.(), load.run(date))}
       >

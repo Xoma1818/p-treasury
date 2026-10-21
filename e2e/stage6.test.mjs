@@ -44,7 +44,7 @@ test("импорт CSV: три строки с ошибкой в дате вид
   const broken = [...good, ["31.09.2026", "Расход", "Карта", "ЖКХ", "", "", "6230", ""], ["2026/10/07", "Расход", "Карта", "Такси", "", "", "350", ""], ["08.10.26", "Расход", "Карта", "Такси", "", "", "350", ""]];
   writeFileSync(path, csv(broken));
   await openSection(browser, "Настройки");
-  await click(browser, "Импорт из CSV");
+  await click(browser, "Импорт выписки или CSV");
   await pick(path);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="import-summary"]', /строк 7, без ошибок 4, с ошибками 3/);

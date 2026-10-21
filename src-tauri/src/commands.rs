@@ -7,6 +7,7 @@ use std::path::Path;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::assets::{self, Asset, AssetInput};
+use budget_core::auto_import::{self, ScanResult};
 use budget_core::backups::{self, BackupInfo};
 use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::calendar::{self, Month};
@@ -18,6 +19,7 @@ use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::demo;
 use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
+use budget_core::goals::{self, Goal, GoalInput};
 use budget_core::habits::{self, WeekSummary};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
@@ -27,13 +29,16 @@ use budget_core::quick::{self, Draft};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::rules::{self, Rule, RuleInput};
+use budget_core::search::{self, Hit};
 use budget_core::split::{self, SplitInput, SplitResult};
 use budget_core::storage::{self, Storage};
+use budget_core::subscriptions::{self, SubscriptionsReport};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
 use budget_core::undo::UndoState;
 use budget_core::views::{self, SavedView, ViewInput};
 use budget_core::wealth::{self, Cushion, FxReport};
+use budget_core::year::{self, YearReview};
 use budget_core::{settings, time, Connection};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -1151,17 +1156,32 @@ pub fn export_report(
 }
 
 #[tauri::command]
-pub fn import_preview(state: State<AppState>, path: String) -> CmdResult<Preview> {
+pub fn import_preview(
+    state: State<AppState>,
+    path: String,
+    account_id: Option<String>,
+) -> CmdResult<Preview> {
     with_db(&state, |db| {
-        csv_import::preview(db.conn(), Path::new(&path))
+        csv_import::preview(db.conn(), Path::new(&path), account_id.as_deref())
     })
 }
 
 #[tauri::command]
-pub fn import_csv(state: State<AppState>, path: String, skip_errors: bool) -> CmdResult<usize> {
+pub fn import_csv(
+    state: State<AppState>,
+    path: String,
+    skip_errors: bool,
+    account_id: Option<String>,
+) -> CmdResult<usize> {
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import(c, Path::new(&path), skip_errors)
+        csv_import::import(c, Path::new(&path), skip_errors, account_id.as_deref())
     })
+}
+
+/// Сохранить готовый файл, собранный в окне (картинка «Итоги года»).
+#[tauri::command]
+pub fn save_bytes(path: String, data: Vec<u8>) -> CmdResult<()> {
+    std::fs::write(&path, data).map_err(|e| format!("не удалось сохранить файл: {e}"))
 }
 
 #[tauri::command]
@@ -1353,4 +1373,89 @@ mod tests {
         let err = block_on(super::fetch_cbr(&format!("http://{free}/"))).unwrap_err();
         assert!(err.starts_with("Нет связи с сайтом ЦБ РФ"), "{err}");
     }
+}
+
+#[tauri::command]
+pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
+    with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
+}
+
+#[tauri::command]
+pub fn create_goal(state: State<AppState>, input: GoalInput) -> CmdResult<String> {
+    with_undo(&state, "Новая цель", |c| goals::create(c, &input))
+}
+
+#[tauri::command]
+pub fn update_goal(state: State<AppState>, id: String, input: GoalInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение цели", |c| {
+        goals::update(c, &id, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_goal(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление цели", |c| {
+        goals::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn goal_deposit(
+    state: State<AppState>,
+    id: String,
+    date: String,
+    amount: i64,
+) -> CmdResult<()> {
+    with_undo(&state, "Пополнение цели", |c| {
+        goals::deposit(c, &id, &date, amount)
+    })
+}
+
+#[tauri::command]
+pub fn list_subscriptions(state: State<AppState>) -> CmdResult<SubscriptionsReport> {
+    with_db(&state, |db| {
+        subscriptions::list(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn hide_subscription(state: State<AppState>, key: String, hide: bool) -> CmdResult<()> {
+    with_undo(
+        &state,
+        if hide {
+            "Скрыть подписку"
+        } else {
+            "Вернуть подписку"
+        },
+        |c| subscriptions::set_hidden(c, &key, hide),
+    )
+}
+
+#[tauri::command]
+pub fn year_review(state: State<AppState>, year: i32) -> CmdResult<YearReview> {
+    with_db(&state, |db| {
+        year::review(db.conn(), year, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn global_search(state: State<AppState>, query: String) -> CmdResult<Vec<Hit>> {
+    with_db(&state, |db| search::find(db.conn(), &query))
+}
+
+/// Папка автоимпорта: выбранная в Настройках или «Загрузки».
+#[tauri::command]
+pub fn auto_import_dir(app: AppHandle) -> CmdResult<String> {
+    crate::background::import_dir(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "не найдена папка «Загрузки»: выберите папку в Настройках".to_string())
+}
+
+/// Проверить папку сейчас (кнопка в Настройках).
+#[tauri::command]
+pub fn auto_import_now(app: AppHandle, state: State<AppState>) -> CmdResult<ScanResult> {
+    let dir = auto_import_dir(app)?;
+    with_db(&state, |db| {
+        auto_import::scan(db.conn_mut(), Path::new(&dir))
+    })
 }

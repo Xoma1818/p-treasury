@@ -158,7 +158,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
           <span className="muted" data-testid="quick-date">
             {formatDate(draft.date)}
           </span>
-          <button className="btn primary small" onClick={() => save.run()} disabled={!ready || save.busy} aria-busy={save.busy} title="Enter">
+          <button className="btn primary small" onClick={() => save.run()} disabled={!ready || save.busy} aria-busy={save.busy} data-done={save.done || undefined} title="Enter">
             Записать
           </button>
           {!inWindow && (

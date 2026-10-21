@@ -4,6 +4,7 @@ import { formatDate } from "../lib/dates";
 import { useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 const days = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дня" : "дней");
 
@@ -17,7 +18,10 @@ export function HabitsCard({ noSpend }: { noSpend: number }) {
   return (
     <div className="columns habits">
       <div className="card" data-testid="no-spend-card">
-        <h2>Дни без трат</h2>
+        <h2>
+          Дни без трат
+          <Hint of="habits" />
+        </h2>
         <p className="habit-big">
           <b data-testid="no-spend-count">{noSpend}</b> {days(noSpend)} в этом месяце
         </p>

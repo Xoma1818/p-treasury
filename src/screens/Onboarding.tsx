@@ -75,7 +75,7 @@ export function Onboarding() {
                 <b>Сначала посмотреть?</b>
                 <div className="hint">Откроется пример с тремя месяцами операций, бюджетом и кредитом. Потом его можно удалить одной кнопкой.</div>
               </div>
-              <button className="btn" onClick={() => demo.run()} aria-busy={demo.busy} disabled={demo.busy}>
+              <button className="btn" onClick={() => demo.run()} aria-busy={demo.busy} data-done={demo.done || undefined} disabled={demo.busy}>
                 Посмотреть на примере
               </button>
             </div>
@@ -166,7 +166,7 @@ export function Onboarding() {
               Далее
             </button>
           ) : (
-            <button className="btn primary" onClick={submit} aria-busy={finish.busy} disabled={finish.busy}>
+            <button className="btn primary" onClick={submit} aria-busy={finish.busy} data-done={finish.done || undefined} disabled={finish.busy}>
               Начать
             </button>
           )}

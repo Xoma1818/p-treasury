@@ -6,7 +6,9 @@ import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
-import { api } from "../lib/api";
+import { api, type ScanResult } from "../lib/api";
+import { pickFolder } from "../lib/files";
+import { Hint } from "../components/Hint";
 import { formatDate, today } from "../lib/dates";
 import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
 import { rateSource } from "../lib/rates";
@@ -51,6 +53,14 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Подсказки «?»" hint="Маленькие значки рядом с названиями: под мышкой — что делает функция.">
+            {(id) => (
+              <select id={id} name="hints" value={settings?.hints ?? "1"} onChange={(e) => setSetting.run("hints", e.target.value)}>
+                <option value="1">Показывать</option>
+                <option value="0">Скрыть</option>
+              </select>
+            )}
+          </Field>
           <Field label="Скрыть суммы" hint="Все суммы заменяются на «•••».">
             {(id) => (
               <select id={id} name="hideAmounts" value={settings?.hide_amounts ?? "0"} onChange={(e) => setSetting.run("hide_amounts", e.target.value)}>
@@ -72,6 +82,14 @@ export function Settings() {
                     {d === 0 ? "в день платежа" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
                   </option>
                 ))}
+              </select>
+            )}
+          </Field>
+          <Field label="Напоминать о регулярных платежах" hint="Накануне списания подписки или связи приходит уведомление с суммой.">
+            {(id) => (
+              <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>
+                <option value="1">за день</option>
+                <option value="0">не напоминать</option>
               </select>
             )}
           </Field>
@@ -110,17 +128,21 @@ export function Settings() {
       <Rates base={base} />
 
       <div className="card" data-testid="data-card">
-        <h2>Данные</h2>
+        <h2>
+          Данные
+          <Hint of="data" />
+        </h2>
         <p className="muted">Сводка за период в Excel, загрузка операций из CSV. Список операций и отчёты выгружаются кнопкой «Выгрузить» на своих экранах.</p>
         <div className="btn-group">
           <button className="btn primary" onClick={() => setDialog("summary")}>
             Сводка в Excel
           </button>
           <button className="btn" onClick={() => setDialog("import")}>
-            Импорт из CSV
+            Импорт выписки или CSV
           </button>
         </div>
       </div>
+      <AutoImportCard />
       {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
 
@@ -178,7 +200,10 @@ function Rates({ base }: { base: string }) {
 
   return (
     <div className="card" data-testid="rates-card">
-      <h2>Курсы валют</h2>
+      <h2>
+        Курсы валют
+        <Hint of="rates" />
+      </h2>
       <p className="muted">
         Курс к основной валюте на дату. Для пересчёта берётся последний известный курс на день операции.
       </p>
@@ -211,7 +236,7 @@ function Rates({ base }: { base: string }) {
           <span>=</span>
           <input aria-label="Курс" name="rate" className="amount" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="92,15" />
           <span>{symbol(base)}</span>
-          <button className="btn" type="submit" aria-busy={add.busy} disabled={add.busy || !rate.trim()}>
+          <button className="btn" type="submit" aria-busy={add.busy} data-done={add.done || undefined} disabled={add.busy || !rate.trim()}>
             Добавить
           </button>
         </form>
@@ -244,6 +269,58 @@ function Rates({ base }: { base: string }) {
           {all ? "Свернуть" : `Показать все (${list.length})`}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Импорт из папки: новые CSV по шаблону забираются сами, раз в 5 минут. */
+function AutoImportCard() {
+  const settings = useSettings().data;
+  const on = settings?.auto_import === "1";
+  const dir = useQuery({ queryKey: ["autoImportDir", settings?.auto_import_dir], queryFn: api.autoImportDir, retry: false });
+  const set = useAction(api.setSetting);
+  const choose = useAction(async () => {
+    const p = await pickFolder();
+    if (p) await api.setSetting("auto_import_dir", p);
+  });
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const now = useAction(api.autoImportNow, setResult);
+  return (
+    <div className="card" data-testid="auto-import">
+      <h2>
+        Импорт из папки
+        <Hint title="Импорт из папки" example="скачали выписку Т-Банка в Загрузки — через пару минут операции в приложении">
+          Раз в 5 минут приложение смотрит в папку и забирает новые выписки Сбера и Т-Банка и CSV по шаблону. Счёт для выписки банка берётся тот, что выбран при первом импорте через «Импорт выписки или CSV». Каждый файл — один раз, уже записанные операции пропускаются, другие файлы не трогаются.
+        </Hint>
+      </h2>
+      <label className="check">
+        <input type="checkbox" name="autoImport" checked={on} onChange={(e) => set.run("auto_import", e.target.checked ? "1" : "0")} />
+        Забирать новые файлы сами
+      </label>
+      <p className="hint" data-testid="auto-import-dir">
+        {dir.data ? `Папка: ${dir.data}` : dir.error ? String(dir.error) : "…"}
+      </p>
+      <div className="btn-group">
+        <button className="btn" onClick={() => choose.run()} disabled={choose.busy}>
+          Выбрать папку
+        </button>
+        {settings?.auto_import_dir && (
+          <button className="btn" onClick={() => set.run("auto_import_dir", "")}>
+            Вернуть «Загрузки»
+          </button>
+        )}
+        <button className="btn primary" onClick={() => now.run()} aria-busy={now.busy} data-done={now.done || undefined} disabled={now.busy || !dir.data}>
+          Проверить сейчас
+        </button>
+      </div>
+      {result && (
+        <p className={result.files.some((f) => f.error) ? "hint warn" : "ok"} data-testid="auto-import-result">
+          {result.files.length === 0
+            ? "Новых файлов по шаблону нет."
+            : result.files.map((f) => (f.error ? `${f.name}: ${f.error}` : `${f.name}: добавлено ${f.added}, пропущено ${f.skipped}`)).join(" · ")}
+        </p>
+      )}
+      <ErrorText error={set.error ?? choose.error ?? now.error} />
     </div>
   );
 }

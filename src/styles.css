@@ -441,6 +441,10 @@ p.warn { color: var(--over); }
 .import-table table { margin: 0; }
 .import-table th { position: sticky; top: 0; background: var(--card); }
 tr.bad td { background: var(--over-soft); }
+tr.dup td { color: var(--muted); }
+.import-payee { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-bank { align-items: flex-end; gap: 14px; margin-top: 10px; }
+.bank-chip { padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; white-space: nowrap; margin-bottom: 8px; }
 .update-notes { white-space: pre-wrap; max-height: 320px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .card .facts + .btn-group { margin-top: 12px; }
 .card > .btn-group + .hint { margin-top: 10px; }
@@ -558,6 +562,76 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
 .tree li:hover .row-actions, .tree li:focus-within .row-actions { opacity: 1; }
 ::selection { background: var(--accent-soft); }
 
+/* 0.12: галочка «Готово» на кнопке после успешного действия. */
+.btn[data-done]::before, .btn[data-done][aria-busy="true"]::before {
+  content: "";
+  width: 5px;
+  height: 10px;
+  margin: -3px 3px 0 1px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  transform: rotate(45deg);
+  animation: check-pop 320ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+@keyframes check-pop { from { opacity: 0; transform: rotate(45deg) scale(0.2); } }
+
+/* 0.12: графики и полосы появляются плавно. */
+@keyframes grow-y { from { transform: scaleY(0); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
+@keyframes draw-line { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes sweep { from { stroke-dasharray: 0 100; } }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.chart .bar-income, .chart .bar-expense { transform-box: fill-box; transform-origin: bottom; animation: grow-y 600ms var(--ease) both; animation-delay: calc(var(--i, 0) * 50ms); transition: opacity var(--fast) var(--ease); }
+.chart svg:has(.hit.active) g:not(:has(.hit.active)) :is(.bar-income, .bar-expense) { opacity: 0.4; }
+.bar > span, .bar-fill, .dbar.up { transform-origin: left; animation: grow-x 700ms var(--ease) both; }
+.dbar.down { transform-origin: right; animation: grow-x 700ms var(--ease) both; }
+.bar > span { position: relative; overflow: hidden; }
+.bar > span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); transform: translateX(-100%); animation: shine 900ms 500ms var(--ease) both; }
+.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-line 1100ms 150ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.sweep { animation: sweep 900ms var(--ease) both; }
+.fade-up { animation: pop-in 400ms var(--ease) both; }
+
+/* 0.12: выключатель с пружинкой, галочка с щелчком. */
+.switch::after { transition: transform 260ms cubic-bezier(0.3, 1.6, 0.5, 1); }
+input[type="checkbox"] { accent-color: var(--accent); }
+input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3, 1.6, 0.5, 1); }
+@keyframes check-pop-box { 50% { transform: scale(1.18); } }
+
+/* 0.12: значок «?» (вариант Г «Подсказка с примером»): мятный контур, под мышкой
+   заливается и чуть подпрыгивает; подсказка выплывает снизу (или сверху у края окна). */
+.hint-q {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 17px; height: 17px; margin: 0 0 0 6px; padding: 0; border: 0; border-radius: 50%;
+  vertical-align: middle; cursor: help; font: 700 11px/1 inherit; color: var(--accent);
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent);
+  opacity: 0.75; transition: opacity var(--fast), background var(--fast), color var(--fast), transform 220ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+/* Знак рисуется стилем: так он не попадает в текст карточки (копирование, тесты). */
+.hint-q::before { content: "?"; }
+.hint-q:hover, .hint-q.open, .hint-q:focus-visible { opacity: 1; background: var(--accent); color: var(--on-accent); transform: scale(1.12); }
+.hint-q:focus-visible { outline: none; box-shadow: var(--ring); }
+.hint-tip {
+  position: fixed; z-index: 1000; max-width: 280px; padding: 10px 12px; border-radius: 10px;
+  background: var(--toast); color: #e6e9ef; border: 1px solid transparent; box-shadow: var(--shadow-lg);
+  font-size: 13px; line-height: 1.45; text-align: left; font-weight: 400; white-space: normal;
+  display: flex; flex-direction: column; gap: 4px; pointer-events: none;
+  opacity: 0; transform: translateY(6px); transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.hint-tip.above { transform: translateY(-6px); }
+.hint-tip.shown { opacity: 1; transform: none; }
+.hint-tip::before {
+  content: ""; position: absolute; left: calc(var(--arrow, 50%) - 5px); top: -5px; width: 10px; height: 10px;
+  background: inherit; border: inherit; border-right: 0; border-bottom: 0; transform: rotate(45deg);
+}
+.hint-tip.above::before { top: auto; bottom: -5px; transform: rotate(225deg); }
+.hint-tip b { font-size: 13px; font-weight: 600; }
+.hint-example { color: #5eead4; }
+.hint-keys { display: flex; gap: 4px; flex-wrap: wrap; }
+.hint-tip kbd { font: 600 11px inherit; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
+:root[data-theme="dark"] .hint-tip { background: #232a35; border-color: #3b4352; }
+:root:not([data-theme="dark"]) .hint-example { color: #9db8ff; }
+
 /* Кто попросил систему меньше анимации, тот её не видит. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
@@ -610,3 +684,16 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
 /* В светлой теме значки темнее, чтобы читались на белом. */
 :root:not([data-theme="dark"]) .icon-tile { color: color-mix(in srgb, var(--c) 62%, #000); }
 :root:not([data-theme="dark"]) .nav-item.active .icon-tile { color: #fff; background: color-mix(in srgb, var(--c) 70%, #000); }
+
+/* 0.12: кнопка поиска по всему (Ctrl+K) под логотипом. */
+.nav-search {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 0 8px 10px; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+  transition: border-color var(--fast), color var(--fast), box-shadow var(--fast);
+}
+.nav-search:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nav-search svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.nav-search span { flex: 1; text-align: left; }
+.nav-search kbd { font: 600 11px inherit; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; }
+.quick-card { position: relative; }
+.quick-hint { position: absolute; top: 8px; right: 10px; z-index: 1; }

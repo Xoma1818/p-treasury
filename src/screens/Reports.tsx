@@ -12,10 +12,13 @@ import { formatAmount } from "../lib/money";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
+import { SubscriptionsReport } from "../components/Subscriptions";
+import { YearReviewReport } from "../components/YearReview";
+import { Hint } from "../components/Hint";
 
 const M = BaseMoney;
 
-type Tab = "structure" | "months" | "balances" | "compare" | "fx";
+type Tab = "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year";
 
 /** Сохранённый вид отчёта: вкладка и вид периода; период берётся текущий. */
 interface ReportView {
@@ -44,7 +47,11 @@ function periodTitle(kind: Kind, p: Period) {
 /** Экран «Отчёты»: структура, по месяцам, остатки. Каждая цифра ведёт к своим операциям. */
 export function Reports() {
   const current = useMonthOf(today()).data;
-  const [tab, setTab] = useState<Tab>("structure");
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = useUi.getState().reportTab as Tab | null;
+    if (t) useUi.setState({ reportTab: null });
+    return t ?? "structure";
+  });
   const [kind, setKind] = useState<Kind>("month");
   const [anchor, setAnchor] = useState<string | null>(null);
   const [custom, setCustom] = useState<{ start: string; end: string } | null>(null);
@@ -88,11 +95,13 @@ export function Reports() {
     return api.exportReport("months", `${from}-28`, `${to}-28`, path);
   });
 
+  // Сравнение, подписки и итоги года выбирают период сами.
+  const ownPeriod = tab === "compare" || tab === "subs" || tab === "year";
   return (
     <section className="screen wide">
       <div className="screen-head">
         <ScreenTitle id="reports" />
-        {tab !== "compare" && (
+        {!ownPeriod && (
         <div className="period-picker">
           <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {
             const k = e.target.value as Kind;
@@ -134,7 +143,7 @@ export function Reports() {
             )
           )}
           {tab !== "balances" && tab !== "fx" && (
-            <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
+            <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
               Выгрузить
             </button>
           )}
@@ -148,7 +157,7 @@ export function Reports() {
       )}
       <ErrorText error={exp.error} />
 
-      {s && tab !== "compare" && (
+      {s && !ownPeriod && (
         <div className="tiles">
           <div className="card tile clickable" data-testid="report-income" onClick={all}>
             <div className="tile-label">Доходы</div>
@@ -180,7 +189,7 @@ export function Reports() {
           </div>
         </div>
       )}
-      {s && tab !== "compare" && s.missingRates.length > 0 && (
+      {s && !ownPeriod && s.missingRates.length > 0 && (
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
 
@@ -197,6 +206,8 @@ export function Reports() {
             ["balances", "Остатки на дату"],
             ["compare", "Сравнение"],
             ["fx", "Курсовая разница"],
+            ["subs", "Подписки"],
+            ["year", "Итоги года"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
@@ -210,6 +221,8 @@ export function Reports() {
       {period && tab === "balances" && <Balances period={period} />}
       {tab === "compare" && <Compare />}
       {period && tab === "fx" && <FxGain period={period} />}
+      {tab === "subs" && <SubscriptionsReport />}
+      {tab === "year" && <YearReviewReport />}
     </section>
   );
 }
@@ -373,7 +386,7 @@ const PAD_L = 56;
 const PAD_B = 24;
 
 /** Столбцы «доходы / расходы» по месяцам; ось одна, подписи в тексте, подсказка при наведении. */
-function MonthsChart({ r }: { r: MonthsReport }) {
+export function MonthsChart({ r }: { r: MonthsReport }) {
   const [hover, setHover] = useState<number | null>(null);
   const hidden = useSettings().data?.hide_amounts === "1";
   const max = Math.max(...r.months.map((m) => Math.max(m.income, m.expense)), 1);
@@ -411,8 +424,8 @@ function MonthsChart({ r }: { r: MonthsReport }) {
           return (
             <g key={m.period.month} onMouseEnter={() => setHover(i)}>
               <rect x={cx - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
-              <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" />
-              <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" />
+              <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />
+              <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i } as React.CSSProperties} />
               <text x={cx} y={H - 6} className="axis" textAnchor="middle">
                 {monthTitle(m.period.month).slice(0, 3)}
               </text>
@@ -461,7 +474,10 @@ function Balances({ period }: { period: Period }) {
   return (
     <div className="card">
       <div className="screen-head">
-        <h2>Остатки по счетам</h2>
+        <h2>
+          Остатки по счетам
+          <Hint of="reports.balances" />
+        </h2>
         <label className="check">
           на дату
           <input type="date" name="balancesDate" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />

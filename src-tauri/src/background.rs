@@ -1,11 +1,12 @@
 //! Фоновая часть: планировщик напоминаний, системные уведомления и значок в трее.
 //! Уведомления приходят, пока приложение запущено (в том числе свёрнуто в трей).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Occurrence};
-use budget_core::{habits, money, settings, time};
+use budget_core::{auto_import, habits, money, settings, subscriptions, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -17,6 +18,10 @@ use crate::AppState;
 const TICK: Duration = Duration::from_secs(20);
 /// Больше стольких уведомлений сразу не показываем: вместо них одно общее.
 const MAX_SEPARATE: usize = 3;
+
+/// Папку автоимпорта проверяем раз в столько тиков (≈ 5 минут).
+const IMPORT_EVERY: u32 = 15;
+static TICKS: AtomicU32 = AtomicU32::new(0);
 
 /// Значок в трее создан: только тогда закрытие окна сворачивает его.
 static TRAY_READY: AtomicBool = AtomicBool::new(false);
@@ -42,6 +47,13 @@ fn text(o: &Occurrence) -> String {
 
 fn tick(app: &AppHandle) {
     weekly(app);
+    if TICKS
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(IMPORT_EVERY)
+    {
+        scan_folder(app);
+        upcoming_payments(app);
+    }
     let state = app.state::<AppState>();
     let due = {
         let Ok(mut guard) = state.db.lock() else {
@@ -100,6 +112,83 @@ fn weekly(app: &AppHandle) {
         .title("P-Treasury")
         .body(habits::weekly_text(&summary))
         .show();
+}
+
+/// Накануне регулярного платежа (подписка, связь) — одно уведомление.
+fn upcoming_payments(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let today = time::now_local().date().to_string();
+    let body = {
+        let Ok(guard) = state.db.lock() else { return };
+        let Ok(db) = guard.as_ref() else { return };
+        match subscriptions::due_unnotified(db.conn(), &today) {
+            Ok(due) if !due.is_empty() => subscriptions::reminder_text(&due, &today),
+            _ => return,
+        }
+    };
+    let _ = app
+        .notification()
+        .builder()
+        .title("P-Treasury")
+        .body(body)
+        .show();
+}
+
+/// Папка автоимпорта: выбранная в Настройках или «Загрузки».
+pub fn import_dir(app: &AppHandle) -> Option<PathBuf> {
+    let state = app.state::<AppState>();
+    let chosen = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|g| {
+            g.as_ref()
+                .ok()
+                .and_then(|db| settings::get(db.conn(), "auto_import_dir").ok().flatten())
+        })
+        .filter(|d| !d.trim().is_empty());
+    chosen
+        .map(PathBuf::from)
+        .or_else(|| app.path().download_dir().ok())
+}
+
+/// Новые CSV по шаблону в папке автоимпорта — сразу в операции, с уведомлением.
+fn scan_folder(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let on = {
+        let Ok(guard) = state.db.lock() else { return };
+        let Ok(db) = guard.as_ref() else { return };
+        settings::get(db.conn(), "auto_import")
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some("1")
+    };
+    let Some(dir) = on.then(|| import_dir(app)).flatten() else {
+        return;
+    };
+    let result = {
+        let Ok(mut guard) = state.db.lock() else {
+            return;
+        };
+        let Ok(db) = guard.as_mut() else { return };
+        match auto_import::scan(db.conn_mut(), &dir) {
+            Ok(r) if !r.files.is_empty() => r,
+            _ => return,
+        }
+    };
+    let errors = result.files.iter().filter(|f| f.error.is_some()).count();
+    let mut body = format!("Импорт из папки: добавлено операций — {}", result.added);
+    if errors > 0 {
+        body.push_str(&format!(", файлов с ошибкой — {errors}"));
+    }
+    let _ = app
+        .notification()
+        .builder()
+        .title("P-Treasury")
+        .body(body)
+        .show();
+    let _ = app.emit("auto-import", &result);
 }
 
 pub fn show_main(app: &AppHandle) {

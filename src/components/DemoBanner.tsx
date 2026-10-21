@@ -18,7 +18,7 @@ export function DemoBanner() {
       </span>
       {confirm ? (
         <span className="btn-group">
-          <button className="btn danger" onClick={() => clear.run()} aria-busy={clear.busy} disabled={clear.busy}>
+          <button className="btn danger" onClick={() => clear.run()} aria-busy={clear.busy} data-done={clear.done || undefined} disabled={clear.busy}>
             Да, удалить пример
           </button>
           <button className="btn" onClick={() => setConfirm(false)}>

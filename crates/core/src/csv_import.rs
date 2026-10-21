@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::error::invalid;
 use crate::export::{write_csv, Sheet, TXN_HEADERS};
 use crate::transactions::{self, TxnInput};
-use crate::{money, Error, Result};
+use crate::{bank_import, money, Error, Result};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +28,8 @@ pub struct Row {
     pub payee: String,
     /// Что не так; `None` — строка будет загружена.
     pub error: Option<String>,
+    /// Такая операция уже есть (выписка банка за пересекающийся период): пропускается.
+    pub duplicate: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,11 +38,17 @@ pub struct Preview {
     pub rows: Vec<Row>,
     pub valid: usize,
     pub errors: usize,
+    /// Строки, которые уже загружены раньше: пропускаются.
+    pub duplicates: usize,
+    /// Выписка банка («Сбер», «Т-Банк»); `None` — CSV по шаблону.
+    pub bank: Option<String>,
+    /// Счёт, на который пойдёт выписка банка (выбранный или запомненный).
+    pub account_id: Option<String>,
 }
 
-struct Parsed {
-    row: Row,
-    input: Option<TxnInput>,
+pub(crate) struct Parsed {
+    pub(crate) row: Row,
+    pub(crate) input: Option<TxnInput>,
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -126,7 +134,7 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
     })
 }
 
-fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
+pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
     let text = read_text(path)?;
     let first = text.lines().next().unwrap_or("");
     let delimiter = if first.matches(';').count() >= first.matches(',').count() {
@@ -185,6 +193,7 @@ fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
             category: get(c_cat),
             payee: get(c_payee),
             error: None,
+            duplicate: false,
         };
         let checked = (|| -> std::result::Result<TxnInput, String> {
             let date = parse_date(&row.date)
@@ -290,21 +299,64 @@ fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
     Ok(out)
 }
 
-/// Предпросмотр: каждая строка с ошибкой или без.
-pub fn preview(conn: &Connection, path: &Path) -> Result<Preview> {
-    let parsed = parse(conn, path)?;
+/// Узнанная выписка банка и её операции.
+type Statement = (bank_import::Bank, Vec<bank_import::Op>);
+
+/// Выписка банка или CSV по шаблону.
+fn parse_any(
+    conn: &Connection,
+    path: &Path,
+    account_id: Option<&str>,
+) -> Result<(Vec<Parsed>, Option<Statement>)> {
+    if let Some((bank, ops)) = bank_import::read(path)? {
+        if ops.is_empty() {
+            return invalid("в выписке нет проведённых операций");
+        }
+        let parsed = bank_import::to_parsed(conn, bank, &ops, account_id)?;
+        return Ok((parsed, Some((bank, ops))));
+    }
+    let is_csv = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
+    if !is_csv {
+        return invalid("файл не похож на выписку Сбера (PDF) или Т-Банка (CSV, Excel)");
+    }
+    Ok((parse(conn, path)?, None))
+}
+
+/// Предпросмотр: каждая строка с ошибкой или без. Для выписки банка
+/// `account_id` — выбранный счёт (без него — запомненный).
+pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Preview> {
+    let (parsed, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
+    let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
+    let account_id = match &bank {
+        Some((b, _)) => account_id
+            .map(str::to_string)
+            .or_else(|| bank_import::remembered(conn).ok()?.get(b.key()).cloned()),
+        None => None,
+    };
     Ok(Preview {
-        valid: parsed.len() - errors,
+        valid: parsed.iter().filter(|p| p.input.is_some()).count(),
         errors,
+        duplicates,
+        bank: bank.map(|(b, _)| b.title().to_string()),
+        account_id,
         rows: parsed.into_iter().map(|p| p.row).collect(),
     })
 }
 
 /// Загрузить правильные строки одной транзакцией. Без `skip_errors` файл с
-/// ошибками не загружается вовсе. Возвращает число загруженных операций.
-pub fn import(conn: &mut Connection, path: &Path, skip_errors: bool) -> Result<usize> {
-    let parsed = parse(conn, path)?;
+/// ошибками не загружается вовсе; уже загруженные раньше строки выписки
+/// пропускаются. Выбранный для выписки счёт запоминается. Возвращает число
+/// загруженных операций.
+pub fn import(
+    conn: &mut Connection,
+    path: &Path,
+    skip_errors: bool,
+    account_id: Option<&str>,
+) -> Result<usize> {
+    let (parsed, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
@@ -319,6 +371,9 @@ pub fn import(conn: &mut Connection, path: &Path, skip_errors: bool) -> Result<u
                 .map_err(|e| Error::Validation(format!("строка {}: {e}", p.row.line)))?;
             n += 1;
         }
+    }
+    if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
+        bank_import::remember(&tx, *bank, ops, id)?;
     }
     tx.commit()?;
     Ok(n)
@@ -412,7 +467,7 @@ mod tests {
             08.10.26;Расход;Карта;Такси;;;350\n\
             09.10.2026;Перевод;Карта;;;в копилку;1000;Наличные\n";
         let bad = file(&dir, "bad.csv", text);
-        let p = preview(db.conn(), &bad).unwrap();
+        let p = preview(db.conn(), &bad, None).unwrap();
         assert_eq!((p.valid, p.errors), (3, 3));
         let lines: Vec<_> = p
             .rows
@@ -427,7 +482,7 @@ mod tests {
             .unwrap()
             .contains("дата «31.09.2026»"));
         assert!(
-            import(db.conn_mut(), &bad, false).is_err(),
+            import(db.conn_mut(), &bad, false, None).is_err(),
             "с ошибками без согласия не грузим"
         );
 
@@ -439,9 +494,9 @@ mod tests {
                 .replace("2026/10/07", "07.10.2026")
                 .replace("08.10.26", "08.10.2026"),
         );
-        let p = preview(db.conn(), &fixed).unwrap();
+        let p = preview(db.conn(), &fixed, None).unwrap();
         assert_eq!(p.errors, 0, "{:?}", p.rows);
-        assert_eq!(import(db.conn_mut(), &fixed, false).unwrap(), 6);
+        assert_eq!(import(db.conn_mut(), &fixed, false, None).unwrap(), 6);
         let card: String = db
             .conn()
             .query_row(
@@ -486,10 +541,10 @@ mod tests {
              05.10.2026;Расход;Карта;;PYATEROCHKA / ПЯТЁРОЧКА 1234;500\n\
              05.10.2026;Расход;Карта;;Неизвестно;100\n",
         );
-        let p = preview(db.conn(), &f).unwrap();
+        let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!((p.valid, p.errors), (1, 1));
         assert!(p.rows[1].error.as_deref().unwrap().contains("нет правила"));
-        assert_eq!(import(db.conn_mut(), &f, true).unwrap(), 1);
+        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap(), 1);
         let (cat, payee): (String, String) = db
             .conn()
             .query_row(
@@ -515,8 +570,8 @@ mod tests {
         let mut db = setup();
         let dir = tempfile::tempdir().unwrap();
         let f = file(&dir, "a.csv", "Дата,Тип,Счёт,Категория,Сумма\n05.10.2026,Расход,Карта,Продукты,100\n05.10.2026,Расход,Сейф,Продукты,100\n");
-        assert_eq!(import(db.conn_mut(), &f, true).unwrap(), 1);
-        let p = preview(db.conn(), &f).unwrap();
+        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap(), 1);
+        let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!(p.rows[1].error.as_deref(), Some("нет счёта «Сейф»"));
     }
 
@@ -526,13 +581,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tpl = dir.path().join("template.csv");
         write_template(&tpl).unwrap();
-        assert_eq!(import(db.conn_mut(), &tpl, false).unwrap(), 3);
+        assert_eq!(import(db.conn_mut(), &tpl, false, None).unwrap(), 3);
         let out = dir.path().join("export.csv");
         let sheet = transactions_sheet(db.conn(), &Filter::default()).unwrap();
         write_one(&out, &sheet).unwrap();
         // Новая база, загружаем выгрузку: операции те же.
         let mut db2 = setup();
-        assert_eq!(import(db2.conn_mut(), &out, false).unwrap(), 3);
+        assert_eq!(import(db2.conn_mut(), &out, false, None).unwrap(), 3);
         let again = transactions_sheet(db2.conn(), &Filter::default()).unwrap();
         assert_eq!(again.rows, sheet.rows);
     }
@@ -542,11 +597,11 @@ mod tests {
         let db = setup();
         let dir = tempfile::tempdir().unwrap();
         let f = file(&dir, "h.csv", "Date;Type;Sum\n01.01.2026;x;1\n");
-        let e = preview(db.conn(), &f).unwrap_err().to_string();
+        let e = preview(db.conn(), &f, None).unwrap_err().to_string();
         assert!(e.contains("Дата, Тип, Счёт, Сумма"), "{e}");
         // «Одежда» есть и в «Дети», и отдельной категорией «Одежда и обувь» — имя «Одежда» однозначно только в «Дети».
         let f = file(&dir, "c.csv", "Дата;Тип;Счёт;Категория;Сумма\n01.10.2026;Расход;Карта;Дети → Одежда;1\n01.10.2026;Расход;Карта;Нет такой;1\n");
-        let p = preview(db.conn(), &f).unwrap();
+        let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!(p.rows[0].error, None);
         assert!(p.rows[1]
             .error
@@ -554,9 +609,9 @@ mod tests {
             .unwrap()
             .starts_with("нет категории"));
         let f = file(&dir, "e.csv", "Дата;Тип;Счёт;Сумма\n");
-        assert!(preview(db.conn(), &f).is_err());
+        assert!(preview(db.conn(), &f, None).is_err());
         fs::write(dir.path().join("w.csv"), [0xC4u8, 0xE0, 0xF2, 0xE0]).unwrap();
-        assert!(preview(db.conn(), &dir.path().join("w.csv"))
+        assert!(preview(db.conn(), &dir.path().join("w.csv"), None)
             .unwrap_err()
             .to_string()
             .contains("UTF-8"));

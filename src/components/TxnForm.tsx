@@ -138,7 +138,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
     const id = await api.createTransaction(input, event);
     // Операция из напоминания отмечает его выполненным.
     if (state.mode === "new" && state.onSaved) await state.onSaved(id);
-  }, onClose);
+  }, onClose, { celebrate: true });
   const remove = useAction(() => api.deleteTransaction(editing!.id), onClose);
 
   // Шаблоны: подставить сохранённую операцию или сохранить текущую.
@@ -412,7 +412,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
             Отмена
           </button>
           {!isAdjustment && (
-            <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy} title="Ctrl+Enter">
+            <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy} title="Ctrl+Enter">
               Сохранить
             </button>
           )}

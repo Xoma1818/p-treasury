@@ -15,9 +15,9 @@
 .invest-col .value { width: 100%; max-width: 36px; background: var(--accent); border-radius: 4px 4px 0 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
 .invest-col .invested { display: block; width: 100%; background: var(--accent-soft); }
 .invest-col .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.legend { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
-.legend.invested { background: var(--accent-soft); border: 1px solid var(--border-strong); }
-.legend.value { background: var(--accent); }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.legend-dot.invested { background: var(--accent-soft); border: 1px solid var(--border-strong); }
+.legend-dot.value { background: var(--accent); }
 @media (max-width: 720px) { .invest-totals { grid-template-columns: 1fr; } }
 /* Бюджет → «План и факт». */
 .plan-fact thead td { font-size: 12px; border-bottom: 1px solid var(--border); }

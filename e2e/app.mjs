@@ -117,7 +117,18 @@ export async function chooseLike(browser, name, text) {
 export async function click(browser, text, scope = "") {
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
   await el.waitForClickable({ timeout: 5000 });
-  await el.click();
+  // Кнопку внизу экрана может закрыть плашка «Отменить»: ставим её в середину окна.
+  await browser.execute((b) => b.scrollIntoView({ block: "center" }), el);
+  await el.click().catch(async (e) => {
+    // Что оказалось поверх кнопки: так проще понять «click intercepted».
+    const top = await browser
+      .execute((b) => {
+        const r = b.getBoundingClientRect();
+        return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.outerHTML.slice(0, 160);
+      }, el)
+      .catch(() => "");
+    throw new Error(`Кнопка «${text}»: ${e.message}${top ? `; сверху: ${top}` : ""}`);
+  });
 }
 
 /** Нажать «Сохранить» в диалоге и дождаться, что он закрылся (или вернуть текст ошибки). */

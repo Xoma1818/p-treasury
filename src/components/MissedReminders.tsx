@@ -24,6 +24,8 @@ export function MissedReminders() {
       listen("tray-add-transaction", () => openTxnForm({ mode: "new", type: "expense" })),
       // Операция записана в окне быстрого ввода.
       listen("data-changed", () => qc.invalidateQueries()),
+      // Импорт из папки добавил операции.
+      listen("auto-import", () => qc.invalidateQueries()),
     ];
     return () => un.forEach((p) => p.then((f) => f()));
   }, [qc, openTxnForm]);

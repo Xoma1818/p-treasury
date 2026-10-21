@@ -43,13 +43,16 @@ fn validate(key: &str, value: &str) -> Result<()> {
     let ok = match key {
         "month_start_day" => value.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d)),
         "hide_amounts" | "close_to_tray" | "onboarding_done" | "update_check" | "demo_data"
-        | "weekly_summary" | "rates_auto" => {
+        | "weekly_summary" | "rates_auto" | "auto_import" | "hints" | "subs_remind" => {
             matches!(value, "0" | "1")
         }
         "debt_reminder_days_before" | "autobackup_keep" => value.parse::<u32>().is_ok(),
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
+        "subscriptions_hidden" => serde_json::from_str::<Vec<String>>(value).is_ok(),
+        "subs_notified" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
+        "bank_accounts" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
         _ => true,
     };
     if ok {

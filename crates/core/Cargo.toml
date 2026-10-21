@@ -15,8 +15,10 @@ chrono.workspace = true
 rust_xlsxwriter = "0.100.0"
 csv = "1.4.0"
 regex = "1"
+calamine = "0.37.0"
+encoding_rs = "0.8"
+pdf-extract = "0.12.1"
 
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
-calamine = "0.37.0"

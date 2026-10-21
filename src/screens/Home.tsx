@@ -1,7 +1,10 @@
+import { GoalsCard } from "../components/Goals";
+import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { CushionCard } from "../components/Cushion";
+import { change, DaysCard, Delta, Sparkline, sparkSeries, SummaryCard, TrendCard, useDashboard } from "../components/Dashboard";
 import { InvestCard } from "../components/Invest";
 import { QuickEntry } from "../components/QuickEntry";
 import { HideAmountsButton } from "../components/Convenience";
@@ -17,6 +20,7 @@ import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
+import { Hint } from "../components/Hint";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -45,18 +49,34 @@ export function Home() {
   const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", JSON.stringify(l));
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   const symbol = totals.data?.baseSymbol ?? "₽";
+  const dash = useDashboard(period);
+  const spark = sparkSeries(dash.months, totals.data?.total);
+  const prev = dash.prevSame;
 
   const blocks: Record<HomeBlock, React.ReactNode> = {
     quick: (
           <div className="card quick-card">
+            <span className="quick-hint">
+              <Hint of="quick" />
+            </span>
             <QuickEntry />
           </div>
     ),
+    summary: period ? <SummaryCard period={period} /> : null,
+    trend: period ? <TrendCard period={period} /> : null,
+    days: <DaysCard />,
+    goals: <GoalsCard />,
+    subs: <SubscriptionsCard />,
     tiles: (
           <div className="tiles">
             <div className="card tile" data-testid="total-balance">
-              <div className="tile-label">Общий баланс</div>
-              <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} />}</div>
+              <div className="tile-label">
+                Общий баланс
+                <Hint of="home.balance" />
+                <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
+              </div>
+              <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</div>
+              <Sparkline values={spark.balance} />
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
                 <div className={totals.data.missingRates.length > 0 ? "hint warn" : "hint"} data-testid="home-missing-rates">
@@ -71,8 +91,13 @@ export function Home() {
               )}
             </div>
             <div className="card tile" data-testid="month-income">
-              <div className="tile-label">Доходы, {monthName}</div>
-              <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} />}</div>
+              <div className="tile-label">
+                Доходы, {monthName}
+                <Hint of="home.income" />
+                {month.data && <Delta pct={change(month.data.income, prev?.income)} hint="к тем же дням прошлого месяца" />}
+              </div>
+              <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} animate />}</div>
+              <Sparkline values={spark.income} className="income" />
               {month.data?.savingsRate != null && (
                 <div className="hint" data-testid="home-savings-rate">
                   Норма сбережений {month.data.savingsRate} %
@@ -80,12 +105,22 @@ export function Home() {
               )}
             </div>
             <div className="card tile" data-testid="month-expense">
-              <div className="tile-label">Расходы, {monthName}</div>
-              <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} />}</div>
+              <div className="tile-label">
+                Расходы, {monthName}
+                <Hint of="home.expense" />
+                {month.data && <Delta pct={change(month.data.expense, prev?.expense)} lowerIsBetter hint="к тем же дням прошлого месяца" />}
+              </div>
+              <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} animate />}</div>
+              <Sparkline values={spark.expense} className="expense" />
             </div>
             <div className="card tile">
-              <div className="tile-label">Сальдо месяца</div>
-              <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed />}</div>
+              <div className="tile-label">
+                Сальдо месяца
+                <Hint of="home.saldo" />
+                {month.data && prev && <Delta pct={change(month.data.income - month.data.expense, prev.income - prev.expense)} hint="к тем же дням прошлого месяца" />}
+              </div>
+              <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed animate />}</div>
+              <Sparkline values={spark.saldo} />
             </div>
           </div>
     ),
@@ -96,7 +131,10 @@ export function Home() {
     main: (
           <div className="columns home">
             <div className="card">
-              <h2>Счета</h2>
+              <h2>
+                Счета
+                <Hint of="home.accounts" />
+              </h2>
               {accounts.length === 0 && <p className="muted">Счетов нет.</p>}
               <ul className="account-list">
                 {accounts.map((a) => (
@@ -116,7 +154,10 @@ export function Home() {
               </ul>
             </div>
             <div className="card">
-              <h2>Последние операции</h2>
+              <h2>
+                Последние операции
+                <Hint of="home.recent" />
+              </h2>
               {recent.data && <TxnTable items={recent.data.items} compact />}
             </div>
           </div>
@@ -153,7 +194,10 @@ export function Home() {
             )}
           </div>
           <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
-            <h2>Ближайшие платежи по долгам</h2>
+            <h2>
+              Ближайшие платежи по долгам
+              <Hint of="debts.upcoming" />
+            </h2>
             {debts && debts.upcoming.length === 0 && <p className="muted">Платежей нет.</p>}
             <ul className="account-list">
               {debts?.upcoming.slice(0, 4).map((u) => (
@@ -171,7 +215,10 @@ export function Home() {
     reminders: (
           <div className="card" data-testid="home-reminders">
             <div className="notes-head">
-              <h2>Ближайшие напоминания</h2>
+              <h2>
+                Ближайшие напоминания
+                <Hint of="reminders" />
+              </h2>
               <button className="link" onClick={() => go("calendar")}>
                 Календарь
               </button>

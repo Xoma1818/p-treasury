@@ -209,6 +209,7 @@ pub fn run() {
             commands::export_report,
             commands::import_preview,
             commands::import_csv,
+            commands::save_bytes,
             commands::write_import_template,
             commands::backup_status,
             commands::backup_now,
@@ -225,6 +226,17 @@ pub fn run() {
             commands::undo_state,
             commands::undo,
             commands::redo,
+            commands::list_goals,
+            commands::create_goal,
+            commands::update_goal,
+            commands::delete_goal,
+            commands::goal_deposit,
+            commands::list_subscriptions,
+            commands::hide_subscription,
+            commands::year_review,
+            commands::global_search,
+            commands::auto_import_dir,
+            commands::auto_import_now,
         ])
         .build(tauri::generate_context!())
         .expect("не удалось запустить приложение")

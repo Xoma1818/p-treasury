@@ -787,12 +787,17 @@ export interface ImportRow {
   category: string;
   payee: string;
   error: string | null;
+  duplicate: boolean;
 }
 
 export interface ImportPreview {
   rows: ImportRow[];
   valid: number;
   errors: number;
+  duplicates: number;
+  /** «Сбер», «Т-Банк»; null — CSV по шаблону. */
+  bank: string | null;
+  accountId: string | null;
 }
 
 export interface BackupStatus {
@@ -846,6 +851,107 @@ export interface UndoStep {
 export interface UndoState {
   undo: UndoStep | null;
   redo: UndoStep | null;
+}
+
+export interface GoalInput {
+  name: string;
+  target: number;
+  currencyCode: string;
+  accountId: string | null;
+  deadline: string | null;
+}
+
+export type GoalStatus = "reached" | "on_track" | "behind" | "no_pace";
+
+export interface Goal {
+  id: string;
+  name: string;
+  target: number;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  accountId: string | null;
+  accountName: string | null;
+  deadline: string | null;
+  saved: number;
+  percent: number;
+  remaining: number;
+  pacePerMonth: number | null;
+  forecastDate: string | null;
+  needPerMonth: number | null;
+  status: GoalStatus;
+  missingRate: boolean;
+}
+
+export type SubPeriod = "week" | "month" | "quarter" | "year";
+
+export const SUB_PERIODS: Record<SubPeriod, string> = {
+  week: "в неделю",
+  month: "в месяц",
+  quarter: "в квартал",
+  year: "в год",
+};
+
+export interface Subscription {
+  key: string;
+  payee: string;
+  categoryName: string | null;
+  period: SubPeriod;
+  amount: number;
+  currencySymbol: string;
+  minorUnits: number;
+  baseAmount: number | null;
+  yearly: number | null;
+  count: number;
+  lastDate: string;
+  nextDate: string;
+  hidden: boolean;
+}
+
+export interface SubscriptionsReport {
+  baseCurrency: string;
+  items: Subscription[];
+  yearlyTotal: number;
+  monthlyTotal: number;
+}
+
+export interface YearReview {
+  year: number;
+  baseCurrency: string;
+  income: number;
+  expense: number;
+  savingsRate: number | null;
+  prevIncome: number;
+  prevExpense: number;
+  months: MonthRow[];
+  bestMonth: string | null;
+  costliestMonth: string | null;
+  topCategories: CategoryItem[];
+  biggestPurchase: { date: string; amount: number; payee: string | null; categoryName: string | null } | null;
+  topPayee: { name: string; count: number; amount: number } | null;
+  noSpendDays: number;
+  days: number;
+  transactionCount: number;
+  missingRates: string[];
+}
+
+export interface SearchHit {
+  kind: "note" | "event" | "debt" | "asset" | "goal";
+  id: string;
+  title: string;
+  detail: string | null;
+}
+
+export interface ImportFileResult {
+  name: string;
+  added: number;
+  skipped: number;
+  error: string | null;
+}
+
+export interface ScanResult {
+  files: ImportFileResult[];
+  added: number;
 }
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -976,8 +1082,9 @@ export const api = {
     invoke<void>("export_report", { report, from, to, path }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
-  importPreview: (path: string) => invoke<ImportPreview>("import_preview", { path }),
-  importCsv: (path: string, skipErrors: boolean) => invoke<number>("import_csv", { path, skipErrors }),
+  importPreview: (path: string, accountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null }),
+  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<number>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  saveBytes: (path: string, data: Uint8Array) => invoke<void>("save_bytes", { path, data: Array.from(data) }),
   writeImportTemplate: (path: string) => invoke<void>("write_import_template", { path }),
   backupStatus: () => invoke<BackupStatus>("backup_status"),
   backupNow: (path: string) => invoke<void>("backup_now", { path }),
@@ -993,6 +1100,17 @@ export const api = {
   templateUsed: (id: string) => invoke<void>("template_used", { id }),
   undoState: () => invoke<UndoState>("undo_state"),
   undo: () => invoke<string | null>("undo"),
+  listGoals: () => invoke<Goal[]>("list_goals"),
+  createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
+  updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
+  deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
+  goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
+  listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),
+  hideSubscription: (key: string, hide: boolean) => invoke<void>("hide_subscription", { key, hide }),
+  yearReview: (year: number) => invoke<YearReview>("year_review", { year }),
+  globalSearch: (query: string) => invoke<SearchHit[]>("global_search", { query }),
+  autoImportDir: () => invoke<string>("auto_import_dir"),
+  autoImportNow: () => invoke<ScanResult>("auto_import_now"),
   redo: () => invoke<string | null>("redo"),
 };
 

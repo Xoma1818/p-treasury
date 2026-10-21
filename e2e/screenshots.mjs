@@ -171,7 +171,7 @@ try {
       "03.10.2026;Расход;Кошелёк;Транспорт;;;350\n" +
       "05.10.2026;Доход;Карта Сбер;Зарплата;;аванс;40 000\n",
   );
-  await click(browser, "Импорт из CSV");
+  await click(browser, "Импорт выписки или CSV");
   await browser.execute((p) => (window.__ptPick = [p]), csv);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await browser.$('[data-testid="import-preview"]').waitForDisplayed({ timeout: 5000 });

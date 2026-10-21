@@ -4,6 +4,7 @@ import { api, type Budget } from "../lib/api";
 import { planFact, type PlanFactKind } from "../lib/planFact";
 import { PlanForm } from "./Invest";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 const TITLES: Record<PlanFactKind, string> = {
   income: "Доходы",
@@ -29,7 +30,10 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
   return (
     <div className="card plan-fact" data-testid="plan-fact">
       <div className="notes-head">
-        <h2>План и факт</h2>
+        <h2>
+          План и факт
+          <Hint of="planfact" />
+        </h2>
         {pf.match != null && (
           <span className={pf.match >= 90 ? "plan-fact-match good" : "plan-fact-match"} data-testid="plan-fact-match" title="100 % — всё ровно по плану">
             Совпадение с планом {pf.match} %

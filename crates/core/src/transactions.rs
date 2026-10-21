@@ -392,7 +392,7 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
 }
 
 /// Функция `kz_lower` для поиска без учёта регистра по-русски.
-fn register_lower(conn: &Connection) -> Result<()> {
+pub(crate) fn register_lower(conn: &Connection) -> Result<()> {
     use rusqlite::functions::FunctionFlags;
     conn.create_scalar_function(
         "kz_lower",

@@ -8,6 +8,7 @@ import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 export const ASSET_KINDS: Record<AssetKind, string> = {
   realty: "Недвижимость",
@@ -22,7 +23,10 @@ export function AssetsCard() {
   return (
     <div className="card" data-testid="assets">
       <div className="screen-head">
-        <h2>Имущество</h2>
+        <h2>
+          Имущество
+          <Hint of="assets" />
+        </h2>
         <button className="btn small" onClick={() => setEditing("new")}>
           + Имущество
         </button>
@@ -84,6 +88,7 @@ function AssetForm({ asset, onClose }: { asset: Asset | null; onClose: () => voi
       return asset ? api.updateAsset(asset.id, input) : api.createAsset(input);
     },
     onClose,
+    { celebrate: true },
   );
   const remove = useAction(() => api.deleteAsset(asset!.id), onClose);
   const submit = () => {
@@ -152,7 +157,7 @@ function AssetForm({ asset, onClose }: { asset: Asset | null; onClose: () => voi
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>
