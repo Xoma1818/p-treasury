@@ -120,7 +120,7 @@ function AccountForm({ account, onClose }: { account: Account | null; onClose: (
   const [limit, setLimit] = useState(amountText(account?.creditLimit ?? null, account?.minorUnits));
   const [include, setInclude] = useState(account?.includeInTotal ?? true);
   const [investKind, setInvestKind] = useState<InvestKind>(account?.investKind ?? "broker");
-  const save = useAction((input: AccountInput) => (account ? api.updateAccount(account.id, input) : api.createAccount(input)), onClose);
+  const save = useAction((input: AccountInput) => (account ? api.updateAccount(account.id, input) : api.createAccount(input)), onClose, { celebrate: true });
 
   const submit = () => {
     const openingValue = opening.trim() === "" ? 0 : parseAmount(opening, minor);
@@ -184,7 +184,7 @@ function AccountForm({ account, onClose }: { account: Account | null; onClose: (
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -196,7 +196,7 @@ function AccountForm({ account, onClose }: { account: Account | null; onClose: (
 function AdjustForm({ account, onClose }: { account: Account; onClose: () => void }) {
   const [actual, setActual] = useState(amountText(account.balance, account.minorUnits));
   const [date, setDate] = useState(today());
-  const save = useAction(api.adjustBalance, onClose);
+  const save = useAction(api.adjustBalance, onClose, { celebrate: true });
   const value = parseAmount(actual, account.minorUnits);
   const diff = value === null ? null : value - account.balance;
   return (
@@ -223,7 +223,7 @@ function AdjustForm({ account, onClose }: { account: Account; onClose: () => voi
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy || value === null}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || value === null}>
             Сверить
           </button>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
+import { Hint } from "./Hint";
 
 /** Тип данных перетаскивания счёта на категорию. */
 export const ACCOUNT_DRAG = "application/x-p-treasury-account";
@@ -20,7 +21,10 @@ export function SpendCard() {
   const open = (categoryId: string, accountId?: string) => openTxnForm({ mode: "new", type: "expense", prefill: { categoryId, accountId } });
   return (
     <div className="card" data-testid="home-spend">
-      <h2>Куда тратите</h2>
+      <h2>
+        Куда тратите
+        <Hint of="spend" />
+      </h2>
       <p className="hint">Нажмите на категорию или перетащите на неё счёт из списка «Счета».</p>
       <div className="spend-chips">
         {top.map((c) => (

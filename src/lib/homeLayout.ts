@@ -1,9 +1,14 @@
 /** Карточки Главной: порядок и скрытые сохраняются в настройке `home_layout` (JSON). */
 export const HOME_BLOCKS = {
   quick: "Быстрый ввод",
+  summary: "Сводка месяца",
   tiles: "Баланс и месяц",
+  trend: "Полгода и куда ушли деньги",
   cushion: "Финансовая подушка",
   invest: "Инвестиции",
+  goals: "Цели накоплений",
+  subs: "Регулярные платежи",
+  days: "Траты по дням",
   templates: "Шаблоны",
   spend: "Куда тратите",
   main: "Счета и последние операции",
@@ -21,7 +26,8 @@ export interface HomeLayout {
 const ALL = Object.keys(HOME_BLOCKS) as HomeBlock[];
 export const DEFAULT_LAYOUT: HomeLayout = { order: ALL, hidden: [] };
 
-/** Разбор настройки: неизвестные карточки отбрасываются, новые (из обновлений) добавляются в конец. */
+/** Разбор настройки: неизвестные карточки отбрасываются, новые (из обновлений) встают
+ * после той карточки, за которой идут по умолчанию. */
 export function parseLayout(raw: string | undefined | null): HomeLayout {
   let v: Partial<HomeLayout> = {};
   try {
@@ -32,7 +38,12 @@ export function parseLayout(raw: string | undefined | null): HomeLayout {
   const known = (list: unknown): HomeBlock[] =>
     Array.isArray(list) ? list.filter((x, i): x is HomeBlock => ALL.includes(x) && list.indexOf(x) === i) : [];
   const order = known(v.order);
-  return { order: [...order, ...ALL.filter((b) => !order.includes(b))], hidden: known(v.hidden) };
+  for (const b of ALL) {
+    if (order.includes(b)) continue;
+    const prev = ALL.slice(0, ALL.indexOf(b)).reverse().find((p) => order.includes(p));
+    order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, b);
+  }
+  return { order, hidden: known(v.hidden) };
 }
 
 /** Передвинуть карточку на `delta` позиций (−1 — выше). */

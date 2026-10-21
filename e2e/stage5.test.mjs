@@ -120,7 +120,7 @@ test("день календаря: операция на дату и замет�
   await fill(browser, "newNote", "Позвонить в сервис");
   await click(browser, "Добавить", '//*[@data-testid="day-panel"]');
   await waitText(browser, '[data-testid="day-panel"] [data-testid="notes"]', /Позвонить в сервис/);
-  await waitContent(browser, `[data-testid="cal-day"][data-date="${today}"]`, /✎ 1/);
+  await waitContent(browser, `[data-testid="cal-day"][data-date="${today}"]`, /✎ Позвонить в сервис/);
 
   await click(browser, "Неделя");
   assert.equal((await browser.$$('[data-testid="week-day"]')).length, 7);

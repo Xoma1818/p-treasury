@@ -12,6 +12,7 @@ import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/quer
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import { Hint } from "../components/Hint";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
@@ -74,7 +75,7 @@ function NoBudget({ month }: { month: string }) {
         <button className="btn primary" onClick={() => create.run(true)} disabled={busy}>
           Скопировать из {monthGenitive(shiftMonth(month, -1))}
         </button>
-        <button className="btn" onClick={() => byAverage.run()} disabled={busy} aria-busy={byAverage.busy}>
+        <button className="btn" onClick={() => byAverage.run()} disabled={busy} aria-busy={byAverage.busy} data-done={byAverage.done || undefined}>
           По тратам за 3 месяца
         </button>
         <button className="btn" onClick={() => create.run(false)} disabled={busy}>
@@ -116,7 +117,10 @@ function BudgetView({ b }: { b: BudgetData }) {
       )}
       <div className="tiles">
         <div className="card tile" data-testid="budget-planned">
-          <div className="tile-label">Лимиты расходов</div>
+          <div className="tile-label">
+            Лимиты расходов
+            <Hint of="budget.limits" />
+          </div>
           <div className="tile-value">
             <Money amount={b.plannedExpense} symbol={sym} minorUnits={minor} />
           </div>
@@ -138,13 +142,19 @@ function BudgetView({ b }: { b: BudgetData }) {
           )}
         </div>
         <div className="card tile" data-testid="budget-left">
-          <div className="tile-label">Осталось</div>
+          <div className="tile-label">
+            Осталось
+            <Hint of="budget.left" />
+          </div>
           <div className={b.plannedExpense - spentInBudget < 0 ? "tile-value over" : "tile-value"}>
             <Money amount={b.plannedExpense - spentInBudget} symbol={sym} minorUnits={minor} />
           </div>
         </div>
         <div className="card tile" data-testid="safe-to-spend">
-          <div className="tile-label">Можно тратить сегодня</div>
+          <div className="tile-label">
+            Можно тратить сегодня
+            <Hint of="budget.today" />
+          </div>
           <div className={(b.safeToSpendToday ?? 0) < 0 ? "tile-value over" : "tile-value"}>
             {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} minorUnits={minor} /> : <span className="muted">—</span>}
           </div>
@@ -222,7 +232,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
               title="Лимиты верхних категорий по средним тратам трёх прошлых месяцев"
               onClick={() => fill.run("average3", null)}
               disabled={fill.busy}
-              aria-busy={fill.busy}
+              aria-busy={fill.busy} data-done={fill.done || undefined}
             >
               По среднему за 3 месяца
             </button>
@@ -307,7 +317,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           exclude={(c) => lines.some((l) => l.categoryId === c.id)}
         />
         <AmountInput name={`add-${kind}-limit`} value={newLimit} onChange={setNewLimit} minorUnits={minor} />
-        <button className="btn small" onClick={submit} aria-busy={add.busy} disabled={add.busy}>
+        <button className="btn small" onClick={submit} aria-busy={add.busy} data-done={add.done || undefined} disabled={add.busy}>
           Добавить
         </button>
       </div>

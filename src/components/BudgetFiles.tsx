@@ -4,6 +4,7 @@ import { api, type BudgetFileRow } from "../lib/api";
 import { pickOpen, DB } from "../lib/files";
 import { useAction } from "../lib/useAction";
 import { ErrorText } from "./Modal";
+import { Hint } from "./Hint";
 
 /** После смены файла все экраны начинают с чистого листа. */
 const reload = () => window.location.reload();
@@ -30,7 +31,10 @@ export function BudgetFilesCard() {
 
   return (
     <div className="card" data-testid="budget-files">
-      <h2>Файлы бюджета</h2>
+      <h2>
+        Файлы бюджета
+        <Hint of="budgetFiles" />
+      </h2>
       <p className="muted">
         Отдельный файл — отдельные счета, операции и бюджет: например, «Дача» или «Бизнес». Переключаться можно в любой момент.
       </p>
@@ -83,7 +87,7 @@ export function BudgetFilesCard() {
           <button className="btn" onClick={() => setName("")}>
             + Новый файл
           </button>
-          <button className="btn" onClick={() => open.run()} aria-busy={open.busy}>
+          <button className="btn" onClick={() => open.run()} aria-busy={open.busy} data-done={open.done || undefined}>
             Открыть файл…
           </button>
         </div>

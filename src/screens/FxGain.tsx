@@ -4,6 +4,7 @@ import { api, type Period } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { formatRate } from "../lib/rates";
 import { useUi } from "../lib/store";
+import { Hint } from "../components/Hint";
 
 /** Отчёты → «Курсовая разница»: сколько стоимость валютных счетов изменилась из-за курса. */
 export function FxGain({ period }: { period: Period }) {
@@ -12,7 +13,10 @@ export function FxGain({ period }: { period: Period }) {
   const r = report.data;
   return (
     <div className="card" data-testid="fx-report">
-      <h2>Курсовая разница</h2>
+      <h2>
+        Курсовая разница
+        <Hint of="fx" />
+      </h2>
       <p className="muted">
         Насколько изменилась стоимость валютных счетов в основной валюте из-за курса, без учёта пополнений и трат. Средний курс покупки
         считается по переводам из основной валюты за период.

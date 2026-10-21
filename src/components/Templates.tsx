@@ -5,6 +5,7 @@ import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ErrorText } from "./Modal";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 export const useTemplates = () => useQuery({ queryKey: ["templates"], queryFn: api.listTemplates });
 
@@ -42,7 +43,10 @@ export function TemplatesCard() {
   };
   return (
     <div className="card" data-testid="templates-card">
-      <h2>Шаблоны</h2>
+      <h2>
+        Шаблоны
+        <Hint of="templates" />
+      </h2>
       {items.length === 0 ? (
         <p className="muted">Частые операции, например «Кофе 250 ₽», можно сохранить шаблоном в форме операции и записывать одним нажатием.</p>
       ) : (

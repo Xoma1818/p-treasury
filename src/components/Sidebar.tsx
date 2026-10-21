@@ -73,13 +73,21 @@ function NavViews() {
 }
 
 export function Sidebar() {
-  const { section, go, setHelp } = useUi();
+  const { section, go, setHelp, setPalette } = useUi();
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
         <Logo />
         P-Treasury
       </div>
+      <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
+        </svg>
+        <span>Поиск</span>
+        <kbd>Ctrl+K</kbd>
+      </button>
       <ul>
         {SECTIONS.map((s, i) => (
           <Fragment key={s.id}>

@@ -5,6 +5,7 @@ import { useCategories } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { CategorySelect } from "./Fields";
 import { ErrorText } from "./Modal";
+import { Hint } from "./Hint";
 
 /**
  * Правила автокатегорий: «если в получателе есть „пятерочка“ — категория Продукты».
@@ -27,7 +28,10 @@ export function RulesCard() {
 
   return (
     <div className="card" data-testid="rules">
-      <h2>Правила автокатегорий</h2>
+      <h2>
+        Правила автокатегорий
+        <Hint of="rules" />
+      </h2>
       <p className="muted">
         Если в названии магазина есть этот текст, категория подставится сама: в быстром вводе, в SMS банка и при загрузке CSV. Правило
         можно запомнить и прямо из быстрого ввода.

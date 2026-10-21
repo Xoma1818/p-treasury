@@ -38,9 +38,9 @@ pub struct Preview {
     pub errors: usize,
 }
 
-struct Parsed {
-    row: Row,
-    input: Option<TxnInput>,
+pub(crate) struct Parsed {
+    pub(crate) row: Row,
+    pub(crate) input: Option<TxnInput>,
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -126,7 +126,7 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
     })
 }
 
-fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
+pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
     let text = read_text(path)?;
     let first = text.lines().next().unwrap_or("");
     let delimiter = if first.matches(';').count() >= first.matches(',').count() {

@@ -25,6 +25,12 @@ pub fn check_date(date: &str) -> crate::Result<()> {
     }
 }
 
+/// Разобрать дату `YYYY-MM-DD`.
+pub fn parse_date(date: &str) -> crate::Result<chrono::NaiveDate> {
+    check_date(date)?;
+    Ok(chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").expect("checked"))
+}
+
 /// Местные дата и время без пояса, с точностью до минуты (для напоминаний).
 pub fn now_local() -> chrono::NaiveDateTime {
     use chrono::Timelike;

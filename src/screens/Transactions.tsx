@@ -27,6 +27,7 @@ export function Transactions() {
   useEffect(() => {
     if (txnFilter) {
       setF({ ...txnFilter });
+      setSearch(txnFilter.search ?? "");
       useUi.setState({ txnFilter: null });
     }
   }, [txnFilter]);
@@ -62,7 +63,7 @@ export function Transactions() {
       <div className="screen-head">
         <ScreenTitle id="transactions" />
         <span className="spacer" />
-        <button className="btn" onClick={exp.run} aria-busy={exp.busy} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
+        <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
           Выгрузить
         </button>
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">

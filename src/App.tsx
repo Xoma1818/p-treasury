@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AutoRates } from "./components/AutoRates";
 import { DemoBanner } from "./components/DemoBanner";
 import { MissedReminders } from "./components/MissedReminders";
+import { Palette } from "./components/Palette";
 import { HotkeysHelp, UndoBar } from "./components/Convenience";
 import { UpdatePrompt } from "./components/DataTools";
 import { Sidebar } from "./components/Sidebar";
@@ -50,12 +51,12 @@ function focusSearch(go: (s: SectionId) => void) {
 
 export function App() {
   const info = useAppInfo();
-  const { section, visit, go, openTxnForm, help, setHelp } = useUi();
+  const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
   const hidden = useSettings().data?.hide_amounts === "1";
   const setSetting = useAction(api.setSetting);
 
   // Ctrl+1…9: разделы меню; Ctrl+N: новая операция; Ctrl+T: перевод; Ctrl+F: поиск;
-  // Ctrl+H: скрыть суммы; F1: справка. Полный список — lib/hotkeys.ts.
+  // Ctrl+K: поиск по всему; Ctrl+H: скрыть суммы; F1: справка. Полный список — lib/hotkeys.ts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F1") {
@@ -77,6 +78,9 @@ export function App() {
       } else if (e.code === "KeyH") {
         e.preventDefault();
         setSetting.run("hide_amounts", hidden ? "0" : "1");
+      } else if (e.code === "KeyK") {
+        e.preventDefault();
+        setPalette(true);
       } else if (e.code === "KeyF") {
         e.preventDefault();
         focusSearch(go);
@@ -84,7 +88,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, openTxnForm, setHelp, hidden, setSetting.run]);
+  }, [go, openTxnForm, setHelp, setPalette, hidden, setSetting.run]);
 
   if (!isTauri()) {
     return <div className="wizard"><div className="card wizard-card">P-Treasury работает как приложение для ПК. Откройте его через установленную программу.</div></div>;
@@ -115,6 +119,7 @@ export function App() {
       <UpdatePrompt />
       <UndoBar />
       {help && <HotkeysHelp onClose={() => setHelp(false)} />}
+      {palette && <Palette />}
       <TxnForm />
     </div>
   );

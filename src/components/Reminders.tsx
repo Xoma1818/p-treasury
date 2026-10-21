@@ -24,7 +24,7 @@ export function ReminderForm({ reminder, date, onClose }: { reminder?: Reminder;
   const [categoryId, setCategoryId] = useState(reminder?.categoryId ?? "");
   const [note, setNote] = useState(reminder?.note ?? "");
 
-  const save = useAction((input: ReminderInput) => (reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input)), onClose);
+  const save = useAction((input: ReminderInput) => (reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input)), onClose, { celebrate: true });
   const remove = useAction(() => api.deleteReminder(reminder!.id), onClose);
 
   const submit = () => {
@@ -120,7 +120,7 @@ export function ReminderForm({ reminder, date, onClose }: { reminder?: Reminder;
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>

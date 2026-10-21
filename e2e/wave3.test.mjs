@@ -144,9 +144,9 @@ test("своя Главная: скрыть карточку, перестави
   await click(browser, "Настроить");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
   await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
-  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "tiles", { timeout: 5000 });
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
   // Перетаскивание карточки: «Напоминания» — в самый верх.
-  await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="tiles"]');
+  await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="summary"]');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
   await click(browser, "Готово");
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false, "шаблоны скрыты");

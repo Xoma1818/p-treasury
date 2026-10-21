@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 const GOALS = [3, 6, 12];
 
@@ -32,7 +33,10 @@ export function CushionCard() {
   return (
     <div className="card cushion" data-testid="home-cushion">
       <div className="cushion-main">
-        <div className="tile-label">Финансовая подушка</div>
+        <div className="tile-label">
+          Финансовая подушка
+          <Hint of="cushion" />
+        </div>
         {tenths == null ? (
           <div className="muted">Появится, когда наберётся хотя бы один полный месяц расходов.</div>
         ) : (

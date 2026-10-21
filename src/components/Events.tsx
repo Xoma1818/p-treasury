@@ -9,6 +9,7 @@ import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
+import { Hint } from "./Hint";
 
 const STATE: Record<BudgetEvent["state"], string> = { upcoming: "скоро", current: "идёт сейчас", past: "прошло" };
 
@@ -22,7 +23,10 @@ export function EventsCard() {
   return (
     <div className="card" data-testid="events">
       <div className="screen-head">
-        <h2>Поездки и события</h2>
+        <h2>
+          Поездки и события
+          <Hint of="events" />
+        </h2>
         <button className="btn small" onClick={() => setEditing("new")}>
           + Событие
         </button>
@@ -93,7 +97,7 @@ function EventForm({ event, onClose }: { event: BudgetEvent | null; onClose: () 
     const input = { name, startDate: start, endDate: end, budget: b, note: event?.note ?? null };
     if (event) return api.updateEvent(event.id, input);
     await api.createEvent(input);
-  }, onClose);
+  }, onClose, { celebrate: true });
   const remove = useAction(() => api.deleteEvent(event!.id), onClose);
   const submit = () => {
     const b = budget.trim() === "" ? null : parseAmount(budget, minor);
@@ -126,7 +130,7 @@ function EventForm({ event, onClose }: { event: BudgetEvent | null; onClose: () 
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>

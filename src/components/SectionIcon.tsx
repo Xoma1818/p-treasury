@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { section, type SectionId } from "../lib/sections";
+import { Hint } from "./Hint";
 
 // Значки разделов: линии 1.8 px в квадрате 24×24, цвет — от раздела.
 const PATHS: Record<SectionId, string[]> = {
@@ -38,7 +39,10 @@ export function ScreenTitle({ id }: { id: SectionId }) {
     <div className="screen-title">
       <SectionIcon id={id} size="lg" />
       <div>
-        <h1>{s.title}</h1>
+        <h1>
+          {s.title}
+          <Hint of={`section.${id}`} />
+        </h1>
         <p className="screen-hint">{s.hint}</p>
       </div>
     </div>

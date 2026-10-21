@@ -7,6 +7,7 @@ import { useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
+import { Hint } from "./Hint";
 
 type Kind = "month" | "quarter" | "year" | "custom";
 
@@ -70,7 +71,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={onClose}>
             Закрыть
           </button>
-          <button type="button" className="btn primary" aria-busy={run.busy} disabled={run.busy || !from || !to} onClick={() => run.run()}>
+          <button type="button" className="btn primary" aria-busy={run.busy} data-done={run.done || undefined} disabled={run.busy || !from || !to} onClick={() => run.run()}>
             Скачать
           </button>
         </div>
@@ -230,7 +231,10 @@ export function BackupCard() {
 
   return (
     <div className="card" data-testid="backup-card">
-      <h2>Резервные копии</h2>
+      <h2>
+        Резервные копии
+        <Hint of="backups" />
+      </h2>
       {s?.reminderDue && <p className="warn">Резервной копии давно не было. Сделайте копию или включите автокопию.</p>}
       <dl className="facts">
         <dt>Последняя копия</dt>
@@ -348,7 +352,10 @@ export function UpdatesCard() {
   });
   return (
     <div className="card" data-testid="updates-card">
-      <h2>Обновления</h2>
+      <h2>
+        Обновления
+        <Hint of="updates" />
+      </h2>
       <div className="btn-group">
         <button className="btn" onClick={() => check.run()} disabled={check.busy}>
           Проверить обновления

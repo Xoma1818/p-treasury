@@ -22,6 +22,7 @@ import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import { Hint } from "../components/Hint";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "calc" };
 
@@ -98,7 +99,10 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
             </div>
           </div>
           <div className="card tile" data-testid="net-worth">
-            <div className="tile-label">Чистые активы</div>
+            <div className="tile-label">
+              Чистые активы
+              <Hint of="debts.net" />
+            </div>
             <div className="tile-value">
               <Money amount={s.netWorth} symbol={sym} />
             </div>
@@ -125,7 +129,10 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
           </ul>
         </div>
         <div className="card">
-          <h2>Все долги</h2>
+          <h2>
+            Все долги
+            <Hint of="debts.all" />
+          </h2>
           {list.length === 0 && <p className="muted">Долгов нет. Добавьте кредит или деньги, которые вы дали в долг.</p>}
           {list.length > 0 && (
             <table className="table">
@@ -278,7 +285,10 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
 
       <div className="columns debt-columns">
         <div className="card">
-          <h2>График платежей</h2>
+          <h2>
+            График платежей
+            <Hint of="debts.schedule" />
+          </h2>
           <table className="table compact schedule" data-testid="schedule">
             <thead>
               <tr>
@@ -356,7 +366,7 @@ function PayForm({ card, scheduled, onClose }: { card: DebtCard; scheduled: bool
   useEffect(() => {
     if (!accountId && accounts[0]) setAccountId(accounts[0].id);
   }, [accounts, accountId]);
-  const save = useAction((input: PaymentInput) => api.payDebt(card.id, input), onClose);
+  const save = useAction((input: PaymentInput) => api.payDebt(card.id, input), onClose, { celebrate: true });
   const lent = card.direction === "lent";
   const p = parseAmount(principal, mu);
   const i = parseAmount(interest || "0", mu);
@@ -405,7 +415,7 @@ function PayForm({ card, scheduled, onClose }: { card: DebtCard; scheduled: bool
           <button type="button" className="btn" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
           </button>
         </div>
@@ -417,7 +427,7 @@ function PayForm({ card, scheduled, onClose }: { card: DebtCard; scheduled: bool
 function RenameForm({ card, onClose }: { card: DebtCard; onClose: () => void }) {
   const [name, setName] = useState(card.counterparty);
   const [note, setNote] = useState(card.note ?? "");
-  const save = useAction(() => api.updateDebtInfo(card.id, name, note || null), onClose);
+  const save = useAction(() => api.updateDebtInfo(card.id, name, note || null), onClose, { celebrate: true });
   return (
     <Modal title="Долг" onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
