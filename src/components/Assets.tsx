@@ -10,7 +10,7 @@ import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 import { Hint } from "./Hint";
 
-export const ASSET_KINDS: Record<AssetKind, string> = {
+const ASSET_KINDS: Record<AssetKind, string> = {
   realty: "Недвижимость",
   vehicle: "Транспорт",
   other: "Другое",

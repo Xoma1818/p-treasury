@@ -273,19 +273,6 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<()> {
     Ok(())
 }
 
-/// Поменять порядок счетов: `ids` в нужном порядке.
-pub fn reorder(conn: &mut Connection, ids: &[String]) -> Result<()> {
-    let tx = conn.transaction()?;
-    for (i, id) in ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE accounts SET sort_order = ?2 WHERE id = ?1",
-            params![id, i as i64],
-        )?;
-    }
-    tx.commit()?;
-    Ok(())
-}
-
 /// Корректировка баланса при сверке: записывает разницу между реальным
 /// остатком и учётом отдельной операцией. Возвращает id операции или `None`,
 /// если расхождения нет.

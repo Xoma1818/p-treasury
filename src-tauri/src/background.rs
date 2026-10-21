@@ -47,20 +47,17 @@ fn text(o: &Occurrence) -> String {
 
 fn tick(app: &AppHandle) {
     weekly(app);
-    if TICKS
-        .fetch_add(1, Ordering::Relaxed)
-        .is_multiple_of(IMPORT_EVERY)
-    {
+    // Тяжёлые дела — со второго тика (≈ 20 с после запуска), когда окно уже
+    // загрузило первый экран, и дальше раз в IMPORT_EVERY тиков.
+    if TICKS.fetch_add(1, Ordering::Relaxed) % IMPORT_EVERY == 1 {
         scan_folder(app);
         upcoming_payments(app);
-        // Папка сохранности раз в день (первый раз — вскоре после запуска).
+        // Папка сохранности раз в день (первый раз — через 20 с после запуска).
         crate::vault::sync(&app.state::<AppState>(), true);
     }
     let state = app.state::<AppState>();
     let due = {
-        let Ok(mut guard) = state.db.lock() else {
-            return;
-        };
+        let mut guard = state.lock_db();
         let Ok(db) = guard.as_mut() else { return };
         let Ok(due) = reminders::due_unnotified(db.conn(), time::now_local()) else {
             return;
@@ -99,9 +96,7 @@ fn tick(app: &AppHandle) {
 fn weekly(app: &AppHandle) {
     let state = app.state::<AppState>();
     let summary = {
-        let Ok(mut guard) = state.db.lock() else {
-            return;
-        };
+        let mut guard = state.lock_db();
         let Ok(db) = guard.as_mut() else { return };
         match habits::weekly_due(db.conn(), time::now_local()) {
             Ok(Some(s)) => s,
@@ -121,7 +116,7 @@ fn upcoming_payments(app: &AppHandle) {
     let state = app.state::<AppState>();
     let today = time::now_local().date().to_string();
     let body = {
-        let Ok(guard) = state.db.lock() else { return };
+        let guard = state.lock_db();
         let Ok(db) = guard.as_ref() else { return };
         match subscriptions::due_unnotified(db.conn(), &today) {
             Ok(due) if !due.is_empty() => subscriptions::reminder_text(&due, &today),
@@ -140,14 +135,10 @@ fn upcoming_payments(app: &AppHandle) {
 pub fn import_dir(app: &AppHandle) -> Option<PathBuf> {
     let state = app.state::<AppState>();
     let chosen = state
-        .db
-        .lock()
+        .lock_db()
+        .as_ref()
         .ok()
-        .and_then(|g| {
-            g.as_ref()
-                .ok()
-                .and_then(|db| settings::get(db.conn(), "auto_import_dir").ok().flatten())
-        })
+        .and_then(|db| settings::get(db.conn(), "auto_import_dir").ok().flatten())
         .filter(|d| !d.trim().is_empty());
     chosen
         .map(PathBuf::from)
@@ -158,7 +149,7 @@ pub fn import_dir(app: &AppHandle) -> Option<PathBuf> {
 fn scan_folder(app: &AppHandle) {
     let state = app.state::<AppState>();
     let on = {
-        let Ok(guard) = state.db.lock() else { return };
+        let guard = state.lock_db();
         let Ok(db) = guard.as_ref() else { return };
         settings::get(db.conn(), "auto_import")
             .ok()
@@ -170,9 +161,7 @@ fn scan_folder(app: &AppHandle) {
         return;
     };
     let result = {
-        let Ok(mut guard) = state.db.lock() else {
-            return;
-        };
+        let mut guard = state.lock_db();
         let Ok(db) = guard.as_mut() else { return };
         match auto_import::scan(db.conn_mut(), &dir) {
             Ok(r) if !r.files.is_empty() => r,
@@ -247,9 +236,7 @@ pub fn hide_instead_of_close(window: &WebviewWindow) -> bool {
         return false;
     }
     let state = window.state::<AppState>();
-    let Ok(guard) = state.db.lock() else {
-        return false;
-    };
+    let guard = state.lock_db();
     let Ok(db) = guard.as_ref() else { return false };
     matches!(settings::get(db.conn(), "close_to_tray"), Ok(Some(v)) if v == "1")
 }

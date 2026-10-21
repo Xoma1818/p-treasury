@@ -238,7 +238,10 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
         let forecast = match pace {
             Some(p) if remaining > 0 && p > 0 => {
                 let days = (remaining as f64 / p as f64 * DAYS_IN_MONTH).ceil() as i64;
-                Some((today_d + Duration::days(days)).to_string())
+                // При темпе в копейки дата уходит за пределы календаря: прогноза нет.
+                Duration::try_days(days)
+                    .and_then(|d| today_d.checked_add_signed(d))
+                    .map(|d| d.to_string())
             }
             _ => None,
         };
@@ -320,6 +323,16 @@ mod tests {
         assert!(deposit(c, &id, "2026-10-20", 0).is_err());
         assert!(create(c, &goal(" ", 1, None, None)).is_err());
         assert!(create(c, &goal("x", 0, None, None)).is_err());
+
+        // Темп в копейку при цели в миллиарды: прогноз за пределами календаря не роняет программу.
+        let big = create(c, &goal("Остров", i64::MAX / 2, None, None)).unwrap();
+        deposit(c, &big, &time::today_local(), 1).unwrap();
+        let g = list(c, &time::today_local()).unwrap();
+        let g = g.iter().find(|g| g.id == big).unwrap();
+        assert_eq!(
+            (g.pace_per_month, g.forecast_date.as_deref()),
+            (Some(1), None)
+        );
     }
 
     #[test]

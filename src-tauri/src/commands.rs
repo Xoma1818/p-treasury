@@ -56,10 +56,7 @@ fn with_db<T>(
     state: &State<AppState>,
     f: impl FnOnce(&mut Storage) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
-    let mut guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let mut guard = state.lock_db();
     let db = guard.as_mut().map_err(|e| e.clone())?;
     f(db).map_err(|e| e.to_string())
 }
@@ -70,15 +67,9 @@ fn with_undo<T>(
     label: &str,
     f: impl FnOnce(&mut Connection) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
-    let mut guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let mut guard = state.lock_db();
     let db = guard.as_mut().map_err(|e| e.clone())?;
-    let mut journal = state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?;
+    let mut journal = state.lock_undo();
     journal
         .record(db.conn_mut(), label, f)
         .map_err(|e| e.to_string())
@@ -251,11 +242,7 @@ pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
 #[tauri::command(async)]
 pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
     with_db(&state, |db| demo::clear(db.conn_mut()))?;
-    state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?
-        .clear();
+    state.lock_undo().clear();
     Ok(())
 }
 
@@ -971,21 +958,14 @@ pub fn template_used(state: State<AppState>, id: String) -> CmdResult<()> {
 
 #[tauri::command(async)]
 pub fn undo_state(state: State<AppState>) -> CmdResult<UndoState> {
-    Ok(state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?
-        .state())
+    Ok(state.lock_undo().state())
 }
 
 /// Отменить последнее действие; возвращает его название (или ничего, если отменять нечего).
 #[tauri::command(async)]
 pub fn undo(state: State<AppState>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
-        let mut j = state
-            .undo
-            .lock()
-            .map_err(|_| budget_core::Error::Validation("журнал отмены недоступен".into()))?;
+        let mut j = state.lock_undo();
         j.undo(db.conn())
     })
 }
@@ -993,10 +973,7 @@ pub fn undo(state: State<AppState>) -> CmdResult<Option<String>> {
 #[tauri::command(async)]
 pub fn redo(state: State<AppState>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
-        let mut j = state
-            .undo
-            .lock()
-            .map_err(|_| budget_core::Error::Validation("журнал отмены недоступен".into()))?;
+        let mut j = state.lock_undo();
         j.redo(db.conn())
     })
 }
@@ -1239,9 +1216,7 @@ pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String>
             .to_string())
     })?;
     // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    if let Ok(mut j) = state.undo.lock() {
-        j.clear();
-    }
+    state.lock_undo().clear();
     Ok(safety)
 }
 
@@ -1309,10 +1284,7 @@ pub async fn check_update(app: tauri::AppHandle) -> CmdResult<UpdateInfo> {
 pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     {
         let opts = state.open_options();
-        let guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let guard = state.lock_db();
         let db = guard.as_ref().map_err(|e| e.clone())?;
         let dest = opts
             .backup_dir

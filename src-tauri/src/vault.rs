@@ -55,7 +55,7 @@ pub fn sync(state: &AppState, only_if_due: bool) {
     static RUNNING: Mutex<()> = Mutex::new(());
     let Ok(_running) = RUNNING.lock() else { return };
     let (copy, dir, name) = {
-        let Ok(guard) = state.db.lock() else { return };
+        let guard = state.lock_db();
         let Ok(db) = guard.as_ref() else { return };
         let c = db.conn();
         if !onboarding::is_done(c).unwrap_or(false) {
@@ -83,7 +83,7 @@ pub fn sync(state: &AppState, only_if_due: bool) {
             .map(|e| e.to_string()),
         copy: copy.display().to_string(),
     });
-    let Ok(guard) = state.db.lock() else { return };
+    let guard = state.lock_db();
     // Пока строился Excel, могли открыть другой файл бюджета: его статус не трогаем.
     if let Ok(db) = guard.as_ref() {
         if budget_name(state, db) == name {
@@ -102,10 +102,7 @@ pub fn sync_on_exit(app: &AppHandle) {
 }
 
 fn status_of(state: &State<AppState>) -> CmdResult<Status> {
-    let guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let guard = state.lock_db();
     let db = guard.as_ref().map_err(|e| e.clone())?;
     vault::status(db.conn(), &state.vault_default).map_err(|e| e.to_string())
 }
@@ -185,10 +182,7 @@ pub fn set_vault_dir(state: State<AppState>, path: Option<String>) -> CmdResult<
         .map(|d| d.display().to_string())
         .unwrap_or_default();
     {
-        let guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let guard = state.lock_db();
         let db = guard.as_ref().map_err(|e| e.clone())?;
         settings::set(db.conn(), "vault_dir", &value).map_err(|e| e.to_string())?;
         settings::set(db.conn(), "vault_on", "1").map_err(|e| e.to_string())?;
@@ -229,10 +223,7 @@ pub fn vault_inspect(path: String) -> CmdResult<Found> {
 pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String> {
     let opts = state.open_options();
     let safety = {
-        let mut guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let mut guard = state.lock_db();
         let db = guard.as_mut().map_err(|e| e.clone())?;
         let path = Path::new(&found.path);
         let safety = if found.kind == "excel" {
@@ -261,9 +252,7 @@ pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String>
         safety.display().to_string()
     };
     // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    if let Ok(mut j) = state.undo.lock() {
-        j.clear();
-    }
+    state.lock_undo().clear();
     sync(&state, false);
     Ok(safety)
 }

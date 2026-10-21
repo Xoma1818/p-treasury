@@ -51,9 +51,7 @@ pub fn hide(app: &AppHandle) {
 /// Сочетание из настроек; пустое — быстрый ввод только из трея.
 pub fn saved_hotkey(app: &AppHandle) -> String {
     let state = app.state::<AppState>();
-    let Ok(guard) = state.db.lock() else {
-        return String::new();
-    };
+    let guard = state.lock_db();
     match guard.as_ref() {
         Ok(db) => settings::get(db.conn(), "quick_hotkey")
             .ok()

@@ -5,7 +5,7 @@ mod quick_window;
 mod vault;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use budget_core::storage::{OpenOptions, Storage};
 use tauri::{Manager, WindowEvent};
@@ -25,6 +25,17 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// База. Если какая-то команда упала с паникой, замок не остаётся
+    /// «отравленным»: незавершённая транзакция SQLite уже откатилась, и
+    /// остальные команды работают дальше, а не отвечают «база недоступна».
+    pub fn lock_db(&self) -> MutexGuard<'_, Result<Storage, String>> {
+        self.db.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn lock_undo(&self) -> MutexGuard<'_, budget_core::undo::Journal> {
+        self.undo.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn open_options(&self) -> OpenOptions {
         OpenOptions {
             backup_dir: self.data_dir.join("backups"),
@@ -69,7 +80,7 @@ pub fn run() {
             };
             let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
-            *state.db.lock().expect("база ещё не используется") = db;
+            *state.lock_db() = db;
             app.manage(state);
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");

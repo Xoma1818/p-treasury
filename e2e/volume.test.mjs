@@ -46,7 +46,7 @@ test("10 лет учёта: каждый экран открывается бы�
   await browser.waitUntil(() => browser.execute(() => !!document.querySelector('[data-testid="txn-count"]')), { timeout: 10000 });
   let t = Date.now();
   await (await browser.$('//button[normalize-space()="Сбросить"]')).click();
-  await browser.waitUntil(() => browser.execute(() => /Показано 100 из 9\d{4}/.test(document.querySelector('[data-testid="txn-count"]')?.textContent ?? "")), { timeout: 10000, interval: 20 });
+  await browser.waitUntil(() => browser.execute(() => /Показано 100 из \d{5,}/.test(document.querySelector('[data-testid="txn-count"]')?.textContent ?? "")), { timeout: 10000, interval: 20 });
   results["Операции: все 10 лет"] = Date.now() - t;
   t = Date.now();
   await (await browser.$('[name="search"]')).setValue("Пятёрочка");

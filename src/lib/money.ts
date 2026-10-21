@@ -61,7 +61,7 @@ export const isExpression = (input: string) => /\d\s*[+\-−*×/÷]\s*[\d(]|[()]
  * (дробями на BigInt), результат округляется до копейки от нуля.
  * Никакой код не выполняется: это маленький разборщик, не eval.
  */
-export function evalAmount(input: string, minorUnits = 2): number | null {
+function evalAmount(input: string, minorUnits = 2): number | null {
   type Q = [bigint, bigint]; // числитель, знаменатель > 0
   const src = input.replace(/\s/g, "").replace(/−/g, "-").replace(/×/g, "*").replace(/÷/g, "/");
   if (!isExpression(src)) return null;

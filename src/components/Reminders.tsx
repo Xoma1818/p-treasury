@@ -136,7 +136,7 @@ const SNOOZE: [string, () => string][] = [
 ];
 
 /** «Создать операцию»: для своего напоминания — форма операции с суммой, для долга — отметка платежа. */
-export function useCreateFromReminder() {
+function useCreateFromReminder() {
   const { openTxnForm, openDebt } = useUi();
   return (o: Occurrence) => {
     if (o.key.source === "debt" && o.debtId) return openDebt(o.debtId, true);

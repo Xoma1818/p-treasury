@@ -8,7 +8,7 @@
 //! остаток стал ровно 0. Проценты за месяц — `r` от остатка, без учёта числа
 //! дней в месяце (упрощение MVP, см. architecture.md).
 
-use chrono::{Datelike, Months, NaiveDate};
+use chrono::{Months, NaiveDate};
 use serde::{Deserialize, Serialize};
 
 use crate::error::invalid;
@@ -330,11 +330,6 @@ pub fn compare(input: &LoanInput) -> Result<Comparison> {
         annuity: calculate(&a)?,
         differentiated: calculate(&d)?,
     })
-}
-
-/// День месяца первого платежа (для подписи «каждое 15-е число»).
-pub fn payment_day(first: NaiveDate) -> u32 {
-    first.day()
 }
 
 #[cfg(test)]
