@@ -47,7 +47,7 @@ pub struct YearReview {
     pub top_categories: Vec<CategoryItem>,
     pub biggest_purchase: Option<Purchase>,
     pub top_payee: Option<TopPayee>,
-    /// Сколько дней года (по сегодня) прошло без расходов.
+    /// Сколько дней года (с первой записи и по сегодня) прошло без расходов.
     pub no_spend_days: i64,
     pub days: i64,
     pub transaction_count: i64,
@@ -138,7 +138,14 @@ pub fn review(conn: &Connection, year: i32, today: &str) -> Result<YearReview> {
     let top_payee = payees
         .into_values()
         .max_by(|a, b| a.count.cmp(&b.count).then(a.amount.cmp(&b.amount)));
-    let days = (crate::time::parse_date(&to)? - crate::time::parse_date(&from)?).num_days() + 1;
+    // Дни считаются с первой записи: до неё приложением ещё не пользовались.
+    let first: Option<String> =
+        conn.query_row("SELECT min(date) FROM transactions", [], |r| r.get(0))?;
+    let start = first
+        .filter(|f| f.as_str() > from.as_str())
+        .unwrap_or(from.clone());
+    let days =
+        ((crate::time::parse_date(&to)? - crate::time::parse_date(&start)?).num_days() + 1).max(0);
     let transaction_count: i64 = conn.query_row(
         "SELECT count(*) FROM transactions WHERE status = 'cleared'
            AND type IN ('income', 'expense', 'transfer') AND date BETWEEN ?1 AND ?2",
@@ -276,6 +283,7 @@ mod tests {
 
         assert!(review(c, 2027, "2026-02-28").is_err());
         let full = review(c, 2025, "2026-02-28").unwrap();
-        assert_eq!((full.days, full.income), (365, 5_000_000));
+        // Первая запись 1 марта: дни года считаются с неё.
+        assert_eq!((full.days, full.income), (306, 5_000_000));
     }
 }

@@ -100,7 +100,7 @@ export function YearReviewReport() {
               </Fact>
             )}
             <Fact eyebrow="Дни без трат" title={`${r.noSpendDays} ${plural(r.noSpendDays, "день", "дня", "дней")}`}>
-              из {r.days} · {Math.round((r.noSpendDays / r.days) * 100)} % года
+              из {r.days} {plural(r.days, "дня", "дней", "дней")} учёта · {r.days ? Math.round((r.noSpendDays / r.days) * 100) : 0} %
             </Fact>
           </div>
           {r.missingRates.length > 0 && <p className="hint warn">Нет курса для {r.missingRates.join(", ")}: такие операции не вошли.</p>}
