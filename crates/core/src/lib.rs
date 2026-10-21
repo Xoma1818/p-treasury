@@ -41,6 +41,7 @@ pub mod templates;
 pub mod time;
 pub mod transactions;
 pub mod undo;
+pub mod vault;
 pub mod views;
 pub mod wealth;
 pub mod year;

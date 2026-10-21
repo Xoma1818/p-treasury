@@ -238,3 +238,17 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .palette-empty { padding: 18px; color: var(--muted); text-align: center; }
 .palette-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
 .palette-foot kbd { font: 600 11px inherit; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; }
+
+/* Папка сохранности и перенос данных (0.13) */
+.transfer-offer { margin-top: 0; margin-bottom: 16px; }
+.transfer-offer.found { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.found-list, .place-list { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.found-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.found-row > div { min-width: 0; }
+.found-row .mono { overflow-wrap: anywhere; }
+.found-row .kind-chip { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 99px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
+.found-row .kind-chip.warn { background: var(--over-soft); color: var(--over); }
+.place { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 10px 12px; text-align: left; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; transition: border-color var(--fast) var(--ease); }
+.place:hover { border-color: var(--border-strong); }
+.place.active { border-color: var(--accent); background: var(--accent-soft); }
+.place .mono { overflow-wrap: anywhere; }

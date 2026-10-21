@@ -154,31 +154,38 @@ test("новый компьютер: восстановление из копи�
   assert.ok(readdirSync(join(dataDir, "backups")).some((f) => f.startsWith("before-restore-")));
 });
 
-test("закрытие окна: по умолчанию в трей, с настройкой — выход с автокопией в выбранную папку", async () => {
+test("закрытие окна: по умолчанию в трей, с настройкой — выход с обновлением папки сохранности в облаке", async () => {
   const cloud = mkdtempSync(join(tmpdir(), "p-treasury-cloud-"));
+  const vault = join(cloud, "P-Treasury");
   await openSection(browser, "Настройки");
+  await click(browser, "Сменить папку");
   await pick(cloud);
-  await click(browser, "Включить автокопию");
-  await waitText(browser, '[data-testid="autobackup-dir"]', new RegExp(cloud.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await click(browser, "Другая папка или флешка…", '//*[@role="dialog"]');
+  // Выбрана папка облака: файлы ложатся в её подпапку P-Treasury, папка сразу обновляется.
+  await waitText(browser, '[data-testid="vault-dir"]', new RegExp(vault.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await browser.waitUntil(async () => !(await (await browser.$('[role="dialog"]')).isExisting()), { timeout: 5000 });
   await choose(browser, "autobackupKeep", "хранить 3");
+  assert.ok(existsSync(join(vault, "Мой бюджет.ptreasury")));
+  assert.equal(readdirSync(join(vault, "Копии")).length, 1);
 
   // «Сворачивать в трей»: окно закрыли, приложение работает и шлёт напоминания.
   closeLikeUser();
   await new Promise((r) => setTimeout(r, 1500));
   assert.ok(appPid(), "приложение осталось в трее");
-  assert.deepEqual(readdirSync(cloud), []);
+  assert.equal(readdirSync(join(vault, "Копии")).length, 1, "в трее папку не трогаем");
   await stop(browser);
 
-  // «Закрывать приложение»: выход и автокопия.
+  // «Закрывать приложение»: выход и обновление папки.
   ({ browser } = await start(dataDir));
   await openSection(browser, "Настройки");
   await choose(browser, "closeToTray", "Закрывать приложение");
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 1100));
   closeLikeUser();
-  await browser.waitUntil(async () => !appPid(), { timeout: 10000 });
-  const copies = readdirSync(cloud);
-  assert.equal(copies.length, 1, String(copies));
-  assert.match(copies[0], /^p-treasury-auto-\d{8}-\d{6}\.db$/);
+  await browser.waitUntil(async () => !appPid(), { timeout: 15000 });
+  const copies = readdirSync(join(vault, "Копии"));
+  assert.equal(copies.length, 2, String(copies));
+  assert.ok(copies.every((f) => /^Мой бюджет - \d{4}-\d\d-\d\d \d\d-\d\d-\d\d\.ptreasury$/.test(f)), String(copies));
+  assert.ok(existsSync(join(vault, "Excel", "Все данные.xlsx")));
   await stop(browser).catch(() => {});
   browser = null;
 });

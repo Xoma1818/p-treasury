@@ -1,21 +1,18 @@
-//! Резервные копии: ручная копия в файл, автокопия при закрытии в выбранную
-//! папку (хранятся последние N), проверка файла копии и напоминание, если
-//! копий давно не было. Восстановление — `Storage::restore_from`.
+//! Резервные копии: ручная копия в файл, проверка файла копии и напоминание,
+//! если копий давно не было. Автокопии делает папка сохранности ([`crate::vault`]).
+//! Восстановление — `Storage::restore_from`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::error::invalid;
-use crate::storage::{backup_to, prune_backups, LATEST_VERSION};
+use crate::storage::{backup_to, LATEST_VERSION};
 use crate::{settings, time, Error, Result};
 
-/// Префикс автокопий: `p-treasury-auto-20261020-141530.db`.
-pub const AUTO_PREFIX: &str = "p-treasury-auto";
-/// Автокопии, сделанные до переименования приложения: тоже считаются в лимит и удаляются первыми.
-pub const LEGACY_AUTO_PREFIX: &str = "kazna-auto";
-/// Через сколько дней без копии напоминать о ней (если автокопия выключена).
+/// Через сколько дней без копии напоминать о ней (папка сохранности выключена
+/// или недоступна).
 pub const REMIND_AFTER_DAYS: i64 = 30;
 
 /// Имя файла ручной копии по умолчанию.
@@ -28,28 +25,6 @@ pub fn backup(conn: &Connection, dest: &Path) -> Result<()> {
     backup_to(conn, dest)?;
     settings::set(conn, "last_backup_at", &time::now_utc())?;
     Ok(())
-}
-
-/// Автокопия в папку из настроек; `None`, если папка не выбрана.
-pub fn autobackup(conn: &Connection) -> Result<Option<PathBuf>> {
-    let dir = settings::get(conn, "autobackup_dir")?.unwrap_or_default();
-    if dir.trim().is_empty() {
-        return Ok(None);
-    }
-    let keep: usize = settings::get(conn, "autobackup_keep")?
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10)
-        .max(1);
-    let dir = PathBuf::from(dir.trim());
-    let dest = dir.join(format!("{AUTO_PREFIX}-{}.db", time::file_stamp()));
-    backup(conn, &dest)?;
-    prune_backups(&dir, AUTO_PREFIX, keep)?;
-    let fresh = std::fs::read_dir(&dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().starts_with(AUTO_PREFIX))
-        .count();
-    prune_backups(&dir, LEGACY_AUTO_PREFIX, keep.saturating_sub(fresh))?;
-    Ok(Some(dest))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,16 +67,9 @@ pub fn inspect(path: &Path) -> Result<BackupInfo> {
     })
 }
 
-/// Пора напомнить о копии: автокопия выключена, данные есть, а копии не было
-/// `REMIND_AFTER_DAYS` дней.
+/// Пора напомнить о копии: данные есть, а копии не было `REMIND_AFTER_DAYS` дней.
+/// Работающая папка сохранности обновляет копию каждый день, и напоминания нет.
 pub fn reminder_due(conn: &Connection, today: &str) -> Result<bool> {
-    if !settings::get(conn, "autobackup_dir")?
-        .unwrap_or_default()
-        .trim()
-        .is_empty()
-    {
-        return Ok(false);
-    }
     let first: Option<String> =
         conn.query_row("SELECT MIN(date) FROM transactions", [], |r| r.get(0))?;
     let Some(first) = first else { return Ok(false) };
@@ -173,79 +141,6 @@ mod tests {
     }
 
     #[test]
-    fn autobackup_keeps_last_n_copies_and_no_partial_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = Storage::open_in_memory().unwrap();
-        assert_eq!(autobackup(db.conn()).unwrap(), None);
-        let cloud = dir.path().join("Яндекс.Диск/P-Treasury");
-        settings::set(db.conn(), "autobackup_dir", cloud.to_str().unwrap()).unwrap();
-        settings::set(db.conn(), "autobackup_keep", "3").unwrap();
-        for i in 0..5 {
-            // Имена с меткой времени до секунды: подставляем разные метки.
-            let p = autobackup(db.conn()).unwrap().unwrap();
-            std::fs::rename(
-                &p,
-                cloud.join(format!("{AUTO_PREFIX}-2026010{i}-000000.db")),
-            )
-            .unwrap();
-        }
-        autobackup(db.conn()).unwrap();
-        let files: Vec<_> = std::fs::read_dir(&cloud)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(files.len(), 3, "{files:?}");
-        assert!(
-            files.iter().all(|f| f.ends_with(".db")),
-            "недописанных .part нет: {files:?}"
-        );
-    }
-
-    #[test]
-    fn autocopies_from_before_the_rename_count_toward_the_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = Storage::open_in_memory().unwrap();
-        settings::set(db.conn(), "autobackup_dir", dir.path().to_str().unwrap()).unwrap();
-        settings::set(db.conn(), "autobackup_keep", "2").unwrap();
-        for i in 1..=3 {
-            std::fs::write(
-                dir.path()
-                    .join(format!("{LEGACY_AUTO_PREFIX}-2026010{i}-000000.db")),
-                b"",
-            )
-            .unwrap();
-        }
-        // Первая новая копия: старых остаётся одна (самая свежая), всего две.
-        let first = autobackup(db.conn()).unwrap().unwrap();
-        let mut names: Vec<String> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        names.sort();
-        assert_eq!(names.len(), 2, "{names:?}");
-        assert_eq!(names[0], format!("{LEGACY_AUTO_PREFIX}-20260103-000000.db"));
-        assert!(first
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("p-treasury-auto-"));
-        // Вторая новая копия вытесняет последнюю старую.
-        std::fs::rename(
-            &first,
-            dir.path().join(format!("{AUTO_PREFIX}-20260104-000000.db")),
-        )
-        .unwrap();
-        autobackup(db.conn()).unwrap();
-        let left: Vec<String> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(left.len(), 2, "{left:?}");
-        assert!(left.iter().all(|n| n.starts_with(AUTO_PREFIX)), "{left:?}");
-    }
-
-    #[test]
     fn foreign_and_newer_files_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let junk = dir.path().join("junk.db");
@@ -309,10 +204,10 @@ mod tests {
         assert!(reminder_due(c, "2026-10-01").unwrap());
         settings::set(c, "last_backup_at", "2026-09-25T10:00:00.000Z").unwrap();
         assert!(!reminder_due(c, "2026-10-01").unwrap());
-        settings::set(c, "autobackup_dir", "/tmp/x").unwrap();
+        settings::set(c, "last_backup_at", "2026-11-30T23:10:00.000Z").unwrap();
         assert!(
             !reminder_due(c, "2026-12-01").unwrap(),
-            "с автокопией не напоминаем"
+            "папка сохранности обновлялась вчера"
         );
     }
 }
