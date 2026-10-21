@@ -246,7 +246,15 @@ fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
                 input.to_account_id = Some(to_id);
             } else {
                 if row.category.is_empty() {
-                    return Err("не указана категория".into());
+                    // Без категории выручают правила автокатегоризации по получателю.
+                    let rule = crate::rules::find(conn, &row.payee, kind)
+                        .map_err(|e| e.to_string())?
+                        .ok_or("не указана категория (и нет правила для получателя)")?;
+                    input.category_id = Some(rule.category_id);
+                    if rule.payee.is_some() {
+                        input.payee = rule.payee;
+                    }
+                    return Ok(input);
                 }
                 let key = (kind.to_string(), row.category.to_lowercase());
                 input.category_id = match lk.categories.get(&key) {
@@ -447,6 +455,50 @@ mod tests {
             accounts::balance(db.conn(), &card, None).unwrap(),
             7_507_950
         );
+    }
+
+    /// Пустая категория берётся из правила по получателю.
+    #[test]
+    fn empty_category_comes_from_rule() {
+        let mut db = setup();
+        let food: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Продукты'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        crate::rules::create(
+            db.conn(),
+            &crate::rules::RuleInput {
+                pattern: "пятерочка".into(),
+                category_id: food,
+                payee: Some("Пятёрочка".into()),
+            },
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let f = file(
+            &dir,
+            "r.csv",
+            "Дата;Тип;Счёт;Категория;Получатель;Сумма\n\
+             05.10.2026;Расход;Карта;;PYATEROCHKA / ПЯТЁРОЧКА 1234;500\n\
+             05.10.2026;Расход;Карта;;Неизвестно;100\n",
+        );
+        let p = preview(db.conn(), &f).unwrap();
+        assert_eq!((p.valid, p.errors), (1, 1));
+        assert!(p.rows[1].error.as_deref().unwrap().contains("нет правила"));
+        assert_eq!(import(db.conn_mut(), &f, true).unwrap(), 1);
+        let (cat, payee): (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT c.name, t.payee FROM transactions t JOIN categories c ON c.id = t.category_id",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((cat.as_str(), payee.as_str()), ("Продукты", "Пятёрочка"));
     }
 
     #[test]

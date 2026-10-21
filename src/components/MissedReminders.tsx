@@ -22,6 +22,8 @@ export function MissedReminders() {
     const un = [
       listen("reminders-due", () => qc.invalidateQueries({ queryKey: ["reminders"] })),
       listen("tray-add-transaction", () => openTxnForm({ mode: "new", type: "expense" })),
+      // Операция записана в окне быстрого ввода.
+      listen("data-changed", () => qc.invalidateQueries()),
     ];
     return () => un.forEach((p) => p.then((f) => f()));
   }, [qc, openTxnForm]);

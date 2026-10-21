@@ -35,14 +35,20 @@ pub fn set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Сочетания для быстрого ввода из любого места; пустая строка — выключено.
+pub const QUICK_HOTKEYS: &[&str] = &["Ctrl+Alt+P", "Ctrl+Shift+Space", "Ctrl+Alt+N", ""];
+
 /// Значения, от которых зависят расчёты, проверяются здесь, а не только в UI.
 fn validate(key: &str, value: &str) -> Result<()> {
     let ok = match key {
         "month_start_day" => value.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d)),
-        "hide_amounts" | "close_to_tray" | "onboarding_done" | "update_check" => {
+        "hide_amounts" | "close_to_tray" | "onboarding_done" | "update_check" | "demo_data"
+        | "weekly_summary" => {
             matches!(value, "0" | "1")
         }
         "debt_reminder_days_before" | "autobackup_keep" => value.parse::<u32>().is_ok(),
+        "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
+        "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
         _ => true,
     };

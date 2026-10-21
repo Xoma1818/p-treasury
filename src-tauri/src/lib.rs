@@ -1,5 +1,7 @@
 mod background;
 mod commands;
+mod files;
+mod quick_window;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -15,6 +17,8 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// Журнал отмены и повтора (в памяти, очищается при закрытии).
     pub undo: Mutex<budget_core::undo::Journal>,
+    /// Переносная версия: данные в папке `data` рядом с программой.
+    pub portable: bool,
 }
 
 impl AppState {
@@ -39,17 +43,21 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(quick_window::plugin())
         .setup(|app| {
-            let data_dir = match data_dir_override() {
-                Some(dir) => dir,
-                None => app.path().app_data_dir()?,
+            let portable = files::portable_dir();
+            let data_dir = match (data_dir_override(), &portable) {
+                (Some(dir), _) => dir,
+                (None, Some(dir)) => dir.clone(),
+                (None, None) => app.path().app_data_dir()?,
             };
             let state = AppState {
                 db: Mutex::new(Err(String::new())),
                 data_dir: data_dir.clone(),
                 undo: Mutex::default(),
+                portable: portable.is_some(),
             };
-            let db = Storage::open(&data_dir.join("budget.db"), &state.open_options())
+            let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
             *state.db.lock().expect("база ещё не используется") = db;
             app.manage(state);
@@ -57,6 +65,10 @@ pub fn run() {
                 eprintln!("значок в трее недоступен: {e}");
             }
             background::start_scheduler(app.handle().clone());
+            let hotkey = quick_window::saved_hotkey(app.handle());
+            if let Err(e) = quick_window::register(app.handle(), &hotkey) {
+                eprintln!("быстрый ввод: {e}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -64,6 +76,12 @@ pub fn run() {
                 let Some(w) = window.app_handle().get_webview_window(window.label()) else {
                     return;
                 };
+                // Окно быстрого ввода не закрывается, а прячется до следующего раза.
+                if w.label() == quick_window::LABEL {
+                    api.prevent_close();
+                    let _ = w.hide();
+                    return;
+                }
                 if background::hide_instead_of_close(&w) {
                     api.prevent_close();
                     let _ = w.hide();
@@ -85,6 +103,8 @@ pub fn run() {
             commands::rate_on,
             commands::load_cbr_rates,
             commands::finish_onboarding,
+            commands::seed_demo,
+            commands::clear_demo,
             commands::list_accounts,
             commands::create_account,
             commands::update_account,
@@ -110,6 +130,41 @@ pub fn run() {
             commands::set_budget_limit,
             commands::set_budget_note,
             commands::delete_budget,
+            commands::fill_budget,
+            commands::cushion,
+            commands::report_fx,
+            commands::list_views,
+            commands::create_view,
+            commands::delete_view,
+            commands::quick_parse,
+            commands::remember_rule,
+            commands::list_rules,
+            commands::create_rule,
+            commands::delete_rule,
+            commands::move_transaction,
+            commands::split_expense,
+            commands::list_assets,
+            commands::create_asset,
+            commands::update_asset,
+            commands::delete_asset,
+            commands::list_events,
+            commands::create_event,
+            commands::update_event,
+            commands::delete_event,
+            commands::assign_event,
+            commands::event_candidates,
+            commands::events_on,
+            commands::last_week,
+            commands::no_spend_streak,
+            commands::list_files,
+            commands::create_file,
+            commands::open_file,
+            commands::switch_file,
+            commands::rename_file,
+            commands::forget_file,
+            commands::open_quick,
+            commands::hide_quick,
+            commands::set_quick_hotkey,
             commands::report_period,
             commands::report_by_category,
             commands::compare_periods,

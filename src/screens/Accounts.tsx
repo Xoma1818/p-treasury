@@ -10,6 +10,7 @@ import { useAccounts, useCurrencies } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import { AssetsCard } from "../components/Assets";
 
 export function Accounts() {
   const [showArchived, setShowArchived] = useState(false);
@@ -76,6 +77,7 @@ export function Accounts() {
           Показать закрытые счета
         </label>
       </div>
+      <AssetsCard />
       {editing && <AccountForm account={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {adjusting && <AdjustForm account={adjusting} onClose={() => setAdjusting(null)} />}
     </section>

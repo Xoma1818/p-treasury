@@ -11,9 +11,12 @@ export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, "target/debug/bud
 
 let driver;
 let currentDir;
+/** По этому образцу добивается процесс приложения после прогона. */
+let killPattern;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args } = {}) {
   currentDir = dataDir;
+  killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
   driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });
   await new Promise((r) => setTimeout(r, 1500));
@@ -22,7 +25,8 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     port: 4444,
     logLevel: "error",
     capabilities: {
-      "tauri:options": { application: bin, args: [`--data-dir=${dataDir}`] },
+      // `args: []` — запуск без своей папки данных (переносная версия).
+      "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
     },
   });
   return { browser, dataDir };
@@ -34,7 +38,7 @@ export async function stop(browser) {
   } finally {
     driver?.kill();
     // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
-    if (currentDir) spawnSync("pkill", ["-f", `--data-dir=${currentDir}`]);
+    if (killPattern) spawnSync("pkill", ["-f", "--", killPattern]);
     // WebKitWebDriver иногда переживает сессию и держит порт: следующий запуск попал бы в старый процесс.
     spawnSync("pkill", ["-x", "WebKitWebDriver"]);
     await new Promise((r) => setTimeout(r, 300));

@@ -1,7 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Template, type TxnInput, type TxnType } from "../lib/api";
 import { today } from "../lib/dates";
-import { formatAmount, parseAmount } from "../lib/money";
+import { amountToInput, formatAmount, parseAmount } from "../lib/money";
 import { useAccounts, useCategories } from "../lib/queries";
 import { useUi, type TxnFormState } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -41,6 +42,10 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const [payee, setPayee] = useState(editing?.payee ?? prefill?.payee ?? "");
   const [note, setNote] = useState(editing?.note ?? prefill?.note ?? "");
   const [hints, setHints] = useState<{ payee: string; categoryId: string | null; accountId: string }[]>([]);
+  const [eventId, setEventId] = useState(editing?.eventId ?? "");
+  // Общая трата: доли друзей; null — трата только своя.
+  const [friends, setFriends] = useState<{ name: string; amount: string }[] | null>(null);
+  const eventsOn = useQuery({ queryKey: ["events", "on", date], queryFn: () => api.eventsOn(date), enabled: !!date }).data ?? [];
 
   // Быстрый ввод: последние использованные счёт и категория для этого типа.
   useEffect(() => {
@@ -111,8 +116,26 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   };
 
   const save = useAction(async (input: TxnInput) => {
-    if (editing) return api.updateTransaction(editing.id, input);
-    const id = await api.createTransaction(input);
+    const event = type === "transfer" ? null : eventId || null;
+    if (editing) {
+      await api.updateTransaction(editing.id, input);
+      if (event !== (editing.eventId ?? null)) await api.assignEvent(event, [editing.id]);
+      return;
+    }
+    if (split) {
+      await api.splitExpense({
+        date: input.date,
+        accountId: input.accountId,
+        categoryId: input.categoryId ?? "",
+        payee: input.payee,
+        note: input.note,
+        total: input.amount,
+        myShare: split.mine,
+        friends: split.shares,
+      });
+      return;
+    }
+    const id = await api.createTransaction(input, event);
     // Операция из напоминания отмечает его выполненным.
     if (state.mode === "new" && state.onSaved) await state.onSaved(id);
   }, onClose);
@@ -150,8 +173,27 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   });
   const suggestedName = () => payee.trim() || categories.find((c) => c.id === categoryId)?.name || "";
 
+  // Доли друзей в минимальных единицах; своя доля — остаток.
+  const split =
+    friends && type === "expense"
+      ? (() => {
+          const shares = friends.map((f) => ({ name: f.name.trim(), amount: parseAmount(f.amount, minor) ?? 0 }));
+          return { shares, mine: (amountValue ?? 0) - shares.reduce((a, f) => a + f.amount, 0) };
+        })()
+      : null;
+  const evenly = (n: number) => {
+    if (!amountValue || amountValue <= 0) return;
+    const each = Math.floor(amountValue / (n + 1));
+    setFriends((list) => (list ?? []).map((f) => ({ ...f, amount: amountToInput(each, minor) })));
+  };
+
   const submit = () => {
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
+    if (split) {
+      if (split.shares.some((f) => !f.name)) return save.setError("Укажите имя у каждой доли");
+      if (split.shares.some((f) => f.amount <= 0)) return save.setError("Доли должны быть больше нуля");
+      if (split.mine < 0) return save.setError("Доли друзей больше общей суммы");
+    }
     if (crossCurrency && (toAmountValue === null || toAmountValue <= 0)) return save.setError("Введите сумму зачисления");
     save.run({
       type,
@@ -245,6 +287,74 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                 <Field label="Категория">
                   {(id) => <CategorySelect key={hintRev} id={id} name="category" categories={categories} kind={type === "income" ? "income" : "expense"} value={categoryId} onChange={setCategoryId} />}
                 </Field>
+                {(eventsOn.length > 0 || eventId) && (
+                  <Field label="Поездка или событие">
+                    {(id) => (
+                      <select id={id} name="event" value={eventId} onChange={(e) => setEventId(e.target.value)}>
+                        <option value="">Не относится</option>
+                        {editing?.eventId && !eventsOn.some(([eid]) => eid === editing.eventId) && <option value={editing.eventId}>{editing.eventName}</option>}
+                        {eventsOn.map(([eid, name]) => (
+                          <option key={eid} value={eid}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+                )}
+                {!editing && type === "expense" && !split && (
+                  <div>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => {
+                        const each = amountValue && amountValue > 0 ? amountToInput(Math.floor(amountValue / 2), minor) : "";
+                        setFriends([{ name: "", amount: each }]);
+                      }}
+                    >
+                      Разделить с друзьями
+                    </button>
+                  </div>
+                )}
+                {split && friends && (
+                  <div className="split" data-testid="split">
+                    <div className="split-head">
+                      <b>Общая трата</b>
+                      <span className="muted">Доли друзей станут долгами «мне должны»</span>
+                    </div>
+                    {friends.map((f, i) => (
+                      <div className="split-row" key={i}>
+                        <input
+                          name={`friend${i}`}
+                          aria-label="Кто"
+                          placeholder="Имя"
+                          value={f.name}
+                          onChange={(e) => setFriends(friends.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                        />
+                        <AmountInput
+                          name={`friendAmount${i}`}
+                          value={f.amount}
+                          minorUnits={minor}
+                          onChange={(v) => setFriends(friends.map((x, j) => (j === i ? { ...x, amount: v } : x)))}
+                        />
+                        <button type="button" className="link" aria-label="Убрать долю" onClick={() => setFriends(friends.length > 1 ? friends.filter((_, j) => j !== i) : null)}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    <div className="split-foot">
+                      <button type="button" className="link" onClick={() => setFriends([...friends, { name: "", amount: "" }])}>
+                        + ещё человек
+                      </button>
+                      <button type="button" className="link" onClick={() => evenly(friends.length)}>
+                        Поровну
+                      </button>
+                      <span className={split.mine < 0 ? "warn" : "muted"} data-testid="split-mine">
+                        Моя доля: {formatAmount(split.mine, minor)} {from?.currencySymbol}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </>
             )}
             <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>

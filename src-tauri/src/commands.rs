@@ -6,27 +6,36 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use budget_core::accounts::{self, Account, AccountInput, Totals};
+use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::backups::{self, BackupInfo};
-use budget_core::budgets::{self, Budget, Period};
+use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::cbr;
 use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
+use budget_core::demo;
+use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
+use budget_core::habits::{self, WeekSummary};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
+use budget_core::quick::{self, Draft};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
+use budget_core::rules::{self, Rule, RuleInput};
+use budget_core::split::{self, SplitInput, SplitResult};
 use budget_core::storage::{self, Storage};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
 use budget_core::undo::UndoState;
+use budget_core::views::{self, SavedView, ViewInput};
+use budget_core::wealth::{self, Cushion, FxReport};
 use budget_core::{settings, time, Connection};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 
@@ -74,6 +83,9 @@ pub struct AppInfo {
     pre_migration_backup: Option<String>,
     onboarding_done: bool,
     today: String,
+    /// Переносная версия: обновления ставятся вручную, данные рядом с программой.
+    portable: bool,
+    data_dir: String,
 }
 
 #[tauri::command]
@@ -87,6 +99,8 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
             pre_migration_backup: db.pre_migration_backup().map(|p| p.display().to_string()),
             onboarding_done: onboarding::is_done(db.conn())?,
             today: time::today_local(),
+            portable: state.portable,
+            data_dir: state.data_dir.display().to_string(),
         })
     })
 }
@@ -196,6 +210,25 @@ pub fn finish_onboarding(state: State<AppState>, setup: Setup) -> CmdResult<()> 
     with_db(&state, |db| onboarding::finish(db.conn_mut(), &setup))
 }
 
+/// «Посмотреть на примере»: заполнить пустую базу пробными данными.
+#[tauri::command]
+pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
+    with_db(&state, |db| demo::seed(db.conn_mut(), &time::today_local()))
+}
+
+/// Удалить пример и вернуться к мастеру первого запуска. Отменить нельзя:
+/// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
+#[tauri::command]
+pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
+    with_db(&state, |db| demo::clear(db.conn_mut()))?;
+    state
+        .undo
+        .lock()
+        .map_err(|_| "журнал отмены недоступен".to_string())?
+        .clear();
+    Ok(())
+}
+
 // --- Счета ---
 
 #[tauri::command]
@@ -299,9 +332,31 @@ pub fn get_transaction(state: State<AppState>, id: String) -> CmdResult<Txn> {
 }
 
 #[tauri::command]
-pub fn create_transaction(state: State<AppState>, input: TxnInput) -> CmdResult<String> {
+pub fn create_transaction(
+    state: State<AppState>,
+    input: TxnInput,
+    event_id: Option<String>,
+) -> CmdResult<String> {
     with_undo(&state, "Новая операция", |c| {
-        transactions::create(c, &input)
+        let id = transactions::create(c, &input)?;
+        if let Some(e) = event_id.as_deref() {
+            events::assign(c, Some(e), std::slice::from_ref(&id))?;
+        }
+        Ok(id)
+    })
+}
+
+#[tauri::command]
+pub fn move_transaction(state: State<AppState>, id: String, date: String) -> CmdResult<()> {
+    with_undo(&state, "Перенос операции", |c| {
+        transactions::move_to(c, &id, &date)
+    })
+}
+
+#[tauri::command]
+pub fn split_expense(state: State<AppState>, input: SplitInput) -> CmdResult<SplitResult> {
+    with_undo(&state, "Общая трата", |c| {
+        split::create(c, &input)
     })
 }
 
@@ -394,11 +449,245 @@ pub fn set_budget_note(
     })
 }
 
+/// Заполнить лимиты по истории; возвращает число заданных лимитов.
+#[tauri::command]
+pub fn fill_budget(
+    state: State<AppState>,
+    budget_id: String,
+    mode: FillMode,
+    category_id: Option<String>,
+) -> CmdResult<usize> {
+    with_undo(&state, "Бюджет по истории", |c| {
+        budgets::fill(c, &budget_id, mode, category_id.as_deref())
+    })
+}
+
 #[tauri::command]
 pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление бюджета", |c| {
         budgets::delete(c, &budget_id)
     })
+}
+
+#[tauri::command]
+pub fn cushion(state: State<AppState>) -> CmdResult<Cushion> {
+    with_db(&state, |db| {
+        wealth::cushion(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn report_fx(state: State<AppState>, from: String, to: String) -> CmdResult<FxReport> {
+    with_db(&state, |db| wealth::fx_gain(db.conn(), &from, &to))
+}
+
+#[tauri::command]
+pub fn list_views(state: State<AppState>, kind: Option<String>) -> CmdResult<Vec<SavedView>> {
+    with_db(&state, |db| views::list(db.conn(), kind.as_deref()))
+}
+
+#[tauri::command]
+pub fn create_view(state: State<AppState>, input: ViewInput) -> CmdResult<String> {
+    with_undo(&state, "Сохранение вида", |c| {
+        views::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление вида", |c| {
+        views::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn quick_parse(state: State<AppState>, text: String) -> CmdResult<Draft> {
+    with_db(&state, |db| {
+        quick::parse(db.conn(), &text, &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn remember_rule(
+    state: State<AppState>,
+    merchant: String,
+    category_id: String,
+    payee: Option<String>,
+) -> CmdResult<String> {
+    with_undo(&state, "Правило для категории", |c| {
+        quick::remember(c, &merchant, &category_id, payee.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn list_rules(state: State<AppState>) -> CmdResult<Vec<Rule>> {
+    with_db(&state, |db| rules::list(db.conn()))
+}
+
+#[tauri::command]
+pub fn create_rule(state: State<AppState>, input: RuleInput) -> CmdResult<String> {
+    with_undo(&state, "Правило для категории", |c| {
+        rules::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление правила", |c| {
+        rules::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn open_quick(app: AppHandle) -> CmdResult<()> {
+    crate::quick_window::open(&app).map_err(|e| e.to_string())
+}
+
+/// Операция записана в окне быстрого ввода: окно прячется, главное обновляет данные.
+#[tauri::command]
+pub fn hide_quick(app: AppHandle, saved: bool) {
+    crate::quick_window::hide(&app);
+    if saved {
+        let _ = app.emit("data-changed", ());
+    }
+}
+
+#[tauri::command]
+pub fn set_quick_hotkey(app: AppHandle, state: State<AppState>, hotkey: String) -> CmdResult<()> {
+    if !settings::QUICK_HOTKEYS.contains(&hotkey.as_str()) {
+        return Err(format!("сочетание «{hotkey}» не поддерживается"));
+    }
+    let old = crate::quick_window::saved_hotkey(&app);
+    if let Err(e) = crate::quick_window::register(&app, &hotkey) {
+        // Не получилось: прежнее сочетание продолжает работать.
+        let _ = crate::quick_window::register(&app, &old);
+        return Err(e);
+    }
+    with_db(&state, |db| {
+        settings::set(db.conn(), "quick_hotkey", &hotkey)
+    })
+}
+
+#[tauri::command]
+pub fn list_assets(state: State<AppState>) -> CmdResult<Vec<Asset>> {
+    with_db(&state, |db| assets::list(db.conn()))
+}
+
+#[tauri::command]
+pub fn create_asset(state: State<AppState>, input: AssetInput) -> CmdResult<String> {
+    with_undo(&state, "Новое имущество", |c| {
+        assets::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn update_asset(state: State<AppState>, id: String, input: AssetInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение имущества", |c| {
+        assets::update(c, &id, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_asset(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление имущества", |c| {
+        assets::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn list_events(state: State<AppState>) -> CmdResult<Vec<Event>> {
+    with_db(&state, |db| events::list(db.conn(), &time::today_local()))
+}
+
+#[tauri::command]
+pub fn create_event(state: State<AppState>, input: EventInput) -> CmdResult<String> {
+    with_undo(&state, "Новое событие", |c| {
+        events::create(c, &input)
+    })
+}
+
+#[tauri::command]
+pub fn update_event(state: State<AppState>, id: String, input: EventInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение события", |c| {
+        events::update(c, &id, &input)
+    })
+}
+
+#[tauri::command]
+pub fn delete_event(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление события", |c| {
+        events::delete(c, &id)
+    })
+}
+
+/// Отнести операции к событию; без `event_id` — снять отметку.
+#[tauri::command]
+pub fn assign_event(
+    state: State<AppState>,
+    event_id: Option<String>,
+    txn_ids: Vec<String>,
+) -> CmdResult<usize> {
+    with_undo(&state, "Операции события", |c| {
+        events::assign(c, event_id.as_deref(), &txn_ids)
+    })
+}
+
+#[tauri::command]
+pub fn event_candidates(state: State<AppState>, id: String) -> CmdResult<Vec<String>> {
+    with_db(&state, |db| events::candidates(db.conn(), &id))
+}
+
+#[tauri::command]
+pub fn events_on(state: State<AppState>, date: String) -> CmdResult<Vec<(String, String)>> {
+    with_db(&state, |db| events::on_date(db.conn(), &date))
+}
+
+#[tauri::command]
+pub fn last_week(state: State<AppState>) -> CmdResult<WeekSummary> {
+    with_db(&state, |db| {
+        habits::last_week(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn no_spend_streak(state: State<AppState>) -> CmdResult<u32> {
+    with_db(&state, |db| habits::streak(db.conn(), &time::today_local()))
+}
+
+// --- Файлы бюджета ---
+
+#[tauri::command]
+pub fn list_files(state: State<AppState>) -> CmdResult<Vec<crate::files::FileRow>> {
+    let current = with_db(&state, |db| Ok(db.path().to_path_buf()))?;
+    Ok(crate::files::list(&state.data_dir, &current))
+}
+
+#[tauri::command]
+pub fn create_file(state: State<AppState>, name: String) -> CmdResult<String> {
+    crate::files::create(&state, &name)
+}
+
+#[tauri::command]
+pub fn open_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::files::open_existing(&state, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    if !Path::new(&path).exists() {
+        return Err("файла нет на месте: проверьте флешку или папку".into());
+    }
+    crate::files::switch(&state, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn rename_file(state: State<AppState>, path: String, name: String) -> CmdResult<()> {
+    crate::files::rename(&state, &path, &name)
+}
+
+#[tauri::command]
+pub fn forget_file(state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::files::forget(&state, &path)
 }
 
 #[tauri::command]

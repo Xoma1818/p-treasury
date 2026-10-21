@@ -38,6 +38,8 @@ pub struct Day {
     /// Свои напоминания этого дня (о долгах календарь показывает сам платёж).
     pub reminders: Vec<Occurrence>,
     pub notes: u32,
+    /// День без трат: прошёл (или сегодня), расходов нет, а учёт уже вёлся.
+    pub no_spend: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +99,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
                 debts: Vec::new(),
                 reminders: Vec::new(),
                 notes: 0,
+                no_spend: false,
             },
         );
         d += Duration::days(1);
@@ -228,7 +231,13 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
         }
     }
 
-    let days: Vec<Day> = days.into_values().collect();
+    let started = crate::habits::first_day(conn)?;
+    let mut days: Vec<Day> = days.into_values().collect();
+    for d in &mut days {
+        d.no_spend = d.expense == 0
+            && d.date.as_str() <= today
+            && started.as_deref().is_some_and(|s| d.date.as_str() >= s);
+    }
     Ok(Month {
         month: format!("{:04}-{:02}", first.year(), first.month()),
         base_currency: base,

@@ -1,0 +1,58 @@
+/** Карточки Главной: порядок и скрытые сохраняются в настройке `home_layout` (JSON). */
+export const HOME_BLOCKS = {
+  quick: "Быстрый ввод",
+  tiles: "Баланс и месяц",
+  cushion: "Финансовая подушка",
+  templates: "Шаблоны",
+  spend: "Куда тратите",
+  main: "Счета и последние операции",
+  plans: "Бюджет и платежи по долгам",
+  reminders: "Ближайшие напоминания",
+} as const;
+
+export type HomeBlock = keyof typeof HOME_BLOCKS;
+
+export interface HomeLayout {
+  order: HomeBlock[];
+  hidden: HomeBlock[];
+}
+
+const ALL = Object.keys(HOME_BLOCKS) as HomeBlock[];
+export const DEFAULT_LAYOUT: HomeLayout = { order: ALL, hidden: [] };
+
+/** Разбор настройки: неизвестные карточки отбрасываются, новые (из обновлений) добавляются в конец. */
+export function parseLayout(raw: string | undefined | null): HomeLayout {
+  let v: Partial<HomeLayout> = {};
+  try {
+    v = raw ? JSON.parse(raw) : {};
+  } catch {
+    v = {};
+  }
+  const known = (list: unknown): HomeBlock[] =>
+    Array.isArray(list) ? list.filter((x, i): x is HomeBlock => ALL.includes(x) && list.indexOf(x) === i) : [];
+  const order = known(v.order);
+  return { order: [...order, ...ALL.filter((b) => !order.includes(b))], hidden: known(v.hidden) };
+}
+
+/** Передвинуть карточку на `delta` позиций (−1 — выше). */
+export function moveBlock(l: HomeLayout, block: HomeBlock, delta: number): HomeLayout {
+  const order = [...l.order];
+  const i = order.indexOf(block);
+  const j = Math.max(0, Math.min(order.length - 1, i + delta));
+  order.splice(i, 1);
+  order.splice(j, 0, block);
+  return { ...l, order };
+}
+
+/** Поставить карточку перед другой (перетаскиванием). */
+export function placeBefore(l: HomeLayout, block: HomeBlock, target: HomeBlock): HomeLayout {
+  if (block === target) return l;
+  const order = l.order.filter((b) => b !== block);
+  order.splice(order.indexOf(target), 0, block);
+  return { ...l, order };
+}
+
+export function toggleBlock(l: HomeLayout, block: HomeBlock): HomeLayout {
+  const hidden = l.hidden.includes(block) ? l.hidden.filter((b) => b !== block) : [...l.hidden, block];
+  return { ...l, hidden };
+}

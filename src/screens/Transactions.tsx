@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useExport } from "../components/DataTools";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
+import { SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
 import { api, TXN_TYPES, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, today } from "../lib/dates";
@@ -20,6 +21,7 @@ export function Transactions() {
   const [f, setF] = useState<TxnFilter>({ dateFrom: from, dateTo: to });
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(PAGE);
+  const events = useQuery({ queryKey: ["events"], queryFn: api.listEvents }).data ?? [];
 
   // Переход с фильтром со Счетов или Категорий: за всё время.
   useEffect(() => {
@@ -60,6 +62,15 @@ export function Transactions() {
         </p>
       )}
       <ErrorText error={exp.error} />
+      <SavedViews
+        kind="transactions"
+        current={{ filter: { ...f, search: undefined }, search }}
+        onApply={(v: { filter: TxnFilter; search: string }) => {
+          setLimit(PAGE);
+          setSearch(v.search ?? "");
+          setF({ ...v.filter, search: v.search || undefined });
+        }}
+      />
       <div className="card filters">
         <input type="date" aria-label="С даты" name="dateFrom" value={f.dateFrom ?? ""} onChange={(e) => set({ dateFrom: e.target.value || undefined })} />
         <span className="muted">—</span>
@@ -74,8 +85,16 @@ export function Transactions() {
             </option>
           ))}
         </select>
+        {f.eventId && (
+          <span className="view-chip" data-testid="filter-event">
+            <span className="view-apply">{events.find((e) => e.id === f.eventId)?.name ?? "Событие"}</span>
+            <button className="view-del" aria-label="Убрать фильтр по событию" onClick={() => set({ eventId: undefined })}>
+              ✕
+            </button>
+          </span>
+        )}
         <input type="search" name="search" data-search placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined }))}>
+        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined }))}>
           Сбросить
         </button>
       </div>

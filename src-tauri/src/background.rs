@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Occurrence};
-use budget_core::{money, settings, time};
+use budget_core::{habits, money, settings, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -41,6 +41,7 @@ fn text(o: &Occurrence) -> String {
 }
 
 fn tick(app: &AppHandle) {
+    weekly(app);
     let state = app.state::<AppState>();
     let due = {
         let Ok(mut guard) = state.db.lock() else {
@@ -80,6 +81,27 @@ fn tick(app: &AppHandle) {
     let _ = app.emit("reminders-due", due.len());
 }
 
+/// Итог прошлой недели — одним уведомлением в понедельник (или при первом запуске после).
+fn weekly(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let summary = {
+        let Ok(mut guard) = state.db.lock() else {
+            return;
+        };
+        let Ok(db) = guard.as_mut() else { return };
+        match habits::weekly_due(db.conn(), time::now_local()) {
+            Ok(Some(s)) => s,
+            _ => return,
+        }
+    };
+    let _ = app
+        .notification()
+        .builder()
+        .title("P-Treasury")
+        .body(habits::weekly_text(&summary))
+        .show();
+}
+
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -91,8 +113,9 @@ pub fn show_main(app: &AppHandle) {
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Открыть", true, None::<&str>)?;
     let add = MenuItem::with_id(app, "add", "Добавить операцию", true, None::<&str>)?;
+    let quick = MenuItem::with_id(app, "quick", "Быстрый ввод", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &add, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &add, &quick, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("P-Treasury")
         .menu(&menu)
@@ -102,6 +125,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "add" => {
                 show_main(app);
                 let _ = app.emit("tray-add-transaction", ());
+            }
+            "quick" => {
+                let _ = crate::quick_window::open(app);
             }
             "quit" => app.exit(0),
             _ => {}

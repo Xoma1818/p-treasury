@@ -151,6 +151,9 @@ pub struct Budget {
     /// «Можно тратить сегодня»: остаток лимитов расходов / оставшиеся дни
     /// периода, включая `today`. `None`, если бюджета нет или период не текущий.
     pub safe_to_spend_today: Option<i64>,
+    /// Прогноз по текущему темпу трат: расходы по лимитам к концу периода.
+    /// `None`, если бюджета нет или период не текущий.
+    pub forecast_expense: Option<i64>,
     pub missing_rates: Vec<String>,
 }
 
@@ -308,7 +311,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         }
     }
 
-    let safe_to_spend_today =
+    let (safe_to_spend_today, forecast_expense) =
         if row.is_some() && p.start.as_str() <= today && today <= p.end.as_str() {
             let budgeted_spent: i64 = lines
                 .iter()
@@ -316,15 +319,33 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
                 .filter(top_level)
                 .map(|l| l.actual)
                 .sum();
+            let start = NaiveDate::parse_from_str(&p.start, "%Y-%m-%d").expect("дата периода");
             let end = NaiveDate::parse_from_str(&p.end, "%Y-%m-%d").expect("дата периода");
             let now = NaiveDate::parse_from_str(today, "%Y-%m-%d")
                 .map_err(|_| Error::Validation(format!("некорректная дата: {today}")))?;
             let days_left = (end - now).num_days() + 1;
             let left = planned_expense - budgeted_spent;
+            // Темп считается по прошедшим дням, включая сегодняшний. Категория,
+            // где лимит уже выбран (ЖКХ, кружки), считается закрытой: разовые
+            // платежи в начале месяца не размножаются на весь месяц.
+            let days_passed = (now - start).num_days() + 1;
+            let days_total = (end - start).num_days() + 1;
+            let forecast: i64 = lines
+                .iter()
+                .filter(|l| l.kind == "expense")
+                .filter(top_level)
+                .map(|l| {
+                    if l.actual >= l.limit {
+                        l.actual
+                    } else {
+                        (l.actual as i128 * days_total as i128 / days_passed as i128) as i64
+                    }
+                })
+                .sum();
             // Округление вниз до минимальной единицы, чтобы не обещать лишнего.
-            Some(left.div_euclid(days_left))
+            (Some(left.div_euclid(days_left)), Some(forecast))
         } else {
-            None
+            (None, None)
         };
 
     Ok(Budget {
@@ -340,6 +361,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         actual_income,
         unbudgeted_expense,
         safe_to_spend_today,
+        forecast_expense,
         missing_rates,
     })
 }
@@ -378,6 +400,125 @@ pub fn create(conn: &mut Connection, month: &str, copy_previous: bool) -> Result
     }
     tx.commit()?;
     Ok(id)
+}
+
+/// Откуда брать лимиты при заполнении бюджета по истории.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FillMode {
+    /// Среднее за три предыдущих месяца (месяцы до первой операции не считаются).
+    Average3,
+    /// Факт того же месяца год назад.
+    LastYear,
+}
+
+/// Округлить вверх до 100 единиц валюты (например, до 100 ₽).
+fn round_up_hundred(amount: i64, minor_units: u32) -> i64 {
+    let step = 100 * 10i64.pow(minor_units);
+    if amount <= 0 {
+        0
+    } else {
+        (amount + step - 1) / step * step
+    }
+}
+
+/// Предложение лимитов по истории: верхние категории расходов и доходов
+/// (вместе с подкатегориями), у которых в истории были операции.
+pub fn suggest(conn: &Connection, month: &str, mode: FillMode) -> Result<Vec<(String, i64)>> {
+    let sd = start_day(conn)?;
+    let p = period(month, sd)?;
+    let currency = match budget_row(conn, &p.start)? {
+        Some((_, c, _)) => c,
+        None => currencies::base_currency(conn)?,
+    };
+    let minor = currencies::minor_units(conn, &currency)?;
+    let months: Vec<String> = match mode {
+        FillMode::Average3 => (1..=3)
+            .map(|i| shift_month(month, -i))
+            .collect::<Result<_>>()?,
+        FillMode::LastYear => vec![shift_month(month, -12)?],
+    };
+    let first_txn: Option<String> = conn.query_row(
+        "SELECT min(date) FROM transactions WHERE type IN ('expense', 'income') AND status = 'cleared'",
+        [],
+        |r| r.get(0),
+    )?;
+    let Some(first_txn) = first_txn else {
+        return Ok(Vec::new());
+    };
+    let cats = categories::list(conn, false)?;
+    let top_of: HashMap<&str, &str> = cats
+        .iter()
+        .map(|c| {
+            (
+                c.id.as_str(),
+                c.parent_id.as_deref().unwrap_or(c.id.as_str()),
+            )
+        })
+        .collect();
+    let mut sums: HashMap<String, i64> = HashMap::new();
+    let mut counted = 0i64;
+    for m in &months {
+        let mp = period(m, sd)?;
+        // Месяц целиком до начала учёта не делит среднее.
+        if mp.end.as_str() < first_txn.as_str() {
+            continue;
+        }
+        counted += 1;
+        let (by_cat, _) = actuals(conn, &mp, &currency)?;
+        for (cat, v) in by_cat {
+            if let Some(top) = top_of.get(cat.as_str()) {
+                *sums.entry(top.to_string()).or_default() += v;
+            }
+        }
+    }
+    if counted == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<(String, i64)> = cats
+        .iter()
+        .filter(|c| c.parent_id.is_none())
+        .filter_map(|c| {
+            let total = *sums.get(&c.id)?;
+            let avg = round_up_hundred(total / counted, minor);
+            (avg > 0).then(|| (c.id.clone(), avg))
+        })
+        .collect();
+    out.sort_by_key(|x| std::cmp::Reverse(x.1));
+    Ok(out)
+}
+
+/// Заполнить бюджет лимитами по истории. С `category` — только эту верхнюю
+/// категорию. Возвращает число заданных лимитов.
+pub fn fill(
+    conn: &mut Connection,
+    budget_id: &str,
+    mode: FillMode,
+    category: Option<&str>,
+) -> Result<usize> {
+    check_budget(conn, budget_id)?;
+    let start: String = conn.query_row(
+        "SELECT period_start FROM budgets WHERE id = ?1",
+        [budget_id],
+        |r| r.get(0),
+    )?;
+    let month = month_of(conn, &start)?.month;
+    let suggested: Vec<(String, i64)> = suggest(conn, &month, mode)?
+        .into_iter()
+        .filter(|(c, _)| category.is_none_or(|want| want == c))
+        .collect();
+    if suggested.is_empty() {
+        return invalid(match mode {
+            FillMode::Average3 => "за три прошлых месяца операций нет: заполнять нечем",
+            FillMode::LastYear => "год назад в этом месяце операций нет: заполнять нечем",
+        });
+    }
+    let tx = conn.transaction()?;
+    for (cat, v) in &suggested {
+        set_limit(&tx, budget_id, cat, Some(*v))?;
+    }
+    tx.commit()?;
+    Ok(suggested.len())
 }
 
 fn check_budget(conn: &Connection, budget_id: &str) -> Result<()> {
@@ -661,6 +802,77 @@ mod tests {
             100_000
         );
         assert_eq!(b.safe_to_spend_today, Some((1_000_000 - 100_000) / 27));
+    }
+
+    #[test]
+    fn fill_by_average_and_last_year() {
+        // Сценарий «Бюджет по среднему»: лимиты по тратам трёх прошлых месяцев.
+        let mut f = fx();
+        {
+            let c = f.db.conn();
+            // Август и сентябрь, июля в учёте ещё нет: среднее делится на 2.
+            spend(c, &f.card, "2026-08-10", 1_000_000, "Супермаркет");
+            spend(c, &f.card, "2026-09-10", 1_550_000, "Продукты");
+            spend(c, &f.card, "2026-09-11", 120_000, "Обеды");
+            spend(c, &f.card, "2026-09-20", 8_500_000, "Зарплата");
+        }
+        let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
+        assert_eq!(
+            fill(f.db.conn_mut(), &id, FillMode::Average3, None).unwrap(),
+            3
+        );
+        let limit = |c: &Connection, n: &str| {
+            get(c, "2026-10", "2026-10-01")
+                .unwrap()
+                .lines
+                .iter()
+                .find(|l| l.category_name == n)
+                .map(|l| l.limit)
+        };
+        let c = f.db.conn();
+        // (10 000 + 15 500) / 2 = 12 750 → 12 800 ₽.
+        assert_eq!(limit(c, "Продукты"), Some(1_280_000));
+        // 1 200 / 2 = 600 ₽ ровно.
+        assert_eq!(limit(c, "Кафе и рестораны"), Some(60_000));
+        assert_eq!(limit(c, "Зарплата"), Some(4_250_000));
+
+        // Такси год назад: «как в прошлом году» только для «Транспорта».
+        spend(c, &f.card, "2025-10-05", 300_000, "Такси");
+        let transport = cat(c, "Транспорт");
+        assert_eq!(
+            fill(f.db.conn_mut(), &id, FillMode::LastYear, Some(&transport)).unwrap(),
+            1
+        );
+        let c = f.db.conn();
+        assert_eq!(limit(c, "Транспорт"), Some(300_000));
+        assert_eq!(
+            limit(c, "Продукты"),
+            Some(1_280_000),
+            "остальные не тронуты"
+        );
+        let mar = create(f.db.conn_mut(), "2027-03", false).unwrap();
+        assert!(fill(f.db.conn_mut(), &mar, FillMode::LastYear, None).is_err());
+        assert_eq!(round_up_hundred(1, 0), 100);
+        assert_eq!(round_up_hundred(0, 2), 0);
+    }
+
+    #[test]
+    fn forecast_by_current_pace() {
+        // 10 дней прошло, потрачено 10 000 ₽ из 20 000: к 31-му при том же темпе 31 000.
+        // ЖКХ 6 000 из 6 000 уже оплачено и не растёт.
+        let mut f = fx();
+        let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
+        let c = f.db.conn();
+        set_limit(c, &id, &cat(c, "Продукты"), Some(2_000_000)).unwrap();
+        set_limit(c, &id, &cat(c, "Жильё"), Some(600_000)).unwrap();
+        spend(c, &f.card, "2026-10-03", 1_000_000, "Продукты");
+        spend(c, &f.card, "2026-10-02", 600_000, "ЖКХ");
+        let b = get(c, "2026-10", "2026-10-10").unwrap();
+        assert_eq!(b.forecast_expense, Some(3_100_000 + 600_000));
+        assert_eq!(
+            get(c, "2026-10", "2026-11-10").unwrap().forecast_expense,
+            None
+        );
     }
 
     #[test]

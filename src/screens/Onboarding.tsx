@@ -26,6 +26,7 @@ export function Onboarding() {
   ]);
   const [defaults, setDefaults] = useState(true);
   const finish = useAction(api.finishOnboarding);
+  const demo = useAction(api.seedDemo);
 
   const update = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const minorOf = (code: string) => currencies.find((c) => c.code === code)?.minorUnits ?? 2;
@@ -69,6 +70,16 @@ export function Onboarding() {
                 </select>
               )}
             </Field>
+            <div className="demo-offer">
+              <div>
+                <b>Сначала посмотреть?</b>
+                <div className="hint">Откроется пример с тремя месяцами операций, бюджетом и кредитом. Потом его можно удалить одной кнопкой.</div>
+              </div>
+              <button className="btn" onClick={() => demo.run()} aria-busy={demo.busy} disabled={demo.busy}>
+                Посмотреть на примере
+              </button>
+            </div>
+            <ErrorText error={demo.error} />
           </>
         )}
 

@@ -321,7 +321,8 @@ function UpdateModal({ info, onClose }: { info: UpdateInfo; onClose: () => void 
 export function UpdatePrompt() {
   const settings = useSettings().data;
   const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const enabled = settings?.update_check !== "0";
+  const portable = useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo }).data?.portable;
+  const enabled = settings?.update_check !== "0" && portable === false;
   useEffect(() => {
     if (!settings || !enabled) return;
     // Без интернета проверка просто не удаётся — приложение работает дальше.
