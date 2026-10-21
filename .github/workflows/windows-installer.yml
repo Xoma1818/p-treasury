@@ -1,6 +1,6 @@
 # Пробный установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
 # Запуск: на каждый запрос на слияние или вкладка Actions → «Установщик для Windows» → Run workflow.
-# Готовый .exe — в Artifacts запуска. Выпуски по тегу vX.Y.Z собирает release.yml.
+# Готовый .exe и переносная версия — в Artifacts запуска. Выпуски собирает release.yml (docs/releasing.md).
 # Ключ подписи обновлений хранится в секрете TAURI_SIGNING_PRIVATE_KEY (не в репозитории).
 # Без секрета установщик собирается без файла подписи для автообновления.
 name: Установщик для Windows
@@ -48,3 +48,13 @@ jobs:
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/nsis/*.sig
+      - name: Переносная версия
+        shell: bash
+        run: |
+          mkdir portable
+          cp target/release/p-treasury.exe portable/P-Treasury.exe
+          : > portable/portable
+      - uses: actions/upload-artifact@v5
+        with:
+          name: p-treasury-windows-portable
+          path: portable/
