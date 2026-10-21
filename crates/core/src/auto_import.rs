@@ -1,6 +1,8 @@
-//! Импорт из папки: приложение само забирает новые CSV по шаблону операций
-//! (например, из «Загрузок»). Каждый файл разбирается один раз; операции,
-//! которые уже есть (та же дата, счёт, тип, сумма и получатель), пропускаются.
+//! Импорт из папки: приложение само забирает новые выписки Сбера и Т-Банка и
+//! CSV по шаблону операций (например, из «Загрузок»). Каждый файл разбирается
+//! один раз; операции, которые уже есть (та же дата, счёт, тип, сумма и
+//! получатель), пропускаются. Выписка идёт на счёт, запомненный при ручном
+//! импорте выписки этого банка.
 
 use std::fs;
 use std::path::Path;
@@ -9,6 +11,7 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
+use crate::bank_import::{self, exists};
 use crate::{csv_import, time, transactions, Result};
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -39,20 +42,8 @@ fn looks_like_template(path: &Path) -> bool {
         .all(|h| first.contains(h))
 }
 
-fn exists(conn: &Connection, t: &transactions::TxnInput) -> Result<bool> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
-               AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '') LIMIT 1",
-            params![t.date, t.account_id, t.kind, t.amount, t.payee],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
-}
-
-/// Разобрать новые файлы папки `dir`. Файлы не по шаблону запоминаются и
-/// больше не читаются, но в итог не попадают.
+/// Разобрать новые файлы папки `dir`. Чужие файлы запоминаются и больше не
+/// читаются, но в итог не попадают.
 pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
     let mut out = ScanResult::default();
     let Ok(entries) = fs::read_dir(dir) else {
@@ -61,7 +52,14 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
     let mut files: Vec<_> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("csv")))
+        .filter(|p| {
+            p.is_file()
+                && p.extension().is_some_and(|x| {
+                    ["csv", "pdf", "xlsx", "xls"]
+                        .iter()
+                        .any(|e| x.eq_ignore_ascii_case(e))
+                })
+        })
         .collect();
     files.sort();
     for path in files {
@@ -95,23 +93,41 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
             ..Default::default()
         };
         let template = looks_like_template(&path);
-        if template {
-            match csv_import::parse(conn, &path) {
-                Ok(parsed) => {
-                    let tx = conn.transaction()?;
-                    for p in parsed {
-                        match p.input {
-                            Some(input) if !exists(&tx, &input)? => {
-                                transactions::create(&tx, &input)?;
-                                res.added += 1;
-                            }
-                            _ => res.skipped += 1,
-                        }
-                    }
-                    tx.commit()?;
-                }
-                Err(e) => res.error = Some(e.to_string()),
+        let parsed = if template {
+            csv_import::parse(conn, &path).map(Some)
+        } else {
+            match bank_import::read(&path) {
+                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None).map(Some),
+                // Не выписка или не читается — чужой файл, молча пропускаем.
+                Ok(None) | Err(_) => Ok(None),
             }
+        };
+        let known = !matches!(parsed, Ok(None));
+        match parsed {
+            Ok(Some(parsed)) => {
+                let no_account = parsed
+                    .iter()
+                    .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
+                let tx = conn.transaction()?;
+                for p in parsed {
+                    match p.input {
+                        Some(input) if !exists(&tx, &input)? => {
+                            transactions::create(&tx, &input)?;
+                            res.added += 1;
+                        }
+                        _ => res.skipped += 1,
+                    }
+                }
+                tx.commit()?;
+                if no_account {
+                    res.error = Some(
+                        "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»"
+                            .into(),
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(e) => res.error = Some(e.to_string()),
         }
         conn.execute(
             "INSERT INTO import_files (path, size, modified, imported_at, added, skipped, error)
@@ -123,14 +139,14 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 time::now_utc(),
                 res.added as i64,
                 res.skipped as i64,
-                if template {
+                if known {
                     res.error.clone()
                 } else {
-                    Some("не шаблон".into())
+                    Some("не выписка".into())
                 }
             ],
         )?;
-        if template {
+        if known {
             out.added += res.added;
             out.files.push(res);
         }
@@ -196,5 +212,45 @@ mod tests {
             .unwrap();
         assert_eq!(n, 1);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn bank_statement_goes_to_remembered_account() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = accounts::create(
+            c,
+            &AccountInput {
+                name: "Т-Банк".into(),
+                kind: "debit".into(),
+                currency_code: "RUB".into(),
+                opening_balance: 0,
+                opening_date: "2026-01-01".into(),
+                credit_limit: None,
+                include_in_total: true,
+                invest_kind: None,
+            },
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        fs::copy(src.join("tbank.csv"), dir.path().join("operations.csv")).unwrap();
+        fs::copy(src.join("sber-card.pdf"), dir.path().join("Выписка.pdf")).unwrap();
+        fs::write(dir.path().join("book.pdf"), b"%PDF-1.4 not a statement").unwrap();
+
+        // Счёт для Т-Банка выбран раньше, для Сбера — нет.
+        crate::settings::set(c, "bank_accounts", &format!(r#"{{"tbank":"{card}"}}"#)).unwrap();
+        let r = scan(c, dir.path()).unwrap();
+        let files: Vec<_> = r
+            .files
+            .iter()
+            .map(|f| (f.name.as_str(), f.added, f.error.is_some()))
+            .collect();
+        assert_eq!(
+            files,
+            [("operations.csv", 4, false), ("Выписка.pdf", 0, true)],
+            "чужой PDF не показывается"
+        );
     }
 }

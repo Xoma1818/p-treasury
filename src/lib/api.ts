@@ -787,12 +787,17 @@ export interface ImportRow {
   category: string;
   payee: string;
   error: string | null;
+  duplicate: boolean;
 }
 
 export interface ImportPreview {
   rows: ImportRow[];
   valid: number;
   errors: number;
+  duplicates: number;
+  /** «Сбер», «Т-Банк»; null — CSV по шаблону. */
+  bank: string | null;
+  accountId: string | null;
 }
 
 export interface BackupStatus {
@@ -1077,8 +1082,9 @@ export const api = {
     invoke<void>("export_report", { report, from, to, path }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
-  importPreview: (path: string) => invoke<ImportPreview>("import_preview", { path }),
-  importCsv: (path: string, skipErrors: boolean) => invoke<number>("import_csv", { path, skipErrors }),
+  importPreview: (path: string, accountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null }),
+  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<number>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  saveBytes: (path: string, data: Uint8Array) => invoke<void>("save_bytes", { path, data: Array.from(data) }),
   writeImportTemplate: (path: string) => invoke<void>("write_import_template", { path }),
   backupStatus: () => invoke<BackupStatus>("backup_status"),
   backupNow: (path: string) => invoke<void>("backup_now", { path }),

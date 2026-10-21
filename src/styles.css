@@ -441,6 +441,10 @@ p.warn { color: var(--over); }
 .import-table table { margin: 0; }
 .import-table th { position: sticky; top: 0; background: var(--card); }
 tr.bad td { background: var(--over-soft); }
+tr.dup td { color: var(--muted); }
+.import-payee { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-bank { align-items: flex-end; gap: 14px; margin-top: 10px; }
+.bank-chip { padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; white-space: nowrap; margin-bottom: 8px; }
 .update-notes { white-space: pre-wrap; max-height: 320px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .card .facts + .btn-group { margin-top: 12px; }
 .card > .btn-group + .hint { margin-top: 10px; }

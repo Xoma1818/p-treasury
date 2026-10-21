@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, type BackupInfo, type ImportPreview, type UpdateInfo } from "../lib/api";
 import { formatDate, monthBounds, today } from "../lib/dates";
-import { baseName, CSV, DB, pickFolder, pickOpen, pickSave, XLSX } from "../lib/files";
-import { useSettings } from "../lib/queries";
+import { baseName, CSV, DB, pickFolder, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
+import { useAccounts, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
-import { Field } from "./Fields";
+import { AccountSelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Hint } from "./Hint";
 
@@ -80,19 +80,23 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Импорт операций из CSV: файл → предпросмотр с ошибками → загрузка. */
+/** Импорт: выписка Сбера или Т-Банка либо CSV по шаблону → предпросмотр с ошибками и повторами → загрузка. */
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
   const qc = useQueryClient();
 
-  const load = async (p: string) => {
+  const load = async (p: string, account: string | null = accountId) => {
     setError(null);
     setLoaded(null);
     try {
-      setPreview(await api.importPreview(p));
+      const r = await api.importPreview(p, account);
+      setPreview(r);
+      setAccountId(r.accountId);
       setPath(p);
     } catch (e) {
       setPreview(null);
@@ -100,8 +104,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }
   };
   const choose = async () => {
-    const p = await pickOpen([CSV]);
-    if (p) await load(p);
+    const p = await pickOpen([STATEMENT, CSV]);
+    if (p) await load(p, null);
   };
   const template = async () => {
     const p = await pickSave("P-Treasury — шаблон импорта.csv", [CSV]);
@@ -109,7 +113,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   };
   const commit = async (skipErrors: boolean) => {
     try {
-      setLoaded(await api.importCsv(path!, skipErrors));
+      setLoaded(await api.importCsv(path!, skipErrors, preview?.bank ? accountId : null));
       setPreview(null);
       await qc.invalidateQueries();
     } catch (e) {
@@ -118,9 +122,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Импорт операций из CSV" onClose={onClose} wide>
+    <Modal title="Импорт выписки или CSV" onClose={onClose} wide>
       <p className="muted">
-        Столбцы как в выгрузке операций: Дата; Тип; Счёт; Категория; Получатель; Комментарий; Сумма; для переводов — Счёт зачисления. Счета и категории должны уже быть в приложении.
+        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или CSV по шаблону приложения. Категории подберутся по правилам и по категориям банка, уже загруженные операции пропускаются.
       </p>
       <div className="btn-group">
         <button className="btn primary" onClick={choose}>
@@ -132,14 +136,25 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
           </button>
         )}
         <button className="link" onClick={template}>
-          Скачать шаблон
+          Скачать шаблон CSV
         </button>
       </div>
+      {preview?.bank && (
+        <div className="row import-bank">
+          <span className="bank-chip" data-testid="import-bank">
+            Выписка {preview.bank}
+          </span>
+          <Field label="На какой счёт" hint="Запомним для следующих выписок этого банка. Карта, чьи цифры есть в названии счёта, попадёт на свой счёт.">
+            {(id) => <AccountSelect id={id} name="importAccount" accounts={accounts} value={accountId ?? ""} onChange={(v) => load(path!, v || null)} />}
+          </Field>
+        </div>
+      )}
       {preview && (
         <>
           <p data-testid="import-summary" className={preview.errors ? "warn" : undefined}>
             {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
             {preview.errors > 0 && `, с ошибками ${preview.errors}`}
+            {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
           </p>
           <div className="import-table">
             <table className="table" data-testid="import-preview">
@@ -150,20 +165,22 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                   <th>Тип</th>
                   <th>Счёт</th>
                   <th>Категория</th>
+                  {preview.bank && <th>Получатель</th>}
                   <th>Сумма</th>
                   <th>Проверка</th>
                 </tr>
               </thead>
               <tbody>
                 {preview.rows.map((r) => (
-                  <tr key={r.line} className={r.error ? "bad" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"}>
+                  <tr key={r.line} className={r.error ? "bad" : r.duplicate ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"}>
                     <td>{r.line}</td>
-                    <td>{r.date}</td>
+                    <td>{/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? formatDate(r.date) : r.date}</td>
                     <td>{r.type}</td>
                     <td>{r.account}</td>
                     <td>{r.category}</td>
+                    {preview.bank && <td className="import-payee">{r.payee}</td>}
                     <td className="num">{r.amount}</td>
-                    <td className={r.error ? "error" : "muted"}>{r.error ?? "ок"}</td>
+                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.duplicate ? "уже есть, пропустим" : "ок")}</td>
                   </tr>
                 ))}
               </tbody>

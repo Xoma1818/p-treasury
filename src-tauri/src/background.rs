@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Occurrence};
-use budget_core::{auto_import, habits, money, settings, time};
+use budget_core::{auto_import, habits, money, settings, subscriptions, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -52,6 +52,7 @@ fn tick(app: &AppHandle) {
         .is_multiple_of(IMPORT_EVERY)
     {
         scan_folder(app);
+        upcoming_payments(app);
     }
     let state = app.state::<AppState>();
     let due = {
@@ -110,6 +111,26 @@ fn weekly(app: &AppHandle) {
         .builder()
         .title("P-Treasury")
         .body(habits::weekly_text(&summary))
+        .show();
+}
+
+/// Накануне регулярного платежа (подписка, связь) — одно уведомление.
+fn upcoming_payments(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let today = time::now_local().date().to_string();
+    let body = {
+        let Ok(guard) = state.db.lock() else { return };
+        let Ok(db) = guard.as_ref() else { return };
+        match subscriptions::due_unnotified(db.conn(), &today) {
+            Ok(due) if !due.is_empty() => subscriptions::reminder_text(&due, &today),
+            _ => return,
+        }
+    };
+    let _ = app
+        .notification()
+        .builder()
+        .title("P-Treasury")
+        .body(body)
         .show();
 }
 

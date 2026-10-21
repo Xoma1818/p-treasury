@@ -85,6 +85,14 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field label="Напоминать о регулярных платежах" hint="Накануне списания подписки или связи приходит уведомление с суммой.">
+            {(id) => (
+              <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>
+                <option value="1">за день</option>
+                <option value="0">не напоминать</option>
+              </select>
+            )}
+          </Field>
           <Field label="Формат даты">
             {(id) => (
               <select id={id} name="dateFormat" value={settings?.date_format ?? "DD.MM.YYYY"} onChange={(e) => setSetting.run("date_format", e.target.value)}>
@@ -130,7 +138,7 @@ export function Settings() {
             Сводка в Excel
           </button>
           <button className="btn" onClick={() => setDialog("import")}>
-            Импорт из CSV
+            Импорт выписки или CSV
           </button>
         </div>
       </div>
@@ -281,8 +289,8 @@ function AutoImportCard() {
     <div className="card" data-testid="auto-import">
       <h2>
         Импорт из папки
-        <Hint title="Импорт из папки" example="сохранили «операции.csv» в Загрузки — через пару минут они в приложении">
-          Раз в 5 минут приложение смотрит в папку и забирает новые CSV по шаблону операций. Каждый файл — один раз, уже записанные операции пропускаются. Другие файлы не трогаются.
+        <Hint title="Импорт из папки" example="скачали выписку Т-Банка в Загрузки — через пару минут операции в приложении">
+          Раз в 5 минут приложение смотрит в папку и забирает новые выписки Сбера и Т-Банка и CSV по шаблону. Счёт для выписки банка берётся тот, что выбран при первом импорте через «Импорт выписки или CSV». Каждый файл — один раз, уже записанные операции пропускаются, другие файлы не трогаются.
         </Hint>
       </h2>
       <label className="check">

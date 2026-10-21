@@ -1156,17 +1156,32 @@ pub fn export_report(
 }
 
 #[tauri::command]
-pub fn import_preview(state: State<AppState>, path: String) -> CmdResult<Preview> {
+pub fn import_preview(
+    state: State<AppState>,
+    path: String,
+    account_id: Option<String>,
+) -> CmdResult<Preview> {
     with_db(&state, |db| {
-        csv_import::preview(db.conn(), Path::new(&path))
+        csv_import::preview(db.conn(), Path::new(&path), account_id.as_deref())
     })
 }
 
 #[tauri::command]
-pub fn import_csv(state: State<AppState>, path: String, skip_errors: bool) -> CmdResult<usize> {
+pub fn import_csv(
+    state: State<AppState>,
+    path: String,
+    skip_errors: bool,
+    account_id: Option<String>,
+) -> CmdResult<usize> {
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import(c, Path::new(&path), skip_errors)
+        csv_import::import(c, Path::new(&path), skip_errors, account_id.as_deref())
     })
+}
+
+/// Сохранить готовый файл, собранный в окне (картинка «Итоги года»).
+#[tauri::command]
+pub fn save_bytes(path: String, data: Vec<u8>) -> CmdResult<()> {
+    std::fs::write(&path, data).map_err(|e| format!("не удалось сохранить файл: {e}"))
 }
 
 #[tauri::command]

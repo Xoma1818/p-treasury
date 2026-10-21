@@ -481,6 +481,9 @@ notes ──► дата / transactions / accounts / debts   (+ notes_fts для
 | 0.12 | `year` — итоги года; `search` — поиск по всему для Ctrl+K | — | `YearReview.tsx`, `Palette.tsx` |
 | 0.12 | `auto_import` — новые CSV по шаблону из папки, раз в 5 минут из `background.rs` | `import_files`, настройки `auto_import`, `auto_import_dir` (0006) | карточка в `Settings.tsx` |
 | 0.12 | дашборд Главной и анимации (только интерфейс); значки «?» — тексты в `lib/hints.ts`, настройка `hints` (0006) | — | `Dashboard.tsx`, `Hint.tsx` |
+| 0.12 | `bank_import` — выписки Сбера (PDF: текст собирается по координатам букв через `pdf-extract`) и Т-Банка (CSV в Windows-1251 через `encoding_rs`, Excel через `calamine`); `csv_import::preview/import` сами узнают формат, `auto_import` берёт и выписки | настройка `bank_accounts` (0007) | `ImportDialog` в `DataTools.tsx` |
+| 0.12 | `subscriptions::due_unnotified` — напоминание накануне регулярного платежа, из `background.rs` раз в 5 минут | настройки `subs_remind`, `subs_notified` (0007) | плашка в `Subscriptions.tsx` |
+| 0.12 | картинка «Итоги года» рисуется на canvas в окне, файл пишет команда `save_bytes` | — | `lib/yearCard.ts`, `YearReview.tsx` |
 
 Подробности по каждому модулю — в [development.md](../development.md), что видит пользователь — в [CHANGELOG](../../CHANGELOG.md).
 

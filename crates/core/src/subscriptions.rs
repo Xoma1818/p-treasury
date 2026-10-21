@@ -276,6 +276,75 @@ pub fn set_hidden(conn: &Connection, key: &str, hide: bool) -> Result<()> {
     )
 }
 
+/// Регулярные платежи, которые спишутся сегодня или завтра и о которых ещё не
+/// напоминали; они сразу отмечаются напомненными (по дате платежа). Выключаются
+/// настройкой `subs_remind`.
+pub fn due_unnotified(conn: &Connection, today: &str) -> Result<Vec<Subscription>> {
+    if settings::get(conn, "subs_remind")?.as_deref() == Some("0") {
+        return Ok(Vec::new());
+    }
+    let tomorrow = (time::parse_date(today)? + Duration::days(1)).to_string();
+    let mut notified: HashMap<String, String> = settings::get(conn, "subs_notified")?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    let due: Vec<Subscription> = list(conn, today)?
+        .items
+        .into_iter()
+        .filter(|s| {
+            !s.hidden
+                && (today..=tomorrow.as_str()).contains(&s.next_date.as_str())
+                && notified.get(&s.key) != Some(&s.next_date)
+        })
+        .collect();
+    if !due.is_empty() {
+        // Старые отметки не копятся: остаются только у платежей из списка.
+        notified.retain(|_, date| date.as_str() >= today);
+        for s in &due {
+            notified.insert(s.key.clone(), s.next_date.clone());
+        }
+        settings::set(
+            conn,
+            "subs_notified",
+            &serde_json::to_string(&notified).expect("json"),
+        )?;
+    }
+    Ok(due)
+}
+
+/// Текст уведомления: «Завтра спишется: Яндекс Плюс — 399 ₽».
+pub fn reminder_text(due: &[Subscription], today: &str) -> String {
+    let when = |s: &Subscription| {
+        if s.next_date == today {
+            "Сегодня"
+        } else {
+            "Завтра"
+        }
+    };
+    let item = |s: &Subscription| {
+        format!(
+            "{} — {} {}",
+            s.payee,
+            crate::money::format_amount(s.amount, s.minor_units, true),
+            s.currency_symbol
+        )
+    };
+    match due {
+        [one] => format!("{} спишется: {}", when(one), item(one)),
+        _ => {
+            let today_n = due.iter().filter(|s| s.next_date == today).count();
+            let when = match today_n {
+                0 => "Завтра",
+                n if n == due.len() => "Сегодня",
+                _ => "Сегодня и завтра",
+            };
+            format!(
+                "{when} спишутся: {}",
+                due.iter().map(item).collect::<Vec<_>>().join(", ")
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +436,23 @@ mod tests {
         assert_eq!(r.yearly_total, 358_800);
         set_hidden(c, "касперский", false).unwrap();
         assert!(!list(c, "2026-10-21").unwrap().items[1].hidden);
+
+        // Напоминание накануне платежа 05.11 приходит один раз.
+        assert!(due_unnotified(c, "2026-11-02").unwrap().is_empty());
+        let due = due_unnotified(c, "2026-11-04").unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(
+            reminder_text(&due, "2026-11-04"),
+            "Завтра спишется: Яндекс Плюс — 299 ₽"
+        );
+        assert!(due_unnotified(c, "2026-11-04").unwrap().is_empty());
+        assert!(
+            due_unnotified(c, "2026-11-05").unwrap().is_empty(),
+            "в день платежа о нём уже не напоминаем"
+        );
+        // Выключатель в Настройках.
+        settings::set(c, "subs_notified", "{}").unwrap();
+        settings::set(c, "subs_remind", "0").unwrap();
+        assert!(due_unnotified(c, "2026-11-04").unwrap().is_empty());
     }
 }

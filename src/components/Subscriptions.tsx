@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, SUB_PERIODS, type Subscription } from "../lib/api";
-import { formatDate } from "../lib/dates";
+import { addDays, formatDate, today } from "../lib/dates";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { plural } from "./Dashboard";
 import { Hint } from "./Hint";
 import { ErrorText } from "./Modal";
 import { BaseMoney, Money } from "./Money";
@@ -15,6 +16,18 @@ const HINT = (
     Приложение само находит расходы, которые повторяются у одного получателя с ровным шагом и почти той же суммой. Если это не подписка, скройте её.
   </Hint>
 );
+
+/** «следующий 05.11» или заметная плашка, если спишется сегодня или завтра. */
+function Next({ date }: { date: string }) {
+  const now = today();
+  if (date === now || date === addDays(now, 1))
+    return (
+      <span className="sub-soon" data-testid="sub-soon">
+        спишется {date === now ? "сегодня" : "завтра"}
+      </span>
+    );
+  return <>следующий {formatDate(date)}</>;
+}
 
 function Row({ s, onHide, busy }: { s: Subscription; onHide?: (s: Subscription) => void; busy?: boolean }) {
   const showTransactions = useUi((u) => u.showTransactions);
@@ -28,7 +41,8 @@ function Row({ s, onHide, busy }: { s: Subscription; onHide?: (s: Subscription) 
           {s.payee}
         </button>
         <span>
-          {s.categoryName ? `${s.categoryName} · ` : ""}следующий {formatDate(s.nextDate)}
+          {s.categoryName ? `${s.categoryName} · ` : ""}
+          <Next date={s.nextDate} />
         </span>
       </span>
       <span className="sub-sum">
@@ -57,6 +71,9 @@ export function SubscriptionsCard() {
   const data = useSubscriptions().data;
   const openReport = useUi((u) => u.openReport);
   const visible = data?.items.filter((s) => !s.hidden) ?? [];
+  // Что спишется сегодня или завтра — первым, остальное по стоимости в год.
+  const soon = addDays(today(), 1);
+  const first = [...visible.filter((s) => s.nextDate <= soon), ...visible.filter((s) => s.nextDate > soon)];
   return (
     <div className="card" data-testid="home-subs">
       <div className="screen-head">
@@ -80,12 +97,11 @@ export function SubscriptionsCard() {
               <span className="muted">в месяц</span>
             </span>
             <span className="muted">
-              <BaseMoney amount={data!.yearlyTotal} /> в год · {visible.length}{" "}
-              {visible.length === 1 ? "платёж" : visible.length < 5 ? "платежа" : "платежей"}
+              <BaseMoney amount={data!.yearlyTotal} /> в год · {visible.length} {plural(visible.length, "платёж", "платежа", "платежей")}
             </span>
           </div>
           <ul className="subs-list">
-            {visible.slice(0, 4).map((s) => (
+            {first.slice(0, 4).map((s) => (
               <Row key={s.key} s={s} />
             ))}
           </ul>

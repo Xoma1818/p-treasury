@@ -1,9 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { api } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { api, type YearReview } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
+import { baseName, pickSave, PNG } from "../lib/files";
+import { useCurrencies, useSettings } from "../lib/queries";
+import { cardPng, drawYearCard } from "../lib/yearCard";
 import { change, Delta, plural, Ring } from "./Dashboard";
 import { Hint } from "./Hint";
+import { ErrorText, Modal } from "./Modal";
 import { BaseMoney } from "./Money";
 import { MonthsChart } from "../screens/Reports";
 
@@ -11,6 +15,7 @@ import { MonthsChart } from "../screens/Reports";
 export function YearReviewReport() {
   const now = new Date().getFullYear();
   const [year, setYear] = useState(now);
+  const [sharing, setSharing] = useState(false);
   const q = useQuery({ queryKey: ["yearReview", year], queryFn: () => api.yearReview(year) });
   const r = q.data;
   const saved = r ? r.income - r.expense : 0;
@@ -31,7 +36,13 @@ export function YearReviewReport() {
             Год в нескольких цифрах: сколько заработали, потратили и отложили, лучший и самый дорогой месяц, крупнейшая покупка и любимый магазин. Текущий год считается по сегодня и сравнивается с тем же отрезком прошлого.
           </Hint>
         </div>
+        {r && r.transactionCount > 0 && (
+          <button className="btn" onClick={() => setSharing(true)} data-testid="year-share">
+            Картинка для друзей
+          </button>
+        )}
       </div>
+      {sharing && r && <ShareDialog r={r} onClose={() => setSharing(false)} />}
       {q.error && <p className="error">{String(q.error)}</p>}
       {r && r.transactionCount === 0 && <p className="muted">За {year} год операций нет.</p>}
       {r && r.transactionCount > 0 && (
@@ -107,6 +118,70 @@ export function YearReviewReport() {
         </>
       )}
     </div>
+  );
+}
+
+/** Картинка года: предпросмотр, «Без сумм», сохранить PNG или скопировать. */
+function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
+  const settings = useSettings().data;
+  const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
+  const [hide, setHide] = useState(settings?.hide_amounts === "1");
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (canvas.current) drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
+    setStatus(null);
+  }, [r, base, hide]);
+  const save = async () => {
+    setError(null);
+    const path = await pickSave(`P-Treasury — итоги ${r.year} года.png`, [PNG]);
+    if (!path) return;
+    try {
+      const blob = await cardPng(canvas.current!);
+      await api.saveBytes(path, new Uint8Array(await blob.arrayBuffer()));
+      setStatus(`Сохранено: ${baseName(path)}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const copy = async () => {
+    setError(null);
+    try {
+      const blob = await cardPng(canvas.current!);
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      setStatus("Картинка скопирована: вставьте её в чат через Ctrl+V");
+    } catch {
+      setError("Не получилось скопировать в буфер обмена: сохраните картинку файлом");
+    }
+  };
+  return (
+    <Modal title={`Итоги ${r.year} года — картинка`} onClose={onClose} wide>
+      <div className="share-year">
+        <canvas ref={canvas} className="share-canvas" data-testid="year-card" aria-label={`Картинка «Мой ${r.year} год»`} />
+        <div className="share-side">
+          <p className="muted">Картинку можно отправить в мессенджер или выложить. Цифры берутся из ваших данных, ничего не уходит в интернет.</p>
+          <label className="check">
+            <input type="checkbox" name="shareHide" checked={hide} onChange={(e) => setHide(e.target.checked)} />
+            Без сумм: только проценты и доли
+          </label>
+          <div className="btn-group">
+            <button className="btn primary" onClick={save}>
+              Сохранить PNG
+            </button>
+            <button className="btn" onClick={copy}>
+              Копировать
+            </button>
+          </div>
+          {status && (
+            <p className="ok" data-testid="share-status">
+              {status}
+            </p>
+          )}
+          <ErrorText error={error} />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

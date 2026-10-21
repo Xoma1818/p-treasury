@@ -121,7 +121,7 @@ test("месяц жизни: от первого запуска до сводк�
   // 2. Месяц операций: из таблицы (CSV) и вручную.
   const path = join(files, "месяц.csv");
   writeFileSync(path, csv);
-  await click(browser, "Импорт из CSV");
+  await click(browser, "Импорт выписки или CSV");
   await pick(path);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="import-summary"]', new RegExp(`строк ${rows.length}, без ошибок ${rows.length}$`));

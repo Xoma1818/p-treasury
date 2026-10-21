@@ -7,6 +7,7 @@ pub mod accounts;
 pub mod assets;
 pub mod auto_import;
 pub mod backups;
+pub mod bank_import;
 pub mod budgets;
 pub mod calendar;
 pub mod categories;

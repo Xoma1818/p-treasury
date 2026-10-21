@@ -209,6 +209,7 @@ pub fn run() {
             commands::export_report,
             commands::import_preview,
             commands::import_csv,
+            commands::save_bytes,
             commands::write_import_template,
             commands::backup_status,
             commands::backup_now,
