@@ -54,7 +54,10 @@ test("имущество: оценка входит в чистые активы
   await waitText(browser, '[data-testid="assets"]', /Дача[\s\S]*2 000 000 ₽/);
   await openSection(browser, "Главная");
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-net-worth"]').getText()) !== before, { timeout: 5000 });
-  assert.match(await browser.$('[data-testid="home-net-worth"]').getText(), money("13 109 827,40 ₽"));
+  // Пример данных строится от сегодняшнего дня, поэтому сверяем прирост, а не сумму.
+  const rub = (t) => Number(t.replace(/[^\d,−-]/g, "").replace(",", ".").replace("−", "-"));
+  const after = await browser.$('[data-testid="home-net-worth"]').getText();
+  assert.equal(Math.round((rub(after) - rub(before)) * 100), 200000000, `${before} → ${after}`);
 });
 
 test("поездка: итог против бюджета, трата этих дней добавляется одной кнопкой", async () => {

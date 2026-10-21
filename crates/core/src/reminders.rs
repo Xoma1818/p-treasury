@@ -649,7 +649,7 @@ pub fn due_unnotified(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Occur
 pub struct Overview {
     /// Наступили и ждут действия.
     pub overdue: Vec<Occurrence>,
-    /// Ещё не наступили (ближайшие 30 дней).
+    /// Ещё не наступили (ближайшие 30 дней, до конца 30-го дня).
     pub upcoming: Vec<Occurrence>,
     /// Выполненные за последний месяц.
     pub done: Vec<Occurrence>,
@@ -658,11 +658,7 @@ pub struct Overview {
 
 pub fn overview(conn: &Connection, now: NaiveDateTime) -> Result<Overview> {
     let n = format_dt(now);
-    let all = occurrences(
-        conn,
-        now - Duration::days(LOOKBACK_DAYS),
-        now + Duration::days(30),
-    )?;
+    let all = occurrences(conn, now - Duration::days(LOOKBACK_DAYS), upcoming_end(now))?;
     let (mut overdue, mut upcoming, mut done) = (Vec::new(), Vec::new(), Vec::new());
     for o in all {
         if o.is_due(&n) {
@@ -682,6 +678,13 @@ pub fn overview(conn: &Connection, now: NaiveDateTime) -> Result<Overview> {
     })
 }
 
+/// «Ближайшие 30 дней» — целыми днями: утром и вечером список один и тот же.
+fn upcoming_end(now: NaiveDateTime) -> NaiveDateTime {
+    (now.date() + Duration::days(30))
+        .and_hms_opt(23, 59, 59)
+        .expect("конец дня")
+}
+
 /// Конец промежутка через `months` месяцев (для календаря и списков).
 pub fn add_months(d: NaiveDate, months: u32) -> NaiveDate {
     d.checked_add_months(Months::new(months))
@@ -697,6 +700,17 @@ mod tests {
 
     fn dt(s: &str) -> NaiveDateTime {
         parse_dt(s).unwrap()
+    }
+
+    #[test]
+    fn upcoming_covers_whole_thirtieth_day() {
+        // Срабатывание 20.11 в 09:00 видно и утром 21.10 до 09:00, и вечером.
+        let end = NaiveDate::from_ymd_opt(2026, 11, 20)
+            .unwrap()
+            .and_hms_opt(23, 59, 59)
+            .unwrap();
+        assert_eq!(upcoming_end(dt("2026-10-21T06:40")), end);
+        assert_eq!(upcoming_end(dt("2026-10-21T23:59")), end);
     }
     fn d(s: &str) -> NaiveDate {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
