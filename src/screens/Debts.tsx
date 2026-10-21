@@ -28,7 +28,7 @@ type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "calc" }
 const rateText = (bp: number) => `${formatAmount(bp, 2)} %`;
 const STATUS: Record<ScheduleRow["status"], string> = { pending: "ожидается", paid: "оплачен", partial: "оплачен частично" };
 
-/** Раздел «Долги»: сводка, список, карточка долга с графиком, калькулятор. */
+/** Раздел «Займы и долги»: сводка, список, карточка долга с графиком, калькулятор. */
 export function Debts() {
   // Переход из напоминания или календаря открывает карточку долга (и отметку платежа).
   const jump = useUi((s) => s.debtJump);

@@ -26,7 +26,7 @@ async function figures() {
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
   f.report = await (await browser.$('[data-testid="report-balance"]')).getText();
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await waitText(browser, '[data-testid="debt-card"]', /Банк/).catch(() => {});
   f.debts = await (await browser.$("main")).getText();
   await openSection(browser, "Операции");
@@ -48,7 +48,7 @@ test("данные версии 0.5 открываются новой верси
     await choose(browser, "category", category);
     await save(browser);
   }
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await fill(browser, "counterparty", "Банк");
   await fill(browser, "principal", "300000");

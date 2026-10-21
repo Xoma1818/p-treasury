@@ -23,13 +23,13 @@ const card = `//tr[@data-testid="account-row"][.//div[@class="main" and normaliz
 const debtRow = (name) => `//tr[@data-testid="debt-row" and @data-name="${name}"]`;
 
 async function openDebt(name) {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await (await browser.$(`${debtRow(name)}//div[@class="main"]`)).click();
   await browser.$(`//main//h1[contains(., "${name}")]`).waitForDisplayed({ timeout: 5000 });
 }
 
 test("выбор кредита: калькулятор сравнивает аннуитет и дифференцированный", async () => {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");
   await waitText(browser, '[data-testid="calc-annuity"]', money("14 977,23 ₽"));
   await waitText(browser, '[data-testid="calc-annuity"] [data-testid="overpay"]', /59 45\d,\d\d ₽/);
@@ -86,7 +86,7 @@ test("досрочный платёж «уменьшить срок»: плат�
 });
 
 test("занял другу: Иван вернул 5 000 из 20 000, остаток 15 000", async () => {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await click(browser, "Я дал в долг", '//*[@role="dialog"]');
   await fill(browser, "counterparty", "Иван");
@@ -107,7 +107,7 @@ test("занял другу: Иван вернул 5 000 из 20 000, остат
 });
 
 test("сколько мне должны: сводка, ближайший платёж и чистые активы", async () => {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await waitText(browser, '[data-testid="owed-to-me"]', money("15 000 ₽"));
   await waitText(browser, '[data-testid="i-owe"]', money("189 522,77 ₽"));
   await waitText(browser, '[data-testid="upcoming"]', /Банк/);
@@ -130,7 +130,7 @@ test("удаление долга убирает его операции", async
   await openDebt("Иван");
   await click(browser, "Удалить долг");
   await click(browser, "Да, удалить");
-  await browser.$('//main//h1[normalize-space()="Долги"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('//main//h1[normalize-space()="Займы и долги"]').waitForDisplayed({ timeout: 5000 });
   assert.equal(await browser.$(debtRow("Иван")).isExisting(), false);
   await waitText(browser, '[data-testid="owed-to-me"]', money("0 ₽"));
   await openSection(browser, "Счета");
