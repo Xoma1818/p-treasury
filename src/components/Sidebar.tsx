@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, type Theme } from "../lib/theme";
-import { HideAmountsButton } from "./Convenience";
+import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 
 /** Логотип «Дверца сейфа» (src-tauri/icons/icon.svg); цвета берутся из темы. */
@@ -23,17 +23,28 @@ function Logo() {
   );
 }
 
-function ThemeButton() {
+const SUN = "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4";
+
+/** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
+function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  const next: Theme = theme === "dark" ? "light" : "dark";
+  const pick = (t: Theme) => (applyTheme(t), setTheme(t));
   return (
-    <button
-      className="link"
-      data-testid="theme-toggle"
-      onClick={() => (applyTheme(next), setTheme(next))}
-    >
-      {next === "light" ? "Светлая тема" : "Тёмная тема"}
-    </button>
+    <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
+      <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>
+        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d={SUN} />
+        </svg>
+        Светлая
+      </button>
+      <button aria-pressed={theme === "dark"} data-testid="theme-dark" onClick={() => pick("dark")}>
+        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+        Тёмная
+      </button>
+    </div>
   );
 }
 
@@ -91,10 +102,15 @@ export function Sidebar() {
         ))}
       </ul>
       <div className="sidebar-foot">
-        <HideAmountsButton />
-        <ThemeButton />
-        <button className="link" onClick={() => setHelp(true)} title="F1">
-          Горячие клавиши
+        <ThemeSwitch />
+        <HideAmountsSwitch />
+        <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">
+          <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+          </svg>
+          <span className="foot-label">Горячие клавиши</span>
+          <kbd>F1</kbd>
         </button>
       </div>
     </nav>
