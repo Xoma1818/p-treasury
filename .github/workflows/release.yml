@@ -1,5 +1,6 @@
 # Выпуск P-Treasury на GitHub Releases.
-# Запускается тегом vX.Y.Z на main (ставится после слияния, см. docs/releasing.md).
+# Запуск: Actions → «Выпуск» → Run workflow на main (после слияния, см. docs/releasing.md).
+# Номер версии берётся из package.json; тег vX.Y.Z ставится на main в конце, когда выпуск опубликован.
 # Делает: проверку, установщик для Windows, подпись для автообновления, latest.json
 # и выпуск с описанием из раздела «## X.Y.Z» в CHANGELOG.md.
 # Код закрыт, поэтому выпуск публикуется в открытом репозитории p-treasury-releases:
@@ -9,25 +10,33 @@
 name: Выпуск
 
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency: release
+
 jobs:
   check:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-      - name: Версия в теге совпадает с версией приложения
+      - name: Версия, CHANGELOG и тег
+        id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          for v in "$(jq -r .version package.json)" "$(jq -r .version src-tauri/tauri.conf.json)" \
+          [ "$GITHUB_REF_NAME" = main ] || { echo "::error::Выпуск делается только из main"; exit 1; }
+          ver="$(jq -r .version package.json)"
+          for v in "$(jq -r .version src-tauri/tauri.conf.json)" \
                    "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; do
-            [ "$v" = "$tag" ] || { echo "::error::Тег $GITHUB_REF_NAME, а в файлах версия $v"; exit 1; }
+            [ "$v" = "$ver" ] || { echo "::error::В package.json версия $ver, а рядом $v"; exit 1; }
           done
-          grep -q "^## $tag\b" CHANGELOG.md || { echo "::error::В CHANGELOG.md нет раздела «## $tag»"; exit 1; }
+          grep -q "^## $ver\b" CHANGELOG.md || { echo "::error::В CHANGELOG.md нет раздела «## $ver»"; exit 1; }
+          git fetch --tags --quiet
+          ! git rev-parse -q --verify "refs/tags/v$ver" >/dev/null || { echo "::error::Версия $ver уже выпущена (тег v$ver есть)"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
@@ -49,7 +58,7 @@ jobs:
         id: notes
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${{ needs.check.outputs.version }}"
           {
             echo 'body<<NOTES_END'
             awk -v t="$tag" '/^## /{p = ($2 == t)} p && !/^## /' CHANGELOG.md
@@ -77,11 +86,23 @@ jobs:
           owner: ${{ github.repository_owner }}
           repo: p-treasury-releases
           releaseCommitish: main
-          tagName: ${{ github.ref_name }}
-          releaseName: P-Treasury ${{ github.ref_name }}
+          tagName: v${{ needs.check.outputs.version }}
+          releaseName: P-Treasury v${{ needs.check.outputs.version }}
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+  tag:
+    needs: [check, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Тег версии на main
+        run: |
+          git tag "v${{ needs.check.outputs.version }}" "$GITHUB_SHA"
+          git push origin "v${{ needs.check.outputs.version }}"
