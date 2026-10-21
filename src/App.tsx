@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AutoRates } from "./components/AutoRates";
 import { DemoBanner } from "./components/DemoBanner";
 import { MissedReminders } from "./components/MissedReminders";
 import { HotkeysHelp, UndoBar } from "./components/Convenience";
@@ -109,6 +110,7 @@ export function App() {
         <DemoBanner />
         {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
       </main>
+      <AutoRates />
       <MissedReminders />
       <UpdatePrompt />
       <UndoBar />

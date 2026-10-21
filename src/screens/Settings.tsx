@@ -168,6 +168,8 @@ function Rates({ base }: { base: string }) {
   const [from, setFrom] = useState("USD");
   const [rate, setRate] = useState("");
   const [all, setAll] = useState(false);
+  const autoRates = useSettings().data?.rates_auto !== "0";
+  const toggleAuto = useAction(api.setSetting);
   const add = useAction(api.setRate, () => setRate(""));
   const remove = useAction(api.deleteRate);
   const symbol = (code: string) => currencies.find((c) => c.code === code)?.symbol ?? code;
@@ -186,7 +188,11 @@ function Rates({ base }: { base: string }) {
           <input type="date" aria-label="Дата курсов ЦБ" name="cbrDate" value={cbrDate} max={today()} onChange={(e) => setCbrDate(e.target.value)} />
           <CbrButton date={cbrDate} />
         </div>
-        <p className="hint">Загружаются курсы всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
+        <p className="hint">Загружаются курсы доллара, евро, юаня, фунта и всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
+        <label className="check small">
+          <input type="checkbox" name="ratesAuto" checked={autoRates} onChange={(e) => toggleAuto.run("rates_auto", e.target.checked ? "1" : "0")} />
+          Обновлять курсы сами раз в день (при запуске и пока программа открыта)
+        </label>
       </div>
       <div className="rates-block">
         <h3>Ввести вручную</h3>

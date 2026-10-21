@@ -1,4 +1,4 @@
-// Курсы ЦБ РФ по кнопке (0.9.0). Вместо cbr.ru — местный сервер с ответом в формате ЦБ:
+// Курсы ЦБ РФ по кнопке (0.9.0) и сами раз в день (0.10.0). Вместо cbr.ru — местный сервер с ответом в формате ЦБ:
 // из тестовой среды сайт ЦБ недоступен, а ответ так ещё и не зависит от дня.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
@@ -18,7 +18,8 @@ const xml = (date, usd) =>
 
 let app;
 let server;
-let mode = "ok";
+// Сначала сайт «лежит»: автозагрузка после мастера тихо не удаётся, и кнопка на Главной видна.
+let mode = "down";
 const requests = [];
 
 before(async () => {
@@ -32,7 +33,8 @@ before(async () => {
     const [d, m, y] = q.split("/");
     // На воскресенье 18.10 ЦБ отдаёт курс, установленный на субботу 17.10.
     const date = q === "18/10/2026" ? "17.10.2026" : `${d}.${m}.${y}`;
-    res.writeHead(200, { "Content-Type": "application/xml; charset=windows-1251" }).end(xml(date, q === "18/10/2026" ? "91,5000" : "92,1500"));
+    const usd = q === "18/10/2026" ? "91,5000" : mode === "fresh" ? "93,0000" : "92,1500";
+    res.writeHead(200, { "Content-Type": "application/xml; charset=windows-1251" }).end(xml(date, usd));
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${server.address().port}/scripts/XML_daily.asp`;
@@ -56,8 +58,10 @@ test("на главной кнопка «Загрузить курс ЦБ» вк
     { name: "Вклад USD", type: "Вклад / сбережения", currency: "USD", balance: "100" },
   ]);
   await waitText(browser, '[data-testid="home-missing-rates"]', /Нет курса для USD/);
+  mode = "ok";
   await loadCbr(browser);
-  await waitText(browser, '[data-testid="cbr-result"]', /Курсы ЦБ РФ на \d\d\.\d\d\.\d{4} загружены: USD\./);
+  // Евро грузится всегда, даже без счёта; юаня и фунта в ответе нет, и о них не говорим.
+  await waitText(browser, '[data-testid="cbr-result"]', /Курсы ЦБ РФ на \d\d\.\d\d\.\d{4} загружены: EUR, USD\.$/);
   // 10 000 ₽ + 100 $ × 92,15.
   await waitText(browser, '[data-testid="total-balance"]', money("19 215 ₽"));
   assert.ok(requests.at(-1).includes("date_req="), requests.at(-1));
@@ -71,7 +75,7 @@ test("в Настройках курс ЦБ на выбранную дату с 
   // Воскресенье: ЦБ присылает субботний курс, он и записывается на субботу.
   await setDate(browser, "cbrDate", "2026-10-18");
   await loadCbr(browser);
-  await waitText(browser, '[data-testid="cbr-result"]', /на 17\.10\.2026 загружены: USD/);
+  await waitText(browser, '[data-testid="cbr-result"]', /на 17\.10\.2026 загружены: EUR, USD/);
   assert.equal(requests.at(-1), "/scripts/XML_daily.asp?date_req=18/10/2026");
   await waitText(browser, '[data-testid="rates"]', /17\.10\.2026\s*1 USD = 91,5 ₽\s*ЦБ РФ/);
 
@@ -84,6 +88,26 @@ test("в Настройках курс ЦБ на выбранную дату с 
   await loadCbr(browser);
   await waitText(browser, '[data-testid="cbr-result"]', /введённый вручную на эту дату, оставлен: USD/);
   await waitText(browser, '[data-testid="rates"]', /15\.10\.2026\s*1 USD = 95 ₽\s*вручную/);
+});
+
+test("курсы обновляются сами раз в день; выключатель в Настройках", async () => {
+  const { browser } = app;
+  mode = "fresh";
+  const box = await browser.$('[name="ratesAuto"]');
+  assert.equal(await box.isSelected(), true, "по умолчанию включено");
+  // Выключить и включить: проверка запускается сразу, утром не удалась — теперь удаётся.
+  await box.click();
+  await browser.waitUntil(async () => !(await box.isSelected()), { timeout: 5000 });
+  await box.click();
+  await waitText(browser, '[data-testid="rates"]', /1 USD = 93 ₽\s*ЦБ РФ/);
+  // В тот же день повторно не грузит.
+  const count = requests.length;
+  await box.click();
+  await browser.waitUntil(async () => !(await box.isSelected()), { timeout: 5000 });
+  await box.click();
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(requests.length, count);
+  mode = "ok";
 });
 
 test("ошибки: сайт ЦБ отвечает ошибкой или недоступен", async () => {

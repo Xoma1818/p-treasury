@@ -43,7 +43,7 @@ fn validate(key: &str, value: &str) -> Result<()> {
     let ok = match key {
         "month_start_day" => value.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d)),
         "hide_amounts" | "close_to_tray" | "onboarding_done" | "update_check" | "demo_data"
-        | "weekly_summary" => {
+        | "weekly_summary" | "rates_auto" => {
             matches!(value, "0" | "1")
         }
         "debt_reminder_days_before" | "autobackup_keep" => value.parse::<u32>().is_ok(),

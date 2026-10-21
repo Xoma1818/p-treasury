@@ -93,6 +93,8 @@ test("событие на сегодня: расход отмечается в �
   await save(browser);
   await openSection(browser, "Бюджет");
   await waitText(browser, '//*[@data-testid="event-row" and @data-name="Ремонт кухни"]//*[@data-testid="event-spent"]', money("12 500 ₽ из 150 000 ₽"));
+  // Трата события не входит в факт месячного бюджета, её итог показан отдельно.
+  await waitText(browser, '[data-testid="budget-events"]', money("поездки и события отдельно: 12 500 ₽"));
 });
 
 test("общая трата за троих: своя доля — расход, доли друзей — долги «мне должны»", async () => {

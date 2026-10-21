@@ -426,6 +426,8 @@ export interface Budget {
   actualExpense: number;
   actualIncome: number;
   unbudgetedExpense: number;
+  /** Расходы поездок и событий за месяц: в факт бюджета не входят. */
+  eventExpense: number;
   safeToSpendToday: number | null;
   /** Расходы по лимитам к концу месяца при текущем темпе (только текущий месяц). */
   forecastExpense: number | null;
@@ -797,6 +799,8 @@ export const api = {
   deleteRate: (date: string, from: string, to: string) => invoke<void>("delete_rate", { date, from, to }),
   rateOn: (from: string, to: string, date: string) => invoke<string | null>("rate_on", { from, to, date }),
   loadCbrRates: (date: string) => invoke<CbrImport>("load_cbr_rates", { date }),
+  /** Автозагрузка курсов раз в день; `null` — выключена или сегодня уже была. */
+  autoCbrRates: (date: string) => invoke<CbrImport | null>("auto_cbr_rates", { date }),
   finishOnboarding: (setup: Setup) => invoke<void>("finish_onboarding", { setup }),
   seedDemo: () => invoke<void>("seed_demo"),
   clearDemo: () => invoke<void>("clear_demo"),

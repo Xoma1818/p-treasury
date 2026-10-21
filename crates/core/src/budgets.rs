@@ -148,6 +148,8 @@ pub struct Budget {
     pub actual_income: i64,
     /// Расходы по категориям без лимита.
     pub unbudgeted_expense: i64,
+    /// Расходы периода, отнесённые к поездкам и событиям: в факт выше не входят.
+    pub event_expense: i64,
     /// «Можно тратить сегодня»: остаток лимитов расходов / оставшиеся дни
     /// периода, включая `today`. `None`, если бюджета нет или период не текущий.
     pub safe_to_spend_today: Option<i64>,
@@ -168,6 +170,7 @@ fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, 
 }
 
 /// Факт по категориям за период в валюте `currency`: (расходы, доходы) по id категории.
+/// Траты поездок и событий идут в их собственный итог и в месячный факт не входят.
 fn actuals(
     conn: &Connection,
     p: &Period,
@@ -176,7 +179,8 @@ fn actuals(
     let mut stmt = conn.prepare(
         "SELECT t.category_id, t.date, t.amount, a.currency_code FROM transactions t
          JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.date BETWEEN ?1 AND ?2",
+         WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.event_id IS NULL
+           AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
         Ok((
@@ -197,6 +201,29 @@ fn actuals(
         }
     }
     Ok((by_cat, missing))
+}
+
+/// Расходы периода, отнесённые к поездкам и событиям, в валюте `currency`.
+fn event_expense(conn: &Connection, p: &Period, currency: &str) -> Result<i64> {
+    let mut stmt = conn.prepare(
+        "SELECT t.date, t.amount, a.currency_code FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+         WHERE t.status = 'cleared' AND t.type = 'expense' AND t.event_id IS NOT NULL
+           AND t.date BETWEEN ?1 AND ?2",
+    )?;
+    let rows = stmt.query_map(params![p.start, p.end], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut total = 0;
+    for row in rows {
+        let (date, amount, cur) = row?;
+        total += currencies::convert(conn, amount, &cur, currency, &date)?.unwrap_or(0);
+    }
+    Ok(total)
 }
 
 /// Бюджет месяца с фактом. Если бюджета нет, `id = None` и строк нет,
@@ -347,6 +374,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         } else {
             (None, None)
         };
+    let events_spent = event_expense(conn, &p, &currency)?;
 
     Ok(Budget {
         id: row.as_ref().map(|r| r.0.clone()),
@@ -360,6 +388,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         actual_expense,
         actual_income,
         unbudgeted_expense,
+        event_expense: events_spent,
         safe_to_spend_today,
         forecast_expense,
         missing_rates,
@@ -660,6 +689,48 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn trip_spending_stays_out_of_month_budget() {
+        // «Отпуск в Сочи»: кафе в поездке не съедает лимит «Кафе» и считается отдельно.
+        let mut f = fx();
+        let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
+        let c = f.db.conn();
+        set_limit(c, &id, &cat(c, "Кафе и рестораны"), Some(1_000_000)).unwrap();
+        spend(c, &f.card, "2026-10-05", 200_000, "Кафе и рестораны");
+        spend(c, &f.card, "2026-10-12", 700_000, "Кафе и рестораны");
+        let trip = crate::events::create(
+            c,
+            &crate::events::EventInput {
+                name: "Отпуск в Сочи".into(),
+                start_date: "2026-10-10".into(),
+                end_date: "2026-10-14".into(),
+                budget: Some(5_000_000),
+                note: None,
+            },
+        )
+        .unwrap();
+        let in_trip: Vec<String> = crate::events::candidates(c, &trip).unwrap();
+        assert_eq!(in_trip.len(), 1);
+        crate::events::assign(c, Some(&trip), &in_trip).unwrap();
+
+        let b = get(c, "2026-10", "2026-10-20").unwrap();
+        let cafe = b
+            .lines
+            .iter()
+            .find(|l| l.category_name == "Кафе и рестораны")
+            .unwrap();
+        assert_eq!((cafe.actual, cafe.over), (200_000, false));
+        assert_eq!((b.actual_expense, b.event_expense), (200_000, 700_000));
+        // Средний бюджет тоже без поездки: отпуск не раздувает лимит на следующие месяцы.
+        let avg = suggest(c, "2026-11", FillMode::Average3).unwrap();
+        let cafe_avg = avg
+            .iter()
+            .find(|(id, _)| *id == cat(c, "Кафе и рестораны"))
+            .unwrap()
+            .1;
+        assert!(cafe_avg < 700_000, "{cafe_avg}");
     }
 
     #[test]

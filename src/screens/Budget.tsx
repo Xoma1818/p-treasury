@@ -128,6 +128,11 @@ function BudgetView({ b }: { b: BudgetData }) {
               и ещё <Money amount={b.unbudgetedExpense} symbol={sym} minorUnits={minor} /> без лимита
             </div>
           )}
+          {b.eventExpense > 0 && (
+            <div className="hint" data-testid="budget-events">
+              поездки и события отдельно: <Money amount={b.eventExpense} symbol={sym} minorUnits={minor} />
+            </div>
+          )}
         </div>
         <div className="card tile" data-testid="budget-left">
           <div className="tile-label">Осталось</div>

@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
 import { FxGain } from "./FxGain";
-import { SavedViews } from "../components/SavedViews";
+import { parseView, SavedViews } from "../components/SavedViews";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportPeriodKind, type Period } from "../lib/api";
@@ -48,6 +48,20 @@ export function Reports() {
   const [kind, setKind] = useState<Kind>("month");
   const [anchor, setAnchor] = useState<string | null>(null);
   const [custom, setCustom] = useState<{ start: string; end: string } | null>(null);
+  const applyView = (v: ReportView) => {
+    setTab(v.tab);
+    setKind(v.kind);
+    setAnchor(null);
+    if (v.custom) setCustom(v.custom);
+  };
+  // Вид, открытый из бокового меню.
+  const viewJump = useUi((s) => s.viewJump);
+  useEffect(() => {
+    if (viewJump?.kind !== "report") return;
+    const params = parseView<ReportView>(viewJump.params);
+    if (params) applyView(params);
+    useUi.setState({ viewJump: null });
+  }, [viewJump]);
   const month = anchor ?? current?.month;
 
   const fixed = useQuery({
@@ -173,12 +187,7 @@ export function Reports() {
       <SavedViews<ReportView>
         kind="report"
         current={{ tab, kind, custom: kind === "custom" ? custom : null }}
-        onApply={(v) => {
-          setTab(v.tab);
-          setKind(v.kind);
-          setAnchor(null);
-          if (v.custom) setCustom(v.custom);
-        }}
+        onApply={applyView}
       />
       <div className="tabs report-tabs" role="tablist">
         {(

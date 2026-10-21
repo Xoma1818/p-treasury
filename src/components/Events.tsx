@@ -28,7 +28,7 @@ export function EventsCard() {
         </button>
       </div>
       {events.length === 0 && (
-        <p className="muted">Отпуск, ремонт, свадьба: задайте даты и бюджет, и траты этих дней соберутся в отдельный итог.</p>
+        <p className="muted">Отпуск, ремонт, свадьба: задайте даты и бюджет, и траты этих дней соберутся в отдельный итог и не войдут в месячный бюджет.</p>
       )}
       <ul className="event-list">
         {events.map((e) => {

@@ -18,7 +18,10 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   currentDir = dataDir;
   killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
-  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...env } });
+  // Курсы ЦБ грузятся сами раз в день: в тестах сайт ЦБ подменён закрытым портом,
+  // чтобы настоящие курсы не меняли суммы (cbr.test.mjs ставит свой сервер).
+  const cbr = { PTREASURY_CBR_URL: "http://127.0.0.1:9/scripts/XML_daily.asp", NO_PROXY: "127.0.0.1,localhost" };
+  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...cbr, ...env } });
   await new Promise((r) => setTimeout(r, 1500));
   const browser = await remote({
     hostname: "127.0.0.1",

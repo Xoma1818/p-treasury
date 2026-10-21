@@ -120,3 +120,7 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .file-list .file-name .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-list .file-name .event-tag { margin-left: 0; align-self: flex-start; }
 .file-list .row-actions { display: flex; gap: 10px; white-space: nowrap; }
+
+/* Сохранённые виды в боковом меню */
+.nav-view-mark { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; color: var(--accent); }
+.nav-views .nav-view { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

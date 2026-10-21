@@ -31,6 +31,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "second_wave",
         sql: include_str!("../../migrations/0003_second_wave.sql"),
     },
+    Migration {
+        version: 4,
+        name: "auto_rates",
+        sql: include_str!("../../migrations/0004_auto_rates.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
