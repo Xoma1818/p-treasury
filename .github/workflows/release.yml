@@ -1,8 +1,8 @@
 # Выпуск P-Treasury на GitHub Releases.
 # Запуск: Actions → «Выпуск» → Run workflow на main (после слияния, см. docs/releasing.md).
 # Номер версии берётся из package.json; тег vX.Y.Z ставится на main в конце, когда выпуск опубликован.
-# Делает: проверку, установщик для Windows, подпись для автообновления, latest.json
-# и выпуск с описанием из раздела «## X.Y.Z» в CHANGELOG.md.
+# Делает: проверку, установщик для Windows, подпись для автообновления, latest.json,
+# архив переносной версии и выпуск с описанием из раздела «## X.Y.Z» в CHANGELOG.md.
 # Код закрыт, поэтому выпуск публикуется в открытом репозитории p-treasury-releases:
 # оттуда установленная программа скачивает обновления без входа в GitHub.
 # Нужны секреты: TAURI_SIGNING_PRIVATE_KEY (подпись обновлений) и RELEASES_TOKEN
@@ -64,6 +64,8 @@ jobs:
             awk -v t="$tag" '/^## /{p = ($2 == t)} p && !/^## /' CHANGELOG.md
             echo
             echo '**Как установить:** скачайте `P-Treasury_'"$tag"'_x64-setup.exe` ниже и запустите. Windows может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае». Данные прежней версии сохраняются.'
+            echo
+            echo '**Без установки (флешка):** распакуйте `P-Treasury_'"$tag"'_x64-portable.zip` куда угодно и запустите `P-Treasury.exe`. Данные хранятся в папке `data` рядом с программой, обновления ставятся вручную: новый архив распаковывается поверх старого.'
             echo 'NOTES_END'
           } >> "$GITHUB_OUTPUT"
       - name: Секреты на месте
@@ -94,6 +96,21 @@ jobs:
           args: --bundles nsis
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+      - name: Переносная версия (архив для флешки)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          ver="${{ needs.check.outputs.version }}"
+          exe=target/release/p-treasury.exe
+          [ -f "$exe" ] || { echo "::error::Нет $exe после сборки"; exit 1; }
+          dir="P-Treasury_${ver}_portable"
+          mkdir "$dir"
+          cp "$exe" "$dir/P-Treasury.exe"
+          : > "$dir/portable"
+          7z a -tzip "P-Treasury_${ver}_x64-portable.zip" "$dir"
+          gh release upload "v$ver" "P-Treasury_${ver}_x64-portable.zip" \
+            --repo "${{ github.repository_owner }}/p-treasury-releases"
 
   tag:
     needs: [check, windows]

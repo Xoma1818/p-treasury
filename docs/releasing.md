@@ -39,7 +39,7 @@
 
 1. OTTO разрешил слить PR с новой версией → PR сливается в `main`.
 2. Запускается выпуск: Actions → «Выпуск» → Run workflow на `main` (`.github/workflows/release.yml`).
-3. Выпуск делает проверки, установщик для Windows, подпись и файл `latest.json` для автообновления. Выпуск «P-Treasury vX.Y.Z» с описанием из CHANGELOG и строкой о том, как установить, публикуется в открытом репозитории [p-treasury-releases](https://github.com/Xoma1818/p-treasury-releases/releases). В конце на `main` ставится тег `vX.Y.Z`; если такой тег уже есть, выпуск не запустится.
+3. Выпуск делает проверки, установщик для Windows, подпись и файл `latest.json` для автообновления, а также архив переносной версии `P-Treasury_X.Y.Z_x64-portable.zip` (программа и пустой файл `portable`: запуск с флешки без установки). Выпуск «P-Treasury vX.Y.Z» с описанием из CHANGELOG и строкой о том, как установить, публикуется в открытом репозитории [p-treasury-releases](https://github.com/Xoma1818/p-treasury-releases/releases). В конце на `main` ставится тег `vX.Y.Z`; если такой тег уже есть, выпуск не запустится.
 4. Программы, собранные выпуском, сами находят следующую версию по адресу `https://github.com/Xoma1818/p-treasury-releases/releases/latest/download/latest.json`.
 
 Почему два репозитория: код в `p-treasury` закрыт, а файлы закрытого репозитория программа без входа в GitHub скачать не может. В `p-treasury-releases` только README и выпуски, кода там нет и не будет.
