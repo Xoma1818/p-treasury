@@ -32,9 +32,15 @@ pub struct ScanResult {
 
 /// Первая строка похожа на шаблон операций: есть «Дата», «Тип», «Счёт», «Сумма».
 fn looks_like_template(path: &Path) -> bool {
-    let Ok(bytes) = fs::read(path) else {
+    use std::io::Read;
+    // Хватает начала файла: в «Загрузках» бывают файлы на сотни мегабайт.
+    let mut bytes = Vec::new();
+    let Ok(file) = fs::File::open(path) else {
         return false;
     };
+    if file.take(4096).read_to_end(&mut bytes).is_err() {
+        return false;
+    }
     let text = String::from_utf8_lossy(&bytes);
     let first = text.lines().next().unwrap_or("").to_lowercase();
     ["дата", "тип", "счёт", "сумма"]
@@ -108,17 +114,21 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
-                let tx = conn.transaction()?;
+                // Дубли ищутся среди операций, загруженных до этого файла: две
+                // одинаковые поездки в один день в самой выписке — две операции.
+                let mut new = Vec::new();
                 for p in parsed {
                     match p.input {
-                        Some(input) if !exists(&tx, &input)? => {
-                            transactions::create(&tx, &input)?;
-                            res.added += 1;
-                        }
+                        Some(input) if !exists(conn, &input)? => new.push(input),
                         _ => res.skipped += 1,
                     }
                 }
+                let tx = conn.transaction()?;
+                for input in &new {
+                    transactions::create(&tx, input)?;
+                }
                 tx.commit()?;
+                res.added = new.len();
                 if no_account {
                     res.error = Some(
                         "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»"
@@ -211,6 +221,16 @@ mod tests {
             .query_row("SELECT count(*) FROM transactions", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 1);
+
+        // Две одинаковые поездки в один день в одном файле — две операции,
+        // как при ручном импорте; уже загруженные из прошлого файла — дубли.
+        fs::write(
+            dir.join("c.csv"),
+            format!("{head}03.10.2026;Расход;Карта;65;Продукты;Метро\n03.10.2026;Расход;Карта;65;Продукты;Метро\n01.10.2026;Расход;Карта;100;Продукты;Магнит\n"),
+        )
+        .unwrap();
+        let r = scan(c, &dir).unwrap();
+        assert_eq!((r.added, r.files[0].skipped), (2, 1));
         fs::remove_dir_all(&dir).unwrap();
     }
 

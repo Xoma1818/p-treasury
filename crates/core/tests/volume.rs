@@ -281,6 +281,47 @@ fn ten_years_of_records_stay_fast() {
     timed("Календарь месяца", sec, || {
         calendar::month(c, &month, &today).unwrap()
     });
+    // Экраны 0.10–0.13: дашборд, подписки, поиск Ctrl+K, итоги года, подсказки.
+    timed(
+        "Итоги года (экран и картинка)",
+        sec,
+        || budget_core::year::review(c, today[..4].parse().unwrap(), &today).unwrap(),
+    );
+    timed(
+        "Регулярные платежи (автопоиск)",
+        sec,
+        || budget_core::subscriptions::list(c, &today).unwrap(),
+    );
+    timed("Поиск Ctrl+K «пят»", sec, || {
+        budget_core::search::find(c, "пят").unwrap()
+    });
+    timed(
+        "Подсказка получателя «пят»",
+        sec,
+        || transactions::payee_hints(c, "expense", "пят", 8).unwrap(),
+    );
+    timed("Подушка безопасности", sec, || {
+        budget_core::wealth::cushion(c, &today).unwrap()
+    });
+    timed("Инвестиции: обзор", sec, || {
+        budget_core::invest::overview(c, &today).unwrap()
+    });
+    timed("Цели", sec, || {
+        budget_core::goals::list(c, &today).unwrap()
+    });
+    timed(
+        "Сравнение двух лет по категориям",
+        sec,
+        || {
+            let prev = (end() - chrono::Days::new(730))
+                .format("%Y-%m-%d")
+                .to_string();
+            budget_core::compare::compare(
+                c, "expense", "category", &prev, &year_ago, &year_ago, &today,
+            )
+            .unwrap()
+        },
+    );
     let xlsx = dir.join("сводка за год.xlsx");
     timed(
         "Сводка в Excel за год (6 листов)",
@@ -302,6 +343,83 @@ fn ten_years_of_records_stay_fast() {
         "Резервная копия базы",
         Duration::from_secs(5),
         || budget_core::backups::backup(c, &dir.join("копия.db")).unwrap(),
+    );
+    let vault = dir.join("P-Treasury");
+    let copy = timed(
+        "Папка сохранности: копия (база занята)",
+        Duration::from_secs(5),
+        || budget_core::vault::sync_copy(c, &vault, "Мой бюджет").unwrap(),
+    );
+    timed(
+        "Папка сохранности: Excel по копии (база свободна)",
+        Duration::from_secs(30),
+        || budget_core::vault::sync_excel(&copy, &vault, "Мой бюджет").unwrap(),
+    );
+    let card: String = c
+        .query_row(
+            "SELECT id FROM accounts WHERE name = 'Карта'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let food: String = c
+        .query_row(
+            "SELECT id FROM categories WHERE kind = 'expense' AND parent_id IS NULL LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    timed(
+        "Импорт 1 000 операций (выписка)",
+        Duration::from_secs(5),
+        || {
+            let tx = c.unchecked_transaction().unwrap();
+            for i in 0..1000 {
+                transactions::create(
+                    &tx,
+                    &transactions::TxnInput {
+                        kind: "expense".into(),
+                        date: today.clone(),
+                        account_id: card.clone(),
+                        amount: 10_000 + i,
+                        category_id: Some(food.clone()),
+                        to_account_id: None,
+                        to_amount: None,
+                        payee: Some("Импорт".into()),
+                        note: None,
+                    },
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        },
+    );
+    // Файл импорта: операции последних 5 недель (≈ 1 000 строк), выгруженные в CSV.
+    let csv = dir.join("импорт.csv");
+    let weeks_ago = (end() - chrono::Days::new(36))
+        .format("%Y-%m-%d")
+        .to_string();
+    let sheet = export::transactions_sheet(
+        c,
+        &Filter {
+            date_from: Some(weeks_ago),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    export::write_one(&csv, &sheet).unwrap();
+    let preview = timed(
+        "Импорт CSV: предпросмотр ≈ 1 000 строк",
+        sec,
+        || budget_core::csv_import::preview(c, &csv, None).unwrap(),
+    );
+    assert!(preview.rows.len() >= 900, "{}", preview.rows.len());
+    drop(db);
+    let mut db = Storage::open(&path, &opts).unwrap();
+    timed(
+        "Импорт CSV: загрузка ≈ 1 000 строк",
+        Duration::from_secs(5),
+        || budget_core::csv_import::import(db.conn_mut(), &csv, true, None).unwrap(),
     );
     let size = std::fs::metadata(&path).unwrap().len()
         + std::fs::metadata(dir.join("budget.db-wal"))

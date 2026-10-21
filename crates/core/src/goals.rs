@@ -71,7 +71,7 @@ fn check(conn: &Connection, input: &GoalInput) -> Result<(String, Option<String>
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     if let Some(a) = &account {
-        accounts::get(conn, a)?;
+        accounts::head(conn, a)?;
     }
     let deadline = input
         .deadline

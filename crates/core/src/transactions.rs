@@ -67,8 +67,8 @@ struct Checked {
     note: Option<String>,
 }
 
-fn check_account(conn: &Connection, id: &str, previous: &[&str]) -> Result<accounts::Account> {
-    let a = accounts::get(conn, id)?;
+fn check_account(conn: &Connection, id: &str, previous: &[&str]) -> Result<accounts::Head> {
+    let a = accounts::head(conn, id)?;
     if a.kind == "debt" {
         return invalid("операции по долгу записываются в разделе «Долги»");
     }
@@ -319,8 +319,8 @@ pub fn get(conn: &Connection, id: &str) -> Result<Txn> {
         .ok_or(Error::NotFound("операция"))
 }
 
-/// Список операций по фильтру, новые сверху.
-pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
+/// Условие WHERE и его параметры для фильтра.
+fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     let mut wh = vec!["t.status = 'cleared'".to_string()];
     let mut args: Vec<Value> = Vec::new();
     let mut arg = |v: Value| {
@@ -369,7 +369,12 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
         wh.push(cond);
     }
     register_lower(conn)?;
-    let where_sql = wh.join(" AND ");
+    Ok((wh.join(" AND "), args))
+}
+
+/// Список операций по фильтру, новые сверху.
+pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
+    let (where_sql, args) = where_clause(conn, f)?;
     let total: i64 = conn.query_row(
         &format!(
             "SELECT count(*) FROM transactions t
@@ -389,6 +394,19 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
         .query_map(params_from_iter(args.iter()), map)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(Page { items, total })
+}
+
+/// Все операции по фильтру одним запросом, новые сверху (выгрузки).
+/// `limit` и `offset` фильтра не учитываются.
+pub fn list_all(conn: &Connection, f: &Filter) -> Result<Vec<Txn>> {
+    let (where_sql, args) = where_clause(conn, f)?;
+    let mut stmt = conn.prepare(&format!(
+        "{SELECT} WHERE {where_sql} ORDER BY t.date DESC, t.id DESC"
+    ))?;
+    let items = stmt
+        .query_map(params_from_iter(args.iter()), map)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(items)
 }
 
 /// Функция `kz_lower` для поиска без учёта регистра по-русски.

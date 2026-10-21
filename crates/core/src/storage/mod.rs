@@ -80,6 +80,7 @@ impl Storage {
             },
             other => other,
         })?;
+        ensure_indexes(&conn)?;
 
         Ok(Self {
             conn,
@@ -93,6 +94,7 @@ impl Storage {
         let mut conn = Connection::open_in_memory()?;
         configure(&conn)?;
         migrate(&mut conn, MIGRATIONS)?;
+        ensure_indexes(&conn)?;
         Ok(Self {
             conn,
             path: PathBuf::from(":memory:"),
@@ -135,6 +137,7 @@ impl Storage {
         }
         configure(&self.conn)?;
         migrate(&mut self.conn, MIGRATIONS)?;
+        ensure_indexes(&self.conn)?;
         Ok(safety)
     }
 
@@ -148,6 +151,17 @@ fn configure(conn: &Connection) -> Result<()> {
     // Для базы в памяти SQLite оставит режим 'memory', это нормально.
     let _mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
     conn.pragma_update(None, "busy_timeout", 5000)?;
+    Ok(())
+}
+
+/// Индексы только для скорости. Они не меняют данные и версию схемы, поэтому
+/// создаются при открытии, а не миграцией: файл остаётся открываемым прежними
+/// версиями программы (например, копия, перенесённая на другой компьютер).
+fn ensure_indexes(conn: &Connection) -> Result<()> {
+    // Список операций «новые сверху» (Операции, Главная) без сортировки всей таблицы.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_transactions_date_id ON transactions(date, id);",
+    )?;
     Ok(())
 }
 

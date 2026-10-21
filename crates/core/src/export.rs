@@ -6,6 +6,7 @@
 //! CSV — UTF-8 с BOM и разделителем `;`, чтобы русский Excel открывал его
 //! двойным щелчком; суммы с десятичной запятой, даты `ДД.ММ.ГГГГ`.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -212,16 +213,20 @@ pub fn txn_type_name(kind: &str) -> &'static str {
     }
 }
 
-fn account_currency(conn: &Connection, account_id: &str) -> Result<String> {
-    Ok(conn.query_row(
-        "SELECT currency_code FROM accounts WHERE id = ?1",
-        [account_id],
-        |r| r.get(0),
-    )?)
+/// Валюты счетов: одна выборка на всю выгрузку, а не запрос на каждую строку.
+fn account_currencies(conn: &Connection) -> Result<HashMap<String, String>> {
+    let mut stmt = conn.prepare("SELECT id, currency_code FROM accounts")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-fn txn_row(conn: &Connection, t: &Txn, base: &str, base_mu: u32) -> Result<Vec<Cell>> {
-    let currency = account_currency(conn, &t.account_id)?;
+fn txn_row(
+    conn: &Connection,
+    t: &Txn,
+    currency: &str,
+    base: &str,
+    base_mu: u32,
+) -> Result<Vec<Cell>> {
     // Расход со знаком минус: сумма по столбцу сразу даёт сальдо.
     let signed = if t.kind == "expense" {
         -t.amount
@@ -231,7 +236,7 @@ fn txn_row(conn: &Connection, t: &Txn, base: &str, base_mu: u32) -> Result<Vec<C
     let in_base = if t.kind == "transfer" {
         Cell::Empty
     } else {
-        currencies::convert(conn, signed, &currency, base, &t.date)?
+        currencies::convert(conn, signed, currency, base, &t.date)?
             .map_or(Cell::Empty, |v| Cell::Money(v, base_mu))
     };
     Ok(vec![
@@ -254,19 +259,7 @@ fn txn_row(conn: &Connection, t: &Txn, base: &str, base_mu: u32) -> Result<Vec<C
 
 /// Все операции по фильтру (без ограничения в 5 000 строк), старые сверху.
 pub fn all_transactions(conn: &Connection, filter: &Filter) -> Result<Vec<Txn>> {
-    let mut out = Vec::new();
-    let mut f = filter.clone();
-    f.limit = Some(5000);
-    f.offset = Some(0);
-    loop {
-        let page = transactions::list(conn, &f)?;
-        let n = page.items.len() as i64;
-        out.extend(page.items);
-        if n < 5000 {
-            break;
-        }
-        f.offset = Some(f.offset.unwrap_or(0) + n);
-    }
+    let mut out = transactions::list_all(conn, filter)?;
     out.reverse();
     Ok(out)
 }
@@ -275,8 +268,12 @@ pub fn transactions_sheet(conn: &Connection, filter: &Filter) -> Result<Sheet> {
     let base = currencies::base_currency(conn)?;
     let base_mu = currencies::minor_units(conn, &base)?;
     let mut s = Sheet::new("Операции", &TXN_HEADERS);
+    let currencies = account_currencies(conn)?;
     for t in all_transactions(conn, filter)? {
-        s.rows.push(txn_row(conn, &t, &base, base_mu)?);
+        let currency = currencies
+            .get(&t.account_id)
+            .ok_or(Error::NotFound("счёт"))?;
+        s.rows.push(txn_row(conn, &t, currency, &base, base_mu)?);
     }
     Ok(s)
 }

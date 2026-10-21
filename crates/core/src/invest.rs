@@ -67,8 +67,8 @@ pub fn invested_on(conn: &Connection, account_id: &str, on: &str) -> Result<i64>
     .ok_or(Error::NotFound("счёт"))
 }
 
-fn check_account(conn: &Connection, account_id: &str) -> Result<accounts::Account> {
-    let account = accounts::get(conn, account_id)?;
+fn check_account(conn: &Connection, account_id: &str) -> Result<accounts::Head> {
+    let account = accounts::head(conn, account_id)?;
     if account.kind != "investment" {
         return invalid("стоимость вводится только для брокерского счёта или ИИС");
     }
