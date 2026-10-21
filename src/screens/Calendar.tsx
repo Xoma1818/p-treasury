@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
@@ -70,9 +70,10 @@ function DayChips({ day, m }: { day: CalendarDay; m: CalendarMonth }) {
           ⏰ {r.title}
         </span>
       ))}
-      {day.notes > 0 && (
-        <span className="chip note" title="Заметки">
-          ✎ {day.notes}
+      {day.memos.length > 0 && (
+        <span className="chip note" title={day.memos.join("\n")} data-testid="cal-memo">
+          ✎ {day.memos[0]}
+          {day.memos.length > 1 && <span className="memo-more"> +{day.memos.length - 1}</span>}
         </span>
       )}
     </div>
@@ -231,6 +232,7 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
   const cal = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) }).data;
   const txns = useQuery({ queryKey: ["transactions", "day", date], queryFn: () => api.listTransactions({ dateFrom: date, dateTo: date, limit: 100 }) }).data;
   const day = cal?.days.find((d) => d.date === date);
+  const noteInput = useRef<HTMLInputElement>(null);
   return (
     <aside className="card day-panel" data-testid="day-panel">
       <div className="notes-head">
@@ -245,6 +247,9 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
         </button>
         <button className="btn small" onClick={onReminder}>
           + Напоминание
+        </button>
+        <button className="btn small" onClick={() => noteInput.current?.focus()}>
+          + Заметка
         </button>
       </div>
       <h3>Операции</h3>
@@ -277,7 +282,7 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
           </ul>
         </>
       )}
-      <NotesBlock filter={{ dateFrom: date, dateTo: date }} initial={{ date }} />
+      <NotesBlock filter={{ dateFrom: date, dateTo: date }} initial={{ date }} inputRef={noteInput} />
     </aside>
   );
 }

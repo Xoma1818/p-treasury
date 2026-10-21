@@ -406,7 +406,8 @@ textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(
 .chip.debt { background: var(--over-soft); color: var(--over-strong); }
 .chip.debt.paid, .chip.reminder.done, .chip.reminder.dismissed { background: var(--bg); color: var(--muted); text-decoration: line-through; }
 .chip.reminder { background: var(--accent-soft); color: var(--accent); }
-.chip.note { color: var(--muted); background: none; padding-left: 0; }
+.chip.note { color: var(--muted); background: none; padding-left: 0; font-style: italic; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
+.chip.note .memo-more { font-style: normal; color: var(--accent); }
 .cal-totals { margin-top: 12px; }
 .week-list { list-style: none; margin: 0; padding: 0; }
 .week-list li { display: flex; gap: 16px; padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: flex-start; }
