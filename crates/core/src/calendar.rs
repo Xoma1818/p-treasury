@@ -38,6 +38,9 @@ pub struct Day {
     /// Свои напоминания этого дня (о долгах календарь показывает сам платёж).
     pub reminders: Vec<Occurrence>,
     pub notes: u32,
+    /// Тексты дня для клетки календаря: сначала заметки на эту дату, затем
+    /// комментарии к доходам и расходам (по времени создания).
+    pub memos: Vec<String>,
     /// День без трат: прошёл (или сегодня), расходов нет, а учёт уже вёлся.
     pub no_spend: bool,
 }
@@ -99,6 +102,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
                 debts: Vec::new(),
                 reminders: Vec::new(),
                 notes: 0,
+                memos: Vec::new(),
                 no_spend: false,
             },
         );
@@ -231,6 +235,26 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
         }
     }
 
+    // Тексты для клетки: заметки дня, затем комментарии к операциям.
+    let mut stmt = conn.prepare(
+        "SELECT date, body FROM (
+             SELECT date, body, 0 AS kind, created_at FROM notes
+             WHERE date BETWEEN ?1 AND ?2 AND trim(body) <> ''
+             UNION ALL
+             SELECT date, note, 1, created_at FROM transactions
+             WHERE date BETWEEN ?1 AND ?2 AND type IN ('expense', 'income')
+               AND note IS NOT NULL AND trim(note) <> ''
+         ) ORDER BY date, kind, created_at",
+    )?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map(params![from, to], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (date, text) in rows {
+        if let Some(day) = days.get_mut(&date) {
+            day.memos.push(text.trim().to_string());
+        }
+    }
+
     let started = crate::habits::first_day(conn)?;
     let mut days: Vec<Day> = days.into_values().collect();
     for d in &mut days {
@@ -342,7 +366,7 @@ mod tests {
                 to_account_id: None,
                 to_amount: None,
                 payee: None,
-                note: None,
+                note: Some("К празднику".into()),
             },
         )
         .unwrap();
@@ -357,6 +381,9 @@ mod tests {
         assert_eq!(day(15).debts[0].payment, 175_000);
         assert_eq!(day(20).reminders[0].title, "Подарок маме");
         assert_eq!(day(20).notes, 1);
+        assert_eq!(day(20).memos, vec!["Подарок: шарф".to_string()]);
+        assert_eq!(day(3).memos, vec!["К празднику".to_string()]);
+        assert!(day(10).memos.is_empty());
         assert_eq!(m.expense, 123_400);
         // 12-го: ЖКХ 10-го уже прошло → не в плане; кредит 1 750 + подарок 5 000 + ремонт 14 250 = 21 000.
         assert_eq!(m.planned_expense, 175_000 + 500_000 + 1_425_000);

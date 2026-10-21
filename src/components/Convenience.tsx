@@ -93,6 +93,24 @@ export function HideAmountsButton({ className = "link" }: { className?: string }
   );
 }
 
+/** Переключатель «Скрыть суммы» внизу меню (Ctrl+H). */
+export function HideAmountsSwitch() {
+  const hidden = useSettings().data?.hide_amounts === "1";
+  const toggle = useAction(api.setSetting);
+  return (
+    <button className="foot-row" role="switch" aria-checked={hidden} data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")} title="Ctrl+H">
+      <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9.9 9.9a3 3 0 1 0 4.2 4.2" />
+        <path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7" />
+        <path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6" />
+        <path d="M2 2l20 20" />
+      </svg>
+      <span className="foot-label">Скрыть суммы</span>
+      <span className="switch" aria-hidden="true" />
+    </button>
+  );
+}
+
 /** Справка по горячим клавишам (F1). */
 export function HotkeysHelp({ onClose }: { onClose: () => void }) {
   return (

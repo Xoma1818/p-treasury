@@ -759,6 +759,8 @@ export interface CalendarDay {
   debts: DebtDue[];
   reminders: Occurrence[];
   notes: number;
+  /** Заметки дня и комментарии к операциям — текст для клетки календаря. */
+  memos: string[];
   /** День без трат (прошедший, учёт уже вёлся). */
   noSpend: boolean;
 }

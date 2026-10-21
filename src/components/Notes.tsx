@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { type Ref, useState } from "react";
 import { api, type Note, type NoteFilter, type NoteInput } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { useAction } from "../lib/useAction";
@@ -69,7 +69,17 @@ export function NoteList({ notes, onOpen, showLink = true }: { notes: Note[]; on
 }
 
 /** Заметки в карточке операции, долга или дня: список, удаление и добавление на месте (без второго окна). */
-export function NotesBlock({ filter, initial, title = "Заметки" }: { filter: NoteFilter; initial: Partial<NoteInput>; title?: string }) {
+export function NotesBlock({
+  filter,
+  initial,
+  title = "Заметки",
+  inputRef,
+}: {
+  filter: NoteFilter;
+  initial: Partial<NoteInput>;
+  title?: string;
+  inputRef?: Ref<HTMLInputElement>;
+}) {
   const notes = useQuery({ queryKey: ["notes", filter], queryFn: () => api.listNotes(filter) });
   const [body, setBody] = useState("");
   const add = useAction(
@@ -92,6 +102,7 @@ export function NotesBlock({ filter, initial, title = "Заметки" }: { filt
       </ul>
       <div className="note-add">
         <input
+          ref={inputRef}
           name="newNote"
           placeholder="Новая заметка"
           value={body}

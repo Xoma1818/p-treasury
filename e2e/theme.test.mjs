@@ -15,22 +15,22 @@ after(async () => {
 
 const theme = (b) => b.execute(() => document.documentElement.dataset.theme);
 
-test("по умолчанию тёмная тема, кнопка в меню переключает на светлую и обратно", async () => {
+test("по умолчанию тёмная тема, переключатель в меню выбирает светлую и обратно", async () => {
   const { browser } = app;
   await browser.execute(() => localStorage.removeItem("p-treasury-theme"));
   await browser.refresh();
   await onboard(browser, [{ name: "Карта", balance: "1000" }]);
   assert.equal(await theme(browser), "dark");
-  const toggle = await browser.$('[data-testid="theme-toggle"]');
-  assert.equal(await toggle.getText(), "Светлая тема");
-  await toggle.click();
+  assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-pressed"), "true");
+  await (await browser.$('[data-testid="theme-light"]')).click();
   assert.equal(await theme(browser), "light");
+  assert.equal(await (await browser.$('[data-testid="theme-light"]')).getAttribute("aria-pressed"), "true");
   assert.equal(await browser.execute(() => localStorage.getItem("p-treasury-theme")), "light");
   // Выбор переживает перезагрузку окна.
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await theme(browser), "light");
-  await (await browser.$('[data-testid="theme-toggle"]')).click();
+  await (await browser.$('[data-testid="theme-dark"]')).click();
   assert.equal(await theme(browser), "dark");
 });
 
