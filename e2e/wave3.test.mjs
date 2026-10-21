@@ -110,7 +110,7 @@ test("общая трата за троих: своя доля — расход,
   await waitText(browser, '[data-testid="split-mine"]', money("Моя доля: 1 000 ₽"));
   await save(browser);
   await browser.waitUntil(async () => (await browser.$('[data-testid="month-expense"]').getText()) !== expense, { timeout: 5000 });
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await waitText(browser, "main", /Аня[\s\S]*1 000 ₽/);
   await waitText(browser, "main", /Петя[\s\S]*1 000 ₽/);
 });

@@ -51,7 +51,7 @@ try {
   await browser.execute(() => document.querySelector(".content")?.scrollTo(0, 0) ?? window.scrollTo(0, 0));
   await browser.pause(500);
   await browser.saveScreenshot(out("screen-budget"));
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");
   await browser.$('[data-testid="calc-annuity"]').waitForExist({ timeout: 5000 });
   await browser.pause(400);
@@ -64,7 +64,7 @@ try {
   await save(browser);
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-debt"));
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await click(browser, "Я дал в долг", '//*[@role="dialog"]');
   await fill(browser, "counterparty", "Иван");
@@ -72,7 +72,7 @@ try {
   await choose(browser, "repayment", "Разовый возврат в конце");
   await setDate(browser, "maturity", `${new Date().getFullYear() + 1}-03-01`);
   await save(browser);
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-debts"));
   // Этап 5: напоминания, календарь, заметки.

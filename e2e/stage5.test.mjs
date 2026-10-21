@@ -63,7 +63,7 @@ test("коммуналка: «ЖКХ» ежемесячно, «Создать о
 });
 
 test("платёж по кредиту: напоминание за 3 дня, «Оплачено» создаёт платёж по графику", async () => {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await fill(browser, "counterparty", "Сбер");
   await fill(browser, "principal", "300000");
@@ -149,7 +149,7 @@ test("заметка к покупке: «гарантия до 10.2028» нах
 });
 
 test("заметка в карточке долга", async () => {
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await (await browser.$('//tr[@data-testid="debt-row" and @data-name="Сбер"]//div[@class="main"]')).click();
   await fill(browser, "newNote", "Договор № 123, телефон 900");
   await click(browser, "Добавить", '//*[@data-testid="notes-block"]');

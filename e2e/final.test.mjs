@@ -94,7 +94,7 @@ async function snapshot() {
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
   for (const id of ["report-income", "report-expense", "report-balance", "savings-rate"]) s[id] = await text(`[data-testid="${id}"]`);
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   s.debts = await text("main");
   await openSection(browser, "Календарь");
   s.calendar = await browser.execute(() => document.querySelector("main").textContent);
@@ -156,7 +156,7 @@ test("месяц жизни: от первого запуска до сводк�
   await browser.$('//tr[@data-testid="budget-line" and @data-category="Кафе и рестораны"]').waitForExist({ timeout: 5000 });
 
   // 4. Кредит 100 000 ₽ и первый платёж.
-  await openSection(browser, "Долги");
+  await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await fill(browser, "counterparty", "Банк");
   await fill(browser, "principal", "100000");
