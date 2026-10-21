@@ -1,0 +1,28 @@
+/* Раздел «Инвестиции» (0.11): карточка на Главной, бюджет, калькулятор. Только токены темы. */
+.invest-card .btn-group { margin-top: 12px; }
+.invest-month { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.invest-month b { font-size: 18px; }
+.invest-bar { display: flex; align-items: center; gap: 10px; }
+.invest-bar .bar.goal { width: 100%; max-width: 360px; }
+.invest-bar .percent { font-size: 13px; color: var(--muted); }
+.invest-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.invest-totals b { font-size: 18px; }
+.invest-tax { display: flex; flex-direction: column; gap: 4px; }
+.invest-tax .bar.goal { width: 100%; max-width: 360px; }
+.invest-calc-result { font-size: 15px; }
+.invest-chart { display: flex; align-items: flex-end; gap: 4px; height: 160px; padding: 8px 0 0; border-bottom: 1px solid var(--border); }
+.invest-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-width: 0; }
+.invest-col .value { width: 100%; max-width: 36px; background: var(--accent); border-radius: 4px 4px 0 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.invest-col .invested { display: block; width: 100%; background: var(--accent-soft); }
+.invest-col .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.legend { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.legend.invested { background: var(--accent-soft); border: 1px solid var(--border-strong); }
+.legend.value { background: var(--accent); }
+@media (max-width: 720px) { .invest-totals { grid-template-columns: 1fr; } }
+/* Бюджет → «План и факт». */
+.plan-fact thead td { font-size: 12px; border-bottom: 1px solid var(--border); }
+.plan-fact .percent { font-size: 13px; color: var(--muted); }
+.plan-fact .bar { width: 120px; }
+.plan-fact-total td { font-weight: 600; }
+.plan-fact-match { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+.plan-fact-match.good { background: var(--accent-soft); color: var(--accent); }

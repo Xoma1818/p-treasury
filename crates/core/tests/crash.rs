@@ -49,6 +49,7 @@ fn prepare(dir: &Path) -> (String, String) {
             opening_date: "2026-01-01".into(),
             credit_limit: None,
             include_in_total: true,
+            invest_kind: None,
         },
     )
     .unwrap();

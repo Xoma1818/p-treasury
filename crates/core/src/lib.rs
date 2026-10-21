@@ -20,6 +20,7 @@ pub mod events;
 pub mod export;
 pub mod habits;
 pub mod ids;
+pub mod invest;
 pub mod loan_calc;
 pub mod money;
 pub mod notes;

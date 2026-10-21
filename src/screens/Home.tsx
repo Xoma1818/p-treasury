@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { CushionCard } from "../components/Cushion";
+import { InvestCard } from "../components/Invest";
 import { QuickEntry } from "../components/QuickEntry";
 import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
@@ -89,6 +90,7 @@ export function Home() {
           </div>
     ),
     cushion: <CushionCard />,
+    invest: <InvestCard />,
     templates: <TemplatesCard />,
     spend: <SpendCard />,
     main: (
@@ -108,7 +110,7 @@ export function Home() {
                     title="Перетащите на категорию в «Куда тратите», чтобы записать расход"
                   >
                     <span>{a.name}</span>
-                    <Money amount={a.balance} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
+                    <Money amount={a.value ?? a.balance} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
                   </li>
                 ))}
               </ul>

@@ -1,5 +1,5 @@
-//! Счета: наличные, карты, кредитки, вклады. Баланс не хранится, а считается
-//! из начального остатка и операций.
+//! Счета: наличные, карты, кредитки, вклады, брокерские счета. Баланс не
+//! хранится, а считается из начального остатка и операций.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use crate::error::invalid;
 use crate::{currencies, ids, time, Error, Result};
 
 /// Типы счетов, которые пользователь заводит сам (`debt` создаёт модуль долгов).
-pub const USER_TYPES: &[&str] = &["cash", "debit", "credit", "savings"];
+pub const USER_TYPES: &[&str] = &["cash", "debit", "credit", "savings", "investment"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +30,10 @@ pub struct Account {
     pub balance: i64,
     /// Для кредитной карты: лимит + баланс.
     pub available: Option<i64>,
+    /// Для брокерского счёта: `broker`, `iis` или `pds`.
+    pub invest_kind: Option<String>,
+    /// Для брокерского счёта: стоимость сейчас (последняя оценка плюс переводы после неё).
+    pub value: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,6 +47,9 @@ pub struct AccountInput {
     pub opening_date: String,
     pub credit_limit: Option<i64>,
     pub include_in_total: bool,
+    /// Только для брокерского счёта: `broker` (по умолчанию), `iis` или `pds`.
+    #[serde(default)]
+    pub invest_kind: Option<String>,
 }
 
 /// Баланс счёта на дату включительно (`None` — на все даты). Учитываются
@@ -69,17 +76,28 @@ pub fn balance(conn: &Connection, account_id: &str, on: Option<&str>) -> Result<
 
 const SELECT: &str =
     "SELECT a.id, a.name, a.type, a.currency_code, c.symbol, c.minor_units, a.opening_balance,
-        a.opening_date, a.credit_limit, a.include_in_total, a.sort_order, a.archived_at IS NOT NULL
+        a.opening_date, a.credit_limit, a.include_in_total, a.sort_order, a.archived_at IS NOT NULL,
+        a.invest_kind
  FROM accounts a JOIN currencies c ON c.code = a.currency_code";
 
 fn map(conn: &Connection, r: &rusqlite::Row) -> rusqlite::Result<Account> {
     let id: String = r.get(0)?;
     let kind: String = r.get(2)?;
     let credit_limit: Option<i64> = r.get(8)?;
-    let bal = balance(conn, &id, None).map_err(|e| match e {
+    let wrap = |e| match e {
         Error::Db(e) => e,
         other => rusqlite::Error::ToSqlConversionFailure(Box::new(other)),
-    })?;
+    };
+    let bal = balance(conn, &id, None).map_err(wrap)?;
+    let value = if kind == "investment" {
+        Some(
+            crate::invest::value_on(conn, &id, &time::today_local())
+                .map_err(wrap)?
+                .0,
+        )
+    } else {
+        None
+    };
     Ok(Account {
         available: (kind == "credit").then(|| credit_limit.unwrap_or(0) + bal),
         id,
@@ -94,7 +112,9 @@ fn map(conn: &Connection, r: &rusqlite::Row) -> rusqlite::Result<Account> {
         include_in_total: r.get(9)?,
         sort_order: r.get(10)?,
         archived: r.get(11)?,
+        invest_kind: r.get(12)?,
         balance: bal,
+        value,
     })
 }
 
@@ -116,14 +136,20 @@ pub fn get(conn: &Connection, id: &str) -> Result<Account> {
         .ok_or(Error::NotFound("счёт"))
 }
 
-fn validate(conn: &Connection, input: &AccountInput) -> Result<String> {
+fn validate(conn: &Connection, input: &AccountInput) -> Result<(String, Option<String>)> {
     let name = input.name.trim();
     if name.is_empty() {
         return invalid("укажите название счёта");
     }
     if !USER_TYPES.contains(&input.kind.as_str()) {
-        return invalid("тип счёта: наличные, карта, кредитная карта или вклад");
+        return invalid("тип счёта: наличные, карта, кредитная карта, вклад или брокерский счёт");
     }
+    let invest_kind = match (input.kind.as_str(), input.invest_kind.as_deref()) {
+        ("investment", None) => Some("broker".to_string()),
+        ("investment", Some(k)) if crate::invest::INVEST_KINDS.contains(&k) => Some(k.to_string()),
+        ("investment", Some(_)) => return invalid("вид счёта: брокерский, ИИС или ПДС"),
+        _ => None,
+    };
     currencies::get(conn, &input.currency_code)?;
     time::check_date(&input.opening_date)?;
     match (input.kind.as_str(), input.credit_limit) {
@@ -137,11 +163,11 @@ fn validate(conn: &Connection, input: &AccountInput) -> Result<String> {
     if input.kind != "credit" && input.opening_balance < 0 {
         return invalid("отрицательный остаток бывает только у кредитной карты");
     }
-    Ok(name.to_string())
+    Ok((name.to_string(), invest_kind))
 }
 
 pub fn create(conn: &Connection, input: &AccountInput) -> Result<String> {
-    let name = validate(conn, input)?;
+    let (name, invest_kind) = validate(conn, input)?;
     let id = ids::new_id();
     let now = time::now_utc();
     let order: i64 = conn.query_row(
@@ -151,8 +177,8 @@ pub fn create(conn: &Connection, input: &AccountInput) -> Result<String> {
     )?;
     conn.execute(
         "INSERT INTO accounts (id, name, type, currency_code, opening_balance, opening_date, credit_limit,
-                               include_in_total, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+                               include_in_total, sort_order, invest_kind, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
         params![
             id,
             name,
@@ -163,6 +189,7 @@ pub fn create(conn: &Connection, input: &AccountInput) -> Result<String> {
             input.credit_limit,
             input.include_in_total,
             order,
+            invest_kind,
             now
         ],
     )?;
@@ -172,7 +199,7 @@ pub fn create(conn: &Connection, input: &AccountInput) -> Result<String> {
 /// Изменить счёт. Валюту нельзя менять, если по счёту уже есть операции:
 /// суммы операций записаны в валюте счёта.
 pub fn update(conn: &Connection, id: &str, input: &AccountInput) -> Result<()> {
-    let name = validate(conn, input)?;
+    let (name, invest_kind) = validate(conn, input)?;
     let current = get(conn, id)?;
     if current.kind == "debt" {
         return invalid("служебный счёт долга меняется в разделе «Долги»");
@@ -189,7 +216,7 @@ pub fn update(conn: &Connection, id: &str, input: &AccountInput) -> Result<()> {
     }
     conn.execute(
         "UPDATE accounts SET name = ?2, type = ?3, currency_code = ?4, opening_balance = ?5, opening_date = ?6,
-                credit_limit = ?7, include_in_total = ?8, updated_at = ?9
+                credit_limit = ?7, include_in_total = ?8, invest_kind = ?10, updated_at = ?9
          WHERE id = ?1",
         params![
             id,
@@ -200,7 +227,8 @@ pub fn update(conn: &Connection, id: &str, input: &AccountInput) -> Result<()> {
             input.opening_date,
             input.credit_limit,
             input.include_in_total,
-            time::now_utc()
+            time::now_utc(),
+            invest_kind
         ],
     )?;
     Ok(())
@@ -270,7 +298,7 @@ pub struct Totals {
 }
 
 /// Общий баланс по всем открытым счетам в основной валюте по последнему
-/// известному курсу на дату.
+/// известному курсу на дату. Брокерские счета входят по стоимости.
 pub fn totals(conn: &Connection, on: &str) -> Result<Totals> {
     let base = currencies::base_currency(conn)?;
     let base_symbol = currencies::get(conn, &base)?.symbol;
@@ -280,7 +308,11 @@ pub fn totals(conn: &Connection, on: &str) -> Result<Totals> {
         .into_iter()
         .filter(|a| a.include_in_total)
     {
-        let bal = balance(conn, &a.id, Some(on))?;
+        let bal = if a.kind == "investment" {
+            crate::invest::value_on(conn, &a.id, on)?.0
+        } else {
+            balance(conn, &a.id, Some(on))?
+        };
         match currencies::convert(conn, bal, &a.currency_code, &base, on)? {
             Some(v) => total += v,
             None if !missing_rates.contains(&a.currency_code) => {
@@ -311,6 +343,7 @@ pub(crate) mod tests {
             opening_date: "2026-10-01".into(),
             credit_limit: None,
             include_in_total: true,
+            invest_kind: None,
         }
     }
 

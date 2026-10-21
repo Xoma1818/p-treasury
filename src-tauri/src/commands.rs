@@ -19,6 +19,7 @@ use budget_core::demo;
 use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
 use budget_core::habits::{self, WeekSummary};
+use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
@@ -610,6 +611,62 @@ pub fn update_asset(state: State<AppState>, id: String, input: AssetInput) -> Cm
 pub fn delete_asset(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление имущества", |c| {
         assets::delete(c, &id)
+    })
+}
+
+#[tauri::command]
+pub fn invest_overview(state: State<AppState>) -> CmdResult<invest::Overview> {
+    with_db(&state, |db| {
+        invest::overview(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command]
+pub fn invest_month(state: State<AppState>, month: String) -> CmdResult<MonthProgress> {
+    with_db(&state, |db| invest::month_progress(db.conn(), &month))
+}
+
+#[tauri::command]
+pub fn set_invest_value(
+    state: State<AppState>,
+    account_id: String,
+    date: String,
+    value: i64,
+) -> CmdResult<()> {
+    with_undo(&state, "Стоимость инвестиций", |c| {
+        invest::set_value(c, &account_id, &date, value)
+    })
+}
+
+#[tauri::command]
+pub fn delete_invest_value(
+    state: State<AppState>,
+    account_id: String,
+    date: String,
+) -> CmdResult<()> {
+    with_undo(&state, "Удаление оценки", |c| {
+        invest::delete_value(c, &account_id, &date)
+    })
+}
+
+/// План на инвестиции: общий на каждый месяц или, с `month`, только на этот месяц.
+#[tauri::command]
+pub fn set_invest_plan(
+    state: State<AppState>,
+    mode: String,
+    value: i64,
+    month: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "План инвестиций", |c| match &month {
+        Some(m) => invest::set_month_plan(c, m, &mode, value),
+        None => invest::set_plan(c, &mode, value),
+    })
+}
+
+#[tauri::command]
+pub fn clear_invest_month_plan(state: State<AppState>, month: String) -> CmdResult<()> {
+    with_undo(&state, "План инвестиций", |c| {
+        invest::clear_month_plan(c, &month)
     })
 }
 
