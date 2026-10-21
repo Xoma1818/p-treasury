@@ -54,6 +54,7 @@ fn account(name: &str, kind: &str, currency: &str, opening: i64, date: &str) -> 
         opening_date: date.into(),
         credit_limit: (kind == "credit").then_some(10_000_000),
         include_in_total: true,
+        invest_kind: None,
     }
 }
 
@@ -237,6 +238,48 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             ..Default::default()
         },
     )?;
+    // Инвестиции: ИИС, 10 % зарплаты каждый месяц, оценка и дивиденды.
+    let iis = accounts::create(
+        &tx,
+        &AccountInput {
+            invest_kind: Some("iis".into()),
+            ..account("ИИС", "investment", "RUB", 15_000_000, &opened)
+        },
+    )?;
+    for back in (0..=HISTORY_MONTHS).rev() {
+        let date = day(month_start(now, back), 6);
+        if date > now {
+            continue;
+        }
+        transactions::create(
+            &tx,
+            &TxnInput {
+                kind: "transfer".into(),
+                date: date.to_string(),
+                account_id: card.clone(),
+                amount: 850_000,
+                category_id: None,
+                to_account_id: Some(iis.clone()),
+                to_amount: None,
+                payee: None,
+                note: Some("На инвестиции".into()),
+            },
+        )?;
+    }
+    crate::invest::set_value(&tx, &iis, &month_start(now, 1).to_string(), 17_420_000)?;
+    crate::invest::set_plan(&tx, "percent", 10)?;
+    let div = day(month_start(now, 1), 18);
+    transactions::create(
+        &tx,
+        &mk(
+            "income",
+            div,
+            &card,
+            124_000,
+            "Дивиденды и купоны",
+            "Сбер (дивиденды)",
+        ),
+    )?;
     settings::set(&tx, "onboarding_done", "1")?;
     settings::set(&tx, "demo_data", "1")?;
     // В примере не напоминаем о резервной копии: беречь пока нечего.
@@ -382,6 +425,8 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
         "payee_rules",
         "asset_values",
         "assets",
+        "account_values",
+        "invest_month_plans",
         "events",
         "transactions",
         "debts",
@@ -395,6 +440,7 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
     settings::set(&tx, "base_currency", "RUB")?;
     settings::set(&tx, "onboarding_done", "0")?;
     settings::set(&tx, "demo_data", "0")?;
+    crate::invest::set_plan(&tx, "", 0)?;
     tx.execute(
         "UPDATE settings SET value = '' WHERE key = 'last_backup_at'",
         [],
@@ -414,7 +460,13 @@ mod tests {
         seed(db.conn_mut(), "2026-10-20").unwrap();
         let c = db.conn();
         assert!(onboarding::is_done(c).unwrap() && is_demo(c).unwrap());
-        assert_eq!(accounts::list(c, false).unwrap().len(), 5);
+        assert_eq!(accounts::list(c, false).unwrap().len(), 6);
+        let invest = crate::invest::overview(c, "2026-10-20").unwrap();
+        // 150 000 ₽ начального остатка и 4 взноса по 8 500 ₽.
+        assert_eq!(invest.invested, 18_400_000);
+        assert_eq!(invest.month.planned, Some(850_000));
+        assert_eq!(invest.month.percent, Some(100));
+        assert!(invest.tax.is_some() && invest.passive_income == 124_000);
         assert_eq!(
             crate::assets::total(c, "2026-10-20").unwrap().0,
             1_100_000_000

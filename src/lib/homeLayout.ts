@@ -3,6 +3,7 @@ export const HOME_BLOCKS = {
   quick: "Быстрый ввод",
   tiles: "Баланс и месяц",
   cushion: "Финансовая подушка",
+  invest: "Инвестиции",
   templates: "Шаблоны",
   spend: "Куда тратите",
   main: "Счета и последние операции",

@@ -46,7 +46,10 @@ export interface CbrImport {
   missing: string[];
 }
 
-export type AccountType = "cash" | "debit" | "credit" | "savings";
+export type AccountType = "cash" | "debit" | "credit" | "savings" | "investment";
+
+/** Вид брокерского счёта: обычный, ИИС или ПДС. */
+export type InvestKind = "broker" | "iis" | "pds";
 
 export interface Account {
   id: string;
@@ -63,6 +66,10 @@ export interface Account {
   archived: boolean;
   balance: number;
   available: number | null;
+  /** Для брокерского счёта. */
+  investKind: InvestKind | null;
+  /** Для брокерского счёта: сколько стоит сейчас. */
+  value: number | null;
 }
 
 export interface AccountInput {
@@ -73,6 +80,7 @@ export interface AccountInput {
   openingDate: string;
   creditLimit: number | null;
   includeInTotal: boolean;
+  investKind?: InvestKind | null;
 }
 
 export interface Totals {
@@ -446,6 +454,57 @@ export interface Cushion {
   monthsTenths: number | null;
   monthsCounted: number;
   goalMonths: number;
+  missingRates: string[];
+}
+
+export interface Valuation {
+  date: string;
+  value: number;
+}
+
+export type InvestPlanMode = "" | "amount" | "percent";
+
+export interface InvestMonth {
+  month: string;
+  start: string;
+  end: string;
+  /** onlyMonth — свой план только на этот месяц. */
+  plan: { mode: InvestPlanMode; value: number; onlyMonth: boolean };
+  /** План в основной валюте; для процента — от доходов месяца. */
+  planned: number | null;
+  income: number;
+  /** Отложено: переводы на брокерские счета минус выводы. */
+  saved: number;
+  percent: number | null;
+  missingRates: string[];
+}
+
+export interface InvestAccount {
+  id: string;
+  name: string;
+  investKind: InvestKind;
+  currencyCode: string;
+  currencySymbol: string;
+  minorUnits: number;
+  invested: number;
+  value: number;
+  result: number;
+  valuedOn: string | null;
+  history: Valuation[];
+}
+
+export interface InvestOverview {
+  baseCurrency: string;
+  baseSymbol: string;
+  accounts: InvestAccount[];
+  invested: number;
+  value: number;
+  result: number;
+  /** Результат в десятых процента: 67 = 6,7 %. */
+  resultTenths: number | null;
+  month: InvestMonth;
+  tax: { year: number; contributed: number; limit: number; left: number; deduction: number } | null;
+  passiveIncome: number;
   missingRates: string[];
 }
 
@@ -852,6 +911,13 @@ export const api = {
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
     invoke<number>("fill_budget", { budgetId, mode, categoryId }),
   cushion: () => invoke<Cushion>("cushion"),
+  investOverview: () => invoke<InvestOverview>("invest_overview"),
+  investMonth: (month: string) => invoke<InvestMonth>("invest_month", { month }),
+  setInvestValue: (accountId: string, date: string, value: number) => invoke<void>("set_invest_value", { accountId, date, value }),
+  deleteInvestValue: (accountId: string, date: string) => invoke<void>("delete_invest_value", { accountId, date }),
+  /** С `month` — план только на этот месяц, без — общий на каждый месяц. */
+  setInvestPlan: (mode: InvestPlanMode, value: number, month: string | null = null) => invoke<void>("set_invest_plan", { mode, value, month }),
+  clearInvestMonthPlan: (month: string) => invoke<void>("clear_invest_month_plan", { month }),
   reportFx: (from: string, to: string) => invoke<FxReport>("report_fx", { from, to }),
   listViews: (kind: ViewKind | null = null) => invoke<SavedView[]>("list_views", { kind }),
   createView: (name: string, kind: ViewKind, params: unknown) =>
@@ -933,6 +999,13 @@ export const ACCOUNT_TYPES: Record<AccountType, string> = {
   debit: "Карта",
   credit: "Кредитная карта",
   savings: "Вклад / сбережения",
+  investment: "Брокерский счёт / ИИС",
+};
+
+export const INVEST_KINDS: Record<InvestKind, string> = {
+  broker: "Брокерский счёт",
+  iis: "ИИС",
+  pds: "ПДС",
 };
 
 export const TXN_TYPES: Record<TxnType, string> = {

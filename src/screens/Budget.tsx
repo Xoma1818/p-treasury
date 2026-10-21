@@ -1,4 +1,6 @@
 import { EventsCard } from "../components/Events";
+import { InvestBudgetCard } from "../components/Invest";
+import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -51,6 +53,7 @@ export function Budget() {
       </div>
       {budget.error && <p className="error">{String(budget.error)}</p>}
       {b && (b.id ? <BudgetView key={b.id} b={b} /> : <NoBudget month={b.period.month} />)}
+      {month && b && !b.id && <InvestBudgetCard month={month} />}
       <EventsCard />
     </section>
   );
@@ -150,6 +153,7 @@ function BudgetView({ b }: { b: BudgetData }) {
         </div>
       </div>
 
+      <PlanFactCard b={b} minor={minor} />
       <Lines b={b} kind="expense" minor={minor} />
       <Lines b={b} kind="income" minor={minor} />
 

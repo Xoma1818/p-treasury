@@ -36,6 +36,7 @@ fn account(name: &str, kind: &str, currency: &str, opening: i64) -> AccountInput
         opening_date: begin().format("%Y-%m-%d").to_string(),
         credit_limit: None,
         include_in_total: true,
+        invest_kind: None,
     }
 }
 
