@@ -4,6 +4,15 @@ import { api, type ViewKind } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { ErrorText } from "./Modal";
 
+/** Параметры вида; повреждённый вид просто не применяется (ядро проверяет JSON при сохранении). */
+export function parseView<P>(params: string): P | null {
+  try {
+    return JSON.parse(params) as P;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Сохранённые виды над фильтрами: нажатие на ярлык применяет вид,
  * «☆ Сохранить вид» запоминает текущие настройки под именем.
@@ -18,11 +27,8 @@ export function SavedViews<P>({ kind, current, onApply }: { kind: ViewKind; curr
   });
   const remove = useAction(api.deleteView);
   const apply = (params: string) => {
-    try {
-      onApply(JSON.parse(params) as P);
-    } catch {
-      // Повреждённый вид просто не применяется: ядро проверяет JSON при сохранении.
-    }
+    const p = parseView<P>(params);
+    if (p) onApply(p);
   };
 
   return (

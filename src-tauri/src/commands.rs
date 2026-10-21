@@ -171,14 +171,33 @@ pub async fn load_cbr_rates(
     state: State<'_, AppState>,
     date: String,
 ) -> CmdResult<cbr::ImportResult> {
+    let daily = download_cbr(&date).await?;
+    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+}
+
+/// Курсы ЦБ раз в день сами: при запуске и пока программа открыта.
+/// `None` — выключено в Настройках или сегодня уже загружено. Без отмены (Ctrl+Z):
+/// это не действие пользователя.
+#[tauri::command]
+pub async fn auto_cbr_rates(
+    state: State<'_, AppState>,
+    date: String,
+) -> CmdResult<Option<cbr::ImportResult>> {
+    if !with_db(&state, |db| cbr::auto_due(db.conn(), &date))? {
+        return Ok(None);
+    }
+    let daily = download_cbr(&date).await?;
+    with_db(&state, |db| cbr::auto_import(db.conn(), &date, &daily)).map(Some)
+}
+
+async fn download_cbr(date: &str) -> CmdResult<cbr::Daily> {
     let base = std::env::var("PTREASURY_CBR_URL")
         .ok()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| cbr::DAILY_URL.to_string());
-    let url = cbr::daily_url(&base, &date).map_err(|e| e.to_string())?;
+    let url = cbr::daily_url(&base, date).map_err(|e| e.to_string())?;
     let bytes = fetch_cbr(&url).await?;
-    let daily = cbr::parse_daily(&bytes).map_err(|e| e.to_string())?;
-    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+    cbr::parse_daily(&bytes).map_err(|e| e.to_string())
 }
 
 async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {

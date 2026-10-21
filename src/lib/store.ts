@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Txn, TxnType } from "./api";
+import type { SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 
 /** Что подставить в новую операцию (например, из напоминания). */
@@ -39,6 +39,9 @@ interface UiState {
   /** Открыть карточку долга (и сразу отметку платежа) из напоминания или календаря. */
   debtJump: { id: string; pay: boolean } | null;
   openDebt: (id: string, pay?: boolean) => void;
+  /** Сохранённый вид, открытый из бокового меню: раздел применяет его и очищает. */
+  viewJump: SavedView | null;
+  openView: (v: SavedView) => void;
   /** Справка по горячим клавишам (F1). */
   help: boolean;
   setHelp: (open: boolean) => void;
@@ -54,6 +57,8 @@ export const useUi = create<UiState>((set) => ({
   openTxnForm: (txnForm) => set({ txnForm }),
   debtJump: null,
   openDebt: (id, pay = false) => set((s) => ({ debtJump: { id, pay }, section: "debts", visit: s.visit + 1 })),
+  viewJump: null,
+  openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1 })),
   help: false,
   setHelp: (help) => set({ help }),
 }));

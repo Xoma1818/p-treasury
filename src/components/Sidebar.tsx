@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Fragment, useState } from "react";
+import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, type Theme } from "../lib/theme";
@@ -35,6 +37,30 @@ function ThemeButton() {
   );
 }
 
+/** Сохранённые виды операций и отчётов: открываются одним нажатием из меню. */
+function NavViews() {
+  const views = useQuery({ queryKey: ["views", "all"], queryFn: () => api.listViews(null) }).data ?? [];
+  const openView = useUi((s) => s.openView);
+  if (views.length === 0) return null;
+  return (
+    <li className="nav-views" data-testid="nav-views">
+      <div className="nav-group">Мои виды</div>
+      <ul>
+        {views.map((v) => (
+          <li key={v.id}>
+            <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
+              <span className="nav-view-mark" aria-hidden="true">
+                ☆
+              </span>
+              {v.name}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
 export function Sidebar() {
   const { section, go, setHelp } = useUi();
   return (
@@ -45,20 +71,23 @@ export function Sidebar() {
       </div>
       <ul>
         {SECTIONS.map((s, i) => (
-          <li key={s.id} className={s.id === "settings" ? "nav-settings" : undefined}>
-            {s.group && SECTIONS[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
-            <button
-              className={s.id === section ? "nav-item active" : "nav-item"}
-              aria-current={s.id === section ? "page" : undefined}
-              onClick={() => go(s.id)}
-              title={i < 9 ? `${s.hint} · Ctrl+${i + 1}` : s.hint}
-              // Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки.
-              data-key={i < 9 ? i + 1 : undefined}
-            >
-              <SectionIcon id={s.id} />
-              {s.title}
-            </button>
-          </li>
+          <Fragment key={s.id}>
+            {s.id === "settings" && <NavViews />}
+            <li className={s.id === "settings" ? "nav-settings" : undefined}>
+              {s.group && SECTIONS[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
+              <button
+                className={s.id === section ? "nav-item active" : "nav-item"}
+                aria-current={s.id === section ? "page" : undefined}
+                onClick={() => go(s.id)}
+                title={i < 9 ? `${s.hint} · Ctrl+${i + 1}` : s.hint}
+                // Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки.
+                data-key={i < 9 ? i + 1 : undefined}
+              >
+                <SectionIcon id={s.id} />
+                {s.title}
+              </button>
+            </li>
+          </Fragment>
         ))}
       </ul>
       <div className="sidebar-foot">

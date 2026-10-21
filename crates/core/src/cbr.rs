@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::currencies::{self, base_currency};
 use crate::money::Rate;
-use crate::{time, Error, Result};
+use crate::{settings, time, Error, Result};
 
 /// Адрес ежедневных курсов; дата добавляется параметром `date_req=ДД/ММ/ГГГГ`.
 pub const DAILY_URL: &str = "https://www.cbr.ru/scripts/XML_daily.asp";
@@ -100,8 +100,11 @@ pub struct ImportResult {
     pub missing: Vec<String>,
 }
 
-/// Валюты, для которых нужен курс: валюты счетов и долгов и те, у которых уже
-/// есть хоть один курс, кроме основной.
+/// Основные валюты: их курс загружается всегда, даже без таких счетов.
+pub const MAIN_CURRENCIES: &[&str] = &["CNY", "EUR", "GBP", "RUB", "USD"];
+
+/// Валюты пользователя, которым нужен курс: валюты счетов и долгов и те, у
+/// которых уже есть хоть один курс, кроме основной.
 pub fn wanted_currencies(conn: &Connection) -> Result<Vec<String>> {
     let base = base_currency(conn)?;
     let mut stmt = conn.prepare(
@@ -139,10 +142,22 @@ pub fn import(conn: &Connection, daily: &Daily) -> Result<ImportResult> {
         result.missing.push(base);
         return Ok(result);
     };
-    for code in wanted_currencies(conn)? {
+    let own = wanted_currencies(conn)?;
+    let mut codes: Vec<String> = MAIN_CURRENCIES
+        .iter()
+        .map(|c| c.to_string())
+        .filter(|c| *c != base)
+        .chain(own.iter().cloned())
+        .collect();
+    codes.sort();
+    codes.dedup();
+    for code in codes {
         currencies::get(conn, &code)?;
         let Some(rate) = rub(&code).and_then(|r| r.divide(&base_rub)) else {
-            result.missing.push(code);
+            // Об отсутствии курса говорим только для валют пользователя.
+            if own.contains(&code) {
+                result.missing.push(code);
+            }
             continue;
         };
         let existing: Option<String> = conn
@@ -163,6 +178,20 @@ pub fn import(conn: &Connection, daily: &Daily) -> Result<ImportResult> {
         )?;
         result.updated.push(code);
     }
+    Ok(result)
+}
+
+/// Нужна ли автозагрузка курсов на дату: включена и сегодня ещё не было.
+pub fn auto_due(conn: &Connection, date: &str) -> Result<bool> {
+    let on = settings::get(conn, "rates_auto")?.as_deref() != Some("0");
+    let last = settings::get(conn, "rates_auto_date")?.unwrap_or_default();
+    Ok(on && last.as_str() < date)
+}
+
+/// Автозагрузка: записать курсы и запомнить дату, чтобы до завтра не повторять.
+pub fn auto_import(conn: &Connection, date: &str, daily: &Daily) -> Result<ImportResult> {
+    let result = import(conn, daily)?;
+    settings::set(conn, "rates_auto_date", date)?;
     Ok(result)
 }
 
@@ -235,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn imports_rates_for_user_currencies_only() {
+    fn imports_main_and_user_currencies() {
         let db = Storage::open_in_memory().unwrap();
         let c = db.conn();
         add_account(c, "RUB");
@@ -245,14 +274,14 @@ mod tests {
 
         let res = import(c, &daily).unwrap();
         assert_eq!(res.date, "2026-10-18");
-        assert_eq!(res.updated, vec!["USD"]);
+        // EUR — основная валюта, грузится без счёта; JPY не нужна никому.
+        assert_eq!(res.updated, vec!["EUR", "USD"]);
+        // GBP есть у пользователя, но её нет в ответе; про CNY не говорим.
         assert_eq!(res.missing, vec!["GBP"]);
         let rates = currencies::list_rates(c).unwrap();
-        assert_eq!(rates.len(), 1);
-        assert_eq!(
-            (rates[0].rate.as_str(), rates[0].source.as_str()),
-            ("92.15", "cbr")
-        );
+        assert_eq!(rates.len(), 2);
+        let usd = rates.iter().find(|r| r.from_code == "USD").unwrap();
+        assert_eq!((usd.rate.as_str(), usd.source.as_str()), ("92.15", "cbr"));
         assert_eq!(
             currencies::convert(c, 100, "USD", "RUB", "2026-10-20").unwrap(),
             Some(9_215)
@@ -262,7 +291,12 @@ mod tests {
         let mut next = daily.clone();
         next.rub_per_unit.insert("USD".into(), r("93"));
         import(c, &next).unwrap();
-        assert_eq!(currencies::list_rates(c).unwrap()[0].rate, "93");
+        let rates = currencies::list_rates(c).unwrap();
+        assert_eq!(rates.len(), 2);
+        assert_eq!(
+            rates.iter().find(|r| r.from_code == "USD").unwrap().rate,
+            "93"
+        );
     }
 
     #[test]
@@ -313,11 +347,27 @@ mod tests {
     }
 
     #[test]
-    fn nothing_to_do_without_foreign_currencies() {
+    fn main_currencies_without_foreign_accounts() {
         let db = Storage::open_in_memory().unwrap();
         let c = db.conn();
         add_account(c, "RUB");
         let res = import(c, &parse_daily(SAMPLE.as_bytes()).unwrap()).unwrap();
-        assert!(res.updated.is_empty() && res.missing.is_empty());
+        assert_eq!(res.updated, vec!["EUR", "USD"]);
+        assert!(res.missing.is_empty());
+    }
+
+    #[test]
+    fn auto_import_once_a_day_and_can_be_switched_off() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let daily = parse_daily(SAMPLE.as_bytes()).unwrap();
+        assert!(auto_due(c, "2026-10-20").unwrap());
+        auto_import(c, "2026-10-20", &daily).unwrap();
+        // Сегодня уже загружено, завтра снова.
+        assert!(!auto_due(c, "2026-10-20").unwrap());
+        assert!(auto_due(c, "2026-10-21").unwrap());
+        crate::settings::set(c, "rates_auto", "0").unwrap();
+        assert!(!auto_due(c, "2026-10-21").unwrap());
+        assert!(crate::settings::set(c, "rates_auto", "maybe").is_err());
     }
 }

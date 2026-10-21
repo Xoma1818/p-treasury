@@ -60,6 +60,11 @@ test("сохранённый вид отчёта открывает ту же в
   await browser.$('[data-testid="fx-report"]').waitForExist({ timeout: 5000, reverse: true });
   await click(browser, "Валюта", '//*[@data-testid="views-report"]');
   await browser.$('[data-testid="fx-report"]').waitForExist({ timeout: 5000 });
+  // Тот же вид открывается из бокового меню («Мои виды») из любого раздела.
+  await openSection(browser, "Главная");
+  await (await browser.$('//*[@data-testid="nav-views"]//button[contains(., "Валюта")]')).click();
+  await browser.$('//main//h1[normalize-space()="Отчёты"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('[data-testid="fx-report"]').waitForExist({ timeout: 5000 });
 });
 
 test("сохранённый вид операций: «Кафе» возвращает фильтр после сброса", async () => {
@@ -73,6 +78,11 @@ test("сохранённый вид операций: «Кафе» возвра�
   await browser.waitUntil(async () => (await (await browser.$('[name="filterCategory"]')).getValue()) === "", { timeout: 5000 });
   await click(browser, "Кафе", '//*[@data-testid="views-transactions"]');
   await browser.waitUntil(async () => (await (await browser.$('[name="filterCategory"]')).getValue()) !== "", { timeout: 5000 });
+  await waitText(browser, '[data-testid="txn-count"]', new RegExp(filtered.replace(/[()]/g, ".")));
+  // Из бокового меню: с Главной сразу в операции с этим фильтром.
+  await openSection(browser, "Главная");
+  await (await browser.$('//*[@data-testid="nav-views"]//button[contains(., "Кафе")]')).click();
+  await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', new RegExp(filtered.replace(/[()]/g, ".")));
   // Удаление вида.
   await (await browser.$('button[aria-label="Удалить вид «Кафе»"]')).click();

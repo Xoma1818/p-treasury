@@ -102,6 +102,7 @@ pub fn run() {
             commands::delete_rate,
             commands::rate_on,
             commands::load_cbr_rates,
+            commands::auto_cbr_rates,
             commands::finish_onboarding,
             commands::seed_demo,
             commands::clear_demo,
