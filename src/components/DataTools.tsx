@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type BackupInfo, type ImportPreview, type UpdateInfo } from "../lib/api";
+import { api, type ImportPreview, type UpdateInfo } from "../lib/api";
 import { formatDate, monthBounds, today } from "../lib/dates";
-import { baseName, CSV, DB, pickFolder, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
+import { baseName, CSV, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
 import { useAccounts, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, Field } from "./Fields";
@@ -211,106 +211,6 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Modal>
-  );
-}
-
-function when(iso: string | null) {
-  return iso ? `${formatDate(iso.slice(0, 10))} ${iso.slice(11, 16)}` : "ещё не было";
-}
-
-/** Резервные копии: ручная копия, восстановление, автокопия в папку. */
-export function BackupCard() {
-  const status = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus });
-  const setSetting = useAction(api.setSetting);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [restore, setRestore] = useState<BackupInfo | null>(null);
-  const s = status.data;
-
-  const backup = useAction(async () => {
-    const path = await pickSave(s?.defaultName ?? "p-treasury.db", [DB]);
-    if (!path) return;
-    await api.backupNow(path);
-    setMsg(`Копия сохранена: ${baseName(path)}`);
-  });
-  const chooseRestore = useAction(async () => {
-    const path = await pickOpen([DB]);
-    if (path) setRestore(await api.inspectBackup(path));
-  });
-  const doRestore = useAction(async () => {
-    await api.restoreBackup(restore!.path);
-    setRestore(null);
-    setMsg("Данные восстановлены из копии. Прежние данные сохранены в папке программы (backups).");
-  });
-  const folder = useAction(async () => {
-    const dir = await pickFolder();
-    if (dir) await api.setSetting("autobackup_dir", dir);
-  });
-
-  return (
-    <div className="card" data-testid="backup-card">
-      <h2>
-        Резервные копии
-        <Hint of="backups" />
-      </h2>
-      {s?.reminderDue && <p className="warn">Резервной копии давно не было. Сделайте копию или включите автокопию.</p>}
-      <dl className="facts">
-        <dt>Последняя копия</dt>
-        <dd data-testid="last-backup">{when(s?.lastBackupAt ?? null)}</dd>
-        <dt>Автокопия при закрытии</dt>
-        <dd data-testid="autobackup-dir">{s?.autobackupDir ? <span className="mono">{s.autobackupDir}</span> : "выключена"}</dd>
-      </dl>
-      <div className="btn-group">
-        <button className="btn primary" onClick={() => backup.run()}>
-          Сделать копию
-        </button>
-        <button className="btn" onClick={() => chooseRestore.run()}>
-          Восстановить из копии
-        </button>
-        <button className="btn" onClick={() => folder.run()}>
-          {s?.autobackupDir ? "Сменить папку автокопий" : "Включить автокопию"}
-        </button>
-        {s?.autobackupDir && (
-          <>
-            <select name="autobackupKeep" aria-label="Сколько копий хранить" value={s.autobackupKeep} onChange={(e) => setSetting.run("autobackup_keep", e.target.value)}>
-              {[3, 5, 10, 20, 30].map((n) => (
-                <option key={n} value={String(n)}>
-                  хранить {n}
-                </option>
-              ))}
-            </select>
-            <button className="link" onClick={() => setSetting.run("autobackup_dir", "")}>
-              Выключить
-            </button>
-          </>
-        )}
-      </div>
-      <p className="hint">Автокопия делается при выходе из приложения. Папку можно выбрать на Яндекс.Диске: копии сами попадут в облако.</p>
-      {msg && (
-        <p className="ok" data-testid="backup-msg">
-          {msg}
-        </p>
-      )}
-      <ErrorText error={backup.error ?? chooseRestore.error ?? folder.error ?? setSetting.error} />
-      {restore && (
-        <Modal title="Восстановить из копии?" onClose={() => setRestore(null)}>
-          <p>
-            В копии: счетов {restore.accounts}, операций {restore.transactions}
-            {restore.lastDate && `, последняя операция ${formatDate(restore.lastDate)}`}.
-          </p>
-          <p className="muted">Текущие данные заменятся данными из копии. Перед этим они сохранятся отдельной копией в папке программы.</p>
-          <ErrorText error={doRestore.error} />
-          <div className="actions">
-            <span className="spacer" />
-            <button className="btn" onClick={() => setRestore(null)}>
-              Отмена
-            </button>
-            <button className="btn primary" onClick={() => doRestore.run()} disabled={doRestore.busy}>
-              Восстановить
-            </button>
-          </div>
-        </Modal>
-      )}
-    </div>
   );
 }
 

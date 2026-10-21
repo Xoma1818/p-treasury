@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
-import { BackupCard, ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
+import { ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
+import { VaultCard } from "../components/Vault";
 import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -146,7 +147,7 @@ export function Settings() {
       {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
 
-      <BackupCard />
+      <VaultCard />
       <BudgetFilesCard />
       <UpdatesCard />
 

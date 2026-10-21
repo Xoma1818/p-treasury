@@ -19,7 +19,8 @@ export const XLSX: Filter = { name: "Книга Excel", extensions: ["xlsx"] };
 export const CSV: Filter = { name: "CSV (разделитель ;)", extensions: ["csv"] };
 export const STATEMENT: Filter = { name: "Выписка банка или CSV", extensions: ["pdf", "csv", "xlsx", "xls"] };
 export const PNG: Filter = { name: "Картинка PNG", extensions: ["png"] };
-export const DB: Filter = { name: "Копия P-Treasury", extensions: ["db"] };
+export const DB: Filter = { name: "Копия P-Treasury", extensions: ["db", "ptreasury"] };
+export const TRANSFER: Filter = { name: "Копия P-Treasury или «Все данные»", extensions: ["ptreasury", "db", "xlsx"] };
 
 /** Куда сохранить файл; `null`, если пользователь передумал. */
 export async function pickSave(defaultPath: string, filters: Filter[]): Promise<string | null> {

@@ -808,6 +808,34 @@ export interface BackupStatus {
   defaultName: string;
 }
 
+/** Папка сохранности: копия базы, прошлые копии и Excel-зеркало. */
+export interface VaultStatus {
+  on: boolean;
+  dir: string;
+  defaultDir: string;
+  custom: boolean;
+  syncedAt: string | null;
+  error: string | null;
+  keep: string;
+}
+
+export interface VaultPlace {
+  label: string;
+  path: string;
+}
+
+/** Данные, найденные для переноса: копия `.ptreasury` или «Все данные.xlsx». */
+export interface VaultFound {
+  path: string;
+  name: string;
+  kind: "copy" | "excel";
+  accounts: number;
+  transactions: number;
+  lastDate: string | null;
+  savedAt: string | null;
+  folder: string | null;
+}
+
 export interface BackupInfo {
   path: string;
   schemaVersion: number;
@@ -1090,6 +1118,14 @@ export const api = {
   backupNow: (path: string) => invoke<void>("backup_now", { path }),
   inspectBackup: (path: string) => invoke<BackupInfo>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<string>("restore_backup", { path }),
+  vaultStatus: () => invoke<VaultStatus>("vault_status"),
+  vaultSync: () => invoke<VaultStatus>("vault_sync"),
+  vaultPlaces: () => invoke<VaultPlace[]>("vault_places"),
+  setVaultDir: (path: string | null) => invoke<VaultStatus>("set_vault_dir", { path }),
+  vaultScan: (dirs?: string[]) => invoke<VaultFound[]>("vault_scan", { dirs: dirs ?? null }),
+  vaultInspect: (path: string) => invoke<VaultFound>("vault_inspect", { path }),
+  vaultTransfer: (found: VaultFound) => invoke<string>("vault_transfer", { found }),
+  openFolder: (path: string) => invoke<void>("open_folder", { path }),
   checkUpdate: () => invoke<UpdateInfo>("check_update"),
   installUpdate: () => invoke<void>("install_update"),
   changelog: () => invoke<string>("changelog"),

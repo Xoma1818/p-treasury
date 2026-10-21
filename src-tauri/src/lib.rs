@@ -2,6 +2,7 @@ mod background;
 mod commands;
 mod files;
 mod quick_window;
+mod vault;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -19,6 +20,8 @@ pub struct AppState {
     pub undo: Mutex<budget_core::undo::Journal>,
     /// Переносная версия: данные в папке `data` рядом с программой.
     pub portable: bool,
+    /// Папка сохранности по умолчанию (`Документы\P-Treasury`).
+    pub vault_default: PathBuf,
 }
 
 impl AppState {
@@ -46,6 +49,7 @@ pub fn run() {
         .plugin(quick_window::plugin())
         .setup(|app| {
             let portable = files::portable_dir();
+            let test_dir = data_dir_override().is_some();
             let data_dir = match (data_dir_override(), &portable) {
                 (Some(dir), _) => dir,
                 (None, Some(dir)) => dir.clone(),
@@ -56,6 +60,12 @@ pub fn run() {
                 data_dir: data_dir.clone(),
                 undo: Mutex::default(),
                 portable: portable.is_some(),
+                vault_default: vault::default_dir(
+                    app.handle(),
+                    &data_dir,
+                    test_dir,
+                    portable.is_some(),
+                ),
             };
             let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
@@ -88,7 +98,7 @@ pub fn run() {
                 } else {
                     // Окно закрывается вместе с приложением: копия сейчас, пока
                     // процесс точно жив (до события выхода дело может не дойти).
-                    background::autobackup_on_exit(w.app_handle());
+                    vault::sync_on_exit(w.app_handle());
                 }
             }
         })
@@ -215,6 +225,14 @@ pub fn run() {
             commands::backup_now,
             commands::inspect_backup,
             commands::restore_backup,
+            vault::vault_status,
+            vault::vault_sync,
+            vault::vault_places,
+            vault::set_vault_dir,
+            vault::vault_scan,
+            vault::vault_inspect,
+            vault::vault_transfer,
+            vault::open_folder,
             commands::check_update,
             commands::install_update,
             commands::changelog,
@@ -241,9 +259,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("не удалось запустить приложение")
         .run(|app, event| {
-            // Автокопия при закрытии приложения (из трея «Выход» или закрытием окна).
+            // Папка сохранности при закрытии приложения (из трея «Выход» или закрытием окна).
             if let tauri::RunEvent::Exit = event {
-                background::autobackup_on_exit(app);
+                vault::sync_on_exit(app);
             }
         });
 }

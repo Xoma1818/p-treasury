@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
+import { TransferDialog } from "../components/Vault";
 import { api, type AccountType } from "../lib/api";
 import { today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
@@ -27,6 +29,9 @@ export function Onboarding() {
   const [defaults, setDefaults] = useState(true);
   const finish = useAction(api.finishOnboarding);
   const demo = useAction(api.seedDemo);
+  // Папка сохранности со старого компьютера (Документы, облака) — ищем сразу.
+  const found = useQuery({ queryKey: ["vaultScan"], queryFn: () => api.vaultScan() }).data ?? [];
+  const [transfer, setTransfer] = useState(false);
 
   const update = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const minorOf = (code: string) => currencies.find((c) => c.code === code)?.minorUnits ?? 2;
@@ -57,6 +62,20 @@ export function Onboarding() {
 
         {step === 1 && (
           <>
+            <div className={found.length ? "demo-offer transfer-offer found" : "demo-offer transfer-offer"} data-testid="transfer-offer">
+              <div>
+                <b>Есть данные с другого компьютера?</b>
+                <div className="hint">
+                  {found.length
+                    ? `Нашлась папка сохранности: ${found[0].name}, операций ${found[0].transactions.toLocaleString("ru-RU")}. Перенесите её, и всё будет как на старом компьютере.`
+                    : "Скопируйте папку P-Treasury со старого компьютера в «Документы» или покажите её, и всё будет на месте."}
+                </div>
+              </div>
+              <button className={found.length ? "btn primary" : "btn"} onClick={() => setTransfer(true)}>
+                Перенести данные
+              </button>
+            </div>
+            {transfer && <TransferDialog fresh onClose={() => setTransfer(false)} />}
             <h1>Основная валюта</h1>
             <p className="muted">В ней считаются общий баланс, бюджеты и отчёты. Счета могут быть в любых валютах.</p>
             <Field label="Основная валюта">

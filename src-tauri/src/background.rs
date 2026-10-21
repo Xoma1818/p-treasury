@@ -53,6 +53,8 @@ fn tick(app: &AppHandle) {
     {
         scan_folder(app);
         upcoming_payments(app);
+        // Папка сохранности раз в день (первый раз — вскоре после запуска).
+        crate::vault::sync(&app.state::<AppState>(), true);
     }
     let state = app.state::<AppState>();
     let due = {
@@ -250,19 +252,4 @@ pub fn hide_instead_of_close(window: &WebviewWindow) -> bool {
     };
     let Ok(db) = guard.as_ref() else { return false };
     matches!(settings::get(db.conn(), "close_to_tray"), Ok(Some(v)) if v == "1")
-}
-
-/// Автокопия в выбранную папку при выходе; ошибка не мешает закрыться.
-/// Делается один раз: и закрытие окна, и событие выхода вызывают её.
-pub fn autobackup_on_exit(app: &AppHandle) {
-    static DONE: AtomicBool = AtomicBool::new(false);
-    if DONE.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    let state = app.state::<AppState>();
-    let Ok(guard) = state.db.lock() else { return };
-    let Ok(db) = guard.as_ref() else { return };
-    if let Err(e) = budget_core::backups::autobackup(db.conn()) {
-        eprintln!("автокопия не сделана: {e}");
-    }
 }
