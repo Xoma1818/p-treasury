@@ -259,7 +259,12 @@ impl Pdf {
         });
         let w: Vec<Object> = widths
             .iter()
-            .flat_map(|(g, w)| [Object::Integer(*g as i64), vec![Object::Integer(*w as i64)].into()])
+            .flat_map(|(g, w)| {
+                [
+                    Object::Integer(*g as i64),
+                    vec![Object::Integer(*w as i64)].into(),
+                ]
+            })
             .collect();
         let cid_id = doc.add_object(dictionary! {
             "Type" => "Font",

@@ -246,10 +246,7 @@ fn terms_lines(doc: &ScheduleDoc, symbol: &str) -> Vec<(String, String)> {
         "Тип платежей".into(),
         repayment_title(&t.repayment_type).into(),
     ));
-    out.push((
-        "Проценты".into(),
-        method_title(&t.interest_method).into(),
-    ));
+    out.push(("Проценты".into(), method_title(&t.interest_method).into()));
     out.push(("Дата выдачи".into(), ru_date(&t.issue_date)));
     if t.repayment_type != "bullet" {
         if let Some(f) = &t.first_payment_date {
@@ -373,8 +370,13 @@ impl Layout {
         self.pdf.fill(x0, self.y, width, ROW_H + 4.0, 0.9);
         let mut x = x0;
         for (title, w) in COLUMNS {
-            self.pdf
-                .text(x + w / 2.0, self.y + ROW_H - 1.0, TABLE_SIZE, Align::Center, title);
+            self.pdf.text(
+                x + w / 2.0,
+                self.y + ROW_H - 1.0,
+                TABLE_SIZE,
+                Align::Center,
+                title,
+            );
             x += w;
         }
         self.y += ROW_H + 4.0;
@@ -400,7 +402,9 @@ impl Layout {
                 0 | 1 | 6 => self
                     .pdf
                     .text(x + w / 2.0, base, TABLE_SIZE, Align::Center, text),
-                _ => self.pdf.text(x + w - 4.0, base, TABLE_SIZE, Align::Right, text),
+                _ => self
+                    .pdf
+                    .text(x + w - 4.0, base, TABLE_SIZE, Align::Right, text),
             }
             x += w;
         }
@@ -483,7 +487,10 @@ pub fn schedule_pdf(doc: &ScheduleDoc) -> Result<Vec<u8>> {
     );
     l.line(
         9.5,
-        &format!("Переплата (проценты): {} {symbol}", money(doc.totals.overpayment)),
+        &format!(
+            "Переплата (проценты): {} {symbol}",
+            money(doc.totals.overpayment)
+        ),
     );
     if !doc.totals.maturity_date.is_empty() {
         l.line(
@@ -492,7 +499,10 @@ pub fn schedule_pdf(doc: &ScheduleDoc) -> Result<Vec<u8>> {
         );
     }
     l.y += 8.0;
-    l.line(9.5, &format!("Дата составления: {}", ru_date(&doc.created_on)));
+    l.line(
+        9.5,
+        &format!("Дата составления: {}", ru_date(&doc.created_on)),
+    );
     if doc.with_signatures {
         // Обе подписи на одной странице.
         if l.y + 70.0 > l.bottom() {
@@ -501,12 +511,18 @@ pub fn schedule_pdf(doc: &ScheduleDoc) -> Result<Vec<u8>> {
         l.y += 20.0;
         l.line(
             10.0,
-            &format!("Займодавец ____________________ / {} /", side(&doc.lender_name)),
+            &format!(
+                "Займодавец ____________________ / {} /",
+                side(&doc.lender_name)
+            ),
         );
         l.y += 14.0;
         l.line(
             10.0,
-            &format!("Заёмщик ____________________ / {} /", side(&doc.borrower_name)),
+            &format!(
+                "Заёмщик ____________________ / {} /",
+                side(&doc.borrower_name)
+            ),
         );
     }
     let pages = l.pdf.page_count();

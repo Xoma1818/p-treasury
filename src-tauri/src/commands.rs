@@ -28,6 +28,7 @@ use budget_core::goals::{self, Goal, GoalInput};
 use budget_core::habits::{self, WeekSummary};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
+use budget_core::loan_export;
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
 use budget_core::quick::{self, Draft};
@@ -917,6 +918,133 @@ pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdRes
     with_undo(&state, "Удаление платежа", |c| {
         debts::delete_payment(c, &payment_id)
     })
+}
+
+// --- Займы 0.17: условия, ставка, каникулы, досрочки, история, выгрузка ---
+
+#[tauri::command(async)]
+pub fn plan_loan(input: loan_calc::CalcInput) -> CmdResult<loan_calc::CalcResult> {
+    loan_calc::plan(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn update_debt_terms(
+    state: State<AppState>,
+    id: String,
+    input: debts::TermsInput,
+) -> CmdResult<()> {
+    with_undo(
+        &state,
+        "Изменение условий займа",
+        |c| debts::update_terms(c, &id, &input),
+    )
+}
+
+#[tauri::command(async)]
+pub fn add_debt_rate_change(
+    state: State<AppState>,
+    id: String,
+    input: loan_calc::RateChangeInput,
+) -> CmdResult<String> {
+    with_undo(&state, "Изменение ставки", |c| {
+        debts::add_rate_change(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_debt_rate_change(state: State<AppState>, rate_change_id: String) -> CmdResult<()> {
+    with_undo(
+        &state,
+        "Отмена изменения ставки",
+        |c| debts::delete_rate_change(c, &rate_change_id),
+    )
+}
+
+#[tauri::command(async)]
+pub fn add_debt_holiday(
+    state: State<AppState>,
+    id: String,
+    input: loan_calc::HolidayInput,
+) -> CmdResult<String> {
+    with_undo(&state, "Кредитные каникулы", |c| {
+        debts::add_holiday(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_debt_holiday(state: State<AppState>, holiday_id: String) -> CmdResult<()> {
+    with_undo(&state, "Отмена каникул", |c| {
+        debts::delete_holiday(c, &holiday_id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_debt_planned_early(
+    state: State<AppState>,
+    id: String,
+    list: Vec<loan_calc::PlannedEarlyInput>,
+) -> CmdResult<()> {
+    with_undo(&state, "Плановые досрочки", |c| {
+        debts::set_planned_early(c, &id, &list)
+    })
+}
+
+#[tauri::command(async)]
+pub fn quote_debt_payment(
+    state: State<AppState>,
+    id: String,
+    input: debts::QuoteInput,
+) -> CmdResult<debts::Quote> {
+    with_db(&state, |db| debts::quote_payment(db.conn(), &id, &input))
+}
+
+#[tauri::command(async)]
+pub fn debt_forecast(state: State<AppState>, id: String) -> CmdResult<debts::Forecast> {
+    with_db(&state, |db| {
+        debts::forecast(db.conn(), &id, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
+pub fn debt_versions(state: State<AppState>, id: String) -> CmdResult<debts::Versions> {
+    with_db(&state, |db| debts::versions(db.conn(), &id))
+}
+
+#[tauri::command(async)]
+pub fn debt_schedule_doc(
+    state: State<AppState>,
+    id: String,
+    with_forecast: bool,
+) -> CmdResult<loan_export::ScheduleDoc> {
+    with_db(&state, |db| {
+        debts::schedule_doc(db.conn(), &id, &time::today_local(), with_forecast)
+    })
+}
+
+#[tauri::command(async)]
+pub fn calc_schedule_doc(
+    state: State<AppState>,
+    input: loan_calc::CalcInput,
+    currency_code: Option<String>,
+) -> CmdResult<loan_export::ScheduleDoc> {
+    with_db(&state, |db| {
+        loan_export::calc_schedule_doc(
+            db.conn(),
+            &input,
+            currency_code.as_deref().unwrap_or("RUB"),
+            &time::today_local(),
+        )
+    })
+}
+
+#[tauri::command(async)]
+pub fn export_schedule_xlsx(path: String, doc: loan_export::ScheduleDoc) -> CmdResult<()> {
+    loan_export::export_schedule_xlsx(Path::new(&path), &doc).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn export_schedule_pdf(path: String, doc: loan_export::ScheduleDoc) -> CmdResult<()> {
+    loan_export::export_schedule_pdf(Path::new(&path), &doc).map_err(|e| e.to_string())
 }
 
 // --- Шаблоны операций ---

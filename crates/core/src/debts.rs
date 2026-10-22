@@ -635,12 +635,19 @@ fn simulate_debt(conn: &Connection, t: &Terms) -> Result<Sim> {
 fn rebuild(conn: &Connection, debt_id: &str) -> Result<()> {
     let t = terms(conn, debt_id)?;
     let sim = simulate_debt(conn, &t)?;
-    let left = sim.outstanding;
+    let lines: Vec<(&Row, &str)> = sim
+        .rows
+        .iter()
+        .map(|l| (&l.row, l.status.as_str()))
+        .collect();
+    write_schedule(conn, &t, &lines, sim.outstanding)
+}
 
+/// Записать строки графика и состояние долга.
+fn write_schedule(conn: &Connection, t: &Terms, lines: &[(&Row, &str)], left: i64) -> Result<()> {
+    let debt_id = t.id.as_str();
     // Запись по номеру строки: id сохраняются (на них ссылаются платежи и напоминания).
-    for l in &sim.rows {
-        let r = &l.row;
-        let status = l.status.as_str();
+    for (r, status) in lines {
         let changed = conn.execute(
             "UPDATE debt_schedule SET due_date = ?3, payment = ?4, principal_part = ?5, interest_part = ?6,
                     balance_after = ?7, status = ?8
@@ -656,16 +663,15 @@ fn rebuild(conn: &Connection, debt_id: &str) -> Result<()> {
             )?;
         }
     }
-    let max_seq = sim.rows.iter().map(|l| l.row.seq).max().unwrap_or(0);
+    let max_seq = lines.iter().map(|l| l.0.seq).max().unwrap_or(0);
     conn.execute(
         "DELETE FROM debt_schedule WHERE debt_id = ?1 AND seq > ?2",
         params![debt_id, max_seq],
     )?;
 
-    let maturity = sim
-        .rows
+    let maturity = lines
         .last()
-        .map(|l| l.row.due_date.clone())
+        .map(|l| l.0.due_date.clone())
         .unwrap_or(t.maturity_date.clone());
     let closed_at: Option<String> = if left == 0 {
         conn.query_row(
@@ -1033,10 +1039,19 @@ fn rate_text(bp: i64) -> String {
 /// Сумма для людей: «50 000 ₽».
 fn money(conn: &Connection, t: &Terms, v: i64) -> Result<String> {
     let c = currencies::get(conn, &t.currency_code)?;
-    Ok(format!("{} {}", format_amount(v, c.minor_units, true), c.symbol))
+    Ok(format!(
+        "{} {}",
+        format_amount(v, c.minor_units, true),
+        c.symbol
+    ))
 }
 
-fn payment_reason(conn: &Connection, t: &Terms, input: &PaymentInput, mode: &str) -> Result<String> {
+fn payment_reason(
+    conn: &Connection,
+    t: &Terms,
+    input: &PaymentInput,
+    mode: &str,
+) -> Result<String> {
     let total = money(conn, t, input.principal + input.interest)?;
     let date = ru_date(&input.date);
     Ok(if input.schedule_id.is_some() {
@@ -1242,7 +1257,10 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
             money(conn, &t, principal_paid)?
         ));
     }
-    if first_paid.as_deref().is_some_and(|d| d < input.issue_date.as_str()) {
+    if first_paid
+        .as_deref()
+        .is_some_and(|d| d < input.issue_date.as_str())
+    {
         return invalid("дата выдачи позже первого платежа");
     }
     if bullet && !holidays(conn, debt_id)?.is_empty() {
@@ -1301,7 +1319,11 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
         ));
     }
     if method != t.method {
-        parts.push(format!("проценты {} → {}", t.method.title(), method.title()));
+        parts.push(format!(
+            "проценты {} → {}",
+            t.method.title(),
+            method.title()
+        ));
     }
     if bullet && t.repayment == Repayment::Bullet && schedule.maturity_date != t.maturity_date {
         parts.push(format!(
@@ -1315,7 +1337,11 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
     }
 
     let tx = conn.transaction()?;
-    snapshot(&tx, debt_id, &format!("Изменены условия: {}", parts.join(", ")))?;
+    snapshot(
+        &tx,
+        debt_id,
+        &format!("Изменены условия: {}", parts.join(", ")),
+    )?;
     let now = time::now_utc();
     tx.execute(
         "UPDATE debts SET principal = ?2, issue_date = ?3, rate_bp = ?4, repayment_type = ?5, frequency = ?6,
@@ -1368,7 +1394,11 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
 }
 
 /// Новая ставка с даты.
-pub fn add_rate_change(conn: &mut Connection, debt_id: &str, input: &RateChangeInput) -> Result<String> {
+pub fn add_rate_change(
+    conn: &mut Connection,
+    debt_id: &str,
+    input: &RateChangeInput,
+) -> Result<String> {
     let t = terms(conn, debt_id)?;
     let rc = input.parse()?;
     if rc.from.to_string() < t.issue_date {
@@ -1405,7 +1435,10 @@ pub fn delete_rate_change(conn: &mut Connection, rate_change_id: &str) -> Result
         &debt_id,
         &format!("Отменено изменение ставки с {}", ru_date(&from)),
     )?;
-    tx.execute("DELETE FROM debt_rate_changes WHERE id = ?1", [rate_change_id])?;
+    tx.execute(
+        "DELETE FROM debt_rate_changes WHERE id = ?1",
+        [rate_change_id],
+    )?;
     rebuild(&tx, &debt_id)?;
     tx.commit()?;
     Ok(())
@@ -1501,7 +1534,10 @@ pub fn set_planned_early(
         format!("Плановые досрочки: {}", list.len())
     };
     snapshot(&tx, debt_id, &reason)?;
-    tx.execute("DELETE FROM debt_planned_early WHERE debt_id = ?1", [debt_id])?;
+    tx.execute(
+        "DELETE FROM debt_planned_early WHERE debt_id = ?1",
+        [debt_id],
+    )?;
     insert_planned(&tx, debt_id, list)?;
     tx.commit()?;
     Ok(())
@@ -1701,7 +1737,7 @@ mod tests {
     use super::*;
     use crate::accounts::tests::input;
     use crate::storage::Storage;
-    use crate::{reports, transactions};
+    use crate::{reports, settings, transactions};
 
     struct Fx {
         db: Storage,
@@ -2160,6 +2196,533 @@ mod tests {
                 .all(|a| a.kind != "debt"),
             "служебный счёт скрыт"
         );
+    }
+
+    /// Баланс служебного счёта всегда равен остатку основного долга (со знаком).
+    fn assert_balance_matches(f: &Fx, id: &str) {
+        let d = f.detail(id);
+        let sign = if d.card.direction == "lent" { 1 } else { -1 };
+        assert_eq!(
+            f.balance(&d.card.account_id),
+            sign * d.card.outstanding,
+            "служебный счёт = остаток"
+        );
+        let pending: i64 = d
+            .schedule
+            .iter()
+            .filter(|r| r.status == "pending")
+            .map(|r| r.principal_part)
+            .sum();
+        if d.card.repayment_type != "bullet" || d.card.outstanding > 0 {
+            assert_eq!(pending, d.card.outstanding, "график покрывает остаток");
+        }
+    }
+
+    fn terms_of(d: &DebtDetail) -> TermsInput {
+        TermsInput {
+            principal: d.card.principal,
+            issue_date: d.card.issue_date.clone(),
+            rate_bp: d.card.rate_bp,
+            repayment_type: d.card.repayment_type.clone(),
+            term_months: d.card.term_months,
+            first_payment_date: d.card.first_payment_date.clone(),
+            maturity_date: Some(d.card.maturity_date.clone()),
+            interest_method: d.card.interest_method.clone(),
+        }
+    }
+
+    #[test]
+    fn new_debts_count_interest_by_days() {
+        let mut f = Fx::new();
+        let card = f.card.clone();
+        let mut input = loan(
+            "borrowed",
+            "Банк",
+            30_000_000,
+            1200,
+            "annuity",
+            Some(24),
+            None,
+            Some(card),
+        );
+        input.interest_method = None;
+        let id = create(f.c(), &input).unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.card.interest_method, "daily");
+        // 300 000 × 12 % × 31 / 365 = 3 057,53 ₽.
+        assert_eq!(d.schedule[0].interest_part, 305_753);
+        assert_eq!(d.schedule.last().unwrap().balance_after, 0);
+        let v = versions(f.db.conn(), &id).unwrap();
+        assert_eq!(v.versions.len(), 1);
+        assert_eq!(v.versions[0].reason, "Заём записан");
+        assert_eq!(v.versions[0].rows.len(), 24);
+        assert_eq!(v.savings, 0);
+    }
+
+    #[test]
+    fn update_terms_moves_issue_and_keeps_balance() {
+        let mut f = Fx::new();
+        let id = f.credit();
+        f.pay(&id, "2026-11-15", 1_047_723, 450_000, true, None)
+            .unwrap();
+        assert_balance_matches(&f, &id);
+        let before_card = f.balance(&f.card);
+        let mut t = terms_of(&f.detail(&id));
+        // Меньше уже возвращённого нельзя.
+        t.principal = 1_000_000;
+        assert!(update_terms(f.c(), &id, &t).is_err());
+        // Ставка 18 → 12 %, сумма 350 000, выдача на день раньше.
+        t.principal = 35_000_000;
+        t.rate_bp = 1200;
+        t.issue_date = "2026-10-14".into();
+        let mut journal = crate::undo::Journal::default();
+        journal
+            .record(f.c(), "Изменение условий", |c| {
+                update_terms(c, &id, &t)
+            })
+            .unwrap();
+        let d = f.detail(&id);
+        assert_eq!((d.card.principal, d.card.rate_bp), (35_000_000, 1200));
+        assert_eq!(d.card.outstanding, 35_000_000 - 1_047_723);
+        assert_eq!(
+            f.balance(&f.card),
+            before_card + 5_000_000,
+            "операция выдачи изменилась"
+        );
+        let issue_date: String =
+            f.db.conn()
+                .query_row(
+                    "SELECT date FROM transactions WHERE debt_id = ?1 AND note = 'Получение долга'",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        assert_eq!(issue_date, "2026-10-14");
+        // Платёж прежний, а строка по новым условиям больше: отмечена частично.
+        assert_eq!(
+            d.schedule[0].status, "partial",
+            "оплаченная строка на месте"
+        );
+        assert_balance_matches(&f, &id);
+        let v = versions(f.db.conn(), &id).unwrap();
+        assert_eq!(v.versions.len(), 3, "создание, платёж, условия");
+        let plain = |s: &str| s.replace('\u{a0}', " ");
+        assert!(
+            plain(&v.versions[1].reason).starts_with("Платёж 14 977,23 ₽ 15.11.2026"),
+            "{}",
+            v.versions[1].reason
+        );
+        let reason = &plain(&v.versions[2].reason);
+        assert!(reason.contains("ставка 18 → 12 %"), "{reason}");
+        assert!(reason.contains("сумма 300 000 ₽ → 350 000 ₽"), "{reason}");
+        // Отмена возвращает условия, операцию и снимки.
+        journal.undo(f.db.conn()).unwrap();
+        let d = f.detail(&id);
+        assert_eq!((d.card.principal, d.card.rate_bp), (30_000_000, 1800));
+        assert_eq!(f.balance(&f.card), before_card);
+        assert_eq!(versions(f.db.conn(), &id).unwrap().versions.len(), 2);
+        assert_balance_matches(&f, &id);
+    }
+
+    #[test]
+    fn balance_matches_outstanding_without_account() {
+        // Долг «как есть» (без счёта): начальный остаток служебного счёта.
+        for direction in ["borrowed", "lent"] {
+            let mut f = Fx::new();
+            let id = create(
+                f.c(),
+                &loan(
+                    direction,
+                    "Сосед",
+                    12_000_000,
+                    1000,
+                    "differentiated",
+                    Some(12),
+                    None,
+                    None,
+                ),
+            )
+            .unwrap();
+            assert_balance_matches(&f, &id);
+            let p = f
+                .pay(
+                    &id,
+                    "2026-12-01",
+                    3_000_000,
+                    50_000,
+                    false,
+                    Some("reduce_term"),
+                )
+                .unwrap();
+            assert_balance_matches(&f, &id);
+            let mut t = terms_of(&f.detail(&id));
+            t.principal = 15_000_000;
+            t.issue_date = "2026-10-01".into();
+            t.term_months = Some(18);
+            t.interest_method = "daily".into();
+            update_terms(f.c(), &id, &t).unwrap();
+            assert_balance_matches(&f, &id);
+            let opening: (i64, String) =
+                f.db.conn()
+                    .query_row(
+                        "SELECT opening_balance, opening_date FROM accounts WHERE id = ?1",
+                        [&f.detail(&id).card.account_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .unwrap();
+            let sign = if direction == "lent" { 1 } else { -1 };
+            assert_eq!(opening, (sign * 15_000_000, "2026-10-01".to_string()));
+            delete_payment(f.c(), &p).unwrap();
+            assert_balance_matches(&f, &id);
+            assert_eq!(f.detail(&id).card.outstanding, 15_000_000);
+        }
+    }
+
+    #[test]
+    fn rate_change_holidays_planned_early_and_history() {
+        let mut f = Fx::new();
+        let card = f.card.clone();
+        let mut input = loan(
+            "borrowed",
+            "Банк",
+            30_000_000,
+            1200,
+            "annuity",
+            Some(24),
+            None,
+            Some(card),
+        );
+        input.interest_method = Some("daily".into());
+        let id = create(f.c(), &input).unwrap();
+        let ids_before: Vec<String> = f
+            .detail(&id)
+            .schedule
+            .iter()
+            .map(|r| r.id.clone())
+            .collect();
+        let base = f.detail(&id).card.interest_planned;
+
+        let rc = add_rate_change(
+            f.c(),
+            &id,
+            &RateChangeInput {
+                from: "2027-03-01".into(),
+                rate_bp: 1000,
+            },
+        )
+        .unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.schedule.len(), 24);
+        assert!(d.card.interest_planned < base);
+        assert_eq!(d.rate_changes.len(), 1);
+        let ids_after: Vec<String> = d.schedule.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(ids_before, ids_after, "id строк не меняются");
+        assert!(add_rate_change(
+            f.c(),
+            &id,
+            &RateChangeInput {
+                from: "2026-01-01".into(),
+                rate_bp: 1
+            }
+        )
+        .is_err());
+
+        let h = add_holiday(
+            f.c(),
+            &id,
+            &HolidayInput {
+                from_seq: 3,
+                months: 2,
+                kind: "interest_only".into(),
+            },
+        )
+        .unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.schedule.len(), 26);
+        assert_eq!(d.schedule[2].principal_part, 0);
+        assert_balance_matches(&f, &id);
+        f.pay(
+            &id,
+            "2026-11-15",
+            d.schedule[0].principal_part,
+            d.schedule[0].interest_part,
+            true,
+            None,
+        )
+        .unwrap();
+        assert!(
+            add_holiday(
+                f.c(),
+                &id,
+                &HolidayInput {
+                    from_seq: 1,
+                    months: 1,
+                    kind: "shift".into()
+                }
+            )
+            .is_err(),
+            "на оплаченные платежи каникулы не берутся"
+        );
+        delete_holiday(f.c(), &h).unwrap();
+        assert_eq!(f.detail(&id).schedule.len(), 24);
+        delete_rate_change(f.c(), &rc).unwrap();
+
+        set_planned_early(
+            f.c(),
+            &id,
+            &[PlannedEarlyInput {
+                amount: 1_000_000,
+                start_date: "2027-01-01".into(),
+                frequency: "monthly".into(),
+                end_date: None,
+                mode: "reduce_term".into(),
+            }],
+        )
+        .unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.schedule.len(), 24, "плановые досрочки не в графике");
+        assert_eq!(d.planned_early.len(), 1);
+        let fc = forecast(f.db.conn(), &id, "2026-12-01").unwrap();
+        assert_eq!(fc.from, "2026-12-01");
+        assert!(fc.rows.len() < 24);
+        assert!(fc.savings > 0);
+        assert!(fc
+            .early
+            .iter()
+            .all(|e| e.planned && e.date.as_str() >= "2027-01-01"));
+
+        // «А что если»: расчёт без записи.
+        let q = quote_payment(
+            f.db.conn(),
+            &id,
+            &QuoteInput {
+                date: "2026-12-01".into(),
+                amount: 5_000_000,
+                kind: "early".into(),
+                mode: Some("reduce_term".into()),
+            },
+        )
+        .unwrap();
+        let left = f.detail(&id).card.outstanding;
+        let accrued = (left as i128 * 1200 * 16 * 2 + 10_000 * 365) / (2 * 10_000 * 365);
+        assert_eq!(q.interest as i128, accrued, "проценты за 16 дней с 15.11");
+        assert_eq!(q.principal, 5_000_000 - q.interest);
+        assert!(q.after.totals.rows_left < q.before.totals.rows_left);
+        assert!(q.savings > 0);
+        assert_eq!(f.detail(&id).payments.len(), 1, "ничего не записано");
+        let q = quote_payment(
+            f.db.conn(),
+            &id,
+            &QuoteInput {
+                date: "2026-12-10".into(),
+                amount: 2_000_000,
+                kind: "scheduled".into(),
+                mode: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            q.interest,
+            f.detail(&id).card.next_payment.unwrap().interest_part
+        );
+
+        let card = f.card.clone();
+        pay(
+            f.c(),
+            &id,
+            &PaymentInput {
+                date: "2026-12-01".into(),
+                account_id: card,
+                principal: 5_000_000 - accrued as i64,
+                interest: accrued as i64,
+                schedule_id: None,
+                recalc_mode: Some("reduce_term".into()),
+            },
+        )
+        .unwrap();
+        assert_balance_matches(&f, &id);
+        let v = versions(f.db.conn(), &id).unwrap();
+        let last = &v.versions.last().unwrap().reason.replace('\u{a0}', " ");
+        assert_eq!(last, "Досрочно 50 000 ₽ 01.12.2026, уменьшен срок");
+        assert!(v.savings > 0, "экономия {}", v.savings);
+        assert_eq!(v.current.rows.len(), f.detail(&id).schedule.len());
+
+        // Документ для выгрузки.
+        settings::set(f.db.conn(), "loan_lender_name", "Иванов Иван Иванович").unwrap();
+        let doc = schedule_doc(f.db.conn(), &id, "2026-12-02", true).unwrap();
+        assert_eq!(doc.lender_name, "Банк");
+        assert_eq!(doc.borrower_name, "Иванов Иван Иванович");
+        assert!(
+            doc.rows.iter().any(|r| r.seq.is_none() && r.paid),
+            "фактическая досрочка"
+        );
+        assert!(doc
+            .rows
+            .iter()
+            .any(|r| r.note.as_deref() == Some("Плановая досрочка")));
+        let pdf = crate::loan_export::schedule_pdf(&doc).unwrap();
+        let text = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        assert!(text.contains("Иванов Иван Иванович"));
+    }
+
+    /// Старая база (схема 0008) с долгами: после миграции графики те же, метод `monthly`.
+    #[test]
+    fn upgrade_from_schema_8_keeps_schedules() {
+        use crate::loan_calc::legacy;
+        use crate::storage::{migrate, MIGRATIONS};
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        migrate(&mut conn, &MIGRATIONS[..8]).unwrap();
+        let now = time::now_utc();
+        let kinds = [
+            ("annuity", Some(24), None),
+            ("differentiated", Some(12), None),
+            ("bullet", None, Some("2027-06-01")),
+        ];
+        let mut debts = Vec::new();
+        for (i, (kind, term, maturity)) in kinds.into_iter().enumerate() {
+            let input = LoanInput {
+                principal: 30_000_000,
+                rate_bp: 1800,
+                repayment: Repayment::parse(kind).unwrap(),
+                term_months: term,
+                issue_date: "2026-10-15".into(),
+                first_payment_date: None,
+                maturity_date: maturity.map(str::to_string),
+                interest_method: InterestMethod::Monthly,
+            };
+            let base = legacy::calculate(&input);
+            let (account, id) = (format!("acc{i}"), format!("debt{i}"));
+            conn.execute(
+                "INSERT INTO accounts (id, name, type, currency_code, opening_balance, opening_date, include_in_total,
+                                       sort_order, created_at, updated_at)
+                 VALUES (?1, 'Банк', 'debt', 'RUB', -30000000, '2026-10-15', 0, 0, ?2, ?2)",
+                params![account, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO debts (id, direction, counterparty, account_id, currency_code, principal, issue_date,
+                                    rate_bp, repayment_type, frequency, term_months, first_payment_date, maturity_date,
+                                    created_at, updated_at)
+                 VALUES (?1, 'borrowed', 'Банк', ?2, 'RUB', 30000000, '2026-10-15', 1800, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+                params![
+                    id,
+                    account,
+                    kind,
+                    if kind == "bullet" { "once" } else { "monthly" },
+                    term,
+                    (kind != "bullet").then(|| base.rows[0].due_date.clone()),
+                    base.maturity_date,
+                    now
+                ],
+            )
+            .unwrap();
+            let t = Terms {
+                id: id.clone(),
+                direction: "borrowed".into(),
+                counterparty: "Банк".into(),
+                account_id: account,
+                currency_code: "RUB".into(),
+                principal: 30_000_000,
+                issue_date: "2026-10-15".into(),
+                rate_bp: 1800,
+                repayment: input.repayment,
+                term_months: term,
+                first_payment_date: (kind != "bullet").then(|| base.rows[0].due_date.clone()),
+                maturity_date: base.maturity_date.clone(),
+                status: "active".into(),
+                method: InterestMethod::Monthly,
+            };
+            debts.push((t, input));
+        }
+        // Прежний rebuild после каждого платежа.
+        let write = |conn: &Connection, t: &Terms, input: &LoanInput, paid: &[legacy::Paid]| {
+            let (lines, left) = legacy::rebuild(input, paid);
+            let refs: Vec<(&Row, &str)> = lines.iter().map(|(r, s)| (r, *s)).collect();
+            write_schedule(conn, t, &refs, left).unwrap();
+        };
+        for (t, input) in &debts {
+            let mut paid: Vec<legacy::Paid> = Vec::new();
+            write(&conn, t, input, &paid);
+            let steps: [(bool, i64, &'static str); 4] = [
+                (true, 100, "reduce_payment"),
+                (false, 5_000_000, "reduce_term"),
+                (true, 60, "reduce_payment"),
+                (false, 2_000_000, "reduce_payment"),
+            ];
+            for (k, (scheduled, amount, mode)) in steps.into_iter().enumerate() {
+                let next: Option<(String, u32, i64, i64)> = conn
+                    .query_row(
+                        "SELECT id, seq, principal_part, interest_part FROM debt_schedule
+                         WHERE debt_id = ?1 AND status = 'pending' ORDER BY seq LIMIT 1",
+                        [&t.id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )
+                    .optional()
+                    .unwrap();
+                let Some((sid, seq, principal_part, interest_part)) = next else {
+                    break;
+                };
+                let (sid, seq, principal, interest) =
+                    if scheduled && t.repayment != Repayment::Bullet {
+                        (
+                            Some(sid),
+                            Some(seq),
+                            principal_part * amount / 100,
+                            interest_part,
+                        )
+                    } else {
+                        (None, None, amount, 0)
+                    };
+                conn.execute(
+                    "INSERT INTO debt_payments (id, debt_id, schedule_id, date, principal_amount, interest_amount,
+                                                recalc_mode, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![ids::new_id(), t.id, sid, format!("2026-11-{:02}", 15 + k), principal, interest, mode, now],
+                )
+                .unwrap();
+                paid.push(legacy::Paid {
+                    seq,
+                    principal,
+                    interest,
+                    mode,
+                });
+                write(&conn, t, input, &paid);
+            }
+        }
+        let dump =
+            |conn: &Connection| -> Vec<(String, String, u32, String, i64, i64, i64, i64, String)> {
+                conn.prepare(
+                "SELECT id, debt_id, seq, due_date, payment, principal_part, interest_part, balance_after, status
+                 FROM debt_schedule ORDER BY debt_id, seq",
+            )
+            .unwrap()
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+            };
+        let before = dump(&conn);
+        assert!(before.len() > 20);
+
+        migrate(&mut conn, MIGRATIONS).unwrap();
+        let methods: Vec<String> = conn
+            .prepare("SELECT DISTINCT interest_method FROM debts")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(methods, ["monthly"]);
+        assert_eq!(dump(&conn), before, "миграция графики не трогает");
+        // Новый движок строит те же графики, id строк те же.
+        for (t, _) in &debts {
+            rebuild(&conn, &t.id).unwrap();
+            get(&conn, &t.id, "2026-12-01").unwrap();
+        }
+        assert_eq!(dump(&conn), before, "новый rebuild даёт прежние строки");
     }
 
     proptest::proptest! {

@@ -766,7 +766,11 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(to);
             let b = to.min(new_year).min(next_rate);
             let days = (b - a).num_days() as i128;
-            let other = if days_in_year(a.year()) == 366 { 365 } else { 366 };
+            let other = if days_in_year(a.year()) == 366 {
+                365
+            } else {
+                366
+            };
             num += balance as i128 * self.rate_at(a) as i128 * days * other;
             a = b;
         }
@@ -789,7 +793,8 @@ impl<'a> Ctx<'a> {
             }
             InterestMethod::Daily => {
                 let due = self.due(seq);
-                let (start, carry) = acc.map_or((self.period_start(seq), 0), |a| (a.start, a.carry));
+                let (start, carry) =
+                    acc.map_or((self.period_start(seq), 0), |a| (a.start, a.carry));
                 let full = carry + self.daily(balance, start, due);
                 let normal = if self.pause(seq) > 0 {
                     let month_ago = due.checked_sub_months(Months::new(1)).unwrap_or(due);
@@ -964,7 +969,8 @@ impl<'a> Ctx<'a> {
         let start_seq = lines
             .get(from)
             .map_or_else(|| lines.last().map_or(1, |l| l.row.seq + 1), |l| l.row.seq);
-        let plain = |l: &SimRow| self.t.method == InterestMethod::Monthly && l.kind == RowKind::Regular;
+        let plain =
+            |l: &SimRow| self.t.method == InterestMethod::Monthly && l.kind == RowKind::Regular;
         let plan = match (mode, tail.first()) {
             (Recalc::ReduceTerm, Some(l)) if self.t.repayment == Repayment::Annuity => {
                 Plan::Payment(if plain(l) {
@@ -989,7 +995,13 @@ impl<'a> Ctx<'a> {
     }
 
     /// Начало периода строки `i` с учётом досрочек внутри него.
-    fn accrual_at(&self, lines: &[SimRow], i: usize, acc: Option<Accrual>, balance: i64) -> Accrual {
+    fn accrual_at(
+        &self,
+        lines: &[SimRow],
+        i: usize,
+        acc: Option<Accrual>,
+        balance: i64,
+    ) -> Accrual {
         match acc {
             Some(a) if a.index == i => a,
             _ => Accrual {
@@ -1006,7 +1018,13 @@ impl<'a> Ctx<'a> {
     }
 
     /// Проценты, накопленные к дате `date` в периоде строки `i` (только `daily`).
-    fn accrued(&self, lines: &[SimRow], a: &Accrual, i: usize, date: NaiveDate) -> (NaiveDate, i64) {
+    fn accrued(
+        &self,
+        lines: &[SimRow],
+        a: &Accrual,
+        i: usize,
+        date: NaiveDate,
+    ) -> (NaiveDate, i64) {
         let due = lines
             .get(i)
             .map_or(date, |l| parse_date(&l.row.due_date).expect("дата графика"));
@@ -1764,9 +1782,16 @@ mod tests {
             .filter(|r| r.status == Status::Pending)
             .map(|r| r.row.principal_part)
             .sum();
-        let planned: i64 = s.early.iter().filter(|e| e.planned).map(|e| e.principal).sum();
+        let planned: i64 = s
+            .early
+            .iter()
+            .filter(|e| e.planned)
+            .map(|e| e.principal)
+            .sum();
         assert_eq!(pending + planned, s.outstanding, "график покрывает остаток");
-        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+        // Закрывает последняя строка или досрочка, погасившая остаток.
+        let closed_early = s.early.last().is_some_and(|e| e.balance_after == 0);
+        assert!(closed_early || s.rows.last().unwrap().row.balance_after == 0);
         for r in &s.rows {
             assert_eq!(r.row.payment, r.row.principal_part + r.row.interest_part);
             assert!(r.row.principal_part >= 0 && r.row.interest_part >= 0);
@@ -1885,7 +1910,11 @@ mod tests {
         assert_eq!(rows[0].row.seq, 5);
         assert_eq!(rows[0].row.due_date, "2027-01-15");
         assert_eq!(rows.len(), 8);
-        assert!(rows.iter().rev().skip(1).all(|r| r.row.payment == 1_497_723));
+        assert!(rows
+            .iter()
+            .rev()
+            .skip(1)
+            .all(|r| r.row.payment == 1_497_723));
         assert!(rows.last().unwrap().row.payment < 1_497_723);
         assert_eq!(rows.last().unwrap().row.balance_after, 0);
     }
@@ -1925,13 +1954,20 @@ mod tests {
         let t = daily(30_000_000, 1200, 24, Repayment::Annuity);
         let base = simulate(&t, &[]).plain_rows();
         let mut events: Vec<Event> = Vec::new();
-        for (r, date) in base.iter().take(4).zip(["2026-11-15", "2026-12-15", "2027-01-15", "2027-02-15"]) {
+        for (r, date) in
+            base.iter()
+                .take(4)
+                .zip(["2026-11-15", "2026-12-15", "2027-01-15", "2027-02-15"])
+        {
             events.push(scheduled(r, date));
         }
         let left = base[3].balance_after;
         // Проценты за 14 дней с 15.02 по 01.03.
         let accrued = div_round(left as i128 * 1200 * 14, 10_000 * 365) as i64;
-        assert_eq!(split_early(&t, &events, d("2027-03-01"), 5_000_000), (accrued, 5_000_000 - accrued));
+        assert_eq!(
+            split_early(&t, &events, d("2027-03-01"), 5_000_000),
+            (accrued, 5_000_000 - accrued)
+        );
 
         let pay = |mode| {
             let mut e = events.clone();
@@ -1947,7 +1983,10 @@ mod tests {
         let new_left = left - (5_000_000 - accrued);
         let next = &term.rows[4].row;
         assert_eq!(next.due_date, "2027-03-15");
-        assert_eq!(next.interest_part, div_round(new_left as i128 * 1200 * 14, 10_000 * 365) as i64);
+        assert_eq!(
+            next.interest_part,
+            div_round(new_left as i128 * 1200 * 14, 10_000 * 365) as i64
+        );
         assert_eq!(next.payment, a, "платёж прежний");
         assert!(term.rows.len() < 24, "строк меньше: {}", term.rows.len());
         assert_eq!(payment.rows.len(), 24, "срок прежний");
@@ -1986,8 +2025,14 @@ mod tests {
         closes(&s);
         let rows = s.plain_rows();
         assert_eq!(rows.len(), 24);
-        assert_eq!(rows[4].interest_part, month_interest(rows[3].balance_after, 1200));
-        assert_eq!(rows[5].interest_part, month_interest(rows[4].balance_after, 1000));
+        assert_eq!(
+            rows[4].interest_part,
+            month_interest(rows[3].balance_after, 1200)
+        );
+        assert_eq!(
+            rows[5].interest_part,
+            month_interest(rows[4].balance_after, 1000)
+        );
     }
 
     #[test]
@@ -2010,7 +2055,10 @@ mod tests {
                 assert_eq!(io.rows[..4], simulate(&t, &[]).rows[..4]);
                 for r in &io.rows[4..7] {
                     assert_eq!(r.kind, RowKind::InterestOnly);
-                    assert_eq!((r.row.principal_part, r.row.payment), (0, r.row.interest_part));
+                    assert_eq!(
+                        (r.row.principal_part, r.row.payment),
+                        (0, r.row.interest_part)
+                    );
                     assert_eq!(r.row.balance_after, base[3].balance_after);
                 }
                 assert_eq!(io.rows[4].row.due_date, "2027-03-15");
@@ -2033,7 +2081,11 @@ mod tests {
                 assert_eq!(shift.rows[4].kind, RowKind::AfterShift);
                 // Проценты за паузу вошли в первый платёж после неё: примерно три месяца.
                 let one = base[4].interest_part;
-                assert!(rows[4].interest_part > 2 * one, "{} vs {one}", rows[4].interest_part);
+                assert!(
+                    rows[4].interest_part > 2 * one,
+                    "{} vs {one}",
+                    rows[4].interest_part
+                );
                 if method == InterestMethod::Monthly || repayment == Repayment::Differentiated {
                     // Основная часть как у обычного платежа: остаток тот же.
                     assert_eq!(rows[4].principal_part, base[4].principal_part);
@@ -2083,16 +2135,25 @@ mod tests {
             end_date: None,
             mode: "reduce_payment".into(),
         }];
-        let s = simulate(&t, &expand_planned(&once, t.issue, d("2028-10-15")).unwrap());
+        let s = simulate(
+            &t,
+            &expand_planned(&once, t.issue, d("2028-10-15")).unwrap(),
+        );
         closes(&s);
         assert_eq!(s.early[0].interest, 0);
         assert_eq!(s.rows.len(), 24);
-        assert_eq!(s.early[0].balance_after, base.rows[1].row.balance_after - 1_000_000);
+        assert_eq!(
+            s.early[0].balance_after,
+            base.rows[1].row.balance_after - 1_000_000
+        );
     }
 
     #[test]
     fn calculator_solves_term_and_principal() {
-        assert!(solve_term(30_000_000, 1200, 300_000).is_err(), "платёж меньше процентов");
+        assert!(
+            solve_term(30_000_000, 1200, 300_000).is_err(),
+            "платёж меньше процентов"
+        );
         let a = annuity_payment(30_000_000, 1200, 24);
         assert_eq!(solve_term(30_000_000, 1200, a).unwrap(), 24);
         assert_eq!(solve_term(30_000_000, 1200, a + 1).unwrap(), 24);
@@ -2126,7 +2187,10 @@ mod tests {
         let w = r.with_early.unwrap();
         assert!(w.rows.len() < 24);
         assert!(r.savings > 0);
-        assert_eq!(r.savings, r.base.totals.total_interest - w.totals.total_interest);
+        assert_eq!(
+            r.savings,
+            r.base.totals.total_interest - w.totals.total_interest
+        );
     }
 
     /// Случайный набор платежей для сравнения со старым `rebuild`.
@@ -2142,12 +2206,24 @@ mod tests {
                 break;
             }
             let next = lines.iter().find(|l| l.1 == "pending").map(|l| l.0.clone());
-            let mode = if term_mode { "reduce_term" } else { "reduce_payment" };
+            let mode = if term_mode {
+                "reduce_term"
+            } else {
+                "reduce_payment"
+            };
             let (seq, principal, interest) = match (action, next) {
                 (0, Some(n)) => (Some(n.seq), n.principal_part, n.interest_part),
-                (1, Some(n)) => (Some(n.seq), (n.principal_part * pct / 100).min(left), n.interest_part),
+                (1, Some(n)) => (
+                    Some(n.seq),
+                    (n.principal_part * pct / 100).min(left),
+                    n.interest_part,
+                ),
                 (2, _) => (None, (left * pct / 200).clamp(1, left), 0),
-                (3, Some(n)) => (Some(n.seq), (n.principal_part + left * pct / 400).min(left), n.interest_part),
+                (3, Some(n)) => (
+                    Some(n.seq),
+                    (n.principal_part + left * pct / 400).min(left),
+                    n.interest_part,
+                ),
                 _ => (None, left, 0),
             };
             if principal + interest == 0 {
