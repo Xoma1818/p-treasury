@@ -604,7 +604,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .hint-q {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 17px; height: 17px; margin: 0 0 0 6px; padding: 0; border: 0; border-radius: 50%;
-  vertical-align: middle; cursor: help; font: 700 11px/1 inherit; color: var(--accent);
+  vertical-align: middle; cursor: help; font: inherit; font-size: 11px; font-weight: 700; line-height: 1; color: var(--accent);
   background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent);
   opacity: 0.75; transition: opacity var(--fast), background var(--fast), color var(--fast), transform 220ms cubic-bezier(0.3, 1.6, 0.5, 1);
 }
@@ -629,7 +629,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .hint-tip b { font-size: 13px; font-weight: 600; }
 .hint-example { color: #5eead4; }
 .hint-keys { display: flex; gap: 4px; flex-wrap: wrap; }
-.hint-tip kbd { font: 600 11px inherit; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
+.hint-tip kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
 :root[data-theme="dark"] .hint-tip { background: #232a35; border-color: #3b4352; }
 :root:not([data-theme="dark"]) .hint-example { color: #9db8ff; }
 
@@ -695,9 +695,10 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .nav-search:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
 .nav-search svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .nav-search span { flex: 1; text-align: left; }
-.nav-search kbd { font: 600 11px inherit; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; }
+.nav-search kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; }
 .quick-card { position: relative; }
-.quick-hint { position: absolute; top: 8px; right: 10px; z-index: 1; }
+.quick-hint { position: absolute; top: 22px; right: 28px; z-index: 1; }
+.quick-card textarea { padding-right: 40px; }
 
 /* --- 0.15: единая ширина и порядок на любом размере окна --- */
 /* Все разделы и плашка примера одной ширины и по центру: на весь экран нет пустой
@@ -740,3 +741,10 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 @keyframes screen-in { from { opacity: 0; transform: translateY(4px); } }
 .bar > span::after { display: none; }
 input[type="checkbox"]:checked { animation: none; }
+
+/* 0.15.2: ровные пропорции. Пункты меню в одну строку, номер клавиши не занимает место;
+   кнопки «Изменить/Удалить» у категорий появляются поверх строки и не сжимают название. */
+.nav-item { white-space: nowrap; }
+.nav-key { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
+.tree li { position: relative; }
+.tree .row-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; padding-left: 16px; background: linear-gradient(90deg, transparent, var(--card) 14px); }
