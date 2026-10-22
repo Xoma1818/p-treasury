@@ -21,6 +21,21 @@
 .loan-lines { display: flex; flex-direction: column; gap: 8px; }
 .loan-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; animation: pop-in 200ms var(--ease) both; }
 .loan-line > * { flex: none; }
+/* Досрочка: «сумма · как часто · с даты · ×», ниже «что уменьшать»; на широком окне — одной строкой. */
+.early-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto 28px; grid-template-areas: "amount freq label date del" "mode mode mode mode ."; }
+.early-line .amount-with-sym { grid-area: amount; }
+.early-line .amount-with-sym { display: flex; min-width: 0; }
+.early-line .amount-with-sym .amount-field { flex: 1; min-width: 0; }
+.early-line .amount-with-sym .amount { width: 100%; }
+.early-line > select:first-of-type { grid-area: freq; }
+.early-line > .loan-line-label { grid-area: label; }
+.early-line > input[type="date"] { grid-area: date; }
+.early-line > select[name^="early-mode"] { grid-area: mode; justify-self: start; }
+.early-line > .line-del { grid-area: del; }
+.early-line + .early-line { padding-top: 8px; border-top: 1px solid var(--border); }
+@media (min-width: 1700px) {
+  .early-line { grid-template-columns: minmax(0, 1fr) auto auto auto auto 28px; grid-template-areas: "amount freq label date mode del"; }
+}
 .loan-line select { width: auto; }
 .loan-line input[type="date"] { width: 150px; }
 .loan-line-label { font-size: 13px; color: var(--muted); min-width: 8px; }
@@ -101,7 +116,4 @@
 @media (max-width: 1100px) {
   .loan-planner { grid-template-columns: minmax(0, 1fr); }
   .loan-side { position: static; }
-}
-@media (min-width: 1700px) {
-  .loan-line input[type="date"] { width: 160px; }
 }

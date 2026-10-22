@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balancePoints, earlyLines, monthsToTerm, plannedEarly, rateChanges, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
+import { addMonths, balancePoints, earlyLines, monthsToTerm, plannedEarly, rateChanges, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -133,5 +133,13 @@ describe("точки диаграммы остатка", () => {
       { date: "2026-12-15", balance: 700 },
       { date: "2026-12-15", balance: 300 },
     ]);
+  });
+});
+
+describe("даты", () => {
+  it("через месяц, с концом месяца", () => {
+    expect(addMonths("2026-10-15", 1)).toBe("2026-11-15");
+    expect(addMonths("2027-01-31", 1)).toBe("2027-02-28");
+    expect(addMonths("2026-12-10", 1)).toBe("2027-01-10");
   });
 });

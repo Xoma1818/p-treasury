@@ -28,24 +28,29 @@ async function openDebt(name) {
   await browser.$(`//main//h1[contains(., "${name}")]`).waitForDisplayed({ timeout: 5000 });
 }
 
-test("выбор кредита: калькулятор сравнивает аннуитет и дифференцированный", async () => {
+test("выбор кредита: калькулятор считает аннуитет и дифференцированный", async () => {
   await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");
-  await waitText(browser, '[data-testid="calc-annuity"]', money("14 977,23 ₽"));
-  await waitText(browser, '[data-testid="calc-annuity"] [data-testid="overpay"]', /59 45\d,\d\d ₽/);
-  await waitText(browser, '[data-testid="calc-differentiated"] [data-testid="overpay"]', money("56 250 ₽"));
+  // Суммы этапа 4 посчитаны «по месяцам» (ставка ÷ 12); с 0.17 по умолчанию — по дням, как банк.
+  await click(browser, "по месяцам");
+  await waitText(browser, '[data-testid="loan-payment"]', money("14 977,23 ₽"));
+  await waitText(browser, '[data-testid="loan-overpay"]', /59 45\d,\d\d ₽/);
   // Дифференцированный дешевле, но первый платёж выше.
-  await waitText(browser, '[data-testid="calc-differentiated"]', /дешевле на/);
-  await waitText(browser, '[data-testid="calc-differentiated"]', money("17 000 ₽"));
+  await choose(browser, "repayment", "Дифференцированный");
+  await waitText(browser, '[data-testid="loan-payment"]', money("17 000 ₽"));
+  await waitText(browser, '[data-testid="loan-overpay"]', money("56 250 ₽"));
+  await choose(browser, "repayment", "Аннуитет (равные платежи)");
   // Срок 12 месяцев: график пересчитывается сразу.
-  await fill(browser, "calcTerm", "12");
-  await waitText(browser, '[data-testid="calc-annuity"]', money("27 504 ₽"));
-  await fill(browser, "calcTerm", "24");
-  await waitText(browser, '[data-testid="calc-annuity"]', money("14 977,23 ₽"));
+  await choose(browser, "termUnit", "месяцев");
+  await fill(browser, "term", "12");
+  await waitText(browser, '[data-testid="loan-payment"]', money("27 504 ₽"));
+  await waitCount(browser, '[data-testid="plan-row"]', 12);
+  await fill(browser, "term", "24");
+  await waitText(browser, '[data-testid="loan-payment"]', money("14 977,23 ₽"));
 });
 
-test("кредит в банке: «Сохранить как долг», деньги пришли на карту, график на 24 месяца", async () => {
-  await click(browser, "Сохранить как долг", '//*[@data-testid="calc-annuity"]');
+test("кредит в банке: «Записать заём», деньги пришли на карту, график на 24 месяца", async () => {
+  await click(browser, "Записать заём");
   await fill(browser, "counterparty", "Банк");
   await choose(browser, "account", "Карта (₽)");
   await waitText(browser, '[data-testid="debt-preview"]', money("14 977,23 ₽"));
@@ -75,6 +80,9 @@ test("«Оплачено»: перевод в основной долг и ра�
 test("досрочный платёж «уменьшить срок»: платёж прежний, платежей меньше", async () => {
   await openDebt("Банк");
   await click(browser, "Досрочный платёж");
+  // Сумма делится на проценты и долг подсказкой ядра; части можно поправить руками.
+  await fill(browser, "earlyAmount", "100000");
+  await waitText(browser, '[data-testid="pay-quote"]', /экономия/);
   await fill(browser, "principal", "100000");
   await fill(browser, "interest", "0");
   await choose(browser, "recalcMode", "Уменьшить срок, платёж прежний");
@@ -88,13 +96,15 @@ test("досрочный платёж «уменьшить срок»: плат�
 test("занял другу: Иван вернул 5 000 из 20 000, остаток 15 000", async () => {
   await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
+  await choose(browser, "repayment", "Разовый возврат в конце");
+  await fill(browser, "principal", "20000");
+  await setDate(browser, "maturity", march);
+  await waitText(browser, '[data-testid="loan-payment"]', /К возврату\s*20[\s\u00A0]000[\s\u00A0]₽/);
+  await click(browser, "Записать заём");
   await click(browser, "Я дал в долг", '//*[@role="dialog"]');
   await fill(browser, "counterparty", "Иван");
-  await fill(browser, "principal", "20000");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "repayment", "Разовый возврат в конце");
-  await setDate(browser, "maturity", march);
-  await waitText(browser, '[data-testid="debt-preview"]', money("К возврату 20 000 ₽"));
+  await waitText(browser, '[data-testid="debt-preview"]', money("к возврату 20 000 ₽"));
   await save(browser);
   await waitText(browser, '[data-testid="debt-outstanding"]', money("20 000 ₽"));
 

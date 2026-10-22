@@ -1,5 +1,5 @@
 // Скриншоты экранов для отчёта: node e2e/screenshots.mjs (под xvfb-run на Linux).
-import { start, stop, onboard, openSection, fill, choose, chooseLike, click, save, setDate } from "./app.mjs";
+import { start, stop, onboard, openSection, fill, choose, chooseLike, click, save, setDate, newDebt } from "./app.mjs";
 
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,10 +53,10 @@ try {
   await browser.saveScreenshot(out("screen-budget"));
   await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");
-  await browser.$('[data-testid="calc-annuity"]').waitForExist({ timeout: 5000 });
+  await browser.$('[data-testid="loan-payment"]').waitForExist({ timeout: 5000 });
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-calculator"));
-  await click(browser, "Сохранить как долг", '//*[@data-testid="calc-annuity"]');
+  await click(browser, "Записать заём");
   await fill(browser, "counterparty", "Т-Банк");
   await choose(browser, "account", "Карта Сбер (₽)");
   await save(browser);
@@ -64,13 +64,7 @@ try {
   await save(browser);
   await browser.pause(400);
   await browser.saveScreenshot(out("screen-debt"));
-  await openSection(browser, "Займы и долги");
-  await click(browser, "+ Новый долг");
-  await click(browser, "Я дал в долг", '//*[@role="dialog"]');
-  await fill(browser, "counterparty", "Иван");
-  await fill(browser, "principal", "20000");
-  await choose(browser, "repayment", "Разовый возврат в конце");
-  await setDate(browser, "maturity", `${new Date().getFullYear() + 1}-03-01`);
+  await newDebt(browser, { counterparty: "Иван", principal: "20000", lent: true, repayment: "Разовый возврат в конце", maturity: `${new Date().getFullYear() + 1}-03-01` });
   await save(browser);
   await openSection(browser, "Займы и долги");
   await browser.pause(400);

@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -156,13 +156,7 @@ test("месяц жизни: от первого запуска до сводк�
   await browser.$('//tr[@data-testid="budget-line" and @data-category="Кафе и рестораны"]').waitForExist({ timeout: 5000 });
 
   // 4. Кредит 100 000 ₽ и первый платёж.
-  await openSection(browser, "Займы и долги");
-  await click(browser, "+ Новый долг");
-  await fill(browser, "counterparty", "Банк");
-  await fill(browser, "principal", "100000");
-  await fill(browser, "rate", "12");
-  await fill(browser, "term", "12");
-  await choose(browser, "account", "Карта (₽)");
+  await newDebt(browser, { counterparty: "Банк", principal: "100000", rate: "12", term: "12", account: "Карта (₽)" });
   await save(browser);
   await waitText(browser, '[data-testid="debt-next"]', money("8 884,88 ₽"));
   await click(browser, "Оплачено");

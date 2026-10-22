@@ -179,3 +179,14 @@ export function termText(months: number): string {
   const years = y % 10 === 1 && y % 100 !== 11 ? "год" : [2, 3, 4].includes(y % 10) && ![12, 13, 14].includes(y % 100) ? "года" : "лет";
   return [y ? `${y} ${years}` : "", m ? `${m} мес.` : ""].filter(Boolean).join(" ") || "0 мес.";
 }
+
+/** Дата через `n` месяцев; 31.01 + 1 месяц = 28/29.02, как в графике ядра. */
+export function addMonths(date: string, n: number): string {
+  if (!isDate(date)) return date;
+  const [y, m, d] = date.split("-").map(Number);
+  const i = y * 12 + (m - 1) + n;
+  const yy = Math.floor(i / 12);
+  const mm = (i % 12) + 1;
+  const last = new Date(yy, mm, 0).getDate();
+  return `${yy}-${String(mm).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}

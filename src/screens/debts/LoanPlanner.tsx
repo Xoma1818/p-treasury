@@ -6,7 +6,7 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type CalcInput, type CalcResult, type DebtInput, type Direction, type InterestMethod, type Repayment, type SimView } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { METHODS, termText, toCalcInput, type LoanForm, type Solve, type TermUnit } from "../../lib/loan";
+import { addMonths, METHODS, termText, toCalcInput, type LoanForm, type Solve, type TermUnit } from "../../lib/loan";
 import { useAccounts, useCurrencies, useSettings } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -198,7 +198,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
               Досрочные погашения
               <Hint of="loan.early" />
             </div>
-            <EarlyEditor lines={f.early} onChange={(early) => set({ early })} minorUnits={mu} symbol={sym} defaultDate={f.firstPayment || f.issueDate} bullet={bullet} />
+            <EarlyEditor lines={f.early} onChange={(early) => set({ early })} minorUnits={mu} symbol={sym} defaultDate={f.firstPayment || addMonths(f.issueDate, 1)} bullet={bullet} />
           </div>
         </div>
 
@@ -214,7 +214,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                 {String(plan.error)}
               </p>
             )}
-            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} sym={sym} mu={mu} />}
+            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} sym={sym} mu={mu} />}
             {r && !plan.error && (
               <>
                 <div className="loan-chart-head">
@@ -270,7 +270,8 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   );
 }
 
-function Totals({ r, solve, bullet, sym, mu }: { r: CalcResult; solve: Solve; bullet: boolean; sym: string; mu: number }) {
+/** У дифференцированного платёж убывает: «первый → последний». */
+function Totals({ r, solve, bullet, falling, sym, mu }: { r: CalcResult; solve: Solve; bullet: boolean; falling: boolean; sym: string; mu: number }) {
   const m = (v: number) => <Money amount={v} symbol={sym} minorUnits={mu} />;
   const v = r.withEarly ?? r.base;
   const last = r.base.rows[r.base.rows.length - 1]?.payment ?? r.payment;
@@ -292,7 +293,7 @@ function Totals({ r, solve, bullet, sym, mu }: { r: CalcResult; solve: Solve; bu
         <dt>{bullet ? "К возврату" : "Платёж"}</dt>
         <dd>
           {m(r.payment)}
-          {!bullet && last !== r.payment && <span className="sub"> → {m(last)}</span>}
+          {falling && last !== r.payment && <span className="sub"> → {m(last)}</span>}
         </dd>
       </div>
       <div className="loan-total" data-testid="loan-overpay">

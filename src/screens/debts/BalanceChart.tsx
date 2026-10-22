@@ -59,6 +59,9 @@ export function BalanceChart({ base, withEarly, issueDate, principal, symbol, mi
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <line key={f} className="grid" x1={PAD.l} x2={W - PAD.r} y1={y(top * f)} y2={y(top * f)} />
         ))}
+        <text className="axis" x={W - PAD.r} y={y(top) - 3} textAnchor="end">
+          {money(top)}
+        </text>
         <line className="axis-line" x1={PAD.l} x2={W - PAD.r} y1={y(0)} y2={y(0)} />
         {years.map((yr) => {
           const d = `${yr}-01-01`;
