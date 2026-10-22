@@ -223,6 +223,7 @@ pub fn run() {
             commands::calc_schedule_doc,
             commands::export_schedule_xlsx,
             commands::export_schedule_pdf,
+            commands::preview_debt_terms,
             commands::calendar_month,
             commands::calendar_range,
             commands::reminders_overview,

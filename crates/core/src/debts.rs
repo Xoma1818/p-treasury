@@ -1393,6 +1393,57 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
     Ok(())
 }
 
+/// Предпросмотр правки условий: графики «до» и «после».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermsPreview {
+    pub before: SimView,
+    pub after: SimView,
+}
+
+/// Точный предпросмотр [`update_terms`] без записи: с уже внесёнными платежами,
+/// изменениями ставки и каникулами.
+pub fn preview_terms(conn: &Connection, debt_id: &str, input: &TermsInput) -> Result<TermsPreview> {
+    let t = terms(conn, debt_id)?;
+    let repayment = Repayment::parse(&input.repayment_type)?;
+    let method = InterestMethod::parse(&input.interest_method)?;
+    let bullet = repayment == Repayment::Bullet;
+    let loan = LoanInput {
+        principal: input.principal,
+        rate_bp: input.rate_bp,
+        repayment,
+        term_months: if bullet { None } else { input.term_months },
+        issue_date: input.issue_date.clone(),
+        first_payment_date: if bullet {
+            None
+        } else {
+            clean(&input.first_payment_date)
+        },
+        maturity_date: clean(&input.maturity_date),
+        interest_method: method,
+    };
+    let engine = loan_calc::Terms::from_input(&loan)?;
+    let principal_paid: i64 = conn.query_row(
+        "SELECT COALESCE(sum(principal_amount), 0) FROM debt_payments WHERE debt_id = ?1",
+        [debt_id],
+        |r| r.get(0),
+    )?;
+    if input.principal < principal_paid {
+        return invalid(format!(
+            "сумма меньше уже возвращённого ({})",
+            money(conn, &t, principal_paid)?
+        ));
+    }
+    let mut events = events(conn, debt_id)?;
+    if bullet {
+        events.retain(|e| !matches!(e, Event::Holiday(_)));
+    }
+    Ok(TermsPreview {
+        before: simulate_debt(conn, &t)?.into(),
+        after: loan_calc::simulate(&engine, &events).into(),
+    })
+}
+
 /// Новая ставка с даты.
 pub fn add_rate_change(
     conn: &mut Connection,
@@ -2275,6 +2326,7 @@ mod tests {
         t.principal = 35_000_000;
         t.rate_bp = 1200;
         t.issue_date = "2026-10-14".into();
+        let preview = preview_terms(f.db.conn(), &id, &t).unwrap();
         let mut journal = crate::undo::Journal::default();
         journal
             .record(f.c(), "Изменение условий", |c| {
@@ -2283,6 +2335,19 @@ mod tests {
             .unwrap();
         let d = f.detail(&id);
         assert_eq!((d.card.principal, d.card.rate_bp), (35_000_000, 1200));
+        let rows: Vec<(u32, i64, &str)> = d
+            .schedule
+            .iter()
+            .map(|r| (r.seq, r.payment, r.status.as_str()))
+            .collect();
+        let previewed: Vec<(u32, i64, &str)> = preview
+            .after
+            .rows
+            .iter()
+            .map(|r| (r.row.seq, r.row.payment, r.status.as_str()))
+            .collect();
+        assert_eq!(rows, previewed, "предпросмотр совпадает с записанным");
+        assert_eq!(preview.before.rows.len(), 24);
         assert_eq!(d.card.outstanding, 35_000_000 - 1_047_723);
         assert_eq!(
             f.balance(&f.card),

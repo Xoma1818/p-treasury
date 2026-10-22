@@ -1043,6 +1043,15 @@ pub fn export_schedule_xlsx(path: String, doc: loan_export::ScheduleDoc) -> CmdR
 }
 
 #[tauri::command(async)]
+pub fn preview_debt_terms(
+    state: State<AppState>,
+    id: String,
+    input: debts::TermsInput,
+) -> CmdResult<debts::TermsPreview> {
+    with_db(&state, |db| debts::preview_terms(db.conn(), &id, &input))
+}
+
+#[tauri::command(async)]
 pub fn export_schedule_pdf(path: String, doc: loan_export::ScheduleDoc) -> CmdResult<()> {
     loan_export::export_schedule_pdf(Path::new(&path), &doc).map_err(|e| e.to_string())
 }

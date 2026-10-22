@@ -57,21 +57,18 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
     return { principal, issueDate: f.issueDate, rateBp, repaymentType: f.repayment, termMonths, firstPaymentDate: bullet ? null : f.firstPayment || null, maturityDate: bullet ? f.maturity : null, interestMethod: f.method };
   }, [f, mu]);
   const key = useDebounced(terms ? JSON.stringify(terms) : null, 250);
-  const was = useQuery({ queryKey: ["debtVersions", c.id], queryFn: () => api.debtVersions(c.id) });
+  // Точный предпросмотр ядра: с уже внесёнными платежами, изменениями ставки и каникулами.
   const now = useQuery({
-    queryKey: ["planTerms", c.id, key],
-    queryFn: () => {
-      const t = JSON.parse(key!) as TermsInput;
-      return api.planLoan({ ...t, repayment: t.repaymentType, rateChanges: detail.rateChanges.map(({ from, rateBp }) => ({ from, rateBp })), holidays: detail.holidays.map(({ fromSeq, months, kind }) => ({ fromSeq, months, kind })) });
-    },
+    queryKey: ["previewDebtTerms", c.id, key],
+    queryFn: () => api.previewDebtTerms(c.id, JSON.parse(key!) as TermsInput),
     enabled: !!key,
     retry: false,
     placeholderData: keepPreviousData,
   });
   const save = useAction((t: TermsInput) => api.updateDebtTerms(c.id, t), onClose, { celebrate: true });
   const m = money(c);
-  const w = was.data?.current;
-  const n = key ? now.data?.base.totals : undefined;
+  const w = now.data?.before.totals;
+  const n = key ? now.data?.after.totals : undefined;
   const bullet = f.repayment === "bullet";
 
   return (
@@ -150,7 +147,6 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
           </table>
         )}
         {now.error && <p className="hint warn">{String(now.error)}</p>}
-        {detail.payments.length > 0 && <p className="hint">«Станет» — по новым условиям без уже внесённых платежей; после сохранения график пересчитается с ними.</p>}
         <p className="hint">Прежний график сохранится в истории. Если выдача записана операцией, её сумма и дата тоже изменятся.</p>
         <ErrorText error={save.error} />
         <div className="actions">

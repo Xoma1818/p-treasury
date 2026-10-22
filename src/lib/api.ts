@@ -486,6 +486,12 @@ export interface Forecast {
   savings: number;
 }
 
+/** Предпросмотр правки условий: с уже внесёнными платежами, ставками и каникулами. */
+export interface TermsPreview {
+  before: SimView;
+  after: SimView;
+}
+
 export interface DebtVersion {
   /** null у текущего графика. */
   id: string | null;
@@ -1230,6 +1236,7 @@ export const api = {
   calcScheduleDoc: (input: CalcInput, currencyCode: string | null) => invoke<ScheduleDoc>("calc_schedule_doc", { input, currencyCode }),
   exportScheduleXlsx: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_xlsx", { path, doc }),
   exportSchedulePdf: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_pdf", { path, doc }),
+  previewDebtTerms: (id: string, input: TermsInput) => invoke<TermsPreview>("preview_debt_terms", { id, input }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),

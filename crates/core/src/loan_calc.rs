@@ -1317,7 +1317,9 @@ fn solve_term_for(principal: i64, rate_bp: i64, payment: i64, repayment: Repayme
         return invalid("сумма должна быть больше нуля");
     }
     check_rate(rate_bp)?;
-    if payment <= month_interest(principal, rate_bp) {
+    // Платёж, равный процентам первого месяца, ещё гасит долг: на долгом сроке
+    // с высокой ставкой округлённый аннуитет совпадает с процентами.
+    if payment < month_interest(principal, rate_bp) {
         return invalid("платёж меньше процентов: долг не уменьшится");
     }
     if first_payment(principal, rate_bp, MAX_TERM, repayment) > payment {
@@ -2146,6 +2148,17 @@ mod tests {
             s.early[0].balance_after,
             base.rows[1].row.balance_after - 1_000_000
         );
+    }
+
+    #[test]
+    fn solve_term_when_payment_equals_first_interest() {
+        // Найдено тестом свойств: аннуитет на 307 мес. под 31,17 % округлён до процентов первого месяца.
+        let a = annuity_payment(100_000, 3117, 307);
+        assert_eq!(a, month_interest(100_000, 3117));
+        let m = solve_term(100_000, 3117, a).unwrap();
+        assert!(m <= 307);
+        assert_eq!(annuity_payment(100_000, 3117, m), a);
+        assert!(solve_term(100_000, 3117, a - 1).is_err());
     }
 
     #[test]
