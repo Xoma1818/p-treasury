@@ -15,6 +15,7 @@
 | Дизайн | [docs/design/README.md](docs/design/README.md) | Тема «Тёмный графит» (светлая по кнопке), карта экранов, макеты, логотип, [снимки экранов](docs/design/screens/) |
 | Разработка | [docs/development.md](docs/development.md) | Как запустить и собрать, структура кода, что сделано по этапам |
 | Тестирование | [docs/testing/README.md](docs/testing/README.md) | Как устроены проверки, найденные ошибки, [отчёт итогового теста](docs/testing/final-test-report.md), [отчёт проверки 0.14](docs/testing/test-report-0.14.md), [ручная проверка](docs/testing/owner-checklist.md) |
+| Как идёт работа | [docs/process.md](docs/process.md) | Штат ролей, маршрут задачи от просьбы до выпуска, где нужно слово владельца, сабагенты в `.claude/agents/` |
 | Выпуски | [docs/releasing.md](docs/releasing.md) | Версии, ветки, CHANGELOG, как выходит выпуск с установщиком, правила репозитория |
 | Исследование | [docs/research/competitors-and-ideas.md](docs/research/competitors-and-ideas.md) | Похожие приложения и 51 идея с версиями |
 | Инвестиции | [docs/research/investments.md](docs/research/investments.md) | Исследование раздела «Инвестиции» и выбранный вариант «Инвест-копилка» |
