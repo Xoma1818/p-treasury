@@ -12,6 +12,8 @@ use crate::{accounts, currencies, ids, time, Error, Result};
 /// За сколько последних дней считается темп накопления.
 const PACE_DAYS: i64 = 90;
 const DAYS_IN_MONTH: f64 = 30.44;
+/// Дальше этого прогноз даты не показывается: «больше 100 лет».
+const FORECAST_MAX_DAYS: i64 = 100 * 365;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +50,8 @@ pub struct Goal {
     pub pace_per_month: Option<i64>,
     /// Когда цель будет достигнута при нынешнем темпе.
     pub forecast_date: Option<String>,
+    /// При нынешнем темпе цель достигается больше чем через 100 лет: даты нет.
+    pub forecast_far: bool,
     /// Сколько откладывать в месяц, чтобы успеть к сроку.
     pub need_per_month: Option<i64>,
     /// `reached`, `on_track` (успевает к сроку или срока нет), `behind`, `no_pace`.
@@ -235,16 +239,18 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             .min(100.0) as u32;
         let pace =
             (gained > 0).then(|| (gained as f64 * DAYS_IN_MONTH / window as f64).round() as i64);
-        let forecast = match pace {
+        let days_to_goal = match pace {
             Some(p) if remaining > 0 && p > 0 => {
-                let days = (remaining as f64 / p as f64 * DAYS_IN_MONTH).ceil() as i64;
-                // При темпе в копейки дата уходит за пределы календаря: прогноза нет.
-                Duration::try_days(days)
-                    .and_then(|d| today_d.checked_add_signed(d))
-                    .map(|d| d.to_string())
+                Some((remaining as f64 / p as f64 * DAYS_IN_MONTH).ceil())
             }
             _ => None,
         };
+        // При темпе в копейки дата уходит на тысячи лет вперёд: вместо неё «больше 100 лет».
+        let forecast_far = days_to_goal.is_some_and(|d| d > FORECAST_MAX_DAYS as f64);
+        let forecast = days_to_goal
+            .filter(|_| !forecast_far)
+            .and_then(|d| today_d.checked_add_signed(Duration::days(d as i64)))
+            .map(|d| d.to_string());
         let need = deadline
             .as_deref()
             .and_then(|d| time::parse_date(d).ok())
@@ -256,6 +262,8 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             "reached"
         } else if pace.is_none() {
             "no_pace"
+        } else if forecast_far && deadline.is_some() {
+            "behind"
         } else if let (Some(d), Some(f)) = (&deadline, &forecast) {
             if f <= d {
                 "on_track"
@@ -280,6 +288,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             remaining,
             pace_per_month: pace,
             forecast_date: forecast,
+            forecast_far,
             need_per_month: need.filter(|_| remaining > 0),
             status: status.to_string(),
             missing_rate,
@@ -324,14 +333,28 @@ mod tests {
         assert!(create(c, &goal(" ", 1, None, None)).is_err());
         assert!(create(c, &goal("x", 0, None, None)).is_err());
 
-        // Темп в копейку при цели в миллиарды: прогноз за пределами календаря не роняет программу.
+        // Темп в копейку при цели в миллиарды: прогноз «больше 100 лет», программа не падает.
         let big = create(c, &goal("Остров", i64::MAX / 2, None, None)).unwrap();
         deposit(c, &big, &time::today_local(), 1).unwrap();
         let g = list(c, &time::today_local()).unwrap();
         let g = g.iter().find(|g| g.id == big).unwrap();
         assert_eq!(
-            (g.pace_per_month, g.forecast_date.as_deref()),
-            (Some(1), None)
+            (g.pace_per_month, g.forecast_date.as_deref(), g.forecast_far),
+            (Some(1), None, true)
+        );
+
+        // Цель в 100 000 000 ₽ при темпе около рубля в месяц: тоже «больше 100 лет», со сроком — «не успеваете».
+        let far = create(c, &goal("Дворец", 10_000_000_000, None, Some("2030-01-01"))).unwrap();
+        deposit(c, &far, &time::today_local(), 100).unwrap();
+        let g = list(c, &time::today_local()).unwrap();
+        let g = g.iter().find(|g| g.id == far).unwrap();
+        assert_eq!(
+            (
+                g.forecast_date.as_deref(),
+                g.forecast_far,
+                g.status.as_str()
+            ),
+            (None, true, "behind")
         );
     }
 

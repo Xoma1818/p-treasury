@@ -17,6 +17,7 @@ const byMonth = (date: string) => `к ${monthGenitive(date.slice(0, 7))} ${date.
 function forecast(g: Goal) {
   if (g.status === "reached") return "Цель достигнута";
   if (g.missingRate) return "Нет курса валюты счёта";
+  if (g.forecastFar) return "При нынешнем темпе — больше 100 лет";
   if (!g.forecastDate) return "Пока нет пополнений за 3 месяца";
   return `При нынешнем темпе — ${byMonth(g.forecastDate)}`;
 }

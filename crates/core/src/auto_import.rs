@@ -2,7 +2,8 @@
 //! CSV по шаблону операций (например, из «Загрузок»). Каждый файл разбирается
 //! один раз; операции, которые уже есть (та же дата, счёт, тип, сумма и
 //! получатель), пропускаются. Выписка идёт на счёт, запомненный при ручном
-//! импорте выписки этого банка.
+//! импорте выписки этого банка; пока счёта нет, файл ждёт и берётся, когда он
+//! выбран.
 
 use std::fs;
 use std::path::Path;
@@ -13,6 +14,10 @@ use serde::Serialize;
 
 use crate::bank_import::{self, exists};
 use crate::{csv_import, time, transactions, Result};
+
+/// Выписка банка, для которого ещё не выбран счёт. Такой файл берётся снова,
+/// когда счёт выбран.
+const NO_ACCOUNT: &str = "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»";
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,16 +85,18 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
             .map(|d| d.as_secs().to_string())
             .unwrap_or_default();
         let key = path.to_string_lossy().to_string();
-        let seen: Option<i64> = conn
+        let seen: Option<Option<String>> = conn
             .query_row(
-                "SELECT 1 FROM import_files WHERE path = ?1 AND size = ?2 AND modified = ?3",
+                "SELECT error FROM import_files WHERE path = ?1 AND size = ?2 AND modified = ?3",
                 params![key, size, modified],
                 |r| r.get(0),
             )
             .optional()?;
-        if seen.is_some() {
-            continue;
-        }
+        let retry = match seen {
+            None => false,
+            Some(Some(e)) if e == NO_ACCOUNT => true,
+            Some(_) => continue,
+        };
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -114,6 +121,10 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
+                // Счёт всё ещё не выбран: об этом файле уже сказано, молчим.
+                if retry && no_account {
+                    continue;
+                }
                 // Дубли ищутся среди операций, загруженных до этого файла: две
                 // одинаковые поездки в один день в самой выписке — две операции.
                 let mut new = Vec::new();
@@ -130,17 +141,14 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 tx.commit()?;
                 res.added = new.len();
                 if no_account {
-                    res.error = Some(
-                        "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»"
-                            .into(),
-                    );
+                    res.error = Some(NO_ACCOUNT.into());
                 }
             }
             Ok(None) => {}
             Err(e) => res.error = Some(e.to_string()),
         }
         conn.execute(
-            "INSERT INTO import_files (path, size, modified, imported_at, added, skipped, error)
+            "INSERT OR REPLACE INTO import_files (path, size, modified, imported_at, added, skipped, error)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 key,
@@ -271,6 +279,25 @@ mod tests {
             files,
             [("operations.csv", 4, false), ("Выписка.pdf", 0, true)],
             "чужой PDF не показывается"
+        );
+
+        // Пока счёт для Сбера не выбран, выписка не берётся и не показывается снова.
+        assert!(scan(c, dir.path()).unwrap().files.is_empty());
+
+        // Счёт выбран: та же выписка загружается сама.
+        crate::settings::set(
+            c,
+            "bank_accounts",
+            &format!(r#"{{"tbank":"{card}","sber":"{card}"}}"#),
+        )
+        .unwrap();
+        let r = scan(c, dir.path()).unwrap();
+        assert_eq!(r.files.len(), 1);
+        assert_eq!(r.files[0].name, "Выписка.pdf");
+        assert!(r.files[0].added > 0 && r.files[0].error.is_none());
+        assert!(
+            scan(c, dir.path()).unwrap().files.is_empty(),
+            "второй раз не берётся"
         );
     }
 }

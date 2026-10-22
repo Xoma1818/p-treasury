@@ -906,6 +906,8 @@ export interface Goal {
   remaining: number;
   pacePerMonth: number | null;
   forecastDate: string | null;
+  /** Больше 100 лет при нынешнем темпе: даты нет. */
+  forecastFar: boolean;
   needPerMonth: number | null;
   status: GoalStatus;
   missingRate: boolean;
