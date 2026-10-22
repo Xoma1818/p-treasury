@@ -1,4 +1,4 @@
-/* Займы 0.17: форма расчёта, диаграмма остатка, карточка займа, окно платежа. Только токены темы. */
+/* Займы 0.16: форма расчёта, диаграмма остатка, карточка займа, окно платежа. Только токены темы. */
 
 .loan-planner { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
 .loan-planner > .card { margin: 0; }
