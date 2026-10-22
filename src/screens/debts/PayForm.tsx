@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { AccountSelect, AmountInput, amountText, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
@@ -53,18 +53,20 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
     },
     enabled: !!qKey,
     retry: false,
+    // Пока считается новый вариант, строка с прогнозом не пропадает и окно не прыгает.
+    placeholderData: keepPreviousData,
   });
   // Части подставляются, когда меняются сумма или дата; правка руками остаётся до следующей смены.
   const applied = useRef<string | null>(null);
   useEffect(() => {
     const q = quote.data;
-    if (!q || !qKey) return;
+    if (!q || !qKey || quote.isPlaceholderData) return;
     const split = qKey.split("|").slice(0, 2).join("|");
     if (applied.current === split) return;
     applied.current = split;
     setPrincipal(amountText(q.principal, mu));
     setInterest(amountText(q.interest, mu));
-  }, [quote.data, qKey, mu]);
+  }, [quote.data, quote.isPlaceholderData, qKey, mu]);
 
   const save = useAction((input: PaymentInput) => api.payDebt(card.id, input), onClose, { celebrate: true });
   const lent = card.direction === "lent";
@@ -79,7 +81,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
     save.run({ date, accountId, principal: p, interest: i, scheduleId: early ? null : (next?.id ?? null), recalcMode: monthly && differs ? mode : null });
   };
   const m = (v: number) => <Money amount={v} symbol={card.currencySymbol} minorUnits={mu} />;
-  const q = early ? quote.data : undefined;
+  const q = early && qKey ? quote.data : undefined;
   const title = !early ? "Платёж по графику" : monthly ? "Досрочный платёж" : "Частичный возврат";
 
   return (

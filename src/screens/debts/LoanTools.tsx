@@ -479,32 +479,42 @@ export function History({ card }: { card: DebtCard }) {
       {list.length === 0 && <p className="muted">Изменений ещё не было.</p>}
       <ol className="history-list">
         {list
-          .map((before, i) => ({ before, after: list[i + 1] ?? d.current }))
+          .map((before, i) => ({ before, after: list[i + 1] ?? d.current, first: i === 0 }))
           .reverse()
-          .map(({ before, after }) => (
-            <li key={before.id ?? before.createdAt} data-testid="version" className="fade-up">
-              <div className="history-head">
-                <b>{before.reason}</b>
-                <span className="muted">{when(before.createdAt)}</span>
-              </div>
-              <div className="history-diff">
-                <span>
-                  проценты {signed(after.totalInterest - before.totalInterest)}
-                </span>
-                {after.payment !== before.payment && (
-                  <span>
-                    платёж {m(before.payment)} → {m(after.payment)}
-                  </span>
-                )}
-                {after.maturityDate !== before.maturityDate && (
-                  <span>
-                    закрытие {formatDate(before.maturityDate)} → {formatDate(after.maturityDate)}
-                  </span>
-                )}
-                <span className="muted">строк в графике до изменения: {before.rows.length}</span>
-              </div>
-            </li>
-          ))}
+          .map(({ before, after, first }) => {
+            const same = after.totalInterest === before.totalInterest && after.payment === before.payment && after.maturityDate === before.maturityDate;
+            return (
+              <li key={before.id ?? before.createdAt} data-testid="version" className="fade-up">
+                <div className="history-head">
+                  <b>{before.reason}</b>
+                  <span className="muted">{when(before.createdAt)}</span>
+                </div>
+                <div className="history-diff">
+                  {first ? (
+                    <span>
+                      исходный график: платёж {m(before.payment)}, проценты за весь срок {m(before.totalInterest)}, последний платёж {formatDate(before.maturityDate)}
+                    </span>
+                  ) : same ? (
+                    <span className="muted">итоги графика не изменились</span>
+                  ) : (
+                    <>
+                      <span>проценты {signed(after.totalInterest - before.totalInterest)}</span>
+                      {after.payment !== before.payment && (
+                        <span>
+                          платёж {m(before.payment)} → {m(after.payment)}
+                        </span>
+                      )}
+                      {after.maturityDate !== before.maturityDate && (
+                        <span>
+                          закрытие {formatDate(before.maturityDate)} → {formatDate(after.maturityDate)}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
       </ol>
     </div>
   );

@@ -110,7 +110,7 @@
 .good-text { color: var(--ok); }
 
 .pay-kind { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg); }
-.pay-kind .hint { font-size: 13px; color: var(--text); }
+.pay-kind .hint { font-size: 13px; color: var(--text); margin: 0; }
 .pay-quote { font-size: 14px; animation: pop-in 220ms var(--ease) both; }
 
 @media (max-width: 1100px) {
