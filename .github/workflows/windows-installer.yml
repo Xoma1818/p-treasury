@@ -8,6 +8,11 @@ name: Установщик для Windows
 on:
   workflow_dispatch:
   pull_request:
+    # PR только с документами не собирает программу: сборка тратит минуты Actions (30–50 на запуск).
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
 
 jobs:
   check:
