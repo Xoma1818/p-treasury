@@ -69,16 +69,20 @@ pub fn parse_daily(bytes: &[u8]) -> Result<Daily> {
     for chunk in xml[head_end..].split("<Valute").skip(1) {
         let body = chunk.split("</Valute>").next().unwrap_or_default();
         let code = tag(body, "CharCode").ok_or_else(|| bad("нет кода валюты"))?;
-        // VunitRate — уже курс за одну единицу; в старых ответах его нет.
-        let rate = match tag(body, "VunitRate") {
-            Some(unit) => Rate::parse(unit)?,
-            None => {
-                let value = Rate::parse(tag(body, "Value").ok_or_else(|| bad("нет курса"))?)?;
-                let nominal = Rate::parse(tag(body, "Nominal").unwrap_or("1"))?;
-                value.divide(&nominal).ok_or_else(|| bad("курс"))?
-            }
+        // VunitRate — уже курс за одну единицу; в старых ответах его нет, а у очень
+        // дешёвых валют он записан как 4,47935E-05. Тогда считаем Value / Nominal.
+        // Валюта с нечитаемым курсом пропускается, чтобы не сорвать загрузку остальных.
+        let per_unit = || {
+            let value = Rate::parse(tag(body, "Value")?).ok()?;
+            let nominal = Rate::parse(tag(body, "Nominal").unwrap_or("1")).ok()?;
+            value.divide(&nominal)
         };
-        rub_per_unit.insert(code.to_uppercase(), rate);
+        let rate = tag(body, "VunitRate")
+            .and_then(|unit| Rate::parse(unit).ok())
+            .or_else(per_unit);
+        if let Some(rate) = rate {
+            rub_per_unit.insert(code.to_uppercase(), rate);
+        }
     }
     if rub_per_unit.is_empty() {
         return Err(bad("курсов нет"));
@@ -229,6 +233,20 @@ mod tests {
         assert_eq!(d.rub_per_unit["EUR"], r("100.5"));
         // Без VunitRate: 61,2345 за 100 иен.
         assert_eq!(d.rub_per_unit["JPY"], r("0.612345"));
+    }
+
+    #[test]
+    fn tiny_rate_in_exponent_form_does_not_break_import() {
+        // Так ЦБ присылает курс иранского риала: за единицу 4,47935E-05 рубля.
+        let xml = SAMPLE.replace(
+            "</ValCurs>",
+            "<Valute ID=\"R01300\"><CharCode>IRR</CharCode><Nominal>10000</Nominal><Value>0,4479</Value><VunitRate>4,47935E-05</VunitRate></Valute>\n\
+             <Valute ID=\"R09999\"><CharCode>XXX</CharCode><Nominal>1</Nominal><Value>н/д</Value><VunitRate>н/д</VunitRate></Valute>\n</ValCurs>",
+        );
+        let d = parse_daily(xml.as_bytes()).unwrap();
+        assert_eq!(d.rub_per_unit["USD"], r("92.15"));
+        assert_eq!(d.rub_per_unit["IRR"], r("0.00004479"));
+        assert!(!d.rub_per_unit.contains_key("XXX"));
     }
 
     #[test]
