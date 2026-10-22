@@ -23,6 +23,7 @@ const HIT_GROUP: Record<SearchHit["kind"], [string, SectionId]> = {
   debt: ["Займы и долги", "debts"],
   asset: ["Имущество", "accounts"],
   goal: ["Цели", "home"],
+  tag: ["Теги", "transactions"],
 };
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -65,7 +66,7 @@ export function Palette() {
       views.filter((v) => has(v.name)).slice(0, 5).forEach((v) => out.push({ key: `v-${v.id}`, group: "Сохранённые виды", title: v.name, section: v.kind === "report" ? "reports" : "transactions", run: () => openView(v) }));
       hits.forEach((h) => {
         const [group, section] = HIT_GROUP[h.kind];
-        const run = h.kind === "debt" ? () => openDebt(h.id) : () => go(section);
+        const run = h.kind === "debt" ? () => openDebt(h.id) : h.kind === "tag" ? () => showTransactions({ tagId: h.id }) : () => go(section);
         const detail = h.detail && /^\d{4}-\d{2}-\d{2}$/.test(h.detail) ? formatDate(h.detail) : (h.detail ?? undefined);
         out.push({ key: `h-${h.kind}-${h.id}`, group, title: h.title, detail, section, run });
       });

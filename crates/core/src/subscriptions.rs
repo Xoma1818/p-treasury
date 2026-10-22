@@ -14,6 +14,9 @@ use crate::{currencies, settings, time, Result};
 const LOOKBACK_DAYS: i64 = 400;
 /// Насколько сумма может отличаться от обычной (доля).
 const AMOUNT_TOLERANCE: f64 = 0.15;
+/// «Подорожало» только у платежей, чьи прошлые суммы расходятся не больше
+/// чем на столько процентов.
+pub const STEADY_PERCENT: i64 = 3;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +99,7 @@ const PERIODS: [Period; 4] = [
 ];
 
 struct Payment {
+    id: String,
     date: NaiveDate,
     amount: i64,
     payee: String,
@@ -114,51 +118,11 @@ fn median(mut v: Vec<i64>) -> i64 {
 /// чем на полпериода) не показываются.
 pub fn list(conn: &Connection, today: &str) -> Result<SubscriptionsReport> {
     let today_d = time::parse_date(today)?;
-    let since = (today_d - Duration::days(LOOKBACK_DAYS)).to_string();
     let base = currencies::base_currency(conn)?;
     let hidden: Vec<String> = settings::get(conn, "subscriptions_hidden")?
         .and_then(|v| serde_json::from_str(&v).ok())
         .unwrap_or_default();
-    let mut stmt = conn.prepare(
-        "SELECT t.date, t.amount, trim(t.payee), c.name, a.currency_code, cur.symbol, cur.minor_units
-         FROM transactions t
-         JOIN accounts a ON a.id = t.account_id
-         JOIN currencies cur ON cur.code = a.currency_code
-         LEFT JOIN categories c ON c.id = t.category_id
-         WHERE t.status = 'cleared' AND t.type = 'expense' AND trim(coalesce(t.payee, '')) <> ''
-           AND t.date BETWEEN ?1 AND ?2
-         ORDER BY t.date",
-    )?;
-    let rows = stmt.query_map(params![since, today], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, Option<String>>(3)?,
-            r.get::<_, String>(4)?,
-            r.get::<_, String>(5)?,
-            r.get::<_, u32>(6)?,
-        ))
-    })?;
-    let mut groups: HashMap<(String, String), Vec<Payment>> = HashMap::new();
-    for row in rows {
-        let (date, amount, payee, category, currency, symbol, minor) = row?;
-        let Ok(date) = time::parse_date(&date) else {
-            continue;
-        };
-        groups
-            .entry((payee.to_lowercase(), currency.clone()))
-            .or_default()
-            .push(Payment {
-                date,
-                amount,
-                payee,
-                category,
-                currency,
-                symbol,
-                minor,
-            });
-    }
+    let groups = payments(conn, today)?;
     let mut items = Vec::new();
     for ((key, _), pays) in groups {
         if let Some(s) = detect(conn, &key, &pays, today_d, &base, &hidden)? {
@@ -182,6 +146,146 @@ pub fn list(conn: &Connection, today: &str) -> Result<SubscriptionsReport> {
         yearly_total,
         monthly_total: (yearly_total as f64 / 12.0).round() as i64,
     })
+}
+
+/// Расходы с получателем за последние `LOOKBACK_DAYS` дней, по получателю
+/// (без учёта регистра) и валюте, по дате.
+fn payments(conn: &Connection, today: &str) -> Result<HashMap<(String, String), Vec<Payment>>> {
+    let today_d = time::parse_date(today)?;
+    let since = (today_d - Duration::days(LOOKBACK_DAYS)).to_string();
+    let mut stmt = conn.prepare(
+        "SELECT t.date, t.amount, trim(t.payee), c.name, a.currency_code, cur.symbol, cur.minor_units, t.id
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+         JOIN currencies cur ON cur.code = a.currency_code
+         LEFT JOIN categories c ON c.id = t.category_id
+         WHERE t.status = 'cleared' AND t.type = 'expense' AND trim(coalesce(t.payee, '')) <> ''
+           AND t.date BETWEEN ?1 AND ?2
+         ORDER BY t.date",
+    )?;
+    let rows = stmt.query_map(params![since, today], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, String>(5)?,
+            r.get::<_, u32>(6)?,
+            r.get::<_, String>(7)?,
+        ))
+    })?;
+    let mut groups: HashMap<(String, String), Vec<Payment>> = HashMap::new();
+    for row in rows {
+        let (date, amount, payee, category, currency, symbol, minor, id) = row?;
+        let Ok(date) = time::parse_date(&date) else {
+            continue;
+        };
+        groups
+            .entry((payee.to_lowercase(), currency.clone()))
+            .or_default()
+            .push(Payment {
+                id,
+                date,
+                amount,
+                payee,
+                category,
+                currency,
+                symbol,
+                minor,
+            });
+    }
+    Ok(groups)
+}
+
+/// Подорожание регулярного платежа (А3): «Яндекс Плюс: было 399 ₽, стало 449 ₽».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceRise {
+    pub key: String,
+    pub payee: String,
+    /// Операция с новой ценой.
+    pub transaction_id: String,
+    pub date: String,
+    pub period: String,
+    pub old_amount: i64,
+    pub new_amount: i64,
+    pub currency_symbol: String,
+    pub minor_units: u32,
+    /// Сколько дороже в месяц и в год, в валюте платежа.
+    pub monthly_diff: i64,
+    pub yearly_diff: i64,
+}
+
+/// Платежи в год для периода подписки (целым числом, без округлений).
+fn per_year(period: &str) -> i64 {
+    match period {
+        "week" => 52,
+        "month" => 12,
+        "quarter" => 4,
+        _ => 1,
+    }
+}
+
+/// Регулярные платежи, последний из которых (не раньше `since`) дороже
+/// прошлого больше чем на `min_percent` процентов. Регулярность проверяется по
+/// платежам до последнего, поэтому заметное подорожание её не ломает.
+pub fn price_rises(
+    conn: &Connection,
+    today: &str,
+    since: &str,
+    min_percent: i64,
+) -> Result<Vec<PriceRise>> {
+    let base = currencies::base_currency(conn)?;
+    let hidden: Vec<String> = settings::get(conn, "subscriptions_hidden")?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for ((key, _), pays) in payments(conn, today)? {
+        let Some((last, before)) = pays.split_last() else {
+            continue;
+        };
+        let Some(prev) = before.last() else { continue };
+        if last.date.to_string().as_str() < since || hidden.contains(&key) {
+            continue;
+        }
+        // Только почти постоянная сумма (подписка): все прошлые платежи в
+        // пределах ±3 % друг от друга. У магазина суммы плавают — не «подорожало».
+        let lo = before.iter().map(|p| p.amount).min().unwrap_or(0);
+        let hi = before.iter().map(|p| p.amount).max().unwrap_or(0);
+        if lo <= 0 || (hi as i128) * 100 > (lo as i128) * (100 + STEADY_PERCENT as i128) {
+            continue;
+        }
+        let Some(sub) = detect(conn, &key, before, last.date, &base, &[])? else {
+            continue;
+        };
+        let p = PERIODS
+            .iter()
+            .find(|p| p.name == sub.period)
+            .expect("период из списка");
+        let gap = (last.date - prev.date).num_days();
+        if !(p.min..=p.max).contains(&gap)
+            || (last.amount as i128) * 100 <= (prev.amount as i128) * (100 + min_percent as i128)
+        {
+            continue;
+        }
+        let yearly_diff = (last.amount - prev.amount) * per_year(p.name);
+        out.push(PriceRise {
+            key,
+            payee: last.payee.clone(),
+            transaction_id: last.id.clone(),
+            date: last.date.to_string(),
+            period: p.name.to_string(),
+            old_amount: prev.amount,
+            new_amount: last.amount,
+            currency_symbol: last.symbol.clone(),
+            minor_units: last.minor,
+            monthly_diff: yearly_diff / 12,
+            yearly_diff,
+        });
+    }
+    out.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.key.cmp(&b.key)));
+    Ok(out)
 }
 
 fn detect(

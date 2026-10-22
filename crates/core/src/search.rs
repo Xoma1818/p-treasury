@@ -1,5 +1,5 @@
-//! Поиск по всему (Ctrl+K): заметки, поездки и события, долги, имущество и
-//! цели. Счета, категории, виды и операции ищет интерфейс через свои запросы.
+//! Поиск по всему (Ctrl+K): заметки, поездки и события, долги, имущество,
+//! цели и теги. Счета, категории, виды и операции ищет интерфейс через свои запросы.
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -11,7 +11,7 @@ const PER_KIND: usize = 5;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hit {
-    /// `note`, `event`, `debt`, `asset`, `goal`.
+    /// `note`, `event`, `debt`, `asset`, `goal`, `tag` (открывает операции с тегом).
     pub kind: String,
     pub id: String,
     pub title: String,
@@ -27,7 +27,7 @@ pub fn find(conn: &Connection, query: &str) -> Result<Vec<Hit>> {
     }
     transactions::register_lower(conn)?;
     let like = format!("%{q}%");
-    let sources: [(&str, &str); 5] = [
+    let sources: [(&str, &str); 6] = [
         (
             "note",
             "SELECT id, body, date FROM notes WHERE kz_lower(body) LIKE ?1
@@ -55,6 +55,12 @@ pub fn find(conn: &Connection, query: &str) -> Result<Vec<Hit>> {
             "goal",
             "SELECT id, name, deadline FROM goals WHERE archived = 0 AND kz_lower(name) LIKE ?1
              ORDER BY name LIMIT ?2",
+        ),
+        (
+            "tag",
+            "SELECT g.id, '#' || g.name,
+                    'Тег · операций: ' || (SELECT count(*) FROM transaction_tags tt WHERE tt.tag_id = g.id)
+             FROM tags g WHERE kz_lower(g.name) LIKE ?1 ORDER BY g.name LIMIT ?2",
         ),
     ];
     let mut out = Vec::new();
@@ -100,6 +106,14 @@ mod tests {
             find(c, "питер").unwrap()[0].detail.as_deref(),
             Some("2026-07-01 — 2026-07-10")
         );
+        c.execute_batch("INSERT INTO tags (id, name) VALUES ('t1', 'Ремонт кухни');")
+            .unwrap();
+        let tag = &find(c, "РЕМОНТ").unwrap()[0];
+        assert_eq!(
+            (tag.kind.as_str(), tag.id.as_str(), tag.title.as_str()),
+            ("tag", "t1", "#Ремонт кухни")
+        );
+        assert_eq!(tag.detail.as_deref(), Some("Тег · операций: 0"));
         assert!(
             find(c, "п").unwrap().is_empty(),
             "одна буква — слишком широко"

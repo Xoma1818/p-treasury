@@ -67,7 +67,7 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
               <td className="bar-col">
                 {r.percent != null && (
                   <>
-                    <div className={r.kind === "expense" && r.percent > 100 ? "bar over" : "bar"}>
+                    <div className={r.kind === "expense" && r.percent >= 100 ? "bar over" : "bar"}>
                       <span style={{ width: `${Math.min(r.percent, 100)}%` }} />
                     </div>{" "}
                     <span className="percent">{r.percent} %</span>

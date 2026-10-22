@@ -137,6 +137,12 @@ export interface Txn {
   debtId: string | null;
   eventId: string | null;
   eventName: string | null;
+  /** Общий идентификатор частей разбитого чека (Г3). */
+  splitId: string | null;
+  /** Трата учитывается в месячных расчётах N месяцев (2–24). */
+  spreadMonths: number | null;
+  /** Теги операции по алфавиту. */
+  tags: string[];
 }
 
 export interface TxnFilter {
@@ -148,6 +154,8 @@ export interface TxnFilter {
   search?: string;
   /** Операции поездки или события. */
   eventId?: string;
+  /** Операции с тегом. */
+  tagId?: string;
   limit?: number;
   offset?: number;
 }
@@ -729,6 +737,8 @@ export interface QuickDraft {
   ruleId: string | null;
   source: "line" | "sms";
   missing: string[];
+  /** Теги из слов с «#»: «леруа 4500 #ремонт». */
+  tags: string[];
 }
 
 /** Правило автокатегоризации: текст получателя → категория. */
@@ -1149,7 +1159,8 @@ export interface YearReview {
 }
 
 export interface SearchHit {
-  kind: "note" | "event" | "debt" | "asset" | "goal";
+  /** `tag` — открыть операции с тегом (id тега). */
+  kind: "note" | "event" | "debt" | "asset" | "goal" | "tag";
   id: string;
   title: string;
   detail: string | null;
@@ -1165,6 +1176,149 @@ export interface ImportFileResult {
 export interface ScanResult {
   files: ImportFileResult[];
   added: number;
+}
+
+// --- 0.16 «Быстрые победы» ---
+
+/** Дополнения формы операции: «Учитывать по месяцам» и теги. */
+export interface TxnExtra {
+  /** 2–24 или null — в месяце траты. Только для расхода. */
+  spreadMonths: number | null;
+  tags: string[];
+}
+
+/** Итог выделенных или найденных операций в основной валюте (Г1). */
+export interface Sums {
+  baseCurrency: string;
+  count: number;
+  expense: number;
+  income: number;
+  /** Доходы − расходы. */
+  total: number;
+  missingRates: string[];
+}
+
+/** Результат массового действия (Г2). */
+export interface BulkResult {
+  changed: number;
+  /** Пропущено: переводы и корректировки при смене категории, платежи по долгам, другая валюта. */
+  skipped: number;
+}
+
+export interface ReceiptPartInput {
+  categoryId: string;
+  amount: number;
+  note?: string | null;
+}
+
+export interface ReceiptInput {
+  date: string;
+  accountId: string;
+  payee: string | null;
+  note: string | null;
+  /** Сумма чека; сумма строк должна быть равна ей. */
+  total: number;
+  parts: ReceiptPartInput[];
+  tags?: string[];
+}
+
+export interface ReceiptPart {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  amount: number;
+  note: string | null;
+}
+
+export interface Receipt {
+  splitId: string;
+  date: string;
+  accountId: string;
+  payee: string | null;
+  total: number;
+  eventId: string | null;
+  tags: string[];
+  parts: ReceiptPart[];
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export interface TagReport {
+  tagId: string;
+  name: string;
+  baseCurrency: string;
+  from: string;
+  to: string;
+  expense: number;
+  income: number;
+  count: number;
+  byCategory: { categoryId: string; name: string; amount: number }[];
+  byMonth: { month: string; expense: number; income: number }[];
+  missingRates: string[];
+}
+
+/** Сравнение категории с обычным (А2). */
+export interface UsualRow {
+  categoryId: string;
+  parentId: string | null;
+  name: string;
+  current: number;
+  usual: number;
+  diff: number;
+  /** +34 или −40; null, если обычно 0. */
+  percent: number | null;
+  /** Разница ≥ 25 % и ≥ 1 000 в основной валюте. */
+  notable: boolean;
+}
+
+export interface UsualReport {
+  month: string;
+  baseCurrency: string;
+  baseSymbol: string;
+  from: string;
+  to: string;
+  /** 0 — истории нет, сравнение не показывается. */
+  monthsCounted: number;
+  items: UsualRow[];
+  /** «Необычно в этом месяце»: до трёх верхних категорий. */
+  home: UsualRow[];
+  missingRates: string[];
+}
+
+/** Строка карточки «Проверьте» (А3). */
+export interface Check {
+  key: string;
+  kind: "duplicate" | "large" | "price";
+  title: string;
+  detail: string;
+  date: string;
+  transactionId: string;
+  /** У дубля — операция для «Удалить второй». */
+  secondId: string | null;
+}
+
+/** Чистые активы на конец месяца (В3). */
+export interface NetWorthPoint {
+  month: string;
+  date: string;
+  cash: number;
+  investments: number;
+  assets: number;
+  owedToMe: number;
+  iOwe: number;
+  net: number;
+  change: number | null;
+}
+
+export interface NetWorthHistory {
+  baseCurrency: string;
+  baseSymbol: string;
+  points: NetWorthPoint[];
+  missingRates: string[];
 }
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -1347,6 +1501,34 @@ export const api = {
   globalSearch: (query: string) => invoke<SearchHit[]>("global_search", { query }),
   autoImportDir: () => invoke<string>("auto_import_dir"),
   autoImportNow: () => invoke<ScanResult>("auto_import_now"),
+  createTransactionFull: (input: TxnInput, extra: TxnExtra, eventId: string | null = null) =>
+    invoke<string>("create_transaction_full", { input, eventId, extra }),
+  updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra) =>
+    invoke<void>("update_transaction_full", { id, input, extra }),
+  setTransactionSpread: (id: string, months: number | null) => invoke<void>("set_transaction_spread", { id, months }),
+  sumSelected: (ids: string[]) => invoke<Sums>("sum_selected", { ids }),
+  sumFiltered: (filter: TxnFilter) => invoke<Sums>("sum_filtered", { filter }),
+  bulkSetCategory: (ids: string[], categoryId: string) => invoke<BulkResult>("bulk_set_category", { ids, categoryId }),
+  bulkSetPayee: (ids: string[], payee: string | null) => invoke<BulkResult>("bulk_set_payee", { ids, payee }),
+  bulkSetAccount: (ids: string[], accountId: string) => invoke<BulkResult>("bulk_set_account", { ids, accountId }),
+  bulkTag: (ids: string[], tag: string, add: boolean) => invoke<BulkResult>("bulk_tag", { ids, tag, add }),
+  bulkDelete: (ids: string[]) => invoke<BulkResult>("bulk_delete", { ids }),
+  createReceipt: (input: ReceiptInput) => invoke<string>("create_receipt", { input }),
+  updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
+  deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),
+  getReceipt: (splitId: string) => invoke<Receipt>("get_receipt", { splitId }),
+  listTags: () => invoke<Tag[]>("list_tags"),
+  setTransactionTags: (id: string, tags: string[]) => invoke<void>("set_transaction_tags", { id, tags }),
+  renameTag: (id: string, name: string) => invoke<void>("rename_tag", { id, name }),
+  mergeTags: (from: string, into: string) => invoke<void>("merge_tags", { from, into }),
+  deleteTag: (id: string) => invoke<void>("delete_tag", { id }),
+  reportByTag: (tagId: string, from: string, to: string) => invoke<TagReport>("report_by_tag", { tagId, from, to }),
+  spendingVsUsual: (month: string) => invoke<UsualReport>("spending_vs_usual", { month }),
+  listChecks: () => invoke<Check[]>("list_checks"),
+  dismissCheck: (key: string) => invoke<void>("dismiss_check", { key }),
+  deleteDuplicate: (secondId: string) => invoke<void>("delete_duplicate", { secondId }),
+  /** months: 12, 36 или null — всё время. */
+  netWorthHistory: (months: number | null) => invoke<NetWorthHistory>("net_worth_history", { months }),
   redo: () => invoke<string | null>("redo"),
 };
 

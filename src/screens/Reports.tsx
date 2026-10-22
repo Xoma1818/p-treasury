@@ -15,10 +15,12 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { SubscriptionsReport } from "../components/Subscriptions";
 import { YearReviewReport } from "../components/YearReview";
 import { Hint } from "../components/Hint";
+import { NetWorthReport } from "../components/NetWorth";
+import { TagReport } from "../components/Tags";
 
 const M = BaseMoney;
 
-type Tab = "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year";
+type Tab = "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
 
 /** Сохранённый вид отчёта: вкладка и вид периода; период берётся текущий. */
 interface ReportView {
@@ -96,7 +98,9 @@ export function Reports() {
   });
 
   // Сравнение, подписки и итоги года выбирают период сами.
-  const ownPeriod = tab === "compare" || tab === "subs" || tab === "year";
+  const ownPeriod = tab === "compare" || tab === "subs" || tab === "year" || tab === "networth";
+  // Итоги периода сверху не нужны там, где отчёт показывает свои.
+  const noTiles = ownPeriod || tab === "tag";
   return (
     <section className="screen wide">
       <div className="screen-head">
@@ -142,7 +146,7 @@ export function Reports() {
               </div>
             )
           )}
-          {tab !== "balances" && tab !== "fx" && (
+          {tab !== "balances" && tab !== "fx" && tab !== "tag" && (
             <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
               Выгрузить
             </button>
@@ -157,7 +161,7 @@ export function Reports() {
       )}
       <ErrorText error={exp.error} />
 
-      {s && !ownPeriod && (
+      {s && !noTiles && (
         <div className="tiles">
           <div className="card tile clickable" data-testid="report-income" onClick={all}>
             <div className="tile-label">Доходы</div>
@@ -189,7 +193,7 @@ export function Reports() {
           </div>
         </div>
       )}
-      {s && !ownPeriod && s.missingRates.length > 0 && (
+      {s && !noTiles && s.missingRates.length > 0 && (
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
 
@@ -208,6 +212,8 @@ export function Reports() {
             ["fx", "Курсовая разница"],
             ["subs", "Подписки"],
             ["year", "Итоги года"],
+            ["tag", "По тегу"],
+            ["networth", "Чистые активы"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
@@ -223,6 +229,8 @@ export function Reports() {
       {period && tab === "fx" && <FxGain period={period} />}
       {tab === "subs" && <SubscriptionsReport />}
       {tab === "year" && <YearReviewReport />}
+      {period && tab === "tag" && <TagReport period={period} />}
+      {tab === "networth" && <NetWorthReport />}
     </section>
   );
 }

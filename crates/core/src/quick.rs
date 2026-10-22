@@ -33,6 +33,26 @@ pub struct Draft {
     pub source: String,
     /// Чего не хватает, чтобы записать операцию сразу: «сумма», «категория», «счёт».
     pub missing: Vec<String>,
+    /// Теги из слов с «#»: «леруа 4500 #ремонт» → «ремонт».
+    pub tags: Vec<String>,
+}
+
+/// Убрать из текста слова с «#» и вернуть их как теги (без повторов).
+fn take_tags(text: &str) -> (String, Vec<String>) {
+    let mut tags: Vec<String> = Vec::new();
+    let mut rest: Vec<&str> = Vec::new();
+    for word in text.split_whitespace() {
+        let Some(tag) = word.strip_prefix('#') else {
+            rest.push(word);
+            continue;
+        };
+        if let Some(t) = crate::tags::clean_name(tag) {
+            if !tags.iter().any(|x| x.to_lowercase() == t.to_lowercase()) {
+                tags.push(t);
+            }
+        }
+    }
+    (rest.join(" "), tags)
 }
 
 fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
@@ -445,7 +465,8 @@ fn by_history(
 pub fn parse(conn: &Connection, text: &str, today: &str) -> Result<Draft> {
     crate::time::check_date(today)?;
     let today_d = NaiveDate::parse_from_str(today, "%Y-%m-%d").expect("проверено");
-    let text = text.trim();
+    let (text, tags) = take_tags(text.trim());
+    let text = text.as_str();
     let p = if is_sms(text) {
         parse_sms(conn, text, today_d)?
     } else {
@@ -459,6 +480,7 @@ pub fn parse(conn: &Connection, text: &str, today: &str) -> Result<Draft> {
         payee: p.merchant.clone(),
         merchant: p.merchant.clone(),
         source: if p.sms { "sms" } else { "line" }.into(),
+        tags,
         ..Default::default()
     };
     if d.kind != "transfer" {
@@ -632,6 +654,12 @@ mod tests {
             d.missing,
             vec!["сумма".to_string(), "категория".to_string()]
         );
+        // Теги через «#» не мешают разбору остального.
+        let d = parse(c, "леруа 4500 #ремонт карта #Дача #РЕМОНТ", TODAY).unwrap();
+        assert_eq!(d.amount, Some(450_000));
+        assert_eq!(d.payee.as_deref(), Some("Леруа"));
+        assert_eq!(d.account_id.as_deref(), Some(f.card.as_str()));
+        assert_eq!(d.tags, ["ремонт", "Дача"]);
         // 31.12 в октябре — это прошлый декабрь.
         assert_eq!(
             parse(c, "кофе 250 31.12", TODAY).unwrap().date,

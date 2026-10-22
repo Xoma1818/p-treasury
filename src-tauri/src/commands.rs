@@ -15,9 +15,11 @@ use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::auto_import::{self, ScanResult};
 use budget_core::backups::{self, BackupInfo};
 use budget_core::budgets::{self, Budget, FillMode, Period};
+use budget_core::bulk::{self, BulkResult};
 use budget_core::calendar::{self, Month};
 use budget_core::categories::{self, Category, CategoryInput};
 use budget_core::cbr;
+use budget_core::checks::{self, Check};
 use budget_core::csv_import::{self, Preview};
 use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
@@ -29,9 +31,11 @@ use budget_core::habits::{self, WeekSummary};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::loan_export;
+use budget_core::net_worth::{self, History as NwHistory};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
 use budget_core::quick::{self, Draft};
+use budget_core::receipts::{self, Receipt, ReceiptInput};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::rules::{self, Rule, RuleInput};
@@ -39,9 +43,12 @@ use budget_core::search::{self, Hit};
 use budget_core::split::{self, SplitInput, SplitResult};
 use budget_core::storage::{self, Storage};
 use budget_core::subscriptions::{self, SubscriptionsReport};
+use budget_core::tags::{self, Tag, TagReport};
 use budget_core::templates::{self, Template, TemplateInput};
 use budget_core::transactions::{self, Defaults, Filter, Page, PayeeHint, Txn, TxnInput};
+use budget_core::transactions::{Sums, TxnExtra};
 use budget_core::undo::UndoState;
+use budget_core::usual::{self, UsualReport};
 use budget_core::views::{self, SavedView, ViewInput};
 use budget_core::wealth::{self, Cushion, FxReport};
 use budget_core::year::{self, YearReview};
@@ -1571,5 +1578,226 @@ pub fn auto_import_now(app: AppHandle, state: State<AppState>) -> CmdResult<Scan
     let dir = auto_import_dir(app)?;
     with_db(&state, |db| {
         auto_import::scan(db.conn_mut(), Path::new(&dir))
+    })
+}
+
+// --- 0.16 «Быстрые победы» ---
+
+/// Новая операция вместе с «Учитывать по месяцам» и тегами (одна отмена).
+#[tauri::command(async)]
+pub fn create_transaction_full(
+    state: State<AppState>,
+    input: TxnInput,
+    event_id: Option<String>,
+    extra: TxnExtra,
+) -> CmdResult<String> {
+    with_undo(&state, "Новая операция", |c| {
+        let id = transactions::create_with(c, &input, &extra)?;
+        if let Some(e) = event_id.as_deref() {
+            events::assign(c, Some(e), std::slice::from_ref(&id))?;
+        }
+        Ok(id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_transaction_full(
+    state: State<AppState>,
+    id: String,
+    input: TxnInput,
+    extra: TxnExtra,
+) -> CmdResult<()> {
+    with_undo(&state, "Изменение операции", |c| {
+        transactions::update_with(c, &id, &input, &extra)
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_transaction_spread(
+    state: State<AppState>,
+    id: String,
+    months: Option<i64>,
+) -> CmdResult<()> {
+    with_undo(&state, "Учитывать по месяцам", |c| {
+        transactions::set_spread(c, &id, months)
+    })
+}
+
+#[tauri::command(async)]
+pub fn sum_selected(state: State<AppState>, ids: Vec<String>) -> CmdResult<Sums> {
+    with_db(&state, |db| transactions::sum_ids(db.conn(), &ids))
+}
+
+#[tauri::command(async)]
+pub fn sum_filtered(state: State<AppState>, filter: Filter) -> CmdResult<Sums> {
+    with_db(&state, |db| transactions::sum_filter(db.conn(), &filter))
+}
+
+#[tauri::command(async)]
+pub fn bulk_set_category(
+    state: State<AppState>,
+    ids: Vec<String>,
+    category_id: String,
+) -> CmdResult<BulkResult> {
+    with_undo(&state, "Категория у выбранных", |c| {
+        bulk::set_category(c, &ids, &category_id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn bulk_set_payee(
+    state: State<AppState>,
+    ids: Vec<String>,
+    payee: Option<String>,
+) -> CmdResult<BulkResult> {
+    with_undo(&state, "Получатель у выбранных", |c| {
+        bulk::set_payee(c, &ids, payee.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn bulk_set_account(
+    state: State<AppState>,
+    ids: Vec<String>,
+    account_id: String,
+) -> CmdResult<BulkResult> {
+    with_undo(&state, "Счёт у выбранных", |c| {
+        bulk::set_account(c, &ids, &account_id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn bulk_tag(
+    state: State<AppState>,
+    ids: Vec<String>,
+    tag: String,
+    add: bool,
+) -> CmdResult<BulkResult> {
+    let label = if add {
+        "Тег выбранным"
+    } else {
+        "Снять тег"
+    };
+    with_undo(&state, label, |c| bulk::tag(c, &ids, &tag, add))
+}
+
+#[tauri::command(async)]
+pub fn bulk_delete(state: State<AppState>, ids: Vec<String>) -> CmdResult<BulkResult> {
+    with_undo(&state, "Удаление выбранных", |c| {
+        bulk::delete(c, &ids)
+    })
+}
+
+#[tauri::command(async)]
+pub fn create_receipt(state: State<AppState>, input: ReceiptInput) -> CmdResult<String> {
+    with_undo(&state, "Разбитый чек", |c| {
+        receipts::create(c, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_receipt(
+    state: State<AppState>,
+    split_id: String,
+    input: ReceiptInput,
+) -> CmdResult<()> {
+    with_undo(&state, "Изменение чека", |c| {
+        receipts::update(c, &split_id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_receipt(state: State<AppState>, split_id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление чека", |c| {
+        receipts::delete(c, &split_id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn get_receipt(state: State<AppState>, split_id: String) -> CmdResult<Receipt> {
+    with_db(&state, |db| receipts::get(db.conn(), &split_id))
+}
+
+#[tauri::command(async)]
+pub fn list_tags(state: State<AppState>) -> CmdResult<Vec<Tag>> {
+    with_db(&state, |db| tags::list(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn set_transaction_tags(
+    state: State<AppState>,
+    id: String,
+    tags: Vec<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Теги операции", |c| {
+        budget_core::tags::set_for(c, &id, &tags)
+    })
+}
+
+#[tauri::command(async)]
+pub fn rename_tag(state: State<AppState>, id: String, name: String) -> CmdResult<()> {
+    with_undo(&state, "Переименование тега", |c| {
+        tags::rename(c, &id, &name)
+    })
+}
+
+#[tauri::command(async)]
+pub fn merge_tags(state: State<AppState>, from: String, into: String) -> CmdResult<()> {
+    with_undo(&state, "Объединение тегов", |c| {
+        tags::merge(c, &from, &into)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_tag(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление тега", |c| {
+        tags::delete(c, &id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn report_by_tag(
+    state: State<AppState>,
+    tag_id: String,
+    from: String,
+    to: String,
+) -> CmdResult<TagReport> {
+    with_db(&state, |db| tags::report(db.conn(), &tag_id, &from, &to))
+}
+
+/// Сравнение с обычным: месяц `month` (текущий — по сегодня).
+#[tauri::command(async)]
+pub fn spending_vs_usual(state: State<AppState>, month: String) -> CmdResult<UsualReport> {
+    with_db(&state, |db| {
+        usual::compare(db.conn(), &month, &time::today_local())
+    })
+}
+
+/// Карточка «Проверьте» за последние 30 дней.
+#[tauri::command(async)]
+pub fn list_checks(state: State<AppState>) -> CmdResult<Vec<Check>> {
+    with_db(&state, |db| checks::list(db.conn(), &time::today_local()))
+}
+
+#[tauri::command(async)]
+pub fn dismiss_check(state: State<AppState>, key: String) -> CmdResult<()> {
+    with_undo(&state, "Всё в порядке", |c| {
+        checks::dismiss(c, &key)
+    })
+}
+
+/// «Удалить второй» у дубля; отменяется Ctrl+Z.
+#[tauri::command(async)]
+pub fn delete_duplicate(state: State<AppState>, second_id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление дубля", |c| {
+        checks::delete_second(c, &second_id)
+    })
+}
+
+/// Чистые активы по месяцам: `months` последних месяцев или всё время (`None`).
+#[tauri::command(async)]
+pub fn net_worth_history(state: State<AppState>, months: Option<u32>) -> CmdResult<NwHistory> {
+    with_db(&state, |db| {
+        net_worth::history(db.conn(), &time::today_local(), months)
     })
 }

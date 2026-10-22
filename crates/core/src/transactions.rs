@@ -49,6 +49,12 @@ pub struct Txn {
     /// Поездка или событие, к которому отнесена операция.
     pub event_id: Option<String>,
     pub event_name: Option<String>,
+    /// Общий идентификатор частей разбитого чека.
+    pub split_id: Option<String>,
+    /// Трата учитывается в месячных расчётах N месяцев (2–24).
+    pub spread_months: Option<i64>,
+    /// Теги операции по алфавиту.
+    pub tags: Vec<String>,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -169,11 +175,12 @@ struct Existing {
     account_id: String,
     to_account_id: Option<String>,
     debt_id: Option<String>,
+    split_id: Option<String>,
 }
 
 fn existing(conn: &Connection, id: &str) -> Result<Existing> {
     conn.query_row(
-        "SELECT type, account_id, to_account_id, debt_id FROM transactions WHERE id = ?1",
+        "SELECT type, account_id, to_account_id, debt_id, split_id FROM transactions WHERE id = ?1",
         [id],
         |r| {
             Ok(Existing {
@@ -181,6 +188,7 @@ fn existing(conn: &Connection, id: &str) -> Result<Existing> {
                 account_id: r.get(1)?,
                 to_account_id: r.get(2)?,
                 debt_id: r.get(3)?,
+                split_id: r.get(4)?,
             })
         },
     )
@@ -196,6 +204,9 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     if old.kind == "adjustment" {
         return invalid("корректировку можно только удалить и сделать сверку заново");
     }
+    if old.split_id.is_some() {
+        return invalid("это часть разбитого чека: измените чек целиком");
+    }
     let previous: Vec<&str> = [Some(old.account_id.as_str()), old.to_account_id.as_deref()]
         .into_iter()
         .flatten()
@@ -203,7 +214,8 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     let c = validate(conn, input, &previous)?;
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,
-                to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11
+                to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11,
+                spread_months = CASE WHEN ?2 = 'expense' THEN spread_months END
          WHERE id = ?1",
         params![
             id,
@@ -232,19 +244,84 @@ pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
     if old.kind == "adjustment" {
         return invalid("корректировку нельзя перенести: сделайте сверку заново");
     }
+    // Разбитый чек переносится целиком.
     conn.execute(
-        "UPDATE transactions SET date = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, date, time::now_utc()],
+        "UPDATE transactions SET date = ?2, updated_at = ?3
+         WHERE id = ?1 OR (?4 IS NOT NULL AND split_id = ?4)",
+        params![id, date, time::now_utc(), old.split_id],
     )?;
     Ok(())
 }
 
+/// Удалить операцию; часть разбитого чека удаляет весь чек.
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     let old = existing(conn, id)?;
     if old.debt_id.is_some() {
         return invalid("это платёж по долгу: удалите его в карточке долга");
     }
-    conn.execute("DELETE FROM transactions WHERE id = ?1", [id])?;
+    match &old.split_id {
+        Some(split) => conn.execute("DELETE FROM transactions WHERE split_id = ?1", [split])?,
+        None => conn.execute("DELETE FROM transactions WHERE id = ?1", [id])?,
+    };
+    Ok(())
+}
+
+/// Учитывать расход в месячных расчётах `months` месяцев (2–24) или, с `None`,
+/// в месяце траты. Баланс счёта от этого не меняется.
+pub fn set_spread(conn: &Connection, id: &str, months: Option<i64>) -> Result<()> {
+    let old = existing(conn, id)?;
+    if let Some(n) = months {
+        if old.kind != "expense" {
+            return invalid("учитывать по месяцам можно только расход");
+        }
+        if !(2..=24).contains(&n) {
+            return invalid("учитывать по месяцам можно от 2 до 24 месяцев");
+        }
+        if old.debt_id.is_some() {
+            return invalid("это платёж по долгу: его нельзя делить по месяцам");
+        }
+    }
+    conn.execute(
+        "UPDATE transactions SET spread_months = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, months, time::now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Что ещё сохраняется вместе с операцией из формы: «Учитывать по месяцам» и теги.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TxnExtra {
+    pub spread_months: Option<i64>,
+    pub tags: Vec<String>,
+}
+
+/// Записать дополнения формы к операции `id`.
+pub fn apply_extra(conn: &Connection, id: &str, extra: &TxnExtra) -> Result<()> {
+    set_spread(conn, id, extra.spread_months)?;
+    crate::tags::set_for(conn, id, &extra.tags)
+}
+
+/// Новая операция вместе с дополнениями формы (одна запись, одна отмена).
+pub fn create_with(conn: &mut Connection, input: &TxnInput, extra: &TxnExtra) -> Result<String> {
+    let tx = conn.transaction()?;
+    let id = create(&tx, input)?;
+    apply_extra(&tx, &id, extra)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// Изменить операцию вместе с дополнениями формы.
+pub fn update_with(
+    conn: &mut Connection,
+    id: &str,
+    input: &TxnInput,
+    extra: &TxnExtra,
+) -> Result<()> {
+    let tx = conn.transaction()?;
+    update(&tx, id, input)?;
+    apply_extra(&tx, id, extra)?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -263,6 +340,8 @@ pub struct Filter {
     pub search: Option<String>,
     /// Операции поездки или события.
     pub event_id: Option<String>,
+    /// Операции с тегом.
+    pub tag_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -278,7 +357,10 @@ const SELECT: &str =
     "SELECT t.id, t.type, t.date, t.account_id, a.name, ca.symbol, ca.minor_units, t.amount,
         t.to_account_id, ta.name, ct.symbol, ct.minor_units, t.to_amount, t.category_id,
         CASE WHEN p.name IS NULL THEN c.name ELSE p.name || ' → ' || c.name END,
-        t.payee, t.note, t.debt_id, t.event_id, e.name
+        t.payee, t.note, t.debt_id, t.event_id, e.name, t.split_id, t.spread_months,
+        (SELECT group_concat(name, char(31)) FROM
+            (SELECT g.name FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
+             WHERE tt.transaction_id = t.id ORDER BY g.name))
  FROM transactions t
  JOIN accounts a ON a.id = t.account_id
  JOIN currencies ca ON ca.code = a.currency_code
@@ -310,6 +392,12 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
         debt_id: r.get(17)?,
         event_id: r.get(18)?,
         event_name: r.get(19)?,
+        split_id: r.get(20)?,
+        spread_months: r.get(21)?,
+        tags: r
+            .get::<_, Option<String>>(22)?
+            .map(|s| s.split('\u{1f}').map(str::to_string).collect())
+            .unwrap_or_default(),
     })
 }
 
@@ -343,6 +431,12 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     }
     if let Some(e) = &f.event_id {
         wh.push(format!("t.event_id = {}", arg(e.clone().into())));
+    }
+    if let Some(tag) = &f.tag_id {
+        wh.push(format!(
+            "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = {})",
+            arg(tag.clone().into())
+        ));
     }
     if !f.types.is_empty() {
         let ps: Vec<String> = f.types.iter().map(|t| arg(t.clone().into())).collect();
@@ -407,6 +501,88 @@ pub fn list_all(conn: &Connection, f: &Filter) -> Result<Vec<Txn>> {
         .query_map(params_from_iter(args.iter()), map)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(items)
+}
+
+/// Итог по выделенным или найденным операциям в основной валюте
+/// (по курсу на дату операции). Переводы и корректировки входят только в счётчик.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sums {
+    pub base_currency: String,
+    pub count: i64,
+    pub expense: i64,
+    pub income: i64,
+    /// Доходы − расходы.
+    pub total: i64,
+    /// Валюты без курса: такие операции в суммы не вошли.
+    pub missing_rates: Vec<String>,
+}
+
+fn add_rows(
+    conn: &Connection,
+    out: &mut Sums,
+    rows: impl IntoIterator<Item = (String, String, i64, String)>,
+) -> Result<()> {
+    for (kind, date, amount, cur) in rows {
+        out.count += 1;
+        if !matches!(kind.as_str(), "expense" | "income") {
+            continue;
+        }
+        match crate::currencies::convert(conn, amount, &cur, &out.base_currency, &date)? {
+            Some(v) if kind == "expense" => out.expense += v,
+            Some(v) => out.income += v,
+            None if !out.missing_rates.contains(&cur) => out.missing_rates.push(cur),
+            None => {}
+        }
+    }
+    out.total = out.income - out.expense;
+    Ok(())
+}
+
+fn sum_row(r: &rusqlite::Row) -> rusqlite::Result<(String, String, i64, String)> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+}
+
+/// Сумма выделенных операций (Г1). Неизвестные id пропускаются.
+pub fn sum_ids(conn: &Connection, ids: &[String]) -> Result<Sums> {
+    let mut out = Sums {
+        base_currency: crate::currencies::base_currency(conn)?,
+        ..Default::default()
+    };
+    let mut unique: Vec<&String> = ids.iter().collect();
+    unique.sort();
+    unique.dedup();
+    for chunk in unique.chunks(500) {
+        let marks = vec!["?"; chunk.len()].join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+             JOIN accounts a ON a.id = t.account_id WHERE t.id IN ({marks})"
+        ))?;
+        let rows = stmt
+            .query_map(params_from_iter(chunk.iter()), sum_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        add_rows(conn, &mut out, rows)?;
+    }
+    Ok(out)
+}
+
+/// Сумма всех операций, найденных фильтром (без учёта страниц).
+pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
+    let mut out = Sums {
+        base_currency: crate::currencies::base_currency(conn)?,
+        ..Default::default()
+    };
+    let (where_sql, args) = where_clause(conn, f)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+         JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+         LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}"
+    ))?;
+    let rows = stmt
+        .query_map(params_from_iter(args.iter()), sum_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    add_rows(conn, &mut out, rows)?;
+    Ok(out)
 }
 
 /// Функция `kz_lower` для поиска без учёта регистра по-русски.
@@ -806,5 +982,135 @@ mod tests {
         delete(c, &id).unwrap();
         assert!(matches!(get(c, &id), Err(Error::NotFound(_))));
         assert_eq!(accounts::balance(c, &f.card, None).unwrap(), 10_000_000);
+    }
+
+    #[test]
+    fn spread_over_months_splits_monthly_figures_but_not_balance() {
+        // Страховка 12 000 ₽ в январе на 12 месяцев — по 1 000 ₽ в каждом месяце года.
+        let mut f = fx();
+        let other = cat(f.db.conn(), "Прочие расходы");
+        let c = f.db.conn_mut();
+        let id = create_with(
+            c,
+            &txn("expense", "2026-01-15", &f.card, 1_200_000, Some(&other)),
+            &TxnExtra {
+                spread_months: Some(12),
+                tags: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(get(c, &id).unwrap().spread_months, Some(12));
+        assert_eq!(
+            accounts::balance(c, &f.card, Some("2026-01-15")).unwrap(),
+            10_000_000 - 1_200_000,
+            "баланс уменьшается в день траты"
+        );
+        let year = crate::reports::by_month(c, "2026-01", "2026-12").unwrap();
+        assert!(year.months.iter().all(|m| m.expense == 100_000));
+        assert_eq!(year.expense, 1_200_000);
+        let dec = crate::budgets::get(c, "2026-12", "2026-12-01").unwrap();
+        assert_eq!(dec.actual_expense, 100_000);
+        let cats = crate::reports::by_category(c, "expense", "2026-03-01", "2026-03-31").unwrap();
+        assert_eq!(cats.total, 100_000);
+        assert_eq!(
+            crate::reports::by_month(c, "2027-01", "2027-01")
+                .unwrap()
+                .expense,
+            0
+        );
+
+        // Копейки от деления — в первую часть; 31-е в коротком месяце — последний день.
+        let odd = create_with(
+            c,
+            &txn("expense", "2026-01-31", &f.cash, 100_000, Some(&f.food)),
+            &TxnExtra {
+                spread_months: Some(3),
+                tags: vec![],
+            },
+        )
+        .unwrap();
+        let parts: Vec<(String, i64)> = c
+            .prepare("SELECT date, amount FROM txn_by_month WHERE id = ?1 ORDER BY part")
+            .unwrap()
+            .query_map([&odd], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            parts,
+            [
+                ("2026-01-31".to_string(), 33_334),
+                ("2026-02-28".to_string(), 33_333),
+                ("2026-03-31".to_string(), 33_333)
+            ]
+        );
+
+        // Только расход, от 2 до 24; снять «по месяцам» можно.
+        assert!(set_spread(c, &odd, Some(1)).is_err());
+        assert!(set_spread(c, &odd, Some(25)).is_err());
+        let inc = create(
+            c,
+            &txn("income", "2026-01-10", &f.card, 100, Some(&f.salary)),
+        )
+        .unwrap();
+        assert!(set_spread(c, &inc, Some(2)).is_err());
+        set_spread(c, &odd, None).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM txn_by_month WHERE id = ?1",
+                [&odd],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        // Расход стал переводом — «по месяцам» снимается само.
+        update(c, &id, &transfer(&f.card, &f.cash, 1_200_000, None)).unwrap();
+        assert_eq!(get(c, &id).unwrap().spread_months, None);
+    }
+
+    #[test]
+    fn sums_of_selected_and_filtered_in_base_currency() {
+        let f = fx();
+        let c = f.db.conn();
+        crate::currencies::set_rate(c, "2026-10-01", "USD", "RUB", "90").unwrap();
+        let a = create(
+            c,
+            &txn("expense", "2026-10-02", &f.card, 1_000_000, Some(&f.food)),
+        )
+        .unwrap();
+        let b = create(
+            c,
+            &txn("expense", "2026-10-03", &f.usd, 10_000, Some(&f.cafe)),
+        )
+        .unwrap();
+        let d = create(
+            c,
+            &txn("income", "2026-10-04", &f.card, 500_000, Some(&f.salary)),
+        )
+        .unwrap();
+        let t = create(c, &transfer(&f.card, &f.cash, 100_000, None)).unwrap();
+        let s = sum_ids(c, &[a.clone(), b.clone(), d.clone(), t, a.clone()]).unwrap();
+        assert_eq!(
+            (s.count, s.expense, s.income, s.total),
+            (4, 1_000_000 + 900_000, 500_000, 500_000 - 1_900_000)
+        );
+        let s = sum_filter(
+            c,
+            &Filter {
+                types: vec!["expense".into()],
+                limit: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((s.count, s.expense, s.total), (2, 1_900_000, -1_900_000));
+        // Без курса операция в сумму не входит, валюта названа.
+        let eur = accounts::create(c, &acc("Евро", "cash", "EUR", 0)).unwrap();
+        let e = create(c, &txn("expense", "2026-10-05", &eur, 100, Some(&f.food))).unwrap();
+        let s = sum_ids(c, &[e]).unwrap();
+        assert_eq!(
+            (s.count, s.expense, s.missing_rates),
+            (1, 0, vec!["EUR".to_string()])
+        );
     }
 }

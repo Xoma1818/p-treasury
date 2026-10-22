@@ -328,3 +328,150 @@ fn real_upgrade_from_first_version_and_old_backup_restores() {
         Some("1")
     );
 }
+
+/// Таблицы схемы v8 и их колонки (в порядке схемы), кроме служебных.
+fn v8_tables(c: &rusqlite::Connection) -> Vec<(String, Vec<String>)> {
+    let names: Vec<String> = c
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table'
+             AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'notes_fts%' ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    names
+        .into_iter()
+        .map(|t| {
+            let cols: Vec<String> = c
+                .prepare(&format!("PRAGMA table_info({t})"))
+                .unwrap()
+                .query_map([], |r| r.get(1))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            (t, cols)
+        })
+        .collect()
+}
+
+/// Все строки таблицы по заданным колонкам, отсортированные, текстом.
+fn dump(c: &rusqlite::Connection, table: &str, cols: &[String]) -> Vec<String> {
+    let list = cols.join(", ");
+    let mut rows: Vec<String> = c
+        .prepare(&format!("SELECT {list} FROM {table}"))
+        .unwrap()
+        .query_map([], |r| {
+            let mut s = String::new();
+            for i in 0..cols.len() {
+                let v: rusqlite::types::Value = r.get(i)?;
+                s.push_str(&format!("{v:?}|"));
+            }
+            Ok(s)
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    rows.sort();
+    rows
+}
+
+/// База 0.15.2 (миграции 0001–0008) с данными примера обновляется до 0009
+/// без потерь: все прежние строки и колонки на месте, копия сделана,
+/// новые расчёты работают на старых данных.
+#[test]
+fn upgrade_from_0_15_2_with_demo_data_keeps_everything() {
+    let dir = tempfile::tempdir().unwrap();
+    // Данные примера (включая дубль, теги и т. п.) — во временной новой базе.
+    let src = dir.path().join("demo.db");
+    {
+        let mut db = Storage::open(&src, &opts(dir.path())).unwrap();
+        budget_core::demo::seed(db.conn_mut(), "2026-10-20").unwrap();
+    }
+    // Настоящая схема 0.15.2 и перенос в неё всех строк по её колонкам.
+    let path = dir.path().join("budget.db");
+    let tables = {
+        let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..8]).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 8);
+        let c = db.conn();
+        let tables = v8_tables(c);
+        c.execute("ATTACH DATABASE ?1 AS src", [src.to_str().unwrap()])
+            .unwrap();
+        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;")
+            .unwrap();
+        for (t, cols) in &tables {
+            let list = cols.join(", ");
+            c.execute(&format!("DELETE FROM main.{t}"), []).unwrap();
+            c.execute(
+                &format!("INSERT INTO main.{t} ({list}) SELECT {list} FROM src.{t}"),
+                [],
+            )
+            .unwrap();
+        }
+        // Настройка 0.16 из новой базы в 0.15.2 не бывает.
+        c.execute("DELETE FROM settings WHERE key = 'budget_alerts'", [])
+            .unwrap();
+        c.execute_batch("COMMIT; PRAGMA foreign_keys = ON; DETACH DATABASE src;")
+            .unwrap();
+        let fk: i64 = c
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(fk, 0, "данные 0.15.2 согласованы");
+        tables
+    };
+    let before: Vec<Vec<String>> = {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        tables.iter().map(|(t, cols)| dump(&c, t, cols)).collect()
+    };
+    let txns = before[tables
+        .iter()
+        .position(|(t, _)| t == "transactions")
+        .unwrap()]
+    .len();
+    assert!(txns > 50, "в примере много операций: {txns}");
+
+    let db = Storage::open(&path, &opts(dir.path())).unwrap();
+    assert_eq!(db.schema_version().unwrap(), LATEST_VERSION);
+    assert!(
+        db.pre_migration_backup().is_some(),
+        "копия перед обновлением"
+    );
+    let c = db.conn();
+    for ((t, cols), old) in tables.iter().zip(&before) {
+        if t == "settings" {
+            continue;
+        }
+        assert_eq!(&dump(c, t, cols), old, "таблица {t} не изменилась");
+    }
+    let settings = budget_core::settings::all(c).unwrap();
+    assert_eq!(settings["budget_alerts"], "1");
+    let old_settings = &before[tables.iter().position(|(t, _)| t == "settings").unwrap()];
+    for row in old_settings {
+        assert!(
+            dump(c, "settings", &["key".into(), "value".into()]).contains(row),
+            "настройка {row}"
+        );
+    }
+    // Новые колонки пусты, представление совпадает с операциями.
+    let (split, spread): (i64, i64) = c
+        .query_row(
+            "SELECT count(split_id), count(spread_months) FROM transactions",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((split, spread), (0, 0));
+    let view: i64 = c
+        .query_row("SELECT count(*) FROM txn_by_month", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(view as usize, txns);
+    // Расчёты 0.16 работают на старых данных.
+    budget_core::budgets::get(c, "2026-10", "2026-10-20").unwrap();
+    budget_core::usual::compare(c, "2026-10", "2026-10-20").unwrap();
+    budget_core::checks::list(c, "2026-10-20").unwrap();
+    let h = budget_core::net_worth::history(c, "2026-10-20", Some(12)).unwrap();
+    assert_eq!(h.points.len(), 12);
+}

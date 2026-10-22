@@ -32,4 +32,11 @@ describe("своя Главная", () => {
     expect(l.hidden).toEqual(["cushion", "spend"]);
     expect(toggleBlock(l, "cushion").hidden).toEqual(["spend"]);
   });
+
+  it("карточки 0.16 «Проверьте» и «Необычно» встают сразу за плитками баланса", () => {
+    const old = ["quick", "summary", "tiles", "trend", "cushion", "invest", "goals", "subs", "days", "templates", "spend", "main", "plans", "reminders"];
+    const l = parseLayout(JSON.stringify({ order: old, hidden: ["trend"] }));
+    expect(l.order.slice(2, 5)).toEqual(["tiles", "checks", "unusual"]);
+    expect(l.hidden).toEqual(["trend"]);
+  });
 });

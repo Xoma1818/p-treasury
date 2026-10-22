@@ -1,5 +1,6 @@
 //! Отчёты. Суммы в основной валюте по курсу на дату операции.
 //! Переводы не входят в доходы и расходы; корректировки идут отдельной строкой.
+//! Трата «на N месяцев» считается частями по месяцам (`txn_by_month`).
 
 use std::collections::HashMap;
 
@@ -30,7 +31,7 @@ pub fn period_summary(conn: &Connection, from: &str, to: &str) -> Result<PeriodS
         ..Default::default()
     };
     let mut stmt = conn.prepare(
-        "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT t.type, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('income', 'expense', 'adjustment')
            AND t.date BETWEEN ?1 AND ?2",
@@ -133,7 +134,7 @@ pub fn by_category(conn: &Connection, kind: &str, from: &str, to: &str) -> Resul
     }
     let base = currencies::base_currency(conn)?;
     let mut stmt = conn.prepare(
-        "SELECT t.category_id, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = ?1 AND t.date BETWEEN ?2 AND ?3",
     )?;
