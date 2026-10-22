@@ -48,6 +48,8 @@ export function Home() {
   const setSetting = useAction(api.setSetting);
   const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", JSON.stringify(l));
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
+  // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
+  const monthShort = monthName.replace(/ \d{4}$/, "");
   const symbol = totals.data?.baseSymbol ?? "₽";
   const dash = useDashboard(period);
   const spark = sparkSeries(dash.months, totals.data?.total);
@@ -92,7 +94,7 @@ export function Home() {
             </div>
             <div className="card tile" data-testid="month-income">
               <div className="tile-label">
-                Доходы, {monthName}
+                Доходы, {monthShort}
                 <Hint of="home.income" />
                 {month.data && <Delta pct={change(month.data.income, prev?.income)} hint="к тем же дням прошлого месяца" />}
               </div>
@@ -106,7 +108,7 @@ export function Home() {
             </div>
             <div className="card tile" data-testid="month-expense">
               <div className="tile-label">
-                Расходы, {monthName}
+                Расходы, {monthShort}
                 <Hint of="home.expense" />
                 {month.data && <Delta pct={change(month.data.expense, prev?.expense)} lowerIsBetter hint="к тем же дням прошлого месяца" />}
               </div>
