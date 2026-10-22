@@ -320,6 +320,9 @@ mod tests {
                 first_payment_date: Some("2026-11-15".into()),
                 maturity_date: None,
                 account_id: Some(card.clone()),
+                interest_method: None,
+                rate_changes: vec![],
+                planned_early: vec![],
             },
         )
         .unwrap();

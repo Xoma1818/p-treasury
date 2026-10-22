@@ -910,6 +910,9 @@ mod tests {
                 first_payment_date: None,
                 maturity_date: None,
                 account_id: Some(card.clone()),
+                interest_method: None,
+                rate_changes: vec![],
+                planned_early: vec![],
             },
         )
         .unwrap();

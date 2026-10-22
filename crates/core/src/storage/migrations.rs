@@ -56,6 +56,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "vault",
         sql: include_str!("../../migrations/0008_vault.sql"),
     },
+    // Файл назван 0010: номер 0009 занят миграцией 0.16 (`0009_quick_wins.sql`,
+    // параллельная ветка). Версии идут подряд, поэтому при слиянии с 0.16 эта
+    // миграция станет версией 10, а до него — 9.
+    Migration {
+        version: 9,
+        name: "loans",
+        sql: include_str!("../../migrations/0010_loans.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
