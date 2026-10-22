@@ -240,6 +240,9 @@ mod tests {
                 first_payment_date: None,
                 maturity_date: Some("2027-01-01".into()),
                 account_id: Some(card.clone()),
+                interest_method: None,
+                rate_changes: vec![],
+                planned_early: vec![],
             },
         )
         .unwrap();
@@ -258,6 +261,9 @@ mod tests {
                 first_payment_date: None,
                 maturity_date: Some("2027-10-05".into()),
                 account_id: None,
+                interest_method: None,
+                rate_changes: vec![],
+                planned_early: vec![],
             },
         )
         .unwrap();
