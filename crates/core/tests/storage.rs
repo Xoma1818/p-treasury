@@ -377,7 +377,8 @@ fn dump(c: &rusqlite::Connection, table: &str, cols: &[String]) -> Vec<String> {
     rows
 }
 
-/// База 0.15.2 (миграции 0001–0008) с данными примера обновляется до 0009
+/// База 0.15.2 (миграции 0001–0008) с данными примера обновляется до 0010
+/// (через займы 0009)
 /// без потерь: все прежние строки и колонки на месте, копия сделана,
 /// новые расчёты работают на старых данных.
 #[test]
@@ -409,8 +410,11 @@ fn upgrade_from_0_15_2_with_demo_data_keeps_everything() {
             )
             .unwrap();
         }
-        // Настройка 0.16 из новой базы в 0.15.2 не бывает.
-        c.execute("DELETE FROM settings WHERE key = 'budget_alerts'", [])
+        // Настроек 0.16 и 0.17 из новой базы в 0.15.2 не бывает.
+        c.execute(
+            "DELETE FROM settings WHERE key IN ('budget_alerts', 'budget_alerts_seeded', 'loan_lender_name')",
+            [],
+        )
             .unwrap();
         c.execute_batch("COMMIT; PRAGMA foreign_keys = ON; DETACH DATABASE src;")
             .unwrap();
