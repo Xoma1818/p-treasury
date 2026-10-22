@@ -99,11 +99,11 @@ export function Sidebar() {
                 aria-current={s.id === section ? "page" : undefined}
                 onClick={() => go(s.id)}
                 title={i < 9 ? `${s.hint} · Ctrl+${i + 1}` : s.hint}
-                // Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки.
-                data-key={i < 9 ? i + 1 : undefined}
               >
                 <SectionIcon id={s.id} />
                 {s.title}
+                {/* Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки. */}
+                {i < 9 && <span className="nav-key" data-k={i + 1} aria-hidden="true" />}
               </button>
             </li>
           </Fragment>

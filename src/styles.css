@@ -95,8 +95,9 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .nav-item:hover .icon-tile { transform: scale(1.08); }
 .nav-item.active .icon-tile { background: var(--c); color: var(--bg); }
 /* Номер раздела для Ctrl+цифра: виден при наведении. */
-.nav-item[data-key]::after { display: block; content: attr(data-key); position: static; margin: 0 0 0 auto; width: auto; height: auto; transform: none; background: none; opacity: 0; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px; transition: opacity var(--fast) var(--ease); }
-.nav-item[data-key]:hover::after { opacity: 1; }
+.nav-key { margin-left: auto; opacity: 0; font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px; transition: opacity 200ms var(--ease); }
+.nav-key::before { content: attr(data-k); }
+.nav-item:hover .nav-key { opacity: 1; }
 .nav-group { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 14px 12px 6px; }
 .nav-settings { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 /* Значок раздела в цветной плашке (цвет --c задаёт раздел). */
@@ -195,7 +196,7 @@ input.invalid { border-color: var(--over); }
 .btn[aria-busy="true"] .btn-icon { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* Волна от точки нажатия. */
-.btn::after, .chip-btn::after, .tab::after, .nav-item::after, .template-main::after {
+.btn::after, .chip-btn::after, .tab::after, .template-main::after {
   content: "";
   position: absolute;
   left: var(--px, 50%);
@@ -209,11 +210,11 @@ input.invalid { border-color: var(--over); }
   pointer-events: none;
   transform: scale(0);
 }
-[data-pressed]::after { animation: press-wave 480ms var(--ease); }
-@keyframes press-wave { from { opacity: 0.18; transform: scale(0); } to { opacity: 0; transform: scale(24); } }
+[data-pressed]::after { animation: press-wave 520ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes press-wave { from { opacity: 0.1; transform: scale(0); } to { opacity: 0; transform: scale(16); } }
 .chip-btn, .tab, .template-main { position: relative; overflow: hidden; }
 .nav-item { overflow: visible; }
-.nav-item:not([data-key])::after { display: none; }
+.nav-item::after { display: none; }
 /* Кольцо фокуса только при работе с клавиатуры. */
 :focus-visible { outline: none; }
 .btn:focus-visible, .link:focus-visible, .nav-item:focus-visible, .tab:focus-visible, .chip-btn:focus-visible, .icon-btn:focus-visible, .template-main:focus-visible, .template-del:focus-visible, .clickable:focus-visible, button:focus-visible { box-shadow: var(--ring); border-radius: 8px; }
@@ -572,9 +573,9 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
   border-width: 0 2px 2px 0;
   border-radius: 0;
   transform: rotate(45deg);
-  animation: check-pop 320ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  animation: check-pop 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-@keyframes check-pop { from { opacity: 0; transform: rotate(45deg) scale(0.2); } }
+@keyframes check-pop { from { opacity: 0; transform: rotate(45deg) scale(0.6); } }
 
 /* 0.12: графики и полосы появляются плавно. */
 @keyframes grow-y { from { transform: scaleY(0); } }
@@ -728,3 +729,14 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 @media (max-width: 560px) {
   .settings-list > .field { grid-template-columns: 1fr; grid-template-areas: "label" "control" "hint"; }
 }
+
+/* --- 0.15.1: сдержанные анимации --- */
+/* Плавно и коротко, без «пружин» и вспышек: меню откликается фоном и лёгким
+   нажатием, раздел появляется с едва заметным подъёмом. */
+.nav-item { transition: background-color 180ms var(--ease), color 180ms var(--ease), transform 120ms var(--ease); }
+.nav-item:active { transform: scale(0.985); }
+.nav-item:hover .icon-tile { transform: scale(1.04); }
+.screen { animation: screen-in 260ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes screen-in { from { opacity: 0; transform: translateY(4px); } }
+.bar > span::after { display: none; }
+input[type="checkbox"]:checked { animation: none; }

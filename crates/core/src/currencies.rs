@@ -16,11 +16,27 @@ pub struct Currency {
     pub minor_units: u32,
 }
 
-/// Все валюты; рубль первым, остальные по коду.
+/// Валюты, которые предлагает программа (по решению владельца, 0.15.1).
+pub const OFFERED: &[&str] = &["RUB", "USD", "EUR", "CNY", "GBP", "KZT"];
+
+/// Валюты для списков: предлагаемые и те прочие, что уже есть в счетах, долгах,
+/// бюджетах, имуществе или целях (старые данные остаются видны). Рубль первым.
 pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
-    let mut stmt = conn.prepare(
-        "SELECT code, name, symbol, minor_units FROM currencies ORDER BY code = 'RUB' DESC, code",
-    )?;
+    let offered = OFFERED
+        .iter()
+        .map(|c| format!("'{c}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT code, name, symbol, minor_units FROM currencies
+         WHERE code IN ({offered})
+            OR code IN (SELECT currency_code FROM accounts
+                        UNION SELECT currency_code FROM debts
+                        UNION SELECT currency_code FROM budgets
+                        UNION SELECT currency_code FROM assets
+                        UNION SELECT currency_code FROM goals)
+         ORDER BY code = 'RUB' DESC, code"
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok(Currency {
             code: r.get(0)?,
@@ -174,7 +190,23 @@ mod tests {
         let db = Storage::open_in_memory().unwrap();
         let all = list(db.conn()).unwrap();
         assert_eq!(all[0].code, "RUB");
-        assert!(all.iter().any(|c| c.code == "JPY" && c.minor_units == 0));
+        let codes: Vec<_> = all.iter().map(|c| c.code.as_str()).collect();
+        assert_eq!(codes, ["RUB", "CNY", "EUR", "GBP", "KZT", "USD"]);
+    }
+
+    #[test]
+    fn used_old_currency_stays_listed() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        c.execute(
+            "INSERT INTO accounts (id, name, type, currency_code, opening_date, created_at, updated_at)
+             VALUES ('a', 'Лиры', 'cash', 'TRY', '2026-01-01', '', '')",
+            [],
+        )
+        .unwrap();
+        let all = list(c).unwrap();
+        assert!(all.iter().any(|x| x.code == "TRY"));
+        assert!(!all.iter().any(|x| x.code == "JPY"));
     }
 
     #[test]
