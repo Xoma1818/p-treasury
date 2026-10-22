@@ -31,7 +31,7 @@ async function openDebt(name) {
 test("выбор кредита: калькулятор считает аннуитет и дифференцированный", async () => {
   await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");
-  // Суммы этапа 4 посчитаны «по месяцам» (ставка ÷ 12); с 0.17 по умолчанию — по дням, как банк.
+  // Суммы этапа 4 посчитаны «по месяцам» (ставка ÷ 12); с 0.16 по умолчанию — по дням, как банк.
   await click(browser, "по месяцам");
   await waitText(browser, '[data-testid="loan-payment"]', money("14 977,23 ₽"));
   await waitText(browser, '[data-testid="loan-overpay"]', /59 45\d,\d\d ₽/);

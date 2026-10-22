@@ -372,7 +372,7 @@ export interface DebtDetail {
   plannedEarly: (PlannedEarlyInput & { id: string })[];
 }
 
-// --- Займы 0.17 ---
+// --- Займы 0.16 ---
 
 export type InterestMethod = "daily" | "monthly";
 export type RecalcMode = "reduce_payment" | "reduce_term";

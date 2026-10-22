@@ -920,7 +920,7 @@ pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdRes
     })
 }
 
-// --- Займы 0.17: условия, ставка, каникулы, досрочки, история, выгрузка ---
+// --- Займы 0.16: условия, ставка, каникулы, досрочки, история, выгрузка ---
 
 #[tauri::command(async)]
 pub fn plan_loan(input: loan_calc::CalcInput) -> CmdResult<loan_calc::CalcResult> {

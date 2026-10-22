@@ -912,7 +912,7 @@ pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<
     })
 }
 
-// --- Условия, ставка, каникулы, плановые досрочки, версии (0.17) ---
+// --- Условия, ставка, каникулы, плановые досрочки, версии (0.16) ---
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

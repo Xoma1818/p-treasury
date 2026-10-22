@@ -235,8 +235,8 @@ export async function setDate(browser, name, value) {
   );
 }
 
-/** Новый долг через форму расчёта (0.17): поля расчёта, затем «Записать заём» с кем и счётом.
- *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.17. */
+/** Новый долг через форму расчёта (0.16): поля расчёта, затем «Записать заём» с кем и счётом.
+ *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.16. */
 export async function newDebt(browser, { counterparty, principal, rate, term, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
   await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
