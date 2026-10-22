@@ -603,7 +603,7 @@ mod tests {
         let pdf = lopdf::Document::load_mem(&bytes).unwrap();
         let pages = pdf.get_pages();
         assert!(pages.len() >= 7, "страниц {}", pages.len());
-        for (_, id) in &pages {
+        for id in pages.values() {
             let page = pdf.get_dictionary(*id).unwrap();
             let mb = page.get(b"MediaBox").unwrap().as_array().unwrap();
             let h = mb[3].as_float().unwrap();

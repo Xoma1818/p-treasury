@@ -2565,6 +2565,8 @@ mod tests {
         assert!(text.contains("Иванов Иван Иванович"));
     }
 
+    type Dumped = (String, String, u32, String, i64, i64, i64, i64, String);
+
     /// Старая база (схема 0008) с долгами: после миграции графики те же, метод `monthly`.
     #[test]
     fn upgrade_from_schema_8_keeps_schedules() {
@@ -2690,9 +2692,8 @@ mod tests {
                 write(&conn, t, input, &paid);
             }
         }
-        let dump =
-            |conn: &Connection| -> Vec<(String, String, u32, String, i64, i64, i64, i64, String)> {
-                conn.prepare(
+        let dump = |conn: &Connection| -> Vec<Dumped> {
+            conn.prepare(
                 "SELECT id, debt_id, seq, due_date, payment, principal_part, interest_part, balance_after, status
                  FROM debt_schedule ORDER BY debt_id, seq",
             )
@@ -2703,7 +2704,7 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap()
-            };
+        };
         let before = dump(&conn);
         assert!(before.len() > 20);
 
