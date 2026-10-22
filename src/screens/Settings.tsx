@@ -6,6 +6,7 @@ import { VaultCard } from "../components/Vault";
 import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
+import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
@@ -23,6 +24,7 @@ export function Settings() {
   const setSetting = useAction(api.setSetting);
   const base = settings?.base_currency ?? "RUB";
   const [dialog, setDialog] = useState<"summary" | "import" | null>(null);
+  const [scale, setScale] = useState<Scale>(savedScale);
 
   return (
     <section className="screen">
@@ -30,7 +32,7 @@ export function Settings() {
 
       <div className="card">
         <h2>Общие</h2>
-        <div className="row">
+        <div className="settings-list">
           <Field label="Основная валюта" hint="В ней считаются общий баланс, бюджеты и отчёты.">
             {(id) => (
               <select id={id} name="baseCurrency" value={base} onChange={(e) => setSetting.run("base_currency", e.target.value)}>
@@ -98,6 +100,26 @@ export function Settings() {
               <select id={id} name="dateFormat" value={settings?.date_format ?? "DD.MM.YYYY"} onChange={(e) => setSetting.run("date_format", e.target.value)}>
                 <option value="DD.MM.YYYY">ДД.ММ.ГГГГ</option>
                 <option value="YYYY-MM-DD">ГГГГ-ММ-ДД</option>
+              </select>
+            )}
+          </Field>
+          <Field label="Масштаб интерфейса" hint="«Авто» делает текст и кнопки крупнее, когда окно большое или развёрнуто на весь экран.">
+            {(id) => (
+              <select
+                id={id}
+                name="uiScale"
+                value={scale}
+                onChange={(e) => {
+                  const next = e.target.value as Scale;
+                  setScale(next);
+                  applyScale(next);
+                }}
+              >
+                {SCALES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             )}
           </Field>

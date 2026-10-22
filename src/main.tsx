@@ -6,6 +6,7 @@ import { App } from "./App";
 import { QuickWindow } from "./components/QuickWindow";
 import { isTauri } from "./lib/api";
 import { installPressEffect } from "./lib/press";
+import { installScale } from "./lib/scale";
 import { applyTheme, savedTheme } from "./lib/theme";
 import "./styles.css";
 import "./features.css";
@@ -16,6 +17,7 @@ applyTheme(savedTheme());
 
 // Одна и та же страница служит главному окну и окну быстрого ввода.
 const quick = isTauri() && getCurrentWindow().label === "quick";
+if (!quick) installScale();
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 
