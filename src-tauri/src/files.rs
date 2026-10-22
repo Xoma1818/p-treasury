@@ -167,10 +167,7 @@ pub fn switch(state: &AppState, path: &Path) -> Result<(), String> {
     if path != main_path(&state.data_dir) && path.exists() {
         backups::inspect(path).map_err(|e| e.to_string())?;
     }
-    let mut guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let mut guard = state.lock_db();
     if guard.as_ref().is_ok_and(|db| db.path() == path) {
         return Ok(());
     }
@@ -178,9 +175,7 @@ pub fn switch(state: &AppState, path: &Path) -> Result<(), String> {
     // Старое соединение закрывается здесь, когда его место занимает новое.
     *guard = Ok(next);
     drop(guard);
-    if let Ok(mut j) = state.undo.lock() {
-        *j = budget_core::undo::Journal::default();
-    }
+    *state.lock_undo() = budget_core::undo::Journal::default();
     let mut r = load(&state.data_dir);
     r.current = Some(path.display().to_string());
     store(&state.data_dir, &r)
@@ -202,10 +197,10 @@ pub fn rename(state: &AppState, path: &str, name: &str) -> Result<(), String> {
 /// Убрать из списка (сам файл остаётся на диске). Открытый файл убрать нельзя.
 pub fn forget(state: &AppState, path: &str) -> Result<(), String> {
     let open = state
-        .db
-        .lock()
+        .lock_db()
+        .as_ref()
         .ok()
-        .and_then(|g| g.as_ref().ok().map(|db| db.path().display().to_string()));
+        .map(|db| db.path().display().to_string());
     if open.as_deref() == Some(path) {
         return Err("сейчас открыт этот файл: сначала откройте другой".into());
     }

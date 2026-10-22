@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 3 «Отчёты»: сценарии из product/mvp-features.md, раздел 6.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate, waitCount } from "./app.mjs";
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const now = new Date();
@@ -83,14 +83,14 @@ test("динамика за год: 12 месяцев, текущий с дох�
   await waitText(browser, '[data-testid="report-period"]', new RegExp(`${now.getFullYear()} год`));
   await click(browser, "По месяцам");
   await browser.$('[data-testid="months"]').waitForExist({ timeout: 5000 });
-  assert.equal((await browser.$$('[data-testid="month-row"]')).length, 12);
+  await waitCount(browser, '[data-testid="month-row"]', 12);
   const row = `//tr[@data-testid="month-row" and @data-month="${now.getFullYear()}-${pad(now.getMonth() + 1)}"]`;
   await waitText(browser, row, money("20 000 ₽"));
   await waitText(browser, row, money("10 000 ₽"));
   await waitText(browser, row, /50 %/);
   await waitText(browser, '[data-testid="months-savings-rate"]', /50 %/);
   // В графике по паре столбцов на месяц.
-  assert.equal((await browser.$$(".chart path.bar-income")).length, 12);
+  await waitCount(browser, ".chart path.bar-income", 12);
 });
 
 test("остатки на дату: сегодня 110 000 ₽, вчера счетов ещё не было", async () => {

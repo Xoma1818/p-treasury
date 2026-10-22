@@ -514,7 +514,7 @@ pub fn parse(conn: &Connection, text: &str, today: &str) -> Result<Draft> {
             });
     }
     let minor = match &d.account_id {
-        Some(id) => accounts::get(conn, id)?.minor_units,
+        Some(id) => accounts::head(conn, id)?.minor_units,
         None => currencies::minor_units(conn, &currencies::base_currency(conn)?)?,
     };
     d.amount = match &p.amount_text {

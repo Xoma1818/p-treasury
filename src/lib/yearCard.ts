@@ -7,8 +7,8 @@ import type { YearReview } from "./api";
 import { formatAmount } from "./money";
 import { monthTitle } from "./dates";
 
-export const CARD_W = 1080;
-export const CARD_H = 1350;
+const CARD_W = 1080;
+const CARD_H = 1350;
 
 const C = {
   bg: "#12151b",

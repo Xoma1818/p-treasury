@@ -129,6 +129,35 @@ pub fn list(conn: &Connection, include_archived: bool) -> Result<Vec<Account>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Счёт без баланса: для проверок при записи. На счёте с многолетней историей
+/// баланс считается в сотни раз дольше самой записи (импорт выписки).
+#[derive(Debug, Clone)]
+pub struct Head {
+    pub name: String,
+    pub kind: String,
+    pub currency_code: String,
+    pub minor_units: u32,
+    pub archived: bool,
+}
+
+pub fn head(conn: &Connection, id: &str) -> Result<Head> {
+    conn.prepare_cached(
+        "SELECT a.name, a.type, a.currency_code, c.minor_units, a.archived_at IS NOT NULL
+         FROM accounts a JOIN currencies c ON c.code = a.currency_code WHERE a.id = ?1",
+    )?
+    .query_row([id], |r| {
+        Ok(Head {
+            name: r.get(0)?,
+            kind: r.get(1)?,
+            currency_code: r.get(2)?,
+            minor_units: r.get(3)?,
+            archived: r.get(4)?,
+        })
+    })
+    .optional()?
+    .ok_or(Error::NotFound("счёт"))
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Account> {
     let sql = format!("{SELECT} WHERE a.id = ?1");
     conn.query_row(&sql, [id], |r| map(conn, r))
@@ -241,19 +270,6 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<()> {
         "UPDATE accounts SET archived_at = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, archived.then(time::now_utc), time::now_utc()],
     )?;
-    Ok(())
-}
-
-/// Поменять порядок счетов: `ids` в нужном порядке.
-pub fn reorder(conn: &mut Connection, ids: &[String]) -> Result<()> {
-    let tx = conn.transaction()?;
-    for (i, id) in ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE accounts SET sort_order = ?2 WHERE id = ?1",
-            params![id, i as i64],
-        )?;
-    }
-    tx.commit()?;
     Ok(())
 }
 

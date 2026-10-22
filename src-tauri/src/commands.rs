@@ -1,5 +1,10 @@
 //! Команды, которые вызывает UI. Каждая команда — тонкая обёртка над ядром:
 //! здесь нет SQL и бизнес-правил.
+//!
+//! Команды с базой помечены `#[tauri::command(async)]`: Tauri выполняет их в
+//! фоновом пуле, а не в главном потоке окна, и долгие действия (Excel, копия,
+//! импорт выписки, папка сохранности) не подвешивают окно. Порядок доступа к
+//! базе задаёт `AppState::db`. Синхронными остаются команды окна быстрого ввода.
 
 use std::collections::BTreeMap;
 
@@ -51,10 +56,7 @@ fn with_db<T>(
     state: &State<AppState>,
     f: impl FnOnce(&mut Storage) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
-    let mut guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let mut guard = state.lock_db();
     let db = guard.as_mut().map_err(|e| e.clone())?;
     f(db).map_err(|e| e.to_string())
 }
@@ -65,15 +67,9 @@ fn with_undo<T>(
     label: &str,
     f: impl FnOnce(&mut Connection) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
-    let mut guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let mut guard = state.lock_db();
     let db = guard.as_mut().map_err(|e| e.clone())?;
-    let mut journal = state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?;
+    let mut journal = state.lock_undo();
     journal
         .record(db.conn_mut(), label, f)
         .map_err(|e| e.to_string())
@@ -94,7 +90,7 @@ pub struct AppInfo {
     data_dir: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
     with_db(&state, |db| {
         Ok(AppInfo {
@@ -113,27 +109,27 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
 
 // --- Настройки и валюты ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings(state: State<AppState>) -> CmdResult<BTreeMap<String, String>> {
     with_db(&state, |db| settings::all(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> CmdResult<()> {
     with_db(&state, |db| settings::set(db.conn(), &key, &value))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_currencies(state: State<AppState>) -> CmdResult<Vec<Currency>> {
     with_db(&state, |db| currencies::list(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_rates(state: State<AppState>) -> CmdResult<Vec<ExchangeRate>> {
     with_db(&state, |db| currencies::list_rates(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_rate(
     state: State<AppState>,
     date: String,
@@ -146,7 +142,7 @@ pub fn set_rate(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_rate(
     state: State<AppState>,
     date: String,
@@ -158,7 +154,7 @@ pub fn delete_rate(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rate_on(
     state: State<AppState>,
     from: String,
@@ -230,59 +226,55 @@ async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {
 
 // --- Первый запуск ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn finish_onboarding(state: State<AppState>, setup: Setup) -> CmdResult<()> {
     with_db(&state, |db| onboarding::finish(db.conn_mut(), &setup))
 }
 
 /// «Посмотреть на примере»: заполнить пустую базу пробными данными.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
     with_db(&state, |db| demo::seed(db.conn_mut(), &time::today_local()))
 }
 
 /// Удалить пример и вернуться к мастеру первого запуска. Отменить нельзя:
 /// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
     with_db(&state, |db| demo::clear(db.conn_mut()))?;
-    state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?
-        .clear();
+    state.lock_undo().clear();
     Ok(())
 }
 
 // --- Счета ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_accounts(state: State<AppState>, include_archived: bool) -> CmdResult<Vec<Account>> {
     with_db(&state, |db| accounts::list(db.conn(), include_archived))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_account(state: State<AppState>, input: AccountInput) -> CmdResult<String> {
     with_undo(&state, "Новый счёт", |c| {
         accounts::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_account(state: State<AppState>, id: String, input: AccountInput) -> CmdResult<()> {
     with_undo(&state, "Изменение счёта", |c| {
         accounts::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_account(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
     with_undo(&state, "Закрытие счёта", |c| {
         accounts::set_archived(c, &id, archived)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn adjust_balance(
     state: State<AppState>,
     id: String,
@@ -295,26 +287,26 @@ pub fn adjust_balance(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn totals(state: State<AppState>, date: String) -> CmdResult<Totals> {
     with_db(&state, |db| accounts::totals(db.conn(), &date))
 }
 
 // --- Категории ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_categories(state: State<AppState>, include_archived: bool) -> CmdResult<Vec<Category>> {
     with_db(&state, |db| categories::list(db.conn(), include_archived))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_category(state: State<AppState>, input: CategoryInput) -> CmdResult<String> {
     with_undo(&state, "Новая категория", |c| {
         categories::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_category(
     state: State<AppState>,
     id: String,
@@ -326,14 +318,14 @@ pub fn update_category(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_category(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
     with_undo(&state, "Архивация категории", |c| {
         categories::set_archived(c, &id, archived)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_category(
     state: State<AppState>,
     id: String,
@@ -346,17 +338,17 @@ pub fn delete_category(
 
 // --- Операции ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_transactions(state: State<AppState>, filter: Filter) -> CmdResult<Page> {
     with_db(&state, |db| transactions::list(db.conn(), &filter))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_transaction(state: State<AppState>, id: String) -> CmdResult<Txn> {
     with_db(&state, |db| transactions::get(db.conn(), &id))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_transaction(
     state: State<AppState>,
     input: TxnInput,
@@ -371,35 +363,35 @@ pub fn create_transaction(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_transaction(state: State<AppState>, id: String, date: String) -> CmdResult<()> {
     with_undo(&state, "Перенос операции", |c| {
         transactions::move_to(c, &id, &date)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn split_expense(state: State<AppState>, input: SplitInput) -> CmdResult<SplitResult> {
     with_undo(&state, "Общая трата", |c| {
         split::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_transaction(state: State<AppState>, id: String, input: TxnInput) -> CmdResult<()> {
     with_undo(&state, "Изменение операции", |c| {
         transactions::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_transaction(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление операции", |c| {
         transactions::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn payee_hints(
     state: State<AppState>,
     kind: String,
@@ -410,14 +402,14 @@ pub fn payee_hints(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn transaction_defaults(state: State<AppState>, kind: String) -> CmdResult<Defaults> {
     with_db(&state, |db| transactions::defaults(db.conn(), &kind))
 }
 
 // --- Отчёты ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn period_summary(
     state: State<AppState>,
     from: String,
@@ -428,19 +420,19 @@ pub fn period_summary(
 
 // --- Бюджеты ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_budget(state: State<AppState>, month: String) -> CmdResult<Budget> {
     with_db(&state, |db| {
         budgets::get(db.conn(), &month, &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn month_of(state: State<AppState>, date: String) -> CmdResult<Period> {
     with_db(&state, |db| budgets::month_of(db.conn(), &date))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_budget(
     state: State<AppState>,
     month: String,
@@ -451,7 +443,7 @@ pub fn create_budget(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_budget_limit(
     state: State<AppState>,
     budget_id: String,
@@ -463,7 +455,7 @@ pub fn set_budget_limit(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_budget_note(
     state: State<AppState>,
     budget_id: String,
@@ -475,7 +467,7 @@ pub fn set_budget_note(
 }
 
 /// Заполнить лимиты по истории; возвращает число заданных лимитов.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fill_budget(
     state: State<AppState>,
     budget_id: String,
@@ -487,52 +479,52 @@ pub fn fill_budget(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление бюджета", |c| {
         budgets::delete(c, &budget_id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cushion(state: State<AppState>) -> CmdResult<Cushion> {
     with_db(&state, |db| {
         wealth::cushion(db.conn(), &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn report_fx(state: State<AppState>, from: String, to: String) -> CmdResult<FxReport> {
     with_db(&state, |db| wealth::fx_gain(db.conn(), &from, &to))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_views(state: State<AppState>, kind: Option<String>) -> CmdResult<Vec<SavedView>> {
     with_db(&state, |db| views::list(db.conn(), kind.as_deref()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_view(state: State<AppState>, input: ViewInput) -> CmdResult<String> {
     with_undo(&state, "Сохранение вида", |c| {
         views::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление вида", |c| {
         views::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn quick_parse(state: State<AppState>, text: String) -> CmdResult<Draft> {
     with_db(&state, |db| {
         quick::parse(db.conn(), &text, &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remember_rule(
     state: State<AppState>,
     merchant: String,
@@ -544,19 +536,19 @@ pub fn remember_rule(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_rules(state: State<AppState>) -> CmdResult<Vec<Rule>> {
     with_db(&state, |db| rules::list(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_rule(state: State<AppState>, input: RuleInput) -> CmdResult<String> {
     with_undo(&state, "Правило для категории", |c| {
         rules::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление правила", |c| {
         rules::delete(c, &id)
@@ -593,45 +585,45 @@ pub fn set_quick_hotkey(app: AppHandle, state: State<AppState>, hotkey: String) 
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_assets(state: State<AppState>) -> CmdResult<Vec<Asset>> {
     with_db(&state, |db| assets::list(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_asset(state: State<AppState>, input: AssetInput) -> CmdResult<String> {
     with_undo(&state, "Новое имущество", |c| {
         assets::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_asset(state: State<AppState>, id: String, input: AssetInput) -> CmdResult<()> {
     with_undo(&state, "Изменение имущества", |c| {
         assets::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_asset(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление имущества", |c| {
         assets::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn invest_overview(state: State<AppState>) -> CmdResult<invest::Overview> {
     with_db(&state, |db| {
         invest::overview(db.conn(), &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn invest_month(state: State<AppState>, month: String) -> CmdResult<MonthProgress> {
     with_db(&state, |db| invest::month_progress(db.conn(), &month))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_invest_value(
     state: State<AppState>,
     account_id: String,
@@ -643,7 +635,7 @@ pub fn set_invest_value(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_invest_value(
     state: State<AppState>,
     account_id: String,
@@ -655,7 +647,7 @@ pub fn delete_invest_value(
 }
 
 /// План на инвестиции: общий на каждый месяц или, с `month`, только на этот месяц.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_invest_plan(
     state: State<AppState>,
     mode: String,
@@ -668,33 +660,33 @@ pub fn set_invest_plan(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_invest_month_plan(state: State<AppState>, month: String) -> CmdResult<()> {
     with_undo(&state, "План инвестиций", |c| {
         invest::clear_month_plan(c, &month)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_events(state: State<AppState>) -> CmdResult<Vec<Event>> {
     with_db(&state, |db| events::list(db.conn(), &time::today_local()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_event(state: State<AppState>, input: EventInput) -> CmdResult<String> {
     with_undo(&state, "Новое событие", |c| {
         events::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_event(state: State<AppState>, id: String, input: EventInput) -> CmdResult<()> {
     with_undo(&state, "Изменение события", |c| {
         events::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_event(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление события", |c| {
         events::delete(c, &id)
@@ -702,7 +694,7 @@ pub fn delete_event(state: State<AppState>, id: String) -> CmdResult<()> {
 }
 
 /// Отнести операции к событию; без `event_id` — снять отметку.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn assign_event(
     state: State<AppState>,
     event_id: Option<String>,
@@ -713,47 +705,47 @@ pub fn assign_event(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn event_candidates(state: State<AppState>, id: String) -> CmdResult<Vec<String>> {
     with_db(&state, |db| events::candidates(db.conn(), &id))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn events_on(state: State<AppState>, date: String) -> CmdResult<Vec<(String, String)>> {
     with_db(&state, |db| events::on_date(db.conn(), &date))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn last_week(state: State<AppState>) -> CmdResult<WeekSummary> {
     with_db(&state, |db| {
         habits::last_week(db.conn(), &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn no_spend_streak(state: State<AppState>) -> CmdResult<u32> {
     with_db(&state, |db| habits::streak(db.conn(), &time::today_local()))
 }
 
 // --- Файлы бюджета ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_files(state: State<AppState>) -> CmdResult<Vec<crate::files::FileRow>> {
     let current = with_db(&state, |db| Ok(db.path().to_path_buf()))?;
     Ok(crate::files::list(&state.data_dir, &current))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_file(state: State<AppState>, name: String) -> CmdResult<String> {
     crate::files::create(&state, &name)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_file(state: State<AppState>, path: String) -> CmdResult<()> {
     crate::files::open_existing(&state, Path::new(&path))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
     if !Path::new(&path).exists() {
         return Err("файла нет на месте: проверьте флешку или папку".into());
@@ -761,22 +753,22 @@ pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
     crate::files::switch(&state, Path::new(&path))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_file(state: State<AppState>, path: String, name: String) -> CmdResult<()> {
     crate::files::rename(&state, &path, &name)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn forget_file(state: State<AppState>, path: String) -> CmdResult<()> {
     crate::files::forget(&state, &path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn report_period(state: State<AppState>, kind: String, month: String) -> CmdResult<Period> {
     with_db(&state, |db| reports::period_of(db.conn(), &kind, &month))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn report_by_category(
     state: State<AppState>,
     kind: String,
@@ -798,7 +790,7 @@ pub struct ComparePeriods {
     pub b_to: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compare_periods(
     state: State<AppState>,
     kind: String,
@@ -819,7 +811,7 @@ pub fn compare_periods(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_comparison(
     state: State<AppState>,
     kind: String,
@@ -842,7 +834,7 @@ pub fn export_comparison(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn report_by_month(
     state: State<AppState>,
     from_month: String,
@@ -853,48 +845,48 @@ pub fn report_by_month(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn report_balances(state: State<AppState>, date: String) -> CmdResult<BalancesReport> {
     with_db(&state, |db| reports::balances_on(db.conn(), &date))
 }
 
 // --- Долги и калькулятор ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calc_loan(input: LoanInput) -> CmdResult<Schedule> {
     loan_calc::calculate(&input).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compare_loans(input: LoanInput) -> CmdResult<Comparison> {
     loan_calc::compare(&input).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_debts(state: State<AppState>) -> CmdResult<Vec<DebtCard>> {
     with_db(&state, |db| debts::list(db.conn(), &time::today_local()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_debt(state: State<AppState>, id: String) -> CmdResult<DebtDetail> {
     with_db(&state, |db| {
         debts::get(db.conn(), &id, &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn debt_summary(state: State<AppState>) -> CmdResult<debts::Summary> {
     with_db(&state, |db| {
         debts::summary(db.conn(), &time::today_local(), 5)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_debt(state: State<AppState>, input: DebtInput) -> CmdResult<String> {
     with_undo(&state, "Новый долг", |c| debts::create(c, &input))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_debt_info(
     state: State<AppState>,
     id: String,
@@ -906,21 +898,21 @@ pub fn update_debt_info(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_debt(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление долга", |c| {
         debts::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pay_debt(state: State<AppState>, id: String, input: PaymentInput) -> CmdResult<String> {
     with_undo(&state, "Платёж по долгу", |c| {
         debts::pay(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление платежа", |c| {
         debts::delete_payment(c, &payment_id)
@@ -929,26 +921,26 @@ pub fn delete_debt_payment(state: State<AppState>, payment_id: String) -> CmdRes
 
 // --- Шаблоны операций ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_templates(state: State<AppState>) -> CmdResult<Vec<Template>> {
     with_db(&state, |db| templates::list(db.conn()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_template(state: State<AppState>, input: TemplateInput) -> CmdResult<String> {
     with_undo(&state, "Новый шаблон", |c| {
         templates::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_template(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление шаблона", |c| {
         templates::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_template(state: State<AppState>, id: String, date: String) -> CmdResult<String> {
     let txn = with_undo(&state, "Операция по шаблону", |c| {
         templates::apply(c, &id, &date)
@@ -957,55 +949,45 @@ pub fn apply_template(state: State<AppState>, id: String, date: String) -> CmdRe
     Ok(txn)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn template_used(state: State<AppState>, id: String) -> CmdResult<()> {
     with_db(&state, |db| templates::used(db.conn(), &id))
 }
 
 // --- Отмена и повтор ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn undo_state(state: State<AppState>) -> CmdResult<UndoState> {
-    Ok(state
-        .undo
-        .lock()
-        .map_err(|_| "журнал отмены недоступен".to_string())?
-        .state())
+    Ok(state.lock_undo().state())
 }
 
 /// Отменить последнее действие; возвращает его название (или ничего, если отменять нечего).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn undo(state: State<AppState>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
-        let mut j = state
-            .undo
-            .lock()
-            .map_err(|_| budget_core::Error::Validation("журнал отмены недоступен".into()))?;
+        let mut j = state.lock_undo();
         j.undo(db.conn())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redo(state: State<AppState>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
-        let mut j = state
-            .undo
-            .lock()
-            .map_err(|_| budget_core::Error::Validation("журнал отмены недоступен".into()))?;
+        let mut j = state.lock_undo();
         j.redo(db.conn())
     })
 }
 
 // --- Календарь, напоминания, заметки ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_month(state: State<AppState>, month: String) -> CmdResult<Month> {
     with_db(&state, |db| {
         calendar::month(db.conn(), &month, &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_range(state: State<AppState>, from: String, to: String) -> CmdResult<Month> {
     let parse = |s: &str| {
         chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
@@ -1017,7 +999,7 @@ pub fn calendar_range(state: State<AppState>, from: String, to: String) -> CmdRe
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reminders_overview(state: State<AppState>) -> CmdResult<Overview> {
     with_db(&state, |db| {
         reminders::overview(db.conn(), time::now_local())
@@ -1025,42 +1007,42 @@ pub fn reminders_overview(state: State<AppState>) -> CmdResult<Overview> {
 }
 
 /// Наступившие и не выполненные: окно «Пропущенные напоминания» при запуске.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn missed_reminders(state: State<AppState>) -> CmdResult<Vec<Occurrence>> {
     with_db(&state, |db| {
         Ok(reminders::overview(db.conn(), time::now_local())?.overdue)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_reminder(state: State<AppState>, input: ReminderInput) -> CmdResult<String> {
     with_undo(&state, "Новое напоминание", |c| {
         reminders::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_reminder(state: State<AppState>, id: String, input: ReminderInput) -> CmdResult<()> {
     with_undo(&state, "Изменение напоминания", |c| {
         reminders::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_reminder_active(state: State<AppState>, id: String, active: bool) -> CmdResult<()> {
     with_undo(&state, "Включение напоминания", |c| {
         reminders::set_active(c, &id, active)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_reminder(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление напоминания", |c| {
         reminders::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn complete_reminder(
     state: State<AppState>,
     key: Key,
@@ -1071,47 +1053,47 @@ pub fn complete_reminder(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snooze_reminder(state: State<AppState>, key: Key, until: String) -> CmdResult<()> {
     with_undo(&state, "Отложенное напоминание", |c| {
         reminders::snooze(c, &key, &until)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn dismiss_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
     with_undo(&state, "Пропуск напоминания", |c| {
         reminders::dismiss(c, &key)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reopen_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
     with_undo(&state, "Возврат напоминания", |c| {
         reminders::reopen(c, &key)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_notes(state: State<AppState>, filter: NoteFilter) -> CmdResult<Vec<Note>> {
     with_db(&state, |db| notes::list(db.conn(), &filter))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_note(state: State<AppState>, input: NoteInput) -> CmdResult<String> {
     with_undo(&state, "Новая заметка", |c| {
         notes::create(c, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_note(state: State<AppState>, id: String, input: NoteInput) -> CmdResult<()> {
     with_undo(&state, "Изменение заметки", |c| {
         notes::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_note(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление заметки", |c| {
         notes::delete(c, &id)
@@ -1120,7 +1102,7 @@ pub fn delete_note(state: State<AppState>, id: String) -> CmdResult<()> {
 
 // --- Данные: выгрузка, импорт, резервные копии, обновления ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_summary(
     state: State<AppState>,
     from: String,
@@ -1133,7 +1115,7 @@ pub fn export_summary(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_transactions(state: State<AppState>, filter: Filter, path: String) -> CmdResult<()> {
     with_db(&state, |db| {
         let sheet = export::transactions_sheet(db.conn(), &filter)?;
@@ -1141,7 +1123,7 @@ pub fn export_transactions(state: State<AppState>, filter: Filter, path: String)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_report(
     state: State<AppState>,
     report: String,
@@ -1155,7 +1137,7 @@ pub fn export_report(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_preview(
     state: State<AppState>,
     path: String,
@@ -1166,7 +1148,7 @@ pub fn import_preview(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_csv(
     state: State<AppState>,
     path: String,
@@ -1179,12 +1161,12 @@ pub fn import_csv(
 }
 
 /// Сохранить готовый файл, собранный в окне (картинка «Итоги года»).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_bytes(path: String, data: Vec<u8>) -> CmdResult<()> {
     std::fs::write(&path, data).map_err(|e| format!("не удалось сохранить файл: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_import_template(path: String) -> CmdResult<()> {
     csv_import::write_template(Path::new(&path)).map_err(|e| e.to_string())
 }
@@ -1199,7 +1181,7 @@ pub struct BackupStatus {
     default_name: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_status(state: State<AppState>) -> CmdResult<BackupStatus> {
     with_db(&state, |db| {
         let c = db.conn();
@@ -1213,18 +1195,18 @@ pub fn backup_status(state: State<AppState>) -> CmdResult<BackupStatus> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_now(state: State<AppState>, path: String) -> CmdResult<()> {
     with_db(&state, |db| backups::backup(db.conn(), Path::new(&path)))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
     backups::inspect(Path::new(&path)).map_err(|e| e.to_string())
 }
 
 /// Восстановить из копии; возвращает путь к копии прежних данных.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String> {
     let opts = state.open_options();
     let safety = with_db(&state, |db| {
@@ -1234,9 +1216,7 @@ pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String>
             .to_string())
     })?;
     // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    if let Ok(mut j) = state.undo.lock() {
-        j.clear();
-    }
+    state.lock_undo().clear();
     Ok(safety)
 }
 
@@ -1304,10 +1284,7 @@ pub async fn check_update(app: tauri::AppHandle) -> CmdResult<UpdateInfo> {
 pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     {
         let opts = state.open_options();
-        let guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let guard = state.lock_db();
         let db = guard.as_ref().map_err(|e| e.clone())?;
         let dest = opts
             .backup_dir
@@ -1327,7 +1304,7 @@ pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -
     app.restart();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn changelog() -> &'static str {
     include_str!("../../CHANGELOG.md")
 }
@@ -1375,31 +1352,31 @@ mod tests {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
     with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_goal(state: State<AppState>, input: GoalInput) -> CmdResult<String> {
     with_undo(&state, "Новая цель", |c| goals::create(c, &input))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_goal(state: State<AppState>, id: String, input: GoalInput) -> CmdResult<()> {
     with_undo(&state, "Изменение цели", |c| {
         goals::update(c, &id, &input)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_goal(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление цели", |c| {
         goals::delete(c, &id)
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn goal_deposit(
     state: State<AppState>,
     id: String,
@@ -1411,14 +1388,14 @@ pub fn goal_deposit(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_subscriptions(state: State<AppState>) -> CmdResult<SubscriptionsReport> {
     with_db(&state, |db| {
         subscriptions::list(db.conn(), &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hide_subscription(state: State<AppState>, key: String, hide: bool) -> CmdResult<()> {
     with_undo(
         &state,
@@ -1431,20 +1408,20 @@ pub fn hide_subscription(state: State<AppState>, key: String, hide: bool) -> Cmd
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn year_review(state: State<AppState>, year: i32) -> CmdResult<YearReview> {
     with_db(&state, |db| {
         year::review(db.conn(), year, &time::today_local())
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn global_search(state: State<AppState>, query: String) -> CmdResult<Vec<Hit>> {
     with_db(&state, |db| search::find(db.conn(), &query))
 }
 
 /// Папка автоимпорта: выбранная в Настройках или «Загрузки».
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auto_import_dir(app: AppHandle) -> CmdResult<String> {
     crate::background::import_dir(&app)
         .map(|p| p.to_string_lossy().to_string())
@@ -1452,7 +1429,7 @@ pub fn auto_import_dir(app: AppHandle) -> CmdResult<String> {
 }
 
 /// Проверить папку сейчас (кнопка в Настройках).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auto_import_now(app: AppHandle, state: State<AppState>) -> CmdResult<ScanResult> {
     let dir = auto_import_dir(app)?;
     with_db(&state, |db| {

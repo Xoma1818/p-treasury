@@ -63,7 +63,7 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
     if sum != input.total {
         return invalid("доли в сумме не равны общей сумме");
     }
-    let account = accounts::get(conn, &input.account_id)?;
+    let account = accounts::head(conn, &input.account_id)?;
     let issue = parse_date(&input.date)?;
     let maturity = issue
         .checked_add_months(Months::new(1))

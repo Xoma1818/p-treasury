@@ -182,8 +182,8 @@ fn terms(conn: &Connection, id: &str) -> Result<Terms> {
 }
 
 /// Счёт оплаты: обычный открытый счёт в валюте долга.
-fn payment_account(conn: &Connection, id: &str, currency: &str) -> Result<accounts::Account> {
-    let a = accounts::get(conn, id)?;
+fn payment_account(conn: &Connection, id: &str, currency: &str) -> Result<accounts::Head> {
+    let a = accounts::head(conn, id)?;
     if a.kind == "debt" {
         return invalid("выберите обычный счёт");
     }

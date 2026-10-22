@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use budget_core::vault::{self, Found, Status};
 use budget_core::{onboarding, settings, storage::Storage, time};
@@ -46,21 +47,48 @@ fn budget_name(state: &AppState, db: &Storage) -> String {
 /// Обновить папку для открытого бюджета. Ничего не делает, пока не пройден
 /// первый запуск (на новом компьютере сначала предлагаем перенос) и если папка
 /// выключена. Ошибка записывается в статус, её видно в Настройках.
+///
+/// База занята только на время копии; Excel-зеркало строится по копии, пока
+/// программа работает дальше. Два обновления сразу (раз в день и при
+/// закрытии) не идут: второе ждёт первое.
 pub fn sync(state: &AppState, only_if_due: bool) {
-    let Ok(guard) = state.db.lock() else { return };
-    let Ok(db) = guard.as_ref() else { return };
-    let c = db.conn();
-    if !onboarding::is_done(c).unwrap_or(false) {
-        return;
-    }
-    if only_if_due && !vault::due(c, &time::today_local()).unwrap_or(false) {
-        return;
-    }
-    let Ok(Some(dir)) = vault::dir(c, &state.vault_default) else {
-        return;
+    static RUNNING: Mutex<()> = Mutex::new(());
+    let Ok(_running) = RUNNING.lock() else { return };
+    let (copy, dir, name) = {
+        let guard = state.lock_db();
+        let Ok(db) = guard.as_ref() else { return };
+        let c = db.conn();
+        if !onboarding::is_done(c).unwrap_or(false) {
+            return;
+        }
+        if only_if_due && !vault::due(c, &time::today_local()).unwrap_or(false) {
+            return;
+        }
+        let Ok(Some(dir)) = vault::dir(c, &state.vault_default) else {
+            return;
+        };
+        let name = budget_name(state, db);
+        match vault::sync_copy(c, &dir, &name) {
+            Ok(copy) => (copy, dir, name),
+            Err(e) => {
+                eprintln!("папка сохранности не обновлена: {e}");
+                let _ = vault::record(c, &Err(e));
+                return;
+            }
+        }
     };
-    if let Err(e) = vault::sync(c, &dir, &budget_name(state, db)) {
-        eprintln!("папка сохранности не обновлена: {e}");
+    let report = Ok(vault::SyncReport {
+        excel_error: vault::sync_excel(&copy, &dir, &name)
+            .err()
+            .map(|e| e.to_string()),
+        copy: copy.display().to_string(),
+    });
+    let guard = state.lock_db();
+    // Пока строился Excel, могли открыть другой файл бюджета: его статус не трогаем.
+    if let Ok(db) = guard.as_ref() {
+        if budget_name(state, db) == name {
+            let _ = vault::record(db.conn(), &report);
+        }
     }
 }
 
@@ -74,21 +102,18 @@ pub fn sync_on_exit(app: &AppHandle) {
 }
 
 fn status_of(state: &State<AppState>) -> CmdResult<Status> {
-    let guard = state
-        .db
-        .lock()
-        .map_err(|_| "база данных недоступна".to_string())?;
+    let guard = state.lock_db();
     let db = guard.as_ref().map_err(|e| e.clone())?;
     vault::status(db.conn(), &state.vault_default).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_status(state: State<AppState>) -> CmdResult<Status> {
     status_of(&state)
 }
 
 /// Обновить папку сейчас (кнопка «Сохранить сейчас»).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_sync(state: State<AppState>) -> CmdResult<Status> {
     sync(&state, false);
     status_of(&state)
@@ -133,7 +158,7 @@ fn places(app: &AppHandle, state: &AppState) -> Vec<Place> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_places(app: AppHandle, state: State<AppState>) -> Vec<Place> {
     places(&app, &state)
 }
@@ -143,7 +168,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// Сменить папку: `None` — вернуть папку по умолчанию. Папка сразу обновляется.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_vault_dir(state: State<AppState>, path: Option<String>) -> CmdResult<Status> {
     let chosen = path
         .filter(|p| !p.trim().is_empty())
@@ -157,10 +182,7 @@ pub fn set_vault_dir(state: State<AppState>, path: Option<String>) -> CmdResult<
         .map(|d| d.display().to_string())
         .unwrap_or_default();
     {
-        let guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let guard = state.lock_db();
         let db = guard.as_ref().map_err(|e| e.clone())?;
         settings::set(db.conn(), "vault_dir", &value).map_err(|e| e.to_string())?;
         settings::set(db.conn(), "vault_on", "1").map_err(|e| e.to_string())?;
@@ -170,7 +192,7 @@ pub fn set_vault_dir(state: State<AppState>, path: Option<String>) -> CmdResult<
 }
 
 /// Где искать данные с другого компьютера: показанные папки или все известные места.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_scan(app: AppHandle, state: State<AppState>, dirs: Option<Vec<String>>) -> Vec<Found> {
     let dirs: Vec<PathBuf> = match dirs {
         Some(d) => d.into_iter().map(PathBuf::from).collect(),
@@ -189,7 +211,7 @@ pub fn vault_scan(app: AppHandle, state: State<AppState>, dirs: Option<Vec<Strin
     vault::scan(&dirs)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_inspect(path: String) -> CmdResult<Found> {
     vault::inspect_file(Path::new(&path)).map_err(|e| e.to_string())
 }
@@ -197,14 +219,11 @@ pub fn vault_inspect(path: String) -> CmdResult<Found> {
 /// Перенести данные из найденной копии или «Всех данных». Текущие данные
 /// сохраняются страховочной копией; дальше папка сохранности — та, откуда
 /// перенесли (облако остаётся облаком). Возвращает путь к страховке.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String> {
     let opts = state.open_options();
     let safety = {
-        let mut guard = state
-            .db
-            .lock()
-            .map_err(|_| "база данных недоступна".to_string())?;
+        let mut guard = state.lock_db();
         let db = guard.as_mut().map_err(|e| e.clone())?;
         let path = Path::new(&found.path);
         let safety = if found.kind == "excel" {
@@ -233,15 +252,13 @@ pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String>
         safety.display().to_string()
     };
     // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    if let Ok(mut j) = state.undo.lock() {
-        j.clear();
-    }
+    state.lock_undo().clear();
     sync(&state, false);
     Ok(safety)
 }
 
 /// Открыть папку в Проводнике.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_folder(path: String) -> CmdResult<()> {
     let p = Path::new(&path);
     if !p.is_dir() {

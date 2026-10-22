@@ -159,8 +159,17 @@ pub struct SyncReport {
 /// Обновить папку: копия базы, копия в «Копии», Excel-зеркало, «Прочти меня».
 /// Копия базы важнее всего: ошибка Excel не мешает ей и записывается в статус.
 pub fn sync(conn: &Connection, dir: &Path, name: &str) -> Result<SyncReport> {
-    let result = sync_inner(conn, dir, name);
-    let error = match &result {
+    let result = sync_copy(conn, dir, name).map(|copy| SyncReport {
+        excel_error: sync_excel(&copy, dir, name).err().map(|e| e.to_string()),
+        copy: copy.display().to_string(),
+    });
+    record(conn, &result)?;
+    result
+}
+
+/// Записать итог обновления в статус папки (его видно в Настройках).
+pub fn record(conn: &Connection, result: &Result<SyncReport>) -> Result<()> {
+    let error = match result {
         Ok(r) => r.excel_error.clone().unwrap_or_default(),
         Err(e) => e.to_string(),
     };
@@ -168,10 +177,12 @@ pub fn sync(conn: &Connection, dir: &Path, name: &str) -> Result<SyncReport> {
     if result.is_ok() {
         settings::set(conn, "vault_synced_at", &time::now_utc())?;
     }
-    result
+    Ok(())
 }
 
-fn sync_inner(conn: &Connection, dir: &Path, name: &str) -> Result<SyncReport> {
+/// Первая часть обновления — копия базы, прошлые копии и «Прочти меня».
+/// Возвращает путь к свежей копии `.ptreasury`.
+pub fn sync_copy(conn: &Connection, dir: &Path, name: &str) -> Result<PathBuf> {
     let name = safe_name(name);
     let main = dir.join(format!("{name}.{EXT}"));
     // Новый компьютер, где ещё ничего не ввели: не затираем копию с данными
@@ -206,13 +217,15 @@ fn sync_inner(conn: &Connection, dir: &Path, name: &str) -> Result<SyncReport> {
         .unwrap_or(10)
         .max(1);
     prune_history(&history, &name, keep)?;
-
-    let excel_error = write_excel(conn, &excel_dir(dir, &name)).err();
     fs::write(dir.join(README), readme())?;
-    Ok(SyncReport {
-        copy: main.display().to_string(),
-        excel_error: excel_error.map(|e| e.to_string()),
-    })
+    Ok(main)
+}
+
+/// Вторая часть — Excel-зеркало. Строится по свежей копии, а не по рабочей
+/// базе: на большой базе это секунды, и программа в это время не ждёт.
+pub fn sync_excel(copy: &Path, dir: &Path, name: &str) -> Result<()> {
+    let conn = Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    write_excel(&conn, &excel_dir(dir, &safe_name(name)))
 }
 
 /// Копии бюджета `name` в «Копии»: оставить `keep` самых новых.

@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 5 «Календарь, напоминания, заметки»: сценарии из product/mvp-features.md, раздел 10.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate, waitCount } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -123,7 +123,7 @@ test("день календаря: операция на дату и замет�
   await waitContent(browser, `[data-testid="cal-day"][data-date="${today}"]`, /✎ Позвонить в сервис/);
 
   await click(browser, "Неделя");
-  assert.equal((await browser.$$('[data-testid="week-day"]')).length, 7);
+  await waitCount(browser, '[data-testid="week-day"]', 7);
   await waitContent(browser, '[data-testid="week"]', money("−55 730 ₽"));
 });
 

@@ -181,6 +181,22 @@ export async function waitContent(browser, selector, re, timeout = 5000) {
   return last;
 }
 
+/** Дождаться, пока элементов станет ровно `count` (список дорисовывается после клика). */
+export async function waitCount(browser, selector, count, timeout = 5000) {
+  let last = 0;
+  await browser
+    .waitUntil(
+      async () => {
+        last = await browser.execute((s) => document.querySelectorAll(s).length, selector);
+        return last === count;
+      },
+      { timeout },
+    )
+    .catch(() => {
+      throw new Error(`Элементов ${selector}: ${last}, ждали ${count}`);
+    });
+}
+
 /** Пройти мастер первого запуска: rows = [{ name, type?, currency?, balance }]. */
 export async function onboard(browser, rows, { categories = true } = {}) {
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "src-tauri"]
 
 [workspace.package]
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 license = "UNLICENSED"
 
@@ -19,3 +19,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # и замеры скорости на большой базе ближе к настоящей программе.
 [profile.dev.package.libsqlite3-sys]
 opt-level = 3
+
+# Выпуск: оптимизация всей программы при сборке (меньше установщик, чуть быстрее
+# работа) и без отладочных символов. Паника остаётся раскруткой: после сбоя
+# одного действия остальные работают дальше.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

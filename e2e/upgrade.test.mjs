@@ -1,7 +1,8 @@
 // Большой итоговый тест, пункт 3: данные старой версии открываются новой.
-// Старая программа (PTREASURY_OLD_BIN, например сборка этапа 5 — версия 0.5, схема данных 1)
+// Старая программа (PTREASURY_OLD_BIN, например первый выпуск 0.11.1 со схемой данных 5)
 // заполняет данные, затем новая открывает ту же папку: копия перед обновлением сделана,
 // балансы, отчёты и долги не изменились. Без PTREASURY_OLD_BIN тест пропускается.
+// Старую версию собирать в отдельный --target-dir, иначе она затрёт target/debug/budget-app.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
@@ -9,6 +10,8 @@ import { join } from "node:path";
 import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
 
 const OLD = process.env.PTREASURY_OLD_BIN;
+// Последняя версия схемы данных: по числу миграций ядра.
+const LATEST = readdirSync(new URL("../crates/core/migrations/", import.meta.url)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).length;
 const ready = OLD && existsSync(OLD);
 let browser, dataDir;
 after(async () => {
@@ -21,7 +24,8 @@ async function figures() {
   f.accounts = await browser.execute(() => [...document.querySelectorAll('[data-testid="account-row"]')].map((r) => r.textContent));
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="month-expense"]', /₽/);
-  f.total = await (await browser.$('[data-testid="total-balance"]')).getText();
+  // Плашка «−3 %» (сравнение с прошлым месяцем) есть только в новых версиях — сравниваем суммы.
+  f.total = (await (await browser.$('[data-testid="total-balance"]')).getText()).replace(/[−+]?\d+ %/, "");
   f.expense = await (await browser.$('[data-testid="month-expense"]')).getText();
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
@@ -35,7 +39,7 @@ async function figures() {
   return f;
 }
 
-test("данные версии 0.5 открываются новой версией без потерь", { skip: !ready && "нет PTREASURY_OLD_BIN" }, async () => {
+test("данные старой версии открываются новой версией без потерь", { skip: !ready && "нет PTREASURY_OLD_BIN" }, async () => {
   ({ browser, dataDir } = await start(undefined, { bin: OLD }));
   await onboard(browser, [
     { name: "Наличные", balance: "3000" },
@@ -59,7 +63,9 @@ test("данные версии 0.5 открываются новой верси
   await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
   const old = await figures();
   await openSection(browser, "Настройки");
-  await waitText(browser, '//h2[normalize-space()="О программе"]/..', /1 из 1/);
+  const before = await waitText(browser, '//h2[normalize-space()="О программе"]/..', /(\d+) из \1/);
+  const oldSchema = Number(/(\d+) из \1/.exec(before)[1]);
+  assert.ok(oldSchema < LATEST, `старая схема ${oldSchema}, новая ${LATEST}`);
   await stop(browser);
 
   // Новая версия на той же папке данных.
@@ -69,7 +75,7 @@ test("данные версии 0.5 открываются новой верси
   assert.deepEqual(now, old);
   await openSection(browser, "Настройки");
   const about = '//h2[normalize-space()="О программе"]/..';
-  await waitText(browser, about, /2 из 2/);
+  await waitText(browser, about, new RegExp(`${LATEST} из ${LATEST}`));
   await waitText(browser, about, /Копия перед обновлением/);
   const copies = readdirSync(join(dataDir, "backups")).filter((f) => f.startsWith("before-update-"));
   assert.equal(copies.length, 1, String(copies));

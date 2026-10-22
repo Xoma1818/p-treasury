@@ -8,7 +8,7 @@ import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
 
 /** Метка времени UTC (ISO) по местному времени: «21.10.2026 23:10». */
-export function localWhen(iso: string | null | undefined) {
+function localWhen(iso: string | null | undefined) {
   if (!iso) return "ещё не было";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

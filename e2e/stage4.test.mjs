@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 4 «Долги и калькулятор»: сценарии из product/mvp-features.md, раздел 8.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate, waitCount } from "./app.mjs";
 
 const now = new Date();
 // «До 1 марта»: ближайшее 1 марта в будущем.
@@ -51,7 +51,7 @@ test("кредит в банке: «Сохранить как долг», ден
   await waitText(browser, '[data-testid="debt-preview"]', money("14 977,23 ₽"));
   await save(browser);
   await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
-  assert.equal((await browser.$$('[data-testid="schedule-row"]')).length, 24);
+  await waitCount(browser, '[data-testid="schedule-row"]', 24);
   await openSection(browser, "Счета");
   await waitText(browser, card, money("400 000 ₽"));
 });
