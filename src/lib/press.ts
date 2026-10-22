@@ -1,6 +1,6 @@
 // Отклик на нажатие: от точки касания по кнопке расходится светлая волна.
 // Координаты передаются в CSS (--px, --py), анимацию запускает атрибут data-pressed.
-const PRESSABLE = ".btn, .chip-btn, .tab, .nav-item, .template-main";
+const PRESSABLE = ".btn, .chip-btn, .tab, .template-main";
 
 export function installPressEffect(root: Document = document) {
   root.addEventListener("pointerdown", (e) => {

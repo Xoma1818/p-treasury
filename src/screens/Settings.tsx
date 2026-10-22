@@ -231,7 +231,7 @@ function Rates({ base }: { base: string }) {
           <input type="date" aria-label="Дата курсов ЦБ" name="cbrDate" value={cbrDate} max={today()} onChange={(e) => setCbrDate(e.target.value)} />
           <CbrButton date={cbrDate} />
         </div>
-        <p className="hint">Загружаются курсы доллара, евро, юаня, фунта и всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
+        <p className="hint">Загружаются курсы доллара, евро, юаня, фунта, тенге и всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
         <label className="check small">
           <input type="checkbox" name="ratesAuto" checked={autoRates} onChange={(e) => toggleAuto.run("rates_auto", e.target.checked ? "1" : "0")} />
           Обновлять курсы сами раз в день (при запуске и пока программа открыта)

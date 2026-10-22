@@ -105,7 +105,7 @@ pub struct ImportResult {
 }
 
 /// Основные валюты: их курс загружается всегда, даже без таких счетов.
-pub const MAIN_CURRENCIES: &[&str] = &["CNY", "EUR", "GBP", "RUB", "USD"];
+pub const MAIN_CURRENCIES: &[&str] = &["CNY", "EUR", "GBP", "KZT", "RUB", "USD"];
 
 /// Валюты пользователя, которым нужен курс: валюты счетов и долгов и те, у
 /// которых уже есть хоть один курс, кроме основной.
