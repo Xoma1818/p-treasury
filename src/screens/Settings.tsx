@@ -6,7 +6,6 @@ import { VaultCard } from "../components/Vault";
 import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
-import { Money } from "../components/Money";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
@@ -170,10 +169,6 @@ export function Settings() {
                 <dd className="mono">{info.data.preMigrationBackup}</dd>
               </>
             )}
-            <dt>Пример суммы</dt>
-            <dd>
-              <Money amount={1_497_723} />
-            </dd>
           </dl>
         )}
       </div>
