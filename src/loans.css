@@ -1,0 +1,107 @@
+/* Займы 0.17: форма расчёта, диаграмма остатка, карточка займа, окно платежа. Только токены темы. */
+
+.loan-planner { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+.loan-planner > .card { margin: 0; }
+.loan-form { display: flex; flex-direction: column; gap: 14px; }
+.loan-side { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 16px; }
+.loan-side > .card { margin: 0; }
+
+.loan-solve, .loan-method { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.loan-solve .tabs, .loan-method .tabs { flex: 1; min-width: 260px; }
+.loan-solve-label, .loan-sub-head { display: inline-flex; align-items: center; font-size: 12px; color: var(--muted); }
+.loan-solve-label { min-width: 74px; }
+.loan-sub-head { margin-bottom: 8px; font-weight: 600; text-transform: none; }
+.loan-sub { padding: 12px; border: 1px dashed var(--border-strong); border-radius: 10px; background: color-mix(in srgb, var(--bg) 55%, transparent); animation: pop-in 220ms var(--ease) both; }
+.loan-solved { padding: 7px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; min-height: 34px; display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.term-input { display: flex; gap: 6px; }
+.term-input input { flex: 1; min-width: 0; }
+.term-input select { width: auto; flex: none; }
+.link.rate-link { align-self: flex-start; padding: 0; margin-top: -6px; }
+
+.loan-lines { display: flex; flex-direction: column; gap: 8px; }
+.loan-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; animation: pop-in 200ms var(--ease) both; }
+.loan-line > * { flex: none; }
+.loan-line select { width: auto; }
+.loan-line input[type="date"] { width: 150px; }
+.loan-line-label { font-size: 13px; color: var(--muted); min-width: 8px; }
+.amount-with-sym { display: inline-flex; align-items: center; gap: 4px; }
+.amount-with-sym .amount, .amount-with-sym input { width: 120px; }
+.amount-with-sym .sym { color: var(--muted); font-size: 13px; }
+.rate-line .amount-with-sym input { width: 70px; }
+.line-del { width: 28px; height: 28px; font-size: 18px; }
+.line-del:hover { color: var(--over); }
+.add-line { align-self: flex-start; }
+
+.loan-result h2 { display: flex; align-items: center; }
+.loan-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 0 0 12px; }
+.loan-total { margin: 0; animation: fade-in 260ms var(--ease) both; }
+.loan-total dt { font-size: 12px; color: var(--muted); }
+.loan-total dd { margin: 2px 0 0; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.loan-total dd .sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+.loan-total.big { grid-column: 1 / -1; }
+.loan-total.big dd { font-size: 26px; color: var(--accent); }
+.loan-total.good dd { color: var(--ok); }
+.loan-chart-head { display: flex; align-items: center; font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.loan-chart { margin: 4px 0 12px; }
+.loan-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.loan-chart .grid { stroke: var(--border); stroke-width: 1; }
+.loan-chart .axis-line { stroke: var(--border-strong); stroke-width: 1; }
+.loan-chart .axis { font-size: 11px; fill: var(--muted); }
+.loan-chart .area { animation: fade-in 700ms 300ms var(--ease) both; }
+.loan-chart .line-base { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 5 5; opacity: 0.8; animation: fade-in 500ms var(--ease) both; }
+.loan-chart .line-main { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.loan-chart .hover line { stroke: var(--border-strong); stroke-width: 1; }
+.loan-chart .hover circle { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+.loan-chart-foot { font-size: 12px; color: var(--muted); min-height: 18px; }
+.loan-chart-foot b { color: var(--text); }
+.loan-chart-foot .legend { display: inline-flex; align-items: center; gap: 6px; }
+.loan-chart-foot .key { display: inline-block; width: 18px; height: 0; border-top: 2.4px solid var(--accent); margin-left: 6px; }
+.loan-chart-foot .key:first-child { margin-left: 0; }
+.loan-chart-foot .key.base { border-top: 1.6px dashed var(--muted); }
+
+.loan-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn-with-hint { display: inline-flex; align-items: center; }
+.hint.ok { color: var(--ok); margin-top: 8px; }
+.table-scroll { overflow-x: auto; }
+.schedule tr.early-row td { background: var(--accent-soft); }
+.schedule tr.early-row td.status { color: var(--accent); }
+
+.terms-diff { margin: 4px 0; }
+.terms-diff thead th { font-size: 12px; font-weight: 400; color: var(--muted); text-align: left; padding: 0 8px 4px; }
+.terms-diff thead th.num { text-align: right; }
+.terms-diff .arrow { width: 20px; text-align: center; color: var(--muted); }
+.terms-diff tr.good td { color: var(--ok); }
+
+.loan-changes { margin-top: 12px; }
+.loan-changes .account-list li { animation: pop-in 220ms var(--ease) both; }
+.loan-card-actions { flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.loan-tabs { display: inline-flex; margin: 0 0 16px; }
+.loan-tabs .tab { flex: none; padding: 5px 14px; }
+.columns.loan-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-bottom: 16px; }
+.columns.loan-two .card { margin: 0; }
+
+.history-now { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--bg); margin-bottom: 12px; font-size: 14px; }
+.history-now .muted { font-size: 12px; }
+.history-savings { text-align: right; flex: none; }
+.history-savings b { font-size: 20px; color: var(--ok); }
+.history-list { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.history-list li { position: relative; }
+.history-list li::before { content: ""; position: absolute; left: -20px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--card); border: 2px solid var(--accent); }
+.history-list li:not(:first-child)::before { border-color: var(--border-strong); }
+.history-head { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; }
+.history-head .muted { font-size: 12px; white-space: nowrap; }
+.history-diff { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; margin-top: 2px; }
+.good-text { color: var(--ok); }
+
+.pay-kind { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+.pay-kind .hint { font-size: 13px; color: var(--text); }
+.pay-quote { font-size: 14px; animation: pop-in 220ms var(--ease) both; }
+
+@media (max-width: 1100px) {
+  .loan-planner { grid-template-columns: minmax(0, 1fr); }
+  .loan-side { position: static; }
+}
+@media (min-width: 1700px) {
+  .loan-line input[type="date"] { width: 160px; }
+}
