@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, setDate, waitCount } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, waitContent, money, setDate, waitCount } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -152,11 +152,8 @@ test("«Ставка изменилась» и «Изменить условия
 test("история: снимки до каждого изменения и общая экономия", async () => {
   await (await browser.$('[data-testid="tab-history"]')).click();
   await browser.waitUntil(async () => (await browser.$$('[data-testid="version"]')).length >= 4, { timeout: 5000, timeoutMsg: "мало снимков в истории" });
-  const text = await (await browser.$('[data-testid="history"]')).getText();
-  assert.match(text, /Заём записан/);
-  assert.match(text, /Досрочно/);
-  assert.match(text, /ставк/i);
-  assert.match(text, /Изменены условия/);
+  // Строки ленты проявляются плавно: текст берём через textContent, а не getText.
+  for (const re of [/Заём записан/, /Досрочно/, /ставк/i, /Изменены условия/]) await waitContent(browser, '[data-testid="history"]', re);
   await waitText(browser, '[data-testid="history-savings"]', /₽/);
 });
 
