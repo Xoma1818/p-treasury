@@ -7,6 +7,7 @@ import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { RulesCard } from "../components/Rules";
+import { TagsCard } from "../components/Tags";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -72,6 +73,7 @@ export function Categories() {
         <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
         Показать архивные
       </label>
+      <TagsCard />
       <RulesCard />
       {edit && <CategoryForm edit={edit} all={all} onClose={() => setEdit(null)} />}
       {deleting && <DeleteForm category={deleting} all={all} onClose={() => setDeleting(null)} />}

@@ -21,6 +21,8 @@ import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
+import { barClass, barLevel } from "../lib/budgetLevel";
+import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -89,6 +91,7 @@ export function Home() {
               {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0 || debts.assets !== 0) && (
                 <div className="hint" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
                   Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <Money amount={debts.netWorth} symbol={symbol} />
+                  <NetWorthSpark />
                 </div>
               )}
             </div>
@@ -126,6 +129,8 @@ export function Home() {
             </div>
           </div>
     ),
+    checks: <ChecksCard />,
+    unusual: <UnusualCard />,
     cushion: <CushionCard />,
     invest: <InvestCard />,
     templates: <TemplatesCard />,
@@ -183,9 +188,9 @@ export function Home() {
                     .sort((a, b) => b.percent - a.percent)
                     .slice(0, 5)
                     .map((l) => (
-                      <li key={l.categoryId} className={l.over ? "over" : undefined}>
+                      <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
                         <span>{l.categoryName}</span>
-                        <div className={l.over ? "bar over" : "bar"}>
+                        <div className={barClass(l.percent)}>
                           <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
                         </div>
                         <span className="percent">{l.percent} %</span>

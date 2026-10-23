@@ -232,8 +232,12 @@ input.invalid { border-color: var(--over); }
 .screen-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .screen-head h1, .screen-head h2 { margin: 0; }
 
-.overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: flex-start; justify-content: center; padding-top: 8vh; z-index: 10; animation: fade-in 160ms var(--ease); }
-.modal { background: var(--card); border-radius: var(--radius); width: 480px; max-width: calc(100vw - 32px); padding: 20px 24px; box-shadow: var(--shadow-lg); border: 1px solid var(--border); animation: pop-in 200ms var(--ease); }
+.overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: flex-start; justify-content: center; padding: min(8vh, 64px) 16px 80px; overflow: auto; z-index: 10; animation: fade-in 160ms var(--ease); }
+/* Окно всегда помещается: тело прокручивается, кнопки действий прилипают к низу.
+   Снизу 80px под плашку «Отменить», чтобы она не закрывала «Сохранить». */
+.modal { background: var(--card); border-radius: var(--radius); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - min(8vh, 64px) - 80px); overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 72px; padding: 20px 24px 0; box-shadow: var(--shadow-lg); border: 1px solid var(--border); animation: pop-in 200ms var(--ease); }
+.modal::after { content: ""; display: block; height: 20px; }
+.modal form > .actions:last-child, .modal > .actions:last-child { position: sticky; bottom: 0; z-index: 2; background: var(--card); padding: 10px 0; }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .modal.wide { width: 720px; }
@@ -332,8 +336,8 @@ textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(
 /* Отчёты */
 .period-picker { display: flex; align-items: center; gap: 10px; }
 .report-tabs { margin-bottom: 16px; max-width: 640px; }
-.tabs.small { padding: 3px; }
-.tabs.small .tab { padding: 4px 12px; font-size: 13px; }
+.tabs.small { padding: 3px; flex: none; }
+.tabs.small .tab { padding: 4px 12px; font-size: 13px; white-space: nowrap; }
 .cat-report { list-style: none; padding: 0; margin: 0; }
 .cat-row { display: grid; grid-template-columns: minmax(200px, 280px) 1fr 52px 130px; align-items: center; gap: 12px; padding: 7px 4px; border-bottom: 1px solid var(--border); }
 .cat-row:last-child { border-bottom: 0; }

@@ -1,5 +1,10 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Hint } from "../components/Hint";
+import { SelectionBar } from "../components/SelectionBar";
+import { isTyping } from "../lib/hotkeys";
+import { groupReceipts, rowIds } from "../lib/receipt";
+import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { useExport } from "../components/DataTools";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -22,6 +27,8 @@ export function Transactions() {
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const events = useQuery({ queryKey: ["events"], queryFn: api.listEvents }).data ?? [];
+  const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data ?? [];
+  const [sel, setSel] = useState<SelState>(EMPTY_SEL);
 
   // Переход с фильтром со Счетов или Категорий: за всё время.
   useEffect(() => {
@@ -57,6 +64,46 @@ export function Transactions() {
     setLimit(PAGE);
     setF({ ...f, ...patch });
   };
+
+  // После Ctrl+A выделены и операции на ещё не показанных страницах: их не чистим.
+  const selectAllRef = useRef(false);
+  // Г1: выделение. Другой фильтр — выделение снимается; удалённые строки из него уходят.
+  const filterKey = JSON.stringify(f);
+  useEffect(() => {
+    selectAllRef.current = false;
+    setSel(EMPTY_SEL);
+  }, [filterKey]);
+  const items = page.data?.items;
+  const rows = useMemo(() => (items ? groupReceipts(items).map((r) => ({ key: r.key, ids: rowIds(r) })) : []), [items]);
+  useEffect(() => {
+    if (items && !page.isPlaceholderData) setSel((cur) => (cur.ids.size && !selectAllRef.current ? keepExisting(cur, new Set(items.map((t) => t.id))) : cur));
+  }, [items, page.isPlaceholderData]);
+  const total = page.data?.total ?? 0;
+  const txnFormOpen = useUi((s) => s.txnForm !== null);
+  useEffect(() => {
+    const onKey = async (e: KeyboardEvent) => {
+      if (txnFormOpen || isTyping(e.target) || document.querySelector(".overlay, .palette")) return;
+      if (e.code === "KeyA" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        if (!total) return;
+        // Всё отфильтрованное, а не только показанное на странице.
+        const all = await api.listTransactions({ ...f, limit: total, offset: 0 });
+        selectAllRef.current = true;
+        setSel(selectAll(all.items.map((t) => t.id)));
+      } else if (e.key === "Escape" && sel.ids.size) {
+        setSel(EMPTY_SEL);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [f, total, txnFormOpen, sel.ids.size]);
+  const onToggle = (key: string, mods: { shift: boolean; ctrl: boolean }) => {
+    selectAllRef.current = false;
+    setSel((cur) => clickRow(cur, rows, key, mods));
+  };
+  const [defFrom, defTo] = [from, to];
+  const filtered =
+    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId) || f.dateFrom !== defFrom || f.dateTo !== defTo;
 
   return (
     <section className="screen wide">
@@ -95,6 +142,24 @@ export function Transactions() {
             </option>
           ))}
         </select>
+        {tags.length > 0 && (
+          <select name="filterTag" aria-label="Тег" value={f.tagId ?? ""} onChange={(e) => set({ tagId: e.target.value || undefined })}>
+            <option value="">Все теги</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>
+                #{t.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {f.tagId && !tags.some((t) => t.id === f.tagId) && (
+          <span className="view-chip" data-testid="filter-tag">
+            <span className="view-apply">Тег</span>
+            <button className="view-del" aria-label="Убрать фильтр по тегу" onClick={() => set({ tagId: undefined })}>
+              ✕
+            </button>
+          </span>
+        )}
         {f.eventId && (
           <span className="view-chip" data-testid="filter-event">
             <span className="view-apply">{events.find((e) => e.id === f.eventId)?.name ?? "Событие"}</span>
@@ -104,7 +169,7 @@ export function Transactions() {
           </span>
         )}
         <input type="search" name="search" data-search placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined }))}>
+        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined }))}>
           Сбросить
         </button>
       </div>
@@ -112,9 +177,10 @@ export function Transactions() {
         {page.error && <p className="error">{String(page.error)}</p>}
         {page.data && (
           <>
-            <TxnTable items={page.data.items} />
+            <TxnTable items={page.data.items} selection={{ sel, onToggle }} />
             <div className="table-foot muted" data-testid="txn-count">
               Показано {page.data.items.length} из {page.data.total}
+              {sel.ids.size === 0 && <Hint of="txn.select" />}
               {page.data.items.length < page.data.total && (
                 <button className="link" onClick={() => setLimit(limit + PAGE)}>
                   Показать ещё
@@ -124,6 +190,16 @@ export function Transactions() {
           </>
         )}
       </div>
+      <SelectionBar
+        ids={[...sel.ids]}
+        filter={{ ...f, limit: undefined, offset: undefined }}
+        filtered={filtered}
+        onClear={() => setSel(EMPTY_SEL)}
+        onDone={() => {
+          selectAllRef.current = false;
+          setSel(EMPTY_SEL);
+        }}
+      />
     </section>
   );
 }
