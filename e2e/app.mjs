@@ -234,3 +234,26 @@ export async function setDate(browser, name, value) {
     value,
   );
 }
+
+/** Новый долг через форму расчёта (0.16): поля расчёта, затем «Записать заём» с кем и счётом.
+ *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.16. */
+export async function newDebt(browser, { counterparty, principal, rate, term, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
+  await openSection(browser, "Займы и долги");
+  await click(browser, "+ Новый долг");
+  await browser.$('//main//h1[contains(., "Новый долг")]').waitForDisplayed({ timeout: 5000 });
+  if (repayment) await choose(browser, "repayment", repayment);
+  await fill(browser, "principal", principal);
+  if (rate) await fill(browser, "rate", rate);
+  if (term) {
+    await choose(browser, "termUnit", "месяцев");
+    await fill(browser, "term", term);
+  }
+  if (maturity) await setDate(browser, "maturity", maturity);
+  if (firstPayment) await setDate(browser, "firstPayment", firstPayment);
+  await click(browser, daily ? "по дням, как банк" : "по месяцам");
+  await browser.$('[data-testid="loan-payment"]').waitForDisplayed({ timeout: 5000 });
+  await click(browser, "Записать заём");
+  if (lent) await click(browser, "Я дал в долг", '//*[@role="dialog"]');
+  await fill(browser, "counterparty", counterparty);
+  if (account) await choose(browser, "account", account);
+}

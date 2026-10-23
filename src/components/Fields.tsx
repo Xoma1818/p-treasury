@@ -1,12 +1,18 @@
 import { useId, type ReactNode } from "react";
 import type { Account, Category, CategoryKind } from "../lib/api";
+import type { HintKey } from "../lib/hints";
+import { Hint } from "./Hint";
 import { amountToInput, formatAmount, isExpression, parseAmount } from "../lib/money";
 
-export function Field({ label, children, hint }: { label: string; children: (id: string) => ReactNode; hint?: ReactNode }) {
+/** Поле с подписью; `help` — значок «?» с подсказкой из hints.ts у подписи. */
+export function Field({ label, children, hint, help }: { label: string; children: (id: string) => ReactNode; hint?: ReactNode; help?: HintKey }) {
   const id = useId();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>
+        {label}
+        {help && <Hint of={help} />}
+      </label>
       {children(id)}
       {hint && <div className="hint">{hint}</div>}
     </div>

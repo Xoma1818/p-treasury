@@ -11,6 +11,7 @@ import { applyTheme, savedTheme } from "./lib/theme";
 import "./styles.css";
 import "./features.css";
 import "./invest.css";
+import "./loans.css";
 
 installPressEffect();
 applyTheme(savedTheme());

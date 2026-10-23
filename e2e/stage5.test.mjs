@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 5 «Календарь, напоминания, заметки»: сценарии из product/mvp-features.md, раздел 10.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate, waitCount } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate, waitCount, newDebt } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -63,14 +63,7 @@ test("коммуналка: «ЖКХ» ежемесячно, «Создать о
 });
 
 test("платёж по кредиту: напоминание за 3 дня, «Оплачено» создаёт платёж по графику", async () => {
-  await openSection(browser, "Займы и долги");
-  await click(browser, "+ Новый долг");
-  await fill(browser, "counterparty", "Сбер");
-  await fill(browser, "principal", "300000");
-  await fill(browser, "rate", "18");
-  await fill(browser, "term", "24");
-  await setDate(browser, "firstPayment", inDays(2));
-  await choose(browser, "account", "Карта (₽)");
+  await newDebt(browser, { counterparty: "Сбер", principal: "300000", rate: "18", term: "24", firstPayment: inDays(2), account: "Карта (₽)" });
   await save(browser);
   await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
 

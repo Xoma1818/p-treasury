@@ -305,6 +305,9 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             first_payment_date: None,
             maturity_date: None,
             account_id: None,
+            interest_method: None,
+            rate_changes: vec![],
+            planned_early: vec![],
         },
     )?;
     debts::create(
@@ -322,6 +325,9 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             first_payment_date: None,
             maturity_date: Some((now + Duration::days(120)).to_string()),
             account_id: Some(card.clone()),
+            interest_method: None,
+            rate_changes: vec![],
+            planned_early: vec![],
         },
     )?;
     let month = budgets::month_of(conn, today)?.month;

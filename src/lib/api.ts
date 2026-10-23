@@ -278,6 +278,8 @@ export interface LoanInput {
   issueDate: string;
   firstPaymentDate: string | null;
   maturityDate: string | null;
+  /** По умолчанию `monthly` (как раньше). */
+  interestMethod?: InterestMethod;
 }
 
 export interface LoanRow {
@@ -311,6 +313,10 @@ export interface DebtInput {
   firstPaymentDate: string | null;
   maturityDate: string | null;
   accountId: string | null;
+  /** По умолчанию `daily`. */
+  interestMethod?: InterestMethod;
+  rateChanges?: RateChangeInput[];
+  plannedEarly?: PlannedEarlyInput[];
 }
 
 export interface ScheduleRow extends LoanRow {
@@ -353,12 +359,189 @@ export interface DebtCard {
   overdueCount: number;
   overdueAmount: number;
   defaultAccountId: string | null;
+  interestMethod: InterestMethod;
+  firstPaymentDate: string | null;
 }
 
 export interface DebtDetail {
   card: DebtCard;
   schedule: ScheduleRow[];
   payments: DebtPayment[];
+  rateChanges: (RateChangeInput & { id: string })[];
+  holidays: (HolidayInput & { id: string })[];
+  plannedEarly: (PlannedEarlyInput & { id: string })[];
+}
+
+// --- Займы 0.16 ---
+
+export type InterestMethod = "daily" | "monthly";
+export type RecalcMode = "reduce_payment" | "reduce_term";
+export type HolidayKind = "interest_only" | "shift";
+export type EarlyFrequency = "once" | "monthly" | "quarterly" | "yearly";
+
+export interface RateChangeInput {
+  /** С какой даты действует ставка, YYYY-MM-DD. */
+  from: string;
+  rateBp: number;
+}
+
+export interface HolidayInput {
+  fromSeq: number;
+  /** 1–12. */
+  months: number;
+  kind: HolidayKind;
+}
+
+export interface PlannedEarlyInput {
+  amount: number;
+  startDate: string;
+  frequency: EarlyFrequency;
+  endDate: string | null;
+  mode: RecalcMode;
+}
+
+/** Строка расчёта: строка графика с отметкой и видом. */
+export interface SimRow extends LoanRow {
+  status: "pending" | "paid" | "partial";
+  kind: "regular" | "interest_only" | "after_shift";
+}
+
+/** Досрочный платёж (фактический или плановый) — не строка графика. */
+export interface EarlyRow {
+  date: string;
+  principal: number;
+  interest: number;
+  balanceAfter: number;
+  planned: boolean;
+}
+
+export interface LoanTotals {
+  /** Ближайший неоплаченный платёж (0 — закрыт). */
+  payment: number;
+  totalInterest: number;
+  totalPayment: number;
+  maturityDate: string;
+  rowsLeft: number;
+  interestLeft: number;
+}
+
+export interface SimView {
+  rows: SimRow[];
+  early: EarlyRow[];
+  totals: LoanTotals;
+}
+
+export interface CalcInput extends LoanInput {
+  rateChanges?: RateChangeInput[];
+  holidays?: HolidayInput[];
+  plannedEarly?: PlannedEarlyInput[];
+  /** Что рассчитать; по умолчанию платёж. */
+  solve?: "payment" | "term" | "principal";
+  /** Желаемый платёж для расчёта срока или суммы. */
+  payment?: number | null;
+}
+
+export interface CalcResult {
+  principal: number;
+  termMonths: number | null;
+  payment: number;
+  base: SimView;
+  withEarly: SimView | null;
+  savings: number;
+}
+
+export interface TermsInput {
+  principal: number;
+  issueDate: string;
+  rateBp: number;
+  repaymentType: Repayment;
+  termMonths: number | null;
+  firstPaymentDate: string | null;
+  maturityDate: string | null;
+  interestMethod: InterestMethod;
+}
+
+export interface QuoteInput {
+  date: string;
+  amount: number;
+  kind: "scheduled" | "early";
+  mode?: RecalcMode | null;
+}
+
+export interface Quote {
+  interest: number;
+  principal: number;
+  before: SimView;
+  after: SimView;
+  newPayment: number;
+  savings: number;
+}
+
+export interface Forecast {
+  from: string;
+  rows: SimRow[];
+  early: EarlyRow[];
+  totals: LoanTotals;
+  base: LoanTotals;
+  savings: number;
+}
+
+/** Предпросмотр правки условий: с уже внесёнными платежами, ставками и каникулами. */
+export interface TermsPreview {
+  before: SimView;
+  after: SimView;
+}
+
+export interface DebtVersion {
+  /** null у текущего графика. */
+  id: string | null;
+  createdAt: string;
+  reason: string;
+  payment: number;
+  totalInterest: number;
+  totalPayment: number;
+  maturityDate: string;
+  rows: (LoanRow & { status: string })[];
+}
+
+export interface DebtVersions {
+  /** От старых к новым; каждый — график до изменения из reason. */
+  versions: DebtVersion[];
+  current: DebtVersion;
+  savings: number;
+}
+
+export interface ScheduleDoc {
+  title: string;
+  lenderName: string;
+  borrowerName: string;
+  terms: {
+    principal: number;
+    currencyCode: string;
+    currencySymbol: string;
+    minorUnits: number;
+    rateBp: number;
+    rateChanges: RateChangeInput[];
+    holidays: HolidayInput[];
+    termMonths: number | null;
+    repaymentType: Repayment;
+    interestMethod: InterestMethod;
+    issueDate: string;
+    firstPaymentDate: string | null;
+  };
+  rows: {
+    seq: number | null;
+    date: string;
+    payment: number;
+    interest: number;
+    principal: number;
+    balance: number;
+    paid: boolean;
+    note: string | null;
+  }[];
+  totals: { totalPayment: number; overpayment: number; maturityDate: string };
+  withSignatures: boolean;
+  createdOn: string;
 }
 
 export interface PaymentInput {
@@ -1039,6 +1222,21 @@ export const api = {
   deleteDebt: (id: string) => invoke<void>("delete_debt", { id }),
   payDebt: (id: string, input: PaymentInput) => invoke<string>("pay_debt", { id, input }),
   deleteDebtPayment: (paymentId: string) => invoke<void>("delete_debt_payment", { paymentId }),
+  planLoan: (input: CalcInput) => invoke<CalcResult>("plan_loan", { input }),
+  updateDebtTerms: (id: string, input: TermsInput) => invoke<void>("update_debt_terms", { id, input }),
+  addDebtRateChange: (id: string, input: RateChangeInput) => invoke<string>("add_debt_rate_change", { id, input }),
+  deleteDebtRateChange: (rateChangeId: string) => invoke<void>("delete_debt_rate_change", { rateChangeId }),
+  addDebtHoliday: (id: string, input: HolidayInput) => invoke<string>("add_debt_holiday", { id, input }),
+  deleteDebtHoliday: (holidayId: string) => invoke<void>("delete_debt_holiday", { holidayId }),
+  setDebtPlannedEarly: (id: string, list: PlannedEarlyInput[]) => invoke<void>("set_debt_planned_early", { id, list }),
+  quoteDebtPayment: (id: string, input: QuoteInput) => invoke<Quote>("quote_debt_payment", { id, input }),
+  debtForecast: (id: string) => invoke<Forecast>("debt_forecast", { id }),
+  debtVersions: (id: string) => invoke<DebtVersions>("debt_versions", { id }),
+  debtScheduleDoc: (id: string, withForecast: boolean) => invoke<ScheduleDoc>("debt_schedule_doc", { id, withForecast }),
+  calcScheduleDoc: (input: CalcInput, currencyCode: string | null) => invoke<ScheduleDoc>("calc_schedule_doc", { input, currencyCode }),
+  exportScheduleXlsx: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_xlsx", { path, doc }),
+  exportSchedulePdf: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_pdf", { path, doc }),
+  previewDebtTerms: (id: string, input: TermsInput) => invoke<TermsPreview>("preview_debt_terms", { id, input }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
