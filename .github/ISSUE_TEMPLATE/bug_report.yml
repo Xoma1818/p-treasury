@@ -1,0 +1,31 @@
+name: Ошибка
+description: Шаги, версия и ожидаемое поведение.
+title: "Ошибка: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Версия приложения
+      placeholder: Например, 0.16.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      description: Какие действия приводят к проблеме?
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Ожидание и результат
+      description: Что должно было произойти и что произошло?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительные сведения
+      description: Windows, снимок экрана или небольшой пример на тестовых данных.

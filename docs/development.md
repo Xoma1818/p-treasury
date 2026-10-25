@@ -21,6 +21,21 @@ npm run check:e2e    # плюс сквозные тесты на настоящ�
 
 Данные лежат в папке данных ОС: `%APPDATA%\app.kazna.desktop\budget.db` на Windows, `~/Library/Application Support/app.kazna.desktop/` на macOS, `~/.local/share/app.kazna.desktop/` на Linux. Копии перед обновлением: подпапка `backups`.
 
+### Проверки из PowerShell
+
+`npm run check` вызывает Bash-скрипт. В Git Bash/Linux он выполняется напрямую; в PowerShell используйте нативные команды последовательно и остановитесь при первой ошибке:
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --quiet -- -D warnings
+cargo test --workspace --quiet
+npm run typecheck
+npm test
+npm run build
+```
+
+Для команд Rust нужны Rust и C++ Build Tools. Наличие WebView2 позволяет запускать готовую программу, но не заменяет инструменты сборки. Сквозные тесты в текущем harness ориентированы на Linux; отдельно проверяйте поддерживаемую среду и тестовую папку данных.
+
 ## Структура
 
 ```
