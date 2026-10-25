@@ -13,6 +13,8 @@ on:
       - "docs/**"
       - "**/*.md"
       - ".claude/**"
+      - ".codex/agents/**"
+      - ".agents/skills/p-treasury-team/**"
 
 jobs:
   check:
