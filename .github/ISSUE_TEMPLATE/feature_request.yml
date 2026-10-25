@@ -1,0 +1,19 @@
+name: Предложение
+description: Описать полезное изменение и пользовательскую задачу.
+title: "Идея: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Что хочется упростить
+      description: В какой ситуации возникает задача?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Желаемый результат
+      description: Как понять, что изменение помогло?
+    validations:
+      required: true

@@ -1,32 +1,53 @@
 # P-Treasury
 
-Десктопное приложение для личного и семейного бюджета: счета, операции в нескольких валютах, бюджет на месяц, отчёты и сравнение периодов, займы и долги с калькулятором, инвестиции (инвест-копилка), календарь, напоминания, заметки, сводка в Excel, курсы ЦБ РФ. Работает на компьютере (основная платформа Windows), данные хранятся локально в одном файле, без облака и регистрации.
+**Личные и семейные финансы на вашем компьютере.** Счета, бюджет, займы, инвестиции и понятные отчёты — с локальным хранением данных, без обязательной регистрации.
 
-Текущая версия: **0.14.0** (что нового в [CHANGELOG.md](CHANGELOG.md)). Установщик для Windows собирается на GitHub; выпуски с автообновлением публикуются в [p-treasury-releases](https://github.com/Xoma1818/p-treasury-releases/releases) (первый выпуск v0.11.1 вышел 21.10.2026, как выходят выпуски — [docs/releasing.md](docs/releasing.md)). Ручная проверка владельцем — по [списку](docs/testing/owner-checklist.md).
+[Скачать для Windows](https://github.com/Xoma1818/p-treasury-releases/releases/latest) · [Что нового](CHANGELOG.md) · [План 0.17](https://github.com/Xoma1818/p-treasury/issues/28) · [Сообщить об ошибке](https://github.com/Xoma1818/p-treasury/issues/new/choose)
 
-## Документация
+| Сейчас | Где посмотреть |
+|---|---|
+| Стабильный выпуск **0.16.0** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.16.0) |
+| В работе **0.17 «Быстрые победы»** | [План с проверками](https://github.com/Xoma1818/p-treasury/issues/28), [PR №22](https://github.com/Xoma1818/p-treasury/pull/22) |
+| Команда и порядок работы | [Команда](docs/team.md), [рабочий план](docs/work-plan.md), [текущее состояние](docs/project-state.md) |
 
-Каждая тема описана в одном месте.
+## Что умеет приложение
 
-| Тема | Документ | Что внутри |
-|---|---|---|
-| Продукт | [docs/product/mvp-features.md](docs/product/mvp-features.md) | Состав MVP, версий 2 и 3, сценарии использования |
-| Архитектура | [docs/architecture/architecture.md](docs/architecture/architecture.md) | Стек (Tauri 2, React + TypeScript, SQLite), модули, схема базы, этапы разработки |
-| Дизайн | [docs/design/README.md](docs/design/README.md) | Тема «Тёмный графит» (светлая по кнопке), карта экранов, макеты, логотип, [снимки экранов](docs/design/screens/) |
-| Разработка | [docs/development.md](docs/development.md) | Как запустить и собрать, структура кода, что сделано по этапам |
-| Тестирование | [docs/testing/README.md](docs/testing/README.md) | Как устроены проверки, найденные ошибки, [отчёт итогового теста](docs/testing/final-test-report.md), [отчёт проверки 0.14](docs/testing/test-report-0.14.md), [ручная проверка](docs/testing/owner-checklist.md) |
-| Как идёт работа | [docs/process.md](docs/process.md) | Штат ролей, маршрут задачи от просьбы до выпуска, где нужно слово владельца, сабагенты в `.claude/agents/` |
-| Выпуски | [docs/releasing.md](docs/releasing.md) | Версии, ветки, CHANGELOG, как выходит выпуск с установщиком, правила репозитория |
-| Исследование | [docs/research/competitors-and-ideas.md](docs/research/competitors-and-ideas.md) | Похожие приложения и 51 идея с версиями |
-| Инвестиции | [docs/research/investments.md](docs/research/investments.md) | Исследование раздела «Инвестиции» и выбранный вариант «Инвест-копилка» |
-| История | [docs/history/reviews-2026-10-20.md](docs/history/reviews-2026-10-20.md) | Ревизия и сверка документов перед разработкой (архив) |
+- **Учёт:** счета и карты, доходы, расходы, переводы, несколько валют, сверка остатка, импорт выписок Сбера и Т-Банка.
+- **Планирование:** месячный бюджет от выбранного дня, лимиты, цели, события и поездки, «Можно тратить сегодня».
+- **Аналитика:** отчёты, сравнение периодов, подписки, курсовая разница и итоги года.
+- **Займы:** графики, проценты по дням или месяцам, досрочные платежи, изменение ставок, каникулы, Excel и PDF.
+- **Инвестиции:** брокерские счета, ИИС и ПДС в формате инвест-копилки с планом взносов и оценкой стоимости.
+- **Удобство и сохранность:** календарь, заметки, напоминания, быстрый ввод, отмена действий, резервные копии и Excel-зеркало.
 
-## Быстрый старт
+Основная платформа — Windows. Рабочие данные хранятся в локальном файле SQLite. Установленная программа получает подписанные обновления из отдельного [репозитория выпусков](https://github.com/Xoma1818/p-treasury-releases/releases).
+
+## Навигация по проекту
+
+| Нужно | Документ |
+|---|---|
+| Узнать текущую работу и следующий шаг | [Состояние проекта](docs/project-state.md) |
+| Посмотреть задачи и готовность 0.17 | [План выпуска](https://github.com/Xoma1818/p-treasury/issues/28), [очередь](https://github.com/Xoma1818/p-treasury/issues) |
+| Понять роли и обязательный порядок работы | [Команда](docs/team.md), [план и регламент](docs/work-plan.md), [процесс](docs/process.md) |
+| Внести изменение или оформить ошибку | [Как участвовать](CONTRIBUTING.md) |
+| Разобраться в продукте и решениях | [Состав продукта](docs/product/mvp-features.md), [решения владельца](docs/decisions.md) |
+| Изучить устройство и запуск | [Архитектура](docs/architecture/architecture.md), [разработка](docs/development.md) |
+| Проверить интерфейс и поведение | [Дизайн](docs/design/README.md), [тестирование](docs/testing/README.md), [ручная проверка](docs/testing/owner-checklist.md) |
+| Выпустить версию | [Порядок выпуска](docs/releasing.md), [Actions](https://github.com/Xoma1818/p-treasury/actions) |
+| Продолжить после передачи от Claude | [Акт передачи](docs/handover/2026-10-25.md) |
+
+Исторические планы могут содержать уже выполненные пункты. Актуальные задачи ведутся в Issues и кратком состоянии проекта.
+
+## Разработка
+
+Стек: **Tauri 2 · Rust · React · TypeScript · SQLite**.
+
+Нужны Node.js 22+, актуальный стабильный Rust и системные зависимости Tauri. На Windows — WebView2 и Microsoft C++ Build Tools. Подробности: [подготовка среды](docs/development.md).
 
 ```bash
-npm install
-npm run tauri dev    # окно приложения
-npm run check        # все проверки
+npm ci
+npm run tauri dev
 ```
 
-Подробности и установщик для Windows: [docs/development.md](docs/development.md).
+Полная проверка в Git Bash/Linux: `npm run check`. Для PowerShell последовательность нативных команд приведена в [руководстве разработки](docs/development.md).
+
+Версии, изменения схемы и выпуск проходят PR и проверку команды. Слияние в `main` разрешает владелец проекта.

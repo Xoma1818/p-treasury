@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Скачать текущий выпуск
+    url: https://github.com/Xoma1818/p-treasury-releases/releases/latest
+    about: Установщик и переносная версия для Windows.
+  - name: План 0.17
+    url: https://github.com/Xoma1818/p-treasury/issues/28
+    about: Текущая работа, критерии и ссылки на исправления.
