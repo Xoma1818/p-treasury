@@ -87,6 +87,29 @@ export function Settings() {
               </select>
             )}
           </Field>
+          <Field
+            label="Предупреждать о бюджете"
+            hint={
+              <>
+                Уведомление, когда категория дошла до 80 % лимита и когда лимит превышен. <Hint of="budgetAlerts" />
+              </>
+            }
+          >
+            {(id) => (
+              <button
+                id={id}
+                type="button"
+                className="toggle-row"
+                role="switch"
+                aria-checked={(settings?.budget_alerts ?? "1") !== "0"}
+                data-testid="budget-alerts"
+                onClick={() => setSetting.run("budget_alerts", (settings?.budget_alerts ?? "1") !== "0" ? "0" : "1")}
+              >
+                <span className="switch" aria-hidden="true" />
+                {(settings?.budget_alerts ?? "1") !== "0" ? "Включено" : "Выключено"}
+              </button>
+            )}
+          </Field>
           <Field label="Напоминать о регулярных платежах" hint="Накануне списания подписки или связи приходит уведомление с суммой.">
             {(id) => (
               <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>

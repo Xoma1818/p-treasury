@@ -1,0 +1,54 @@
+name: Проверки ядра и интерфейса
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/core/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - ".github/workflows/regression.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Ядро и миграции
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Формат Rust
+        run: cargo fmt --all -- --check
+      - name: Тесты ядра и обновления данных
+        if: ${{ !cancelled() }}
+        run: cargo test -p budget-core --locked --quiet
+      - name: Проверка Rust
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p budget-core --all-targets --locked --quiet -- -D warnings
+
+  ui:
+    name: Интерфейс
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

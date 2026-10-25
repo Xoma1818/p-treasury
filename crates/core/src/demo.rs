@@ -12,10 +12,11 @@ use crate::debts::{self, DebtInput};
 use crate::error::invalid;
 use crate::events::{self, EventInput};
 use crate::notes::{self, NoteInput};
+use crate::receipts::{self, PartInput, ReceiptInput};
 use crate::reminders::{self, ReminderInput};
 use crate::templates::{self, TemplateInput};
 use crate::transactions::{self, TxnInput};
-use crate::{categories, currencies, onboarding, settings, Result};
+use crate::{categories, currencies, onboarding, settings, tags, Result};
 
 /// Сколько прошлых месяцев истории в примере (плюс текущий до сегодня).
 const HISTORY_MONTHS: u32 = 3;
@@ -330,6 +331,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             planned_early: vec![],
         },
     )?;
+    quick_wins(conn, now, &card)?;
     let month = budgets::month_of(conn, today)?.month;
     let budget = budgets::create(conn, &month, false)?;
     budgets::fill(conn, &budget, FillMode::Average3, None)?;
@@ -385,6 +387,106 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
         )?);
     }
     events::assign(conn, Some(&trip), &spent)?;
+    let vacation = tags::ensure(conn, "отпуск")?;
+    tags::add_to(conn, &vacation, &spent)?;
+    Ok(())
+}
+
+/// Пример для 0.16: разбитый чек, страховка на 12 месяцев, тег «дача»,
+/// дубль покупки и подорожавшая подписка.
+fn quick_wins(conn: &mut Connection, now: NaiveDate, card: &str) -> Result<()> {
+    let receipt = ReceiptInput {
+        date: (now - Duration::days(4)).to_string(),
+        account_id: card.into(),
+        payee: Some("Ашан".into()),
+        note: None,
+        total: 500_000,
+        parts: [
+            ("Супермаркет", 320_000),
+            ("Аптека", 45_000),
+            ("Одежда", 135_000),
+        ]
+        .into_iter()
+        .map(|(c, amount)| {
+            Ok(PartInput {
+                category_id: cat(conn, c, "expense")?,
+                amount,
+                note: None,
+            })
+        })
+        .collect::<Result<_>>()?,
+        tags: vec![],
+        event_id: None,
+    };
+    receipts::create(conn, &receipt)?;
+
+    let insurance = categories::create(
+        conn,
+        &categories::CategoryInput {
+            name: "Страхование".into(),
+            kind: "expense".into(),
+            parent_id: None,
+        },
+    )?;
+    let policy = transactions::create(
+        conn,
+        &TxnInput {
+            category_id: Some(insurance),
+            note: Some("ОСАГО и КАСКО на год".into()),
+            ..mk_expense(
+                conn,
+                day(month_start(now, 1), 10),
+                card,
+                1_200_000,
+                "Прочие расходы",
+                "Ингосстрах",
+            )?
+        },
+    )?;
+    transactions::set_spread(conn, &policy, Some(12))?;
+
+    let repair = transactions::create(
+        conn,
+        &mk_expense(
+            conn,
+            now - Duration::days(6),
+            card,
+            450_000,
+            "Ремонт",
+            "Леруа Мерлен",
+        )?,
+    )?;
+    tags::set_for(conn, &repair, &["дача".to_string()])?;
+
+    // Дубль: одна покупка записана дважды (например, из SMS и из выписки).
+    for back in [3, 2] {
+        transactions::create(
+            conn,
+            &mk_expense(
+                conn,
+                now - Duration::days(back),
+                card,
+                154_000,
+                "Супермаркет",
+                "Самокат",
+            )?,
+        )?;
+    }
+    // Подписка подорожала в этом месяце: 399 → 449 ₽.
+    for back in (0..=HISTORY_MONTHS).rev() {
+        let amount = if back == 0 { 44_900 } else { 39_900 };
+        transactions::create(
+            conn,
+            &mk_expense(
+                conn,
+                day(month_start(now, back), 1),
+                card,
+                amount,
+                "Подписки",
+                "Яндекс Плюс",
+            )?,
+        )?;
+    }
     Ok(())
 }
 
@@ -419,6 +521,8 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
     for table in [
         "reminder_occurrences",
         "reminders",
+        "budget_alerts",
+        "check_dismissed",
         "notes",
         "debt_payments",
         "debt_schedule",
@@ -497,6 +601,32 @@ mod tests {
             )
             .unwrap();
         assert_eq!(future, 0, "операций в будущем нет");
+        // Пример 0.16: разбитый чек, страховка на 12 месяцев, два тега, дубль, подорожание.
+        let split: String = c
+            .query_row(
+                "SELECT split_id FROM transactions WHERE split_id IS NOT NULL LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(crate::receipts::get(c, &split).unwrap().parts.len(), 3);
+        let spread: i64 = c
+            .query_row(
+                "SELECT spread_months FROM transactions WHERE spread_months IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(spread, 12);
+        let tag_names: Vec<String> = tags::list(c).unwrap().into_iter().map(|t| t.name).collect();
+        assert_eq!(tag_names, ["дача", "отпуск"]);
+        let kinds: Vec<String> = crate::checks::list(c, "2026-10-20")
+            .unwrap()
+            .into_iter()
+            .map(|x| x.kind)
+            .collect();
+        assert!(kinds.contains(&"duplicate".to_string()), "{kinds:?}");
+        assert!(kinds.contains(&"price".to_string()), "{kinds:?}");
         assert!(
             seed(db.conn_mut(), "2026-10-20").is_err(),
             "второй раз нельзя"

@@ -75,7 +75,8 @@ test("шаблон в форме операции подставляет сум�
 test("ошибся: удалил операцию, Ctrl+Z вернул её, Ctrl+Y удалил снова", async () => {
   await openSection(browser, "Операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
-  await (await browser.$('//tr[@data-testid="txn-row"][.//*[contains(., "Кофейня")]]/td[1]')).click();
+  // Первая колонка — флажок выделения (0.16), форму открывает щелчок по дате.
+  await (await browser.$('//tr[@data-testid="txn-row"][.//*[contains(., "Кофейня")]]/td[2]')).click();
   await click(browser, "Удалить", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await waitText(browser, '[data-testid="undo-bar"]', /Удаление операции/);

@@ -86,7 +86,7 @@ fn sums(
     };
     let base = currencies::base_currency(conn)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT {key}, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT {key}, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = ?1 AND t.date BETWEEN ?2 AND ?3"
     ))?;

@@ -59,7 +59,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
   const save = useAction(
     async () => {
       if (!draft || !ready) return null;
-      const id = await api.createTransaction({
+      const id = await api.createTransactionFull({
         type: draft.type,
         date: draft.date,
         accountId: draft.accountId!,
@@ -69,7 +69,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         toAmount: null,
         payee: draft.payee,
         note: null,
-      });
+      }, { spreadMonths: null, tags: draft.tags ?? [] });
       if (canRemember && remember) await api.rememberRule(draft.merchant!, draft.categoryId!, draft.payee);
       return id;
     },
@@ -97,6 +97,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         toAccountId: draft.toAccountId,
         categoryId: draft.categoryId,
         payee: draft.payee,
+        tags: draft.tags ?? [],
       },
     });
     setText("");
@@ -155,6 +156,11 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
           {!transfer && (
             <input name="quickPayee" placeholder="Получатель" value={draft.payee ?? ""} onChange={(e) => patch({ payee: e.target.value || null })} />
           )}
+          {(draft.tags ?? []).map((t) => (
+            <span key={t} className="tag-chip" data-testid="quick-tag">
+              #{t}
+            </span>
+          ))}
           <span className="muted" data-testid="quick-date">
             {formatDate(draft.date)}
           </span>

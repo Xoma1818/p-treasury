@@ -10,6 +10,7 @@ export interface TxnPrefill {
   categoryId?: string | null;
   payee?: string | null;
   note?: string | null;
+  tags?: string[];
 }
 
 export type TxnFormState =
@@ -24,6 +25,8 @@ export interface TxnJump {
   dateFrom?: string;
   dateTo?: string;
   eventId?: string;
+  /** Операции с тегом (Ctrl+K, отчёт «По тегу»). */
+  tagId?: string;
   /** Поиск по получателю, комментарию или сумме. */
   search?: string;
 }

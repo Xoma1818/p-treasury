@@ -58,7 +58,7 @@ export function EventsCard() {
                   )}
                 </span>
                 {pct != null && (
-                  <span className={pct > 100 ? "bar over" : "bar"}>
+                  <span className={pct >= 100 ? "bar over" : "bar"}>
                     <span style={{ width: `${Math.min(pct, 100)}%` }} />
                   </span>
                 )}

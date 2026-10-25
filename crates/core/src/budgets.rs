@@ -3,7 +3,8 @@
 //! Период месяца считается от настройки `month_start_day`: при начале 25-го
 //! «ноябрь 2026» — это 25.10.2026–24.11.2026. «Факт» не хранится, а считается
 //! по операциям периода в валюте бюджета по курсу на дату операции. Переводы
-//! и корректировки в факт не входят.
+//! и корректировки в факт не входят. Трата «на N месяцев» входит в факт
+//! частями по месяцам (представление `txn_by_month`, миграция 0009).
 
 use std::collections::HashMap;
 
@@ -177,7 +178,7 @@ fn actuals(
     currency: &str,
 ) -> Result<(HashMap<String, i64>, Vec<String>)> {
     let mut stmt = conn.prepare(
-        "SELECT t.category_id, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.event_id IS NULL
            AND t.date BETWEEN ?1 AND ?2",
@@ -206,7 +207,7 @@ fn actuals(
 /// Расходы периода, отнесённые к поездкам и событиям, в валюте `currency`.
 fn event_expense(conn: &Connection, p: &Period, currency: &str) -> Result<i64> {
     let mut stmt = conn.prepare(
-        "SELECT t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = 'expense' AND t.event_id IS NOT NULL
            AND t.date BETWEEN ?1 AND ?2",

@@ -328,3 +328,392 @@ fn real_upgrade_from_first_version_and_old_backup_restores() {
         Some("1")
     );
 }
+
+/// Таблицы открытой схемы и их колонки (в порядке схемы), кроме служебных.
+fn schema_tables(c: &rusqlite::Connection) -> Vec<(String, Vec<String>)> {
+    let names: Vec<String> = c
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table'
+             AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'notes_fts%' ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    names
+        .into_iter()
+        .map(|t| {
+            let cols: Vec<String> = c
+                .prepare(&format!("PRAGMA table_info({t})"))
+                .unwrap()
+                .query_map([], |r| r.get(1))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            (t, cols)
+        })
+        .collect()
+}
+
+/// Все строки таблицы по заданным колонкам, отсортированные, текстом.
+fn dump(c: &rusqlite::Connection, table: &str, cols: &[String]) -> Vec<String> {
+    let list = cols.join(", ");
+    let mut rows: Vec<String> = c
+        .prepare(&format!("SELECT {list} FROM {table}"))
+        .unwrap()
+        .query_map([], |r| {
+            let mut s = String::new();
+            for i in 0..cols.len() {
+                let v: rusqlite::types::Value = r.get(i)?;
+                s.push_str(&format!("{v:?}|"));
+            }
+            Ok(s)
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    rows.sort();
+    rows
+}
+
+/// База 0.15.2 (миграции 0001–0008) с данными примера обновляется до 0010
+/// (через займы 0009)
+/// без потерь: все прежние строки и колонки на месте, копия сделана,
+/// новые расчёты работают на старых данных.
+#[test]
+fn upgrade_from_0_15_2_with_demo_data_keeps_everything() {
+    let dir = tempfile::tempdir().unwrap();
+    // Данные примера (включая дубль, теги и т. п.) — во временной новой базе.
+    let src = dir.path().join("demo.db");
+    {
+        let mut db = Storage::open(&src, &opts(dir.path())).unwrap();
+        budget_core::demo::seed(db.conn_mut(), "2026-10-20").unwrap();
+    }
+    // Настоящая схема 0.15.2 и перенос в неё всех строк по её колонкам.
+    let path = dir.path().join("budget.db");
+    let tables = {
+        let db = Storage::open_with(&path, &opts(dir.path()), &MIGRATIONS[..8]).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 8);
+        let c = db.conn();
+        let tables = schema_tables(c);
+        c.execute("ATTACH DATABASE ?1 AS src", [src.to_str().unwrap()])
+            .unwrap();
+        c.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;")
+            .unwrap();
+        for (t, cols) in &tables {
+            let list = cols.join(", ");
+            c.execute(&format!("DELETE FROM main.{t}"), []).unwrap();
+            c.execute(
+                &format!("INSERT INTO main.{t} ({list}) SELECT {list} FROM src.{t}"),
+                [],
+            )
+            .unwrap();
+        }
+        // Настроек 0.16 и 0.17 из новой базы в 0.15.2 не бывает.
+        c.execute(
+            "DELETE FROM settings WHERE key IN ('budget_alerts', 'budget_alerts_seeded', 'loan_lender_name')",
+            [],
+        )
+            .unwrap();
+        c.execute_batch("COMMIT; PRAGMA foreign_keys = ON; DETACH DATABASE src;")
+            .unwrap();
+        let fk: i64 = c
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(fk, 0, "данные 0.15.2 согласованы");
+        tables
+    };
+    let before: Vec<Vec<String>> = {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        tables.iter().map(|(t, cols)| dump(&c, t, cols)).collect()
+    };
+    let txns = before[tables
+        .iter()
+        .position(|(t, _)| t == "transactions")
+        .unwrap()]
+    .len();
+    assert!(txns > 50, "в примере много операций: {txns}");
+
+    let db = Storage::open(&path, &opts(dir.path())).unwrap();
+    assert_eq!(db.schema_version().unwrap(), LATEST_VERSION);
+    assert!(
+        db.pre_migration_backup().is_some(),
+        "копия перед обновлением"
+    );
+    let c = db.conn();
+    for ((t, cols), old) in tables.iter().zip(&before) {
+        if t == "settings" {
+            continue;
+        }
+        assert_eq!(&dump(c, t, cols), old, "таблица {t} не изменилась");
+    }
+    let settings = budget_core::settings::all(c).unwrap();
+    assert_eq!(settings["budget_alerts"], "1");
+    let old_settings = &before[tables.iter().position(|(t, _)| t == "settings").unwrap()];
+    for row in old_settings {
+        assert!(
+            dump(c, "settings", &["key".into(), "value".into()]).contains(row),
+            "настройка {row}"
+        );
+    }
+    // Новые колонки пусты, представление совпадает с операциями.
+    let (split, spread): (i64, i64) = c
+        .query_row(
+            "SELECT count(split_id), count(spread_months) FROM transactions",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((split, spread), (0, 0));
+    let view: i64 = c
+        .query_row("SELECT count(*) FROM txn_by_month", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(view as usize, txns);
+    // Расчёты 0.16 работают на старых данных.
+    budget_core::budgets::get(c, "2026-10", "2026-10-20").unwrap();
+    budget_core::usual::compare(c, "2026-10", "2026-10-20").unwrap();
+    budget_core::checks::list(c, "2026-10-20").unwrap();
+    let h = budget_core::net_worth::history(c, "2026-10-20", Some(12)).unwrap();
+    assert_eq!(h.points.len(), 12);
+}
+
+/// Настоящая схема 0.16 (0001–0009), а не новая база с подменённым user_version:
+/// заём по дням и платёж с заметками переживают обновление и восстановление.
+#[test]
+fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
+    use budget_core::accounts::{self, AccountInput};
+    use budget_core::debts::{self, DebtInput, PaymentInput};
+    use budget_core::notes::{self, NoteInput};
+
+    const AS_OF: &str = "2026-10-20";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let options = opts(dir.path());
+    let (card, debt, tables, before, balance, detail, interest) = {
+        let mut db = Storage::open_with(&path, &options, &MIGRATIONS[..9]).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 9);
+        let has_monthly_view: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'txn_by_month'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_monthly_view, 0);
+        budget_core::categories::seed_defaults(db.conn()).unwrap();
+        let card = accounts::create(
+            db.conn(),
+            &AccountInput {
+                name: "Карта из 0.16".into(),
+                kind: "debit".into(),
+                currency_code: "RUB".into(),
+                opening_balance: 1_000_000,
+                opening_date: "2026-08-01".into(),
+                credit_limit: None,
+                include_in_total: true,
+                invest_kind: None,
+            },
+        )
+        .unwrap();
+        let debt = debts::create(
+            db.conn_mut(),
+            &DebtInput {
+                direction: "borrowed".into(),
+                counterparty: "Банк 0.16".into(),
+                note: Some("Исходные условия займа".into()),
+                currency_code: "RUB".into(),
+                principal: 30_000_000,
+                issue_date: "2026-08-15".into(),
+                rate_bp: 1_200,
+                repayment_type: "annuity".into(),
+                term_months: Some(24),
+                first_payment_date: Some("2026-09-15".into()),
+                maturity_date: None,
+                account_id: Some(card.clone()),
+                interest_method: Some("daily".into()),
+                rate_changes: vec![],
+                planned_early: vec![],
+            },
+        )
+        .unwrap();
+        let first = debts::get(db.conn(), &debt, AS_OF)
+            .unwrap()
+            .schedule
+            .into_iter()
+            .next()
+            .unwrap();
+        assert!(first.interest_part > 0);
+        let payment = debts::pay(
+            db.conn_mut(),
+            &debt,
+            &PaymentInput {
+                date: first.due_date,
+                account_id: card.clone(),
+                principal: first.principal_part,
+                interest: first.interest_part,
+                schedule_id: Some(first.id),
+                recalc_mode: None,
+            },
+        )
+        .unwrap();
+        let (principal_txn, interest_txn): (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT principal_transaction_id, interest_transaction_id
+                 FROM debt_payments WHERE id = ?1",
+                [&payment],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        for (body, transaction_id, debt_id) in [
+            ("Подтверждение возврата долга", Some(principal_txn), None),
+            ("Квитанция процентов", Some(interest_txn), None),
+            ("Документы по займу", None, Some(debt.clone())),
+        ] {
+            notes::create(
+                db.conn(),
+                &NoteInput {
+                    body: body.into(),
+                    transaction_id,
+                    debt_id,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        let c = db.conn();
+        let tables = schema_tables(c);
+        let before: Vec<Vec<String>> = tables.iter().map(|(t, cols)| dump(c, t, cols)).collect();
+        let balance = accounts::balance(c, &card, None).unwrap();
+        let detail = serde_json::to_value(debts::get(c, &debt, AS_OF).unwrap()).unwrap();
+        assert_eq!(detail["card"]["interestMethod"], "daily");
+        (
+            card,
+            debt,
+            tables,
+            before,
+            balance,
+            detail,
+            first.interest_part,
+        )
+    };
+
+    let mut db = Storage::open(&path, &options).unwrap();
+    assert_eq!(db.schema_version().unwrap(), LATEST_VERSION);
+    let old_backup = db
+        .pre_migration_backup()
+        .expect("перед переходом со схемы 9 нужна копия")
+        .to_path_buf();
+    {
+        let copy = rusqlite::Connection::open_with_flags(
+            &old_backup,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(storage::schema_version(&copy).unwrap(), 9);
+        for ((table, cols), old) in tables.iter().zip(&before) {
+            assert_eq!(&dump(&copy, table, cols), old, "копия: {table}");
+        }
+    }
+
+    let assert_migrated_data = |c: &rusqlite::Connection| {
+        for ((table, cols), old) in tables.iter().zip(&before) {
+            let current = dump(c, table, cols);
+            if table == "settings" {
+                for row in old {
+                    assert!(current.contains(row), "прежняя настройка {row}");
+                }
+            } else {
+                assert_eq!(&current, old, "данные 0.16: {table}");
+            }
+        }
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), balance);
+        assert_eq!(
+            serde_json::to_value(debts::get(c, &debt, AS_OF).unwrap()).unwrap(),
+            detail,
+            "условия, график и платёж по займу не пересчитаны миграцией"
+        );
+        let violations: i64 = c
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(violations, 0);
+        let extras: i64 = c
+            .query_row(
+                "SELECT count(*) FROM transactions
+                 WHERE split_id IS NOT NULL OR spread_months IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(extras, 0, "старые платежи не стали чеками или рассрочками");
+        let (actual, monthly): (i64, i64) = c
+            .query_row(
+                "SELECT (SELECT count(*) FROM transactions),
+                        (SELECT count(*) FROM txn_by_month)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(monthly, actual);
+        let summary = budget_core::reports::period_summary(c, "2026-08-01", "2026-09-30").unwrap();
+        assert_eq!(summary.income, 0, "выдача займа осталась переводом");
+        assert_eq!(summary.expense, interest, "основной долг не стал расходом");
+    };
+    assert_migrated_data(db.conn());
+
+    // Вносим второй платёж уже в 0.17, чтобы восстановление действительно
+    // заменяло изменённые финансовые данные, а не повторно открывало их.
+    let next = debts::get(db.conn(), &debt, AS_OF)
+        .unwrap()
+        .schedule
+        .into_iter()
+        .find(|row| row.status == "pending")
+        .unwrap();
+    let later_payment = debts::pay(
+        db.conn_mut(),
+        &debt,
+        &PaymentInput {
+            date: next.due_date,
+            account_id: card.clone(),
+            principal: next.principal_part,
+            interest: next.interest_part,
+            schedule_id: Some(next.id),
+            recalc_mode: None,
+        },
+    )
+    .unwrap();
+    assert_ne!(accounts::balance(db.conn(), &card, None).unwrap(), balance);
+    let safety = db.restore_from(&old_backup, &options).unwrap();
+    assert_eq!(db.schema_version().unwrap(), LATEST_VERSION);
+    assert_migrated_data(db.conn());
+
+    // Страховка сохраняет состояние 0.17 до восстановления: второй платёж
+    // есть там, но отсутствует в восстановленной и обновлённой базе 0.16.
+    let safety =
+        rusqlite::Connection::open_with_flags(safety, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    assert_eq!(storage::schema_version(&safety).unwrap(), LATEST_VERSION);
+    let payments_in_safety: i64 = safety
+        .query_row(
+            "SELECT count(*) FROM debt_payments WHERE id = ?1",
+            [&later_payment],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(payments_in_safety, 1);
+    let restored_payment: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM debt_payments WHERE id = ?1",
+            [&later_payment],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(restored_payment, 0);
+}

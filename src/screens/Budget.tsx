@@ -7,12 +7,14 @@ import { ErrorText } from "../components/Modal";
 import { Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
-import { parseAmount } from "../lib/money";
+import { formatAmount, parseAmount } from "../lib/money";
 import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
+import { useQuery } from "@tanstack/react-query";
+import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
@@ -209,6 +211,9 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   const income = kind === "income";
   const sym = b.currencySymbol;
   const [filled, setFilled] = useState<string | null>(null);
+  // А2: пометка «+34 % к обычному» у категорий, где траты заметно не как обычно.
+  const usual = useQuery({ queryKey: ["usual", b.period.month], queryFn: () => api.spendingVsUsual(b.period.month), enabled: !income }).data;
+  const notable = new Map((usual?.monthsCounted ? usual.items : []).filter((u) => u.notable).map((u) => [u.categoryId, u]));
   const fill = useAction(
     (mode: FillMode, categoryId: string | null) => api.fillBudget(b.id!, mode, categoryId),
     (n) => setFilled(n === 1 ? "Лимит обновлён по истории." : `Обновлено лимитов: ${n}.`),
@@ -224,7 +229,10 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   return (
     <div className="card" data-testid={`budget-${kind}`}>
       <div className="notes-head">
-        <h2>{income ? "Доходы" : "Расходы"}</h2>
+        <h2>
+          {income ? "Доходы" : "Расходы"}
+          {!income && <Hint of="budget.bars" />}
+        </h2>
         {!income && (
           <div className="btn-group" data-testid="budget-fill">
             <button
@@ -257,9 +265,18 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           </thead>
           <tbody>
             {lines.map((l) => (
-              <tr key={l.categoryId} data-testid="budget-line" data-category={l.categoryName} className={l.over && !income ? "over-row" : undefined}>
+              <tr key={l.categoryId} data-testid="budget-line" data-category={l.categoryName} className={!income && barLevel(l.percent) === "over" ? "over-row" : undefined}>
                 <td className={l.parentId ? "child-name" : "main"}>
                   {l.categoryName}
+                  {notable.has(l.categoryId) && (
+                    <span
+                      className={(notable.get(l.categoryId)!.percent ?? 0) > 0 ? "usual-pill up" : "usual-pill down"}
+                      data-testid="usual-pill"
+                      title={`Обычно к этому дню: ${formatAmount(notable.get(l.categoryId)!.usual, 2)} ${usual?.baseSymbol ?? sym}`}
+                    >
+                      {usualLabel(notable.get(l.categoryId)!.percent)}
+                    </span>
+                  )}
                   {!l.parentId && (
                     <button
                       className="icon-btn row-action"
@@ -288,10 +305,10 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                   <Money amount={l.remaining} symbol={sym} minorUnits={minor} />
                 </td>
                 <td className="bar-col">
-                  <div className={l.over && !income ? "bar over" : "bar"} title={`${l.percent} %`}>
+                  <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
                     <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
                   </div>
-                  <span className="percent" data-testid="percent">
+                  <span className={income || barLevel(l.percent) === "ok" ? "percent" : `percent ${barLevel(l.percent)}`} data-testid="percent">
                     {l.percent} %
                   </span>
                 </td>

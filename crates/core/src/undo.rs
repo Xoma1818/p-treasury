@@ -47,9 +47,13 @@ pub struct Journal {
 }
 
 /// Таблицы, изменения в которых отменяются. Настройки — не действия с данными;
-/// служебные таблицы полнотекстового поиска обновляются своими триггерами.
+/// служебные таблицы полнотекстового поиска обновляются своими триггерами;
+/// отметки показанных предупреждений о бюджете не отменяются вместе с расходом.
 fn tracked(table: &str) -> bool {
-    !(table == "settings" || table.starts_with("notes_fts") || table.starts_with("sqlite_"))
+    !(table == "settings"
+        || table == "budget_alerts"
+        || table.starts_with("notes_fts")
+        || table.starts_with("sqlite_"))
 }
 
 impl Journal {

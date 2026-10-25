@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Occurrence};
-use budget_core::{auto_import, habits, money, settings, subscriptions, time};
+use budget_core::{auto_import, budget_alerts, habits, money, settings, subscriptions, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -47,6 +47,7 @@ fn text(o: &Occurrence) -> String {
 
 fn tick(app: &AppHandle) {
     weekly(app);
+    budget_limits(app);
     // Тяжёлые дела — со второго тика (≈ 20 с после запуска), когда окно уже
     // загрузило первый экран, и дальше раз в IMPORT_EVERY тиков.
     if TICKS.fetch_add(1, Ordering::Relaxed) % IMPORT_EVERY == 1 {
@@ -109,6 +110,30 @@ fn weekly(app: &AppHandle) {
         .title("P-Treasury")
         .body(habits::weekly_text(&summary))
         .show();
+}
+
+/// Расход перевёл категорию бюджета через 80 % или 100 % лимита — по
+/// уведомлению на каждый новый порог (отметки в базе, без повторов).
+fn budget_limits(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let today = time::now_local().date().to_string();
+    let alerts = {
+        let guard = state.lock_db();
+        let Ok(db) = guard.as_ref() else { return };
+        match budget_alerts::pending(db.conn(), &today) {
+            Ok(a) if !a.is_empty() => a,
+            _ => return,
+        }
+    };
+    for a in &alerts {
+        let _ = app
+            .notification()
+            .builder()
+            .title("P-Treasury")
+            .body(&a.text)
+            .show();
+    }
+    let _ = app.emit("budget-alerts", alerts.len());
 }
 
 /// Накануне регулярного платежа (подписка, связь) — одно уведомление.

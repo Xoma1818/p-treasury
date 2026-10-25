@@ -26,6 +26,8 @@ export function MissedReminders() {
       listen("data-changed", () => qc.invalidateQueries()),
       // Импорт из папки добавил операции.
       listen("auto-import", () => qc.invalidateQueries()),
+      // Фон прислал предупреждение о бюджете: полосы и карточки обновятся.
+      listen("budget-alerts", () => qc.invalidateQueries({ queryKey: ["budget"] })),
     ];
     return () => un.forEach((p) => p.then((f) => f()));
   }, [qc, openTxnForm]);
