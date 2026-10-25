@@ -416,6 +416,7 @@ fn quick_wins(conn: &mut Connection, now: NaiveDate, card: &str) -> Result<()> {
         })
         .collect::<Result<_>>()?,
         tags: vec![],
+        event_id: None,
     };
     receipts::create(conn, &receipt)?;
 

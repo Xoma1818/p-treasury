@@ -375,6 +375,7 @@ mod tests {
                     },
                 ],
                 tags: vec![],
+                event_id: None,
             },
         )
         .unwrap();

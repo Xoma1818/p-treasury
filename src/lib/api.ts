@@ -1220,6 +1220,8 @@ export interface ReceiptInput {
   total: number;
   parts: ReceiptPartInput[];
   tags?: string[];
+  /** Событие всего чека; null снимает привязку при сохранении. */
+  eventId?: string | null;
 }
 
 export interface ReceiptPart {

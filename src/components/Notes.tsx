@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type Ref, useState } from "react";
 import { api, type Note, type NoteFilter, type NoteInput } from "../lib/api";
 import { formatDate } from "../lib/dates";
+import { loadReceiptNotes } from "../lib/receiptNotes";
 import { useAction } from "../lib/useAction";
 import { Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
@@ -75,13 +76,22 @@ export function NotesBlock({
   initial,
   title = "Заметки",
   inputRef,
+  transactionIds,
+  disabled = false,
 }: {
   filter: NoteFilter;
   initial: Partial<NoteInput>;
   title?: string;
   inputRef?: Ref<HTMLInputElement>;
+  /** Все части редактируемого чека; обычная карточка использует только filter. */
+  transactionIds?: string[];
+  disabled?: boolean;
 }) {
-  const notes = useQuery({ queryKey: ["notes", filter], queryFn: () => api.listNotes(filter) });
+  const partIds = transactionIds ? [...new Set(transactionIds)].sort() : undefined;
+  const notes = useQuery({
+    queryKey: partIds ? ["notes", filter, partIds] : ["notes", filter],
+    queryFn: () => partIds ? loadReceiptNotes(api.listNotes, filter, partIds) : api.listNotes(filter),
+  });
   const [body, setBody] = useState("");
   const add = useAction(
     () => api.createNote({ ...initial, body, date: initial.date ?? null }),
@@ -95,7 +105,7 @@ export function NotesBlock({
         {notes.data?.map((n) => (
           <li key={n.id} data-testid="note">
             <div className="note-body">{n.body}</div>
-            <button type="button" className="link danger" title="Удалить заметку" onClick={() => remove.run(n.id)}>
+            <button type="button" className="link danger" title="Удалить заметку" disabled={disabled} onClick={() => remove.run(n.id)}>
               ×
             </button>
           </li>
@@ -107,20 +117,21 @@ export function NotesBlock({
           name="newNote"
           placeholder="Новая заметка"
           value={body}
+          disabled={disabled}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               e.stopPropagation();
-              if (body.trim()) add.run();
+              if (!disabled && body.trim()) add.run();
             }
           }}
         />
-        <button type="button" className="btn small" disabled={!body.trim() || add.busy} onClick={() => add.run()}>
+        <button type="button" className="btn small" disabled={disabled || !body.trim() || add.busy} onClick={() => add.run()}>
           Добавить
         </button>
       </div>
-      <ErrorText error={add.error ?? remove.error} />
+      <ErrorText error={add.error ?? remove.error ?? (notes.error ? String(notes.error) : null)} />
     </div>
   );
 }

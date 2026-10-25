@@ -422,3 +422,105 @@ test("Категории → Теги: переименовать и объед�
   await fill(browser, "search", "Леруа");
   await waitText(browser, '[data-testid="txn-row"]', /#отпуск/);
 });
+
+test("событие разбитого чека: создание, смена и снятие сохраняются целиком и отменяются одним Ctrl+Z", async () => {
+  // Команды используются для подготовки событий и чтения записанных частей;
+  // создание и каждое изменение самого чека проходят через настоящую форму.
+  const invoke = async (command, args = {}) => {
+    const result = await browser.executeAsync((cmd, input, done) => {
+      window.__TAURI_INTERNALS__.invoke(cmd, input)
+        .then((value) => done({ value }), (error) => done({ error: String(error) }));
+    }, command, args);
+    assert.equal(result.error, undefined, `${command}: ${result.error}`);
+    return result.value;
+  };
+  const eventNames = ["E2E: поездка чека", "E2E: другое событие"];
+  const eventIds = [];
+  for (const name of eventNames) {
+    eventIds.push(await invoke("create_event", {
+      input: { name, startDate: iso(now), endDate: iso(now), budget: null, note: null },
+    }));
+  }
+  const payee = "Чек события E2E";
+  const parts = () => invoke("list_transactions", { filter: { search: payee, limit: 100 } });
+  const assertEvent = async (expected) => {
+    const page = await parts();
+    assert.equal(page.total, 2, "у чека остались обе части");
+    assert.ok(page.items.every((p) => p.eventId === expected), "событие сохранено у каждой части");
+    const receipt = await invoke("get_receipt", { splitId: page.items[0].splitId });
+    assert.equal(receipt.eventId, expected);
+    assert.equal(receipt.total, 120000, "смена события не меняет сумму");
+  };
+  const openReceipt = async () => {
+    await browser.$('[data-testid="txn-row"] .date').click();
+    await waitText(browser, `${dialog}//h2`, /Разбитый чек/);
+    await waitCount(browser, '[role="dialog"] [name^="partCategory"]', 2);
+    await browser.$('[role="dialog"] button[type="submit"]').waitForEnabled({ timeout: 5000 });
+  };
+
+  await openSection(browser, "Главная");
+  await click(browser, "+ Расход");
+  await fill(browser, "amount", "1200");
+  await fill(browser, "payee", payee);
+  await click(browser, "Разбить по категориям", dialog);
+  await pickLike("partCategory0", "Супермаркет");
+  await fill(browser, "partAmount0", "800");
+  await pickLike("partCategory1", "Аптека");
+  await fill(browser, "partAmount1", "400");
+  await browser.$(`[role="dialog"] select[name="event"] option[value="${eventIds[0]}"]`).waitForExist({ timeout: 5000 });
+  await choose(browser, "event", eventNames[0]);
+  await save(browser);
+  await openSection(browser, "Операции");
+  await click(browser, "Сбросить");
+  await fill(browser, "search", payee);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  await assertEvent(eventIds[0]);
+
+  // Сохранение чека и привязка к событию — одна запись журнала, а не две команды.
+  await blur();
+  await keys("Control", "z");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
+  await keys("Control", "y");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  await assertEvent(eventIds[0]);
+
+  await openReceipt();
+  await fill(browser, "newNote", "Гарантия на весь чек E2E");
+  await click(browser, "Добавить", dialog);
+  await waitText(browser, '[data-testid="notes-block"]', /Гарантия на весь чек E2E/);
+  await choose(browser, "event", eventNames[1]);
+  await save(browser);
+  await waitText(browser, '[data-testid="txn-event"]', /другое событие/);
+  await assertEvent(eventIds[1]);
+  await blur();
+  await keys("Control", "z");
+  await waitText(browser, '[data-testid="txn-event"]', /поездка чека/);
+  await assertEvent(eventIds[0]);
+
+  // Повторное открытие после undo должно получить свежий чек, а не старый кеш.
+  await openReceipt();
+  assert.equal(await browser.$('[role="dialog"] [name="event"]').getValue(), eventIds[0]);
+  await choose(browser, "event", "Не относится");
+  await save(browser);
+  await browser.$('[data-testid="txn-event"]').waitForExist({ timeout: 5000, reverse: true });
+  await assertEvent(null);
+  await blur();
+  await keys("Control", "z");
+  await waitText(browser, '[data-testid="txn-event"]', /поездка чека/);
+  await assertEvent(eventIds[0]);
+
+  // После пересоздания частей заметка остаётся у всего чека. Открываем его через
+  // категорию другой части: её ID отличается от канонического ID заметки.
+  await openReceipt();
+  await waitText(browser, '[data-testid="notes-block"]', /Гарантия на весь чек E2E/);
+  await save(browser);
+  const page = await parts();
+  const canonical = page.items.map((p) => p.id).sort().at(-1);
+  const other = page.items.find((p) => p.id !== canonical);
+  await browser.$('[name="filterCategory"]').selectByAttribute("value", other.categoryId);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await openReceipt();
+  await waitText(browser, '[data-testid="notes-block"]', /Гарантия на весь чек E2E/);
+  await browser.keys("Escape");
+  await browser.$(dialog).waitForExist({ timeout: 5000, reverse: true });
+});

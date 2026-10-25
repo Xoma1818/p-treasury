@@ -125,7 +125,8 @@ fn days_apart(a: &str, b: &str) -> Result<i64> {
 }
 
 /// Похоже на дубль: один счёт, одна сумма, тот же получатель (или то же
-/// описание), тот же или соседний день. Части одного чека — не дубли.
+/// описание), тот же или соседний день. Части разбитых чеков не сравниваются:
+/// удаление части действует на весь чек и не соответствует сумме предупреждения.
 fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
     let mut out = Vec::new();
     for (i, a) in list.iter().enumerate() {
@@ -133,7 +134,7 @@ fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
             if b.date.as_str() < since || a.account_id != b.account_id || a.amount != b.amount {
                 continue;
             }
-            if a.split_id.is_some() && a.split_id == b.split_id {
+            if a.split_id.is_some() || b.split_id.is_some() {
                 continue;
             }
             let same_payee =
@@ -284,6 +285,11 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Check>> {
 /// «Удалить второй» у дубля: обычное удаление операции (в оболочке — шагом
 /// журнала отмены, Ctrl+Z возвращает её).
 pub fn delete_second(conn: &Connection, second_id: &str) -> Result<()> {
+    // Защита и от устаревшей карточки: «Удалить второй» не может удалить чек
+    // целиком, показывая пользователю только сумму одной его части.
+    if transactions::get(conn, second_id)?.split_id.is_some() {
+        return crate::error::invalid("это часть разбитого чека: удалите чек целиком в «Операциях»");
+    }
     transactions::delete(conn, second_id)
 }
 
@@ -323,6 +329,60 @@ mod tests {
     }
 
     const TODAY: &str = "2026-10-20";
+
+    #[test]
+    fn receipt_parts_are_not_deletable_duplicate_candidates() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
+        let food = cat(db.conn(), "Супермаркет");
+        let drug = cat(db.conn(), "Аптека");
+        let c = db.conn_mut();
+        let first = spend(c, &card, &food, "2026-10-19", 100_000, "Ашан");
+        let receipt = || ReceiptInput {
+            date: TODAY.into(),
+            account_id: card.clone(),
+            payee: Some("Ашан".into()),
+            note: None,
+            total: 150_000,
+            parts: vec![
+                PartInput {
+                    category_id: food.clone(),
+                    amount: 100_000,
+                    note: None,
+                },
+                PartInput {
+                    category_id: drug.clone(),
+                    amount: 50_000,
+                    note: None,
+                },
+            ],
+            tags: vec![],
+            event_id: None,
+        };
+        let split = receipts::create(c, &receipt()).unwrap();
+        let other_split = receipts::create(c, &receipt()).unwrap();
+        assert!(list(c, TODAY).unwrap().is_empty());
+
+        // Даже прямой вызов из устаревшей карточки не удаляет весь чек за
+        // 1 500 ₽ под видом одного дубля на 1 000 ₽.
+        let part = receipts::get(c, &split).unwrap().parts[0].id.clone();
+        let balance = accounts::balance(c, &card, None).unwrap();
+        assert!(delete_second(c, &part).is_err());
+        assert_eq!(receipts::get(c, &split).unwrap().total, 150_000);
+        assert_eq!(receipts::get(c, &other_split).unwrap().total, 150_000);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), balance);
+
+        // Настоящие дубли одиночных операций по-прежнему обнаруживаются.
+        let second = spend(c, &card, &food, TODAY, 100_000, "Ашан");
+        let checks = list(c, TODAY).unwrap();
+        assert_eq!(checks.len(), 1, "{checks:?}");
+        assert_eq!(checks[0].kind, "duplicate");
+        assert_eq!(checks[0].transaction_id, first);
+        assert_eq!(checks[0].second_id.as_deref(), Some(second.as_str()));
+    }
 
     #[test]
     fn duplicate_found_dismissed_and_second_deleted_with_undo() {

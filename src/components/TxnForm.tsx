@@ -57,7 +57,9 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const receiptLoaded = useRef(false);
   useEffect(() => {
     const r = receipt.data;
-    if (!r || receiptLoaded.current) return;
+    // После отмены в кеше может остаться предыдущая версия чека.
+    // Заполняем форму только свежим ответом этого открытия.
+    if (!r || receiptLoaded.current || !receipt.isFetchedAfterMount || receipt.isFetching || receipt.error) return;
     receiptLoaded.current = true;
     const m = editing?.minorUnits ?? 2;
     setAmount(amountText(r.total, m));
@@ -65,12 +67,13 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
     setAccountId(r.accountId);
     setPayee(r.payee ?? "");
     setTags(r.tags);
+    setEventId(r.eventId ?? "");
     // Комментарий чека: общий у всех частей; свои комментарии частей сохраняются.
     const notes = new Set(r.parts.map((x) => x.note ?? ""));
     const common = notes.size === 1 ? [...notes][0] : "";
     setNote(common);
     setParts(r.parts.map((x) => ({ categoryId: x.categoryId, amount: amountText(x.amount, m), note: x.note && x.note !== common ? x.note : null })));
-  }, [receipt.data]);
+  }, [receipt.data, receipt.isFetchedAfterMount, receipt.isFetching, receipt.error]);
   const eventsOn = useQuery({ queryKey: ["events", "on", date], queryFn: () => api.eventsOn(date), enabled: !!date }).data ?? [];
 
   // Быстрый ввод: последние использованные счёт и категория для этого типа.
@@ -152,15 +155,10 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
         total: input.amount,
         parts: receiptParts.map((x, i) => ({ categoryId: x.categoryId, amount: x.amount ?? 0, note: parts?.[i]?.note ?? null })),
         tags,
+        eventId: event,
       };
       if (splitId) await api.updateReceipt(splitId, r);
-      else {
-        const id = await api.createReceipt(r);
-        if (event) {
-          const got = await api.getReceipt(id);
-          await api.assignEvent(event, got.parts.map((x) => x.id));
-        }
-      }
+      else await api.createReceipt(r);
       return;
     }
     const extra: TxnExtra = { spreadMonths: type === "expense" && spreadMonths ? spreadMonths : null, tags };
@@ -258,6 +256,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   };
 
   const submit = () => {
+    if (splitId && !receiptLoaded.current) return save.setError("Дождитесь загрузки чека");
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (receiptParts) {
       const problem = receiptProblem(amountValue, receiptParts);
@@ -543,7 +542,12 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
             )}
           </>
         )}
-        {editing && <NotesBlock filter={{ transactionId: editing.id }} initial={{ transactionId: editing.id }} />}
+        {editing && (!splitId || receiptLoaded.current) && <NotesBlock
+          filter={{ transactionId: splitId ? undefined : editing.id }}
+          initial={{ transactionId: splitId ? receipt.data?.parts.map((p) => p.id).sort().at(-1) : editing.id }}
+          transactionIds={splitId ? receipt.data?.parts.map((p) => p.id) : undefined}
+          disabled={!!splitId && (save.busy || remove.busy || receipt.isFetching)}
+        />}
         {!editing &&
           (templateName === null ? (
             <div>
@@ -582,6 +586,8 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
               </button>
             </div>
           ))}
+        {splitId && !receiptLoaded.current && !receipt.error && <p className="hint" role="status">Загружаем чек…</p>}
+        <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
@@ -595,7 +601,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
             Отмена
           </button>
           {!isAdjustment && (
-            <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy} title="Ctrl+Enter">
+            <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || (!!splitId && !receiptLoaded.current)} title="Ctrl+Enter">
               Сохранить
             </button>
           )}
