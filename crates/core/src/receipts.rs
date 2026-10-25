@@ -309,7 +309,10 @@ mod tests {
         let mut data = receipt(&card, &[(&food, 100_000), (&drug, 50_000)], 150_000);
         data.event_id = Some("нет такого события".into());
         assert!(create(db.conn_mut(), &data).is_err());
-        assert_eq!(accounts::balance(db.conn(), &card, None).unwrap(), 1_000_000);
+        assert_eq!(
+            accounts::balance(db.conn(), &card, None).unwrap(),
+            1_000_000
+        );
         assert!(tags::list(db.conn()).unwrap().is_empty());
         let count: i64 = db
             .conn()
@@ -328,7 +331,12 @@ mod tests {
         assert!(saved.parts.iter().all(|p| {
             transactions::get(c, &p.id).unwrap().event_id.as_deref() == Some(trip.as_str())
         }));
-        assert_eq!(budgets::get(c, "2026-10", "2026-10-20").unwrap().actual_expense, 0);
+        assert_eq!(
+            budgets::get(c, "2026-10", "2026-10-20")
+                .unwrap()
+                .actual_expense,
+            0
+        );
         journal.undo(c).unwrap();
         assert!(get(c, &split).is_err());
         assert_eq!(accounts::balance(c, &card, None).unwrap(), 1_000_000);
@@ -377,7 +385,9 @@ mod tests {
         changed.event_id = Some(other_trip.clone());
         let mut journal = crate::undo::Journal::default();
         journal
-            .record(db.conn_mut(), "Изменение чека", |c| update(c, &split, &changed))
+            .record(db.conn_mut(), "Изменение чека", |c| {
+                update(c, &split, &changed)
+            })
             .unwrap();
         let c = db.conn();
         let saved = get(c, &split).unwrap();
@@ -413,7 +423,10 @@ mod tests {
         assert_eq!(accounts::balance(c, &card, None).unwrap(), 500_000);
         journal.redo(c).unwrap();
         for (id, _, _) in &linked {
-            assert_eq!(notes::get(c, id).unwrap().transaction_id.as_deref(), Some(anchor.as_str()));
+            assert_eq!(
+                notes::get(c, id).unwrap().transaction_id.as_deref(),
+                Some(anchor.as_str())
+            );
         }
 
         // Добавление частей и снятие события тоже сохраняют заметки.
@@ -444,7 +457,12 @@ mod tests {
                 Some(expanded_anchor.as_str())
             );
         }
-        assert_eq!(budgets::get(c, "2026-10", "2026-10-20").unwrap().actual_expense, 250_000);
+        assert_eq!(
+            budgets::get(c, "2026-10", "2026-10-20")
+                .unwrap()
+                .actual_expense,
+            250_000
+        );
 
         // Если выбранное событие исчезло, весь новый чек откатывается:
         // прежние части, заметки, теги и суммы остаются на месте.
@@ -465,7 +483,10 @@ mod tests {
                 Some(expanded_anchor.as_str())
             );
         }
-        assert!(!tags::list(c).unwrap().iter().any(|t| t.name == "не должен сохраниться"));
+        assert!(!tags::list(c)
+            .unwrap()
+            .iter()
+            .any(|t| t.name == "не должен сохраниться"));
         assert_eq!(accounts::balance(c, &card, None).unwrap(), 750_000);
     }
 

@@ -587,8 +587,7 @@ fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
         }
         let c = db.conn();
         let tables = schema_tables(c);
-        let before: Vec<Vec<String>> =
-            tables.iter().map(|(t, cols)| dump(c, t, cols)).collect();
+        let before: Vec<Vec<String>> = tables.iter().map(|(t, cols)| dump(c, t, cols)).collect();
         let balance = accounts::balance(c, &card, None).unwrap();
         let detail = serde_json::to_value(debts::get(c, &debt, AS_OF).unwrap()).unwrap();
         assert_eq!(detail["card"]["interestMethod"], "daily");
@@ -662,8 +661,7 @@ fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
             )
             .unwrap();
         assert_eq!(monthly, actual);
-        let summary =
-            budget_core::reports::period_summary(c, "2026-08-01", "2026-09-30").unwrap();
+        let summary = budget_core::reports::period_summary(c, "2026-08-01", "2026-09-30").unwrap();
         assert_eq!(summary.income, 0, "выдача займа осталась переводом");
         assert_eq!(summary.expense, interest, "основной долг не стал расходом");
     };
@@ -697,11 +695,9 @@ fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
 
     // Страховка сохраняет состояние 0.17 до восстановления: второй платёж
     // есть там, но отсутствует в восстановленной и обновлённой базе 0.16.
-    let safety = rusqlite::Connection::open_with_flags(
-        safety,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
+    let safety =
+        rusqlite::Connection::open_with_flags(safety, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
     assert_eq!(storage::schema_version(&safety).unwrap(), LATEST_VERSION);
     let payments_in_safety: i64 = safety
         .query_row(

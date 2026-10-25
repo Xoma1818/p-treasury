@@ -288,7 +288,9 @@ pub fn delete_second(conn: &Connection, second_id: &str) -> Result<()> {
     // Защита и от устаревшей карточки: «Удалить второй» не может удалить чек
     // целиком, показывая пользователю только сумму одной его части.
     if transactions::get(conn, second_id)?.split_id.is_some() {
-        return crate::error::invalid("это часть разбитого чека: удалите чек целиком в «Операциях»");
+        return crate::error::invalid(
+            "это часть разбитого чека: удалите чек целиком в «Операциях»",
+        );
     }
     transactions::delete(conn, second_id)
 }
