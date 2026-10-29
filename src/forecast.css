@@ -1,0 +1,68 @@
+/* «Взгляд вперёд» (0.18): прогноз, сценарии «что если», поток денег. */
+.forecast-screen .tiles { margin-top: 12px; }
+
+.scenario-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.scenario-label { font-weight: 600; display: inline-flex; align-items: center; }
+.fc-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fc-chip { display: inline-flex; align-items: center; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.fc-chip:hover { background: var(--hover); }
+.fc-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.fc-chip.with-edit { padding: 0; overflow: hidden; }
+.fc-chip-main, .fc-chip-edit { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.fc-chip-main { padding: 4px 6px 4px 12px; }
+.fc-chip-edit { padding: 4px 10px 4px 4px; opacity: 0.6; }
+.fc-chip-edit:hover { opacity: 1; }
+
+.fc-alert { padding: 12px 16px; }
+.fc-alert.warn { background: var(--over-soft); border-color: var(--over-border); color: var(--over-strong); }
+.fc-alert.ok { color: var(--ok); }
+
+.fc-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.fc-key { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid var(--accent); margin-left: 8px; }
+.fc-key.scenario { border-top: 2.5px dashed var(--over); }
+.fc-scenario-line { fill: none; stroke: var(--over); stroke-width: 2.5; stroke-dasharray: 7 5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.fc-dot { fill: var(--card); stroke: var(--over); stroke-width: 2; pointer-events: none; }
+.fc-dot.neg { fill: var(--over); }
+.nw-tip-row.scenario { color: var(--over); }
+
+.fc-table td, .fc-table th { padding: 6px 8px; }
+.fc-table .strong { font-weight: 600; }
+.fc-table tr.open td { background: var(--hover); }
+.fc-caret { display: inline-block; width: 12px; color: var(--muted); }
+.fc-detail td { background: var(--bg); }
+.fc-detail-grid { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 24px; padding: 4px 0 4px 20px; }
+.fc-detail-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.fc-detail-row.item.change { color: var(--over); }
+.fc-how ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); }
+
+.scenario-form { display: grid; gap: 12px; min-width: 0; }
+.scenario-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.scenario-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.scenario-row .scenario-title { flex: 1 1 120px; min-width: 100px; }
+.scenario-row select { width: auto; }
+.scenario-row .amount-field input { width: 130px; }
+.scenario-pct { display: inline-flex; align-items: center; gap: 4px; }
+.scenario-pct input { width: 70px; }
+.scenario-when { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.scenario-months { width: 48px; }
+.scenario-desc { flex-basis: 100%; font-size: 12px; }
+
+.flow-totals { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; color: var(--muted); margin: 4px 0 8px; }
+.flow-totals .money { color: var(--text); font-weight: 600; margin-left: 4px; }
+.flow-totals .over .money { color: var(--over); }
+.flow-totals .plus .money { color: var(--ok); }
+.flow-band { fill: var(--series-expense); opacity: 0.32; transition: opacity var(--fast) var(--ease); }
+.flow-band.income, .flow-band.fromInvest { fill: var(--series-income); }
+.flow-band.saved, .flow-band.invest { fill: var(--ok); }
+.flow-band.fromSavings { fill: var(--over); }
+.flow-band:hover { opacity: 0.55; }
+.flow-band.dim { opacity: 0.12; }
+.flow-node { fill: var(--series-expense); }
+.flow-node.income, .flow-node.fromInvest { fill: var(--series-income); }
+.flow-node.saved, .flow-node.invest { fill: var(--ok); }
+.flow-node.fromSavings { fill: var(--over); }
+.flow-node.mid { fill: var(--border-strong); }
+.flow-label { font-size: 12px; fill: var(--text); }
+.flow-amount { fill: var(--muted); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) { .flow-band { transition: none; } }
