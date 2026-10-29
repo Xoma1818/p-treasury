@@ -22,7 +22,7 @@ export function Calendar() {
   const [reminderDate, setReminderDate] = useState<string | null>(null);
 
   return (
-    <section className="screen wide">
+    <section className="screen wide calendar-screen">
       <div className="screen-head">
         <ScreenTitle id="calendar" />
         <div className="btn-group">
@@ -44,10 +44,13 @@ export function Calendar() {
           </button>
         ))}
       </div>
+      <div className={selected && tab !== "reminders" ? "calendar-workspace with-day" : "calendar-workspace"}><div className="calendar-main">
       {tab === "month" && <MonthView month={month} setMonth={setMonth} selected={selected} select={setSelected} />}
       {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={setSelected} selected={selected} />}
       {tab === "reminders" && <RemindersView />}
+      </div>
       {selected && tab !== "reminders" && <DayPanel date={selected} onClose={() => setSelected(null)} onReminder={() => setReminderDate(selected)} />}
+      </div>
       {reminderDate && <ReminderForm date={reminderDate} onClose={() => setReminderDate(null)} />}
     </section>
   );

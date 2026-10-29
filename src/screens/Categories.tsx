@@ -62,7 +62,7 @@ export function Categories() {
   );
 
   return (
-    <section className="screen">
+    <section className="screen wide categories-screen">
       <ScreenTitle id="categories" />
       <ErrorText error={archive.error} />
       <div className="columns">

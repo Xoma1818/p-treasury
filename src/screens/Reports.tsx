@@ -102,7 +102,7 @@ export function Reports() {
   // Итоги периода сверху не нужны там, где отчёт показывает свои.
   const noTiles = ownPeriod || tab === "tag";
   return (
-    <section className="screen wide">
+    <section className="screen wide reports-screen">
       <div className="screen-head">
         <ScreenTitle id="reports" />
         {!ownPeriod && (
@@ -162,7 +162,7 @@ export function Reports() {
       <ErrorText error={exp.error} />
 
       {s && !noTiles && (
-        <div className="tiles">
+        <div className="tiles report-summary">
           <div className="card tile clickable" data-testid="report-income" onClick={all}>
             <div className="tile-label">Доходы</div>
             <div className="tile-value plus">
@@ -197,29 +197,31 @@ export function Reports() {
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
 
-      <SavedViews<ReportView>
-        kind="report"
-        current={{ tab, kind, custom: kind === "custom" ? custom : null }}
-        onApply={applyView}
-      />
-      <div className="tabs report-tabs" role="tablist">
-        {(
-          [
-            ["structure", "Структура"],
-            ["months", "По месяцам"],
-            ["balances", "Остатки на дату"],
-            ["compare", "Сравнение"],
-            ["fx", "Курсовая разница"],
-            ["subs", "Подписки"],
-            ["year", "Итоги года"],
-            ["tag", "По тегу"],
-            ["networth", "Чистые активы"],
-          ] as [Tab, string][]
-        ).map(([t, label]) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
-            {label}
-          </button>
-        ))}
+      <div className="report-navigation">
+        <SavedViews<ReportView>
+          kind="report"
+          current={{ tab, kind, custom: kind === "custom" ? custom : null }}
+          onApply={applyView}
+        />
+        <div className="tabs report-tabs" role="tablist">
+          {(
+            [
+              ["structure", "Структура"],
+              ["months", "По месяцам"],
+              ["balances", "Остатки на дату"],
+              ["compare", "Сравнение"],
+              ["fx", "Курсовая разница"],
+              ["subs", "Подписки"],
+              ["year", "Итоги года"],
+              ["tag", "По тегу"],
+              ["networth", "Чистые активы"],
+            ] as [Tab, string][]
+          ).map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {period && tab === "structure" && <Structure period={period} />}
@@ -280,7 +282,7 @@ function Structure({ period }: { period: Period }) {
   );
 
   return (
-    <div className="card">
+    <div className="card report-structure">
       <div className="screen-head">
         <h2>{kind === "expense" ? "Расходы по категориям" : "Доходы по категориям"}</h2>
         <div className="tabs small">
@@ -294,14 +296,22 @@ function Structure({ period }: { period: Period }) {
       {report.error && <p className="error">{String(report.error)}</p>}
       {r && r.items.length === 0 && <p className="muted">За этот период операций нет.</p>}
       {r && r.items.length > 0 && (
-        <>
-          <ul className="cat-report" data-testid="structure">
-            {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, true)) : [])])}
-          </ul>
-          <div className="table-foot muted">
-            Итого: <M amount={r.total} />. Нажмите на категорию, чтобы увидеть её операции.
+        <div className="report-structure-layout">
+          <div className="report-structure-total">
+            <div className="tile-label">{kind === "expense" ? "Всего расходов" : "Всего доходов"}</div>
+            <div className="tile-value"><M amount={r.total} /></div>
+            <p className="hint">{formatDate(period.start)} – {formatDate(period.end)}</p>
+            <p className="muted">Выберите категорию, чтобы перейти к операциям. Стрелка рядом с названием раскрывает подкатегории.</p>
           </div>
-        </>
+          <div className="report-category-breakdown">
+            <ul className="cat-report" data-testid="structure">
+              {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, true)) : [])])}
+            </ul>
+            <div className="table-foot muted">
+              Итого: <M amount={r.total} />. Нажмите на категорию, чтобы увидеть её операции.
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -332,56 +342,58 @@ function Months({ period, kind }: { period: Period; kind: Kind }) {
       {r && (
         <>
           <MonthsChart r={r} />
-          <table className="table months-table" data-testid="months">
-            <thead>
-              <tr>
-                <th>Месяц</th>
-                <th className="num">Доходы</th>
-                <th className="num">Расходы</th>
-                <th className="num">Сальдо</th>
-                <th className="num">Норма сбережений</th>
-              </tr>
-            </thead>
-            <tbody>
-              {r.months.map((m) => (
-                <tr
-                  key={m.period.month}
-                  className="clickable"
-                  data-testid="month-row"
-                  data-month={m.period.month}
-                  title="Показать операции месяца"
-                  onClick={() => showTransactions({ dateFrom: m.period.start, dateTo: m.period.end })}
-                >
-                  <td className="main">{monthTitle(m.period.month)}</td>
+          <div className="screen-table-scroll" role="region" aria-label="Доходы и расходы по месяцам" tabIndex={0}>
+            <table className="table months-table" data-testid="months">
+              <thead>
+                <tr>
+                  <th>Месяц</th>
+                  <th className="num">Доходы</th>
+                  <th className="num">Расходы</th>
+                  <th className="num">Сальдо</th>
+                  <th className="num">Норма сбережений</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.months.map((m) => (
+                  <tr
+                    key={m.period.month}
+                    className="clickable"
+                    data-testid="month-row"
+                    data-month={m.period.month}
+                    title="Показать операции месяца"
+                    onClick={() => showTransactions({ dateFrom: m.period.start, dateTo: m.period.end })}
+                  >
+                    <td className="main">{monthTitle(m.period.month)}</td>
+                    <td className="num plus">
+                      <M amount={m.income} />
+                    </td>
+                    <td className="num">
+                      <M amount={m.expense} />
+                    </td>
+                    <td className={m.balance < 0 ? "num over" : "num"}>
+                      <M amount={m.balance} signed />
+                    </td>
+                    <td className="num">{m.savingsRate == null ? "—" : `${m.savingsRate} %`}</td>
+                  </tr>
+                ))}
+                <tr className="total-row">
+                  <td className="main">Итого</td>
                   <td className="num plus">
-                    <M amount={m.income} />
+                    <M amount={r.income} />
                   </td>
                   <td className="num">
-                    <M amount={m.expense} />
+                    <M amount={r.expense} />
                   </td>
-                  <td className={m.balance < 0 ? "num over" : "num"}>
-                    <M amount={m.balance} signed />
+                  <td className={r.balance < 0 ? "num over" : "num"}>
+                    <M amount={r.balance} signed />
                   </td>
-                  <td className="num">{m.savingsRate == null ? "—" : `${m.savingsRate} %`}</td>
+                  <td className="num" data-testid="months-savings-rate">
+                    {r.savingsRate == null ? "—" : `${r.savingsRate} %`}
+                  </td>
                 </tr>
-              ))}
-              <tr className="total-row">
-                <td className="main">Итого</td>
-                <td className="num plus">
-                  <M amount={r.income} />
-                </td>
-                <td className="num">
-                  <M amount={r.expense} />
-                </td>
-                <td className={r.balance < 0 ? "num over" : "num"}>
-                  <M amount={r.balance} signed />
-                </td>
-                <td className="num" data-testid="months-savings-rate">
-                  {r.savingsRate == null ? "—" : `${r.savingsRate} %`}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>

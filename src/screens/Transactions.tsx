@@ -6,7 +6,7 @@ import { isTyping } from "../lib/hotkeys";
 import { groupReceipts, rowIds } from "../lib/receipt";
 import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { loadAllTransactionIds } from "../lib/transactionSelection";
-import { useExport } from "../components/DataTools";
+import { ImportDialog, useExport } from "../components/DataTools";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
@@ -20,6 +20,7 @@ import { ScreenTitle } from "../components/SectionIcon";
 const PAGE = 100;
 
 export function Transactions() {
+  const [importOpen, setImportOpen] = useState(false);
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories(true).data ?? [];
   const { txnFilter, viewJump, openTxnForm } = useUi();
@@ -143,10 +144,11 @@ export function Transactions() {
     !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId) || f.dateFrom !== defFrom || f.dateTo !== defTo;
 
   return (
-    <section className="screen wide">
+    <section className="screen wide transactions-screen">
       <div className="screen-head">
         <ScreenTitle id="transactions" />
         <span className="spacer" />
+        <button className="btn" onClick={() => setImportOpen(true)}>Импорт выписки</button>
         <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
           Выгрузить
         </button>
@@ -249,6 +251,7 @@ export function Transactions() {
           setSel(EMPTY_SEL);
         }}
       />
+      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </section>
   );
 }

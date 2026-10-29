@@ -73,13 +73,16 @@ function NavViews() {
 }
 
 export function Sidebar() {
-  const { section, go, setHelp, setPalette } = useUi();
+  const { section, go, setHelp, setPalette, openTxnForm } = useUi();
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
         <Logo />
         P-Treasury
       </div>
+      <button className="btn primary nav-add" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Новая операция · Ctrl+N" data-testid="sidebar-add">
+        <span aria-hidden="true">+</span> Добавить
+      </button>
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="11" cy="11" r="6.5" />
@@ -89,10 +92,10 @@ export function Sidebar() {
         <kbd>Ctrl+K</kbd>
       </button>
       <ul>
-        {SECTIONS.map((s, i) => (
+        {SECTIONS.filter((s) => s.id !== "settings").map((s, i) => (
           <Fragment key={s.id}>
-            {s.id === "settings" && <NavViews />}
-            <li className={s.id === "settings" ? "nav-settings" : undefined}>
+
+            <li>
               {s.group && SECTIONS[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
               <button
                 className={s.id === section ? "nav-item active" : "nav-item"}
@@ -102,14 +105,14 @@ export function Sidebar() {
               >
                 <SectionIcon id={s.id} />
                 {s.title}
-                {/* Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки. */}
-                {i < 9 && <span className="nav-key" data-k={i + 1} aria-hidden="true" />}
               </button>
             </li>
           </Fragment>
         ))}
+        <NavViews />
       </ul>
       <div className="sidebar-foot">
+        <button className={section === "settings" ? "nav-item active" : "nav-item"} aria-current={section === "settings" ? "page" : undefined} onClick={() => go("settings")}><SectionIcon id="settings" />Настройки</button>
         <ThemeSwitch />
         <HideAmountsSwitch />
         <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">

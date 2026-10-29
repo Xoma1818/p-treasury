@@ -27,10 +27,13 @@ export function Settings() {
   const [scale, setScale] = useState<Scale>(savedScale);
 
   return (
-    <section className="screen">
+    <section className="screen wide settings-screen">
       <ScreenTitle id="settings" />
+      <nav className="settings-jumps" aria-label="Группы настроек">
+        <a href="#settings-general">Общие</a><a href="#settings-currencies">Валюты</a><a href="#settings-data">Импорт и экспорт</a><a href="#settings-safety">Сохранность</a><a href="#settings-about">О программе</a>
+      </nav>
 
-      <div className="card">
+      <div className="card" id="settings-general">
         <h2>Общие</h2>
         <div className="settings-list">
           <Field label="Основная валюта" hint="В ней считаются общий баланс, бюджеты и отчёты.">
@@ -170,9 +173,9 @@ export function Settings() {
         <ErrorText error={setSetting.error ?? setHotkey.error} />
       </div>
 
-      <Rates base={base} />
+      <div id="settings-currencies"><Rates base={base} /></div>
 
-      <div className="card" data-testid="data-card">
+      <div className="card" id="settings-data" data-testid="data-card">
         <h2>
           Данные
           <Hint of="data" />
@@ -191,11 +194,11 @@ export function Settings() {
       {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
 
-      <VaultCard />
+      <div id="settings-safety"><VaultCard />
       <BudgetFilesCard />
-      <UpdatesCard />
+      <UpdatesCard /></div>
 
-      <div className="card">
+      <div className="card" id="settings-about">
         <h2>О программе</h2>
         {info.error && <p className="error">{String(info.error)}</p>}
         {info.data && (

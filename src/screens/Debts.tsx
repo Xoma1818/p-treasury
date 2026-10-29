@@ -32,7 +32,7 @@ export function Debts() {
   }, [jump]);
 
   return (
-    <section className="screen wide">
+    <section className="screen wide debts-screen">
       {view.kind === "list" && <DebtList open={(id) => setView({ kind: "detail", id })} onNew={() => setView({ kind: "plan", example: false })} onCalc={() => setView({ kind: "plan", example: true })} />}
       {view.kind === "detail" && <DebtView id={view.id} back={() => setView({ kind: "list" })} payNow={jump?.id === view.id && jump.pay} />}
       {view.kind === "plan" && <LoanPlanner key={String(view.example)} example={view.example} back={() => setView({ kind: "list" })} onCreated={(id) => setView({ kind: "detail", id })} />}

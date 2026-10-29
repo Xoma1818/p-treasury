@@ -26,7 +26,7 @@ export function Accounts() {
   const visible = accounts.filter((a) => showArchived || !a.archived);
 
   return (
-    <section className="screen">
+    <section className="screen wide accounts-screen">
       <div className="screen-head">
         <ScreenTitle id="accounts" />
         <button className="btn primary" onClick={() => setEditing("new")}>
