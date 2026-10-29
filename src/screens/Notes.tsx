@@ -16,7 +16,7 @@ export function Notes() {
   }, [text]);
   const notes = useQuery({ queryKey: ["notes", "search", query], queryFn: () => api.listNotes({ query }) });
   return (
-    <section className="screen">
+    <section className="screen wide notes-screen">
       <div className="screen-head">
         <ScreenTitle id="notes" />
         <button className="btn primary" onClick={() => setEdit("new")}>

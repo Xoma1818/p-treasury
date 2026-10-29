@@ -79,7 +79,7 @@ export function Home() {
                 <Hint of="home.balance" />
                 <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
               </div>
-              <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</div>
+              <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} />}</div>
               <Sparkline values={spark.balance} />
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
@@ -101,7 +101,7 @@ export function Home() {
                 <Hint of="home.income" />
                 {month.data && <Delta pct={change(month.data.income, prev?.income)} hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} animate />}</div>
+              <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} />}</div>
               <Sparkline values={spark.income} className="income" />
               {month.data?.savingsRate != null && (
                 <div className="hint" data-testid="home-savings-rate">
@@ -115,7 +115,7 @@ export function Home() {
                 <Hint of="home.expense" />
                 {month.data && <Delta pct={change(month.data.expense, prev?.expense)} lowerIsBetter hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} animate />}</div>
+              <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} />}</div>
               <Sparkline values={spark.expense} className="expense" />
             </div>
             <div className="card tile">
@@ -124,7 +124,7 @@ export function Home() {
                 <Hint of="home.saldo" />
                 {month.data && prev && <Delta pct={change(month.data.income - month.data.expense, prev.income - prev.expense)} hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed animate />}</div>
+              <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed />}</div>
               <Sparkline values={spark.saldo} />
             </div>
           </div>
@@ -239,7 +239,7 @@ export function Home() {
   };
 
   return (
-    <section className="screen wide">
+    <section className="screen wide home-screen">
       <div className="screen-head">
         <ScreenTitle id="home" />
         <div className="btn-group">
@@ -276,6 +276,7 @@ export function Home() {
           </button>
         </p>
       )}
+      <div className={editing ? "home-layout customizing" : "home-layout"}>
       {layout.order
         .filter((b) => editing || !layout.hidden.includes(b))
         .map((b) =>
@@ -323,6 +324,7 @@ export function Home() {
             </div>
           ),
         )}
+      </div>
     </section>
   );
 }
