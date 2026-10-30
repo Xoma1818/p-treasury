@@ -283,6 +283,10 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .qw-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .qw-kind { flex: none; min-width: 120px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
 .qw-kind.duplicate, .qw-kind.price { background: var(--over-soft); color: var(--over); }
+.qw-kind.over { background: var(--over); color: var(--on-accent); }
+.qw-kind.warn { background: var(--over-soft); color: var(--over-strong); }
+.qw-unusual { display: flex; flex-direction: column; gap: 4px; }
+.qw-unusual .qw-actions { justify-content: flex-start; }
 .qw-more { margin-top: 8px; padding: 0; }
 .nw-spark { display: block; width: 100%; margin: 2px 0 0; padding: 0; border: 0; background: none; cursor: pointer; }
 .nw-spark .spark { height: 22px; margin-top: 2px; }
@@ -351,3 +355,22 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-tip { min-width: 240px; }
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }
+
+/* 0.22 «Понятные цифры»: «Как посчитано», история импорта, совпадения. */
+.tile-value.tile-explain { display: block; width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 22px; font-weight: 600; color: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.tile-value.tile-explain:hover .money { text-decoration: underline dotted; text-underline-offset: 4px; }
+.tile-value.tile-explain:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.explain-table td:first-child, .explain-table th:first-child { width: 60%; }
+.explain-notes { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.explain-notes li + li { margin-top: 4px; }
+.history-actions { white-space: nowrap; text-align: right; }
+.history-actions .link + .link { margin-left: 12px; }
+.confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 8px; }
+.match-list { display: grid; gap: 10px; max-height: 60vh; overflow: auto; }
+.match-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.match-side { display: grid; gap: 2px; min-width: 0; }
+.match .actions { margin-top: 10px; }
+.ok-mark { color: var(--ok); font-weight: 600; }
+.home-cards-list { list-style: none; margin: 8px 0 12px; padding: 0; columns: 2 220px; column-gap: 24px; }
+.home-cards-list li { break-inside: avoid; padding: 2px 0; }
+.budget-table tr.focus-row td { background: var(--accent-soft); transition: background-color 1.2s var(--ease); }

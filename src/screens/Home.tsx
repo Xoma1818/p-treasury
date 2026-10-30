@@ -16,7 +16,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
@@ -24,6 +24,7 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { barClass, barLevel } from "../lib/budgetLevel";
 import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
+import { ExplainDialog, type ExplainKind } from "../components/Explain";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -42,14 +43,17 @@ export function Home() {
   const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
+  const vault = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus }).data;
+  const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
   const { openTxnForm, showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);
+  const [explain, setExplain] = useState<ExplainKind | null>(null);
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
   const layout = parseLayout(useSettings().data?.home_layout);
   const setSetting = useAction(api.setSetting);
-  const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", JSON.stringify(l));
+  const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
   const monthShort = monthName.replace(/ \d{4}$/, "");
@@ -80,7 +84,7 @@ export function Home() {
                 <Hint of="home.balance" />
                 <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
               </div>
-              <div className="tile-value">{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</div>
+              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-balance" onClick={() => setExplain("balance")}>{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</button>
               <Sparkline values={spark.balance} />
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
@@ -102,7 +106,7 @@ export function Home() {
                 <Hint of="home.income" />
                 {month.data && <Delta pct={change(month.data.income, prev?.income)} hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value plus">{month.data && <Money amount={month.data.income} symbol={symbol} animate />}</div>
+              <button type="button" className="tile-value tile-explain plus" title="Как посчитано" data-testid="explain-income" onClick={() => setExplain("income")}>{month.data && <Money amount={month.data.income} symbol={symbol} animate />}</button>
               <Sparkline values={spark.income} className="income" />
               {month.data?.savingsRate != null && (
                 <div className="hint" data-testid="home-savings-rate">
@@ -116,7 +120,7 @@ export function Home() {
                 <Hint of="home.expense" />
                 {month.data && <Delta pct={change(month.data.expense, prev?.expense)} lowerIsBetter hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value">{month.data && <Money amount={month.data.expense} symbol={symbol} animate />}</div>
+              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{month.data && <Money amount={month.data.expense} symbol={symbol} animate />}</button>
               <Sparkline values={spark.expense} className="expense" />
             </div>
             <div className="card tile">
@@ -125,7 +129,7 @@ export function Home() {
                 <Hint of="home.saldo" />
                 {month.data && prev && <Delta pct={change(month.data.income - month.data.expense, prev.income - prev.expense)} hint="к тем же дням прошлого месяца" />}
               </div>
-              <div className="tile-value">{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed animate />}</div>
+              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-saldo" onClick={() => setExplain("saldo")}>{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed animate />}</button>
               <Sparkline values={spark.saldo} />
             </div>
           </div>
@@ -263,7 +267,36 @@ export function Home() {
 
       {backup?.reminderDue && (
         <div className="card banner warn" data-testid="backup-reminder">
-          Резервной копии не было больше месяца. Сделайте копию на флешку или включите автокопию.
+          <span>
+            Резервной копии не было больше месяца.{" "}
+            <span className="muted" data-testid="backup-reason">
+              {backup.lastBackupAt ? `Последняя — ${formatDate(backup.lastBackupAt.slice(0, 10))}` : "Копия ещё не делалась"}
+              {vault && !vault.on ? ", папка сохранности выключена" : vault?.error ? `, папка сохранности не обновляется: ${vault.error}` : ""}. Если компьютер сломается, данные пропадут.
+            </span>
+          </span>
+          {vault?.on && (
+            <button className="btn primary" onClick={() => syncVault.run()} disabled={syncVault.busy} aria-busy={syncVault.busy}>
+              Сохранить сейчас
+            </button>
+          )}
+          <button className="btn" onClick={() => go("settings")}>
+            Открыть настройки
+          </button>
+        </div>
+      )}
+      {vault?.verifyError && (
+        <div className="card banner warn" data-testid="verify-warning">
+          <span>
+            Последняя копия не прошла проверку восстановления.{" "}
+            <span className="muted">
+              Причина: {vault.verifyError}. {vault.verified ? `Последняя исправная копия проверена ${formatDate(vault.verified.checkedAt.slice(0, 10))}.` : "Исправной копии пока нет."}
+            </span>
+          </span>
+          {vault.on && (
+            <button className="btn primary" onClick={() => syncVault.run()} disabled={syncVault.busy} aria-busy={syncVault.busy}>
+              Сделать новую копию
+            </button>
+          )}
           <button className="btn" onClick={() => go("settings")}>
             Открыть настройки
           </button>
@@ -272,9 +305,9 @@ export function Home() {
 
       {editing && (
         <p className="hint home-edit-hint">
-          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной.{" "}
+          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
           <button className="link" onClick={() => saveLayout(DEFAULT_LAYOUT)}>
-            Вернуть как было
+            Вернуть по умолчанию
           </button>
         </p>
       )}
@@ -325,6 +358,7 @@ export function Home() {
             </div>
           ),
         )}
+      {explain && period && <ExplainDialog kind={explain} on={date} from={period.start} to={period.end} onClose={() => setExplain(null)} />}
     </section>
   );
 }

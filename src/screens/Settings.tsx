@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
+import { ImportHistoryDialog } from "../components/ImportHistory";
 import { VaultCard } from "../components/Vault";
+import { HomeCardsCard } from "../components/HomeCards";
 import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -24,7 +26,7 @@ export function Settings() {
   const setHotkey = useAction(api.setQuickHotkey);
   const setSetting = useAction(api.setSetting);
   const base = settings?.base_currency ?? "RUB";
-  const [dialog, setDialog] = useState<"summary" | "import" | null>(null);
+  const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
 
   return (
@@ -196,6 +198,8 @@ export function Settings() {
         <ErrorText error={setSetting.error ?? setHotkey.error} />
       </div>
 
+      <HomeCardsCard />
+
       <Rates base={base} />
 
       <div className="card" data-testid="data-card">
@@ -211,11 +215,15 @@ export function Settings() {
           <button className="btn" onClick={() => setDialog("import")}>
             Импорт выписки или CSV
           </button>
+          <button className="btn" data-testid="settings-import-history" onClick={() => setDialog("history")}>
+            История импорта
+          </button>
         </div>
       </div>
       <AutoImportCard />
       {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
+      {dialog === "history" && <ImportHistoryDialog onClose={() => setDialog(null)} />}
 
       <VaultCard />
       <BudgetFilesCard />

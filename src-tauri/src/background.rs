@@ -220,7 +220,7 @@ fn budget_limits(app: &AppHandle) {
             .notification()
             .builder()
             .title("P-Treasury")
-            .body(&a.text)
+            .body(budget_alerts::notify_text(a))
             .show();
     }
     let _ = app.emit("budget-alerts", alerts.len());
@@ -263,14 +263,15 @@ pub fn import_dir(app: &AppHandle) -> Option<PathBuf> {
 /// Новые CSV по шаблону в папке автоимпорта — сразу в операции, с уведомлением.
 fn scan_folder(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let on = {
+    let (on, origin) = {
         let guard = state.lock_db();
         let Ok(db) = guard.as_ref() else { return };
-        settings::get(db.conn(), "auto_import")
+        let on = settings::get(db.conn(), "auto_import")
             .ok()
             .flatten()
             .as_deref()
-            == Some("1")
+            == Some("1");
+        (on, db.path().to_path_buf())
     };
     let Some(dir) = on.then(|| import_dir(app)).flatten() else {
         return;
@@ -278,6 +279,10 @@ fn scan_folder(app: &AppHandle) {
     let result = {
         let mut guard = state.lock_db();
         let Ok(db) = guard.as_mut() else { return };
+        // Между замками могли открыть другой бюджет: в нём автоимпорт и папка свои.
+        if db.path() != origin {
+            return;
+        }
         match auto_import::scan(db.conn_mut(), &dir) {
             Ok(r) if !r.files.is_empty() => r,
             _ => return,
@@ -285,6 +290,14 @@ fn scan_folder(app: &AppHandle) {
     };
     let errors = result.files.iter().filter(|f| f.error.is_some()).count();
     let mut body = format!("Импорт из папки: добавлено операций — {}", result.added);
+    let linked: usize = result.files.iter().map(|f| f.linked).sum();
+    let suggested: usize = result.files.iter().map(|f| f.suggested).sum();
+    if linked > 0 {
+        body.push_str(&format!(", связано с вашими записями — {linked}"));
+    }
+    if suggested > 0 {
+        body.push_str(&format!(", проверьте совпадения — {suggested}"));
+    }
     if errors > 0 {
         body.push_str(&format!(", файлов с ошибкой — {errors}"));
     }

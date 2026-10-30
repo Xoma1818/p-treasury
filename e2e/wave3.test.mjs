@@ -155,10 +155,21 @@ test("своя Главная: скрыть карточку, перестави
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
   await click(browser, "Настроить");
-  await click(browser, "Вернуть как было");
+  await click(browser, "Вернуть по умолчанию");
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
   await click(browser, "Готово");
+  // По умолчанию (0.21) — пять основных карточек; шаблонов среди них нет.
+  await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "по умолчанию не пять карточек" });
+  assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false);
+  // Остальные включаются в Настройках.
+  await openSection(browser, "Настройки");
+  await browser.$('[name="homeCard-templates"]').click();
+  await openSection(browser, "Главная");
   await browser.$('//main//h2[normalize-space()="Шаблоны"]').waitForDisplayed({ timeout: 5000 });
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="home-cards-all"]').click();
+  await openSection(browser, "Главная");
+  await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
 });
 
 test("счёт, перетащенный на категорию «Куда тратите», открывает расход с этим счётом", async () => {

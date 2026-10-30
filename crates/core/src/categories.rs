@@ -241,7 +241,9 @@ pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<
         tx.query_row(
             "SELECT (SELECT count(*) FROM transactions WHERE category_id = ?1)
                   + (SELECT count(*) FROM budget_lines WHERE category_id = ?1)
-                  + (SELECT count(*) FROM recurring_rules WHERE category_id = ?1)",
+                  + (SELECT count(*) FROM recurring_rules WHERE category_id = ?1)
+                  + (SELECT count(*) FROM import_merges
+                     WHERE json_extract(row_json, '$.category_id') = ?1)",
             [cid],
             |r| r.get::<_, i64>(0),
         )
@@ -262,6 +264,13 @@ pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<
             )?;
             tx.execute(
                 "UPDATE recurring_rules SET category_id = ?2 WHERE category_id = ?1",
+                params![cid, target],
+            )?;
+            // Стороны объединённых переводов вернутся при отмене импорта уже с
+            // новой категорией.
+            tx.execute(
+                "UPDATE import_merges SET row_json = json_set(row_json, '$.category_id', ?2)
+                 WHERE json_extract(row_json, '$.category_id') = ?1",
                 params![cid, target],
             )?;
             // Лимит переносится, если у цели его в этом бюджете ещё нет; иначе суммируется.

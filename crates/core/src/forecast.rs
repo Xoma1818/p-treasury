@@ -226,13 +226,23 @@ pub fn set_excluded_accounts(conn: &Connection, ids: &[String]) -> Result<()> {
 }
 
 /// Категории повторяющихся напоминаний с суммой: их суммы идут по датам.
-fn reminder_categories(conn: &Connection) -> Result<HashSet<String>> {
+/// Напоминания по счетам, выключенным из прогноза, не в счёт.
+fn reminder_categories(conn: &Connection, skip: &HashSet<String>) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT category_id FROM reminders
+        "SELECT category_id, account_id FROM reminders
          WHERE active = 1 AND amount IS NOT NULL AND category_id IS NOT NULL AND repeat <> 'once'",
     )?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+    })?;
+    let mut out = HashSet::new();
+    for row in rows {
+        let (category, account) = row?;
+        if !account.is_some_and(|a| skip.contains(&a)) {
+            out.insert(category);
+        }
+    }
+    Ok(out)
 }
 
 /// Обычные доходы и расходы по категориям за `[from, to]`: ключ — (тип, категория).
@@ -321,6 +331,10 @@ fn known_items(
         .expect("время");
     for o in reminders::occurrences(conn, from, to)? {
         if o.key.source != "reminder" {
+            continue;
+        }
+        // Напоминание по счёту, выключенному из прогноза, — не наши деньги.
+        if o.account_id.as_ref().is_some_and(|a| skip.contains(a)) {
             continue;
         }
         let date = match o.status.as_str() {
@@ -504,7 +518,7 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
 
     // Прошлые полные месяцы по категориям: `past[i - 1]` — месяц `current − i`
     // (None — учёта тогда ещё не было). Для сезонности нужен целый год.
-    let excluded = reminder_categories(conn)?;
+    let excluded = reminder_categories(conn, &skip)?;
     let first = first_activity(conn)?;
     let year_ago = budgets::period(&budgets::shift_month(&current.month, -SEASON_MONTHS)?, sd)?;
     let seasonal = first.as_deref().is_some_and(|f| f <= year_ago.end.as_str());
@@ -1978,5 +1992,57 @@ mod tests {
         // Три самые маленькие: 100 000 + 200 000 + 300 000.
         assert_eq!(other.amount, 600_000);
         assert_eq!(f.saved, -f.total_expense, "без доходов — всё из накоплений");
+    }
+
+    /// Сочетание: прогноз и выключенный счёт. Напоминание о платеже с этого
+    /// счёта не уменьшает прогноз, а его категория остаётся в среднем по
+    /// включённым счетам; напоминание по включённому счёту идёт как раньше.
+    #[test]
+    fn excluded_account_reminders_stay_out_of_forecast() {
+        let (db, _) = setup();
+        let c = db.conn();
+        let base = forecast(c, "2026-10-01", None).unwrap();
+        let mut side = input("Карта мамы", "debit", "RUB", 5_000_000);
+        side.opening_date = "2026-07-01".into();
+        let side = accounts::create(c, &side).unwrap();
+        let cafe = category(c, "Кафе и рестораны");
+        // С карты мамы каждое 3-е число — кафе на 7 000 ₽ (напоминание с суммой).
+        reminders::create(
+            c,
+            &ReminderInput {
+                title: "Обеды мамы".into(),
+                start_at: "2026-10-03T10:00".into(),
+                repeat: "monthly".into(),
+                amount: Some(700_000),
+                txn_type: Some("expense".into()),
+                category_id: Some(cafe.clone()),
+                account_id: Some(side.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        set_excluded_accounts(c, std::slice::from_ref(&side)).unwrap();
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(f.liquid, base.liquid, "карта мамы не в старте");
+        assert!(
+            f.excluded_categories.is_empty(),
+            "кафе по своей карте осталось в среднем"
+        );
+        assert_eq!(f.avg_expense, base.avg_expense);
+        assert!(f
+            .months
+            .iter()
+            .all(|m| m.items.iter().all(|i| i.title != "Обеды мамы")));
+        assert_eq!(f.months[11].closing, base.months[11].closing);
+
+        // Включили счёт обратно: напоминание идёт по датам, кафе — из среднего.
+        set_excluded_accounts(c, &[]).unwrap();
+        let back = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(back.liquid, base.liquid + 5_000_000);
+        assert!(back.months[0].items.iter().any(|i| i.title == "Обеды мамы"));
+        assert_eq!(
+            back.excluded_categories,
+            vec!["Кафе и рестораны".to_string()]
+        );
     }
 }

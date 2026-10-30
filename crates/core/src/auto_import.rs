@@ -13,7 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::bank_import::{self, exists};
-use crate::{csv_import, time, transactions, Result};
+use crate::{csv_import, import_log, time, Result};
 
 /// Выписка банка, для которого ещё не выбран счёт. Такой файл берётся снова,
 /// когда счёт выбран.
@@ -24,6 +24,10 @@ const NO_ACCOUNT: &str = "не выбран счёт: загрузите эту 
 pub struct FileResult {
     pub name: String,
     pub added: usize,
+    /// Строки, связанные с записанными вручную операциями.
+    pub linked: usize,
+    /// Возможные совпадения на подтверждение.
+    pub suggested: usize,
     pub skipped: usize,
     pub error: Option<String>,
 }
@@ -107,17 +111,19 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
         };
         let template = looks_like_template(&path);
         let parsed = if template {
-            csv_import::parse(conn, &path).map(Some)
+            csv_import::parse(conn, &path).map(|p| Some((None, p)))
         } else {
             match bank_import::read(&path) {
-                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None).map(Some),
+                Ok(Some((bank, ops))) => {
+                    bank_import::to_parsed(conn, bank, &ops, None).map(|p| Some((Some(bank), p)))
+                }
                 // Не выписка или не читается — чужой файл, молча пропускаем.
                 Ok(None) | Err(_) => Ok(None),
             }
         };
         let known = !matches!(parsed, Ok(None));
         match parsed {
-            Ok(Some(parsed)) => {
+            Ok(Some((bank, parsed))) => {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
@@ -135,11 +141,24 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                     }
                 }
                 let tx = conn.transaction()?;
-                for input in &new {
-                    transactions::create(&tx, input)?;
-                }
+                let saved = if new.is_empty() {
+                    None
+                } else {
+                    Some(import_log::save(
+                        &tx,
+                        import_log::Origin::Folder,
+                        &res.name,
+                        bank.map(|b| b.title()),
+                        &new,
+                        res.skipped,
+                    )?)
+                };
                 tx.commit()?;
-                res.added = new.len();
+                if let Some(s) = saved {
+                    res.added = s.added;
+                    res.linked = s.linked;
+                    res.suggested = s.suggested;
+                }
                 if no_account {
                     res.error = Some(NO_ACCOUNT.into());
                 }

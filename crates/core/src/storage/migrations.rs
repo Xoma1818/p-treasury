@@ -76,10 +76,18 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "flexible_loans",
         sql: include_str!("../../migrations/0012_flexible_loans.sql"),
     },
-    // ВРЕМЕННО: 0013–0014 заняты версиями 0.21–0.22 (ещё не слиты), версии
-    // должны идти подряд. Перед слиянием — перебазировать и поставить 15.
     Migration {
         version: 13,
+        name: "clear_and_safe",
+        sql: include_str!("../../migrations/0013_clear_and_safe.sql"),
+    },
+    Migration {
+        version: 14,
+        name: "import_matching",
+        sql: include_str!("../../migrations/0014_import_matching.sql"),
+    },
+    Migration {
+        version: 15,
         name: "reminders_ahead",
         sql: include_str!("../../migrations/0015_reminders_ahead.sql"),
     },

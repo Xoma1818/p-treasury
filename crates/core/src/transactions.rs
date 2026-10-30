@@ -342,6 +342,8 @@ pub struct Filter {
     pub event_id: Option<String>,
     /// Операции с тегом.
     pub tag_id: Option<String>,
+    /// Операции, добавленные одним импортом.
+    pub import_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -431,6 +433,9 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     }
     if let Some(e) = &f.event_id {
         wh.push(format!("t.event_id = {}", arg(e.clone().into())));
+    }
+    if let Some(i) = &f.import_id {
+        wh.push(format!("t.import_id = {}", arg(i.clone().into())));
     }
     if let Some(tag) = &f.tag_id {
         wh.push(format!(
