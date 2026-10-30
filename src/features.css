@@ -352,7 +352,7 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }
 
-/* 0.23 «Понятные цифры»: «Как посчитано», история импорта, совпадения. */
+/* 0.22 «Понятные цифры»: «Как посчитано», история импорта, совпадения. */
 .tile-value.tile-explain { display: block; width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 22px; font-weight: 600; color: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
 .tile-value.tile-explain:hover .money { text-decoration: underline dotted; text-underline-offset: 4px; }
 .tile-value.tile-explain:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -1876,7 +1876,7 @@ pub fn net_worth_history(state: State<AppState>, months: Option<u32>) -> CmdResu
     })
 }
 
-// --- 0.23 «Понятные цифры» ---
+// --- 0.22 «Понятные цифры» ---
 
 /// Из чего сложился общий баланс.
 #[tauri::command(async)]

@@ -1324,7 +1324,7 @@ export interface ScanResult {
   added: number;
 }
 
-// --- 0.23 «Понятные цифры» ---
+// --- 0.22 «Понятные цифры» ---
 
 /** Итог импорта (вручную или из папки). */
 export interface ImportSaved {
