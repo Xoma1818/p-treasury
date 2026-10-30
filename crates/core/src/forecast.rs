@@ -148,7 +148,7 @@ fn regular_by_category(
         "SELECT t.type, t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('income', 'expense')
-           AND a.type NOT IN ('investment', 'debt')
+           AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1
            AND t.debt_id IS NULL AND t.event_id IS NULL
            AND t.date BETWEEN ?1 AND ?2
            AND t.id NOT IN (SELECT transaction_id FROM reminder_occurrences
@@ -192,10 +192,20 @@ fn known_items(
     let mut items = Vec::new();
 
     // Напоминания с суммой, ещё не выполненные (суммы в основной валюте).
-    // Отложенное считается в день, до которого отложено: поэтому берём и
-    // срабатывания за прошлый год — их могли отложить на сегодня и позже.
-    let today_date = time::parse_date(today)?;
-    let from = (today_date - chrono::Duration::days(366)).and_time(NaiveTime::MIN);
+    // Отложенное считается в день, до которого отложено: поэтому начинаем с
+    // самого раннего срабатывания, отложенного на сегодня и позже, — перенос
+    // может быть сколь угодно долгим.
+    let earliest: Option<String> = conn.query_row(
+        "SELECT min(scheduled_at) FROM reminder_occurrences
+         WHERE source = 'reminder' AND status = 'snoozed' AND snoozed_until >= ?1",
+        [today],
+        |r| r.get(0),
+    )?;
+    let from_day = earliest
+        .map(|e| e[..10].to_string())
+        .filter(|e| e.as_str() < today)
+        .unwrap_or_else(|| today.to_string());
+    let from = time::parse_date(&from_day)?.and_time(NaiveTime::MIN);
     let to = time::parse_date(last)?
         .and_hms_opt(23, 59, 0)
         .expect("время");
@@ -262,7 +272,7 @@ fn known_items(
          FROM transactions t JOIN accounts a ON a.id = t.account_id
          LEFT JOIN categories c ON c.id = t.category_id
          WHERE t.status = 'planned' AND t.type IN ('income', 'expense') AND t.date BETWEEN ?1 AND ?2
-           AND a.type NOT IN ('investment', 'debt')",
+           AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1",
     )?;
     let rows: Vec<(String, String, i64, String, String)> = stmt
         .query_map(params![today, last], |r| {
@@ -1117,6 +1127,83 @@ mod tests {
         let f = forecast(c, "2026-11-02", None).unwrap();
         assert_eq!(rent(&f.months[0]), vec!["2026-11-05", "2026-11-30"]);
         assert_eq!(f.months[0].planned_expense, 2 * 2_500_000);
+    }
+
+    /// Платёж, отложенный больше чем на год, тоже остаётся в прогнозе.
+    #[test]
+    fn long_snoozed_reminder_is_not_lost() {
+        let (db, _) = setup();
+        let c = db.conn();
+        let id = reminders::create(
+            c,
+            &ReminderInput {
+                title: "Налог".into(),
+                start_at: "2025-10-01T10:00".into(),
+                repeat: "once".into(),
+                amount: Some(1_500_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        reminders::snooze(
+            c,
+            &reminders::Key {
+                source: "reminder".into(),
+                ref_id: id,
+                scheduled_at: "2025-10-01T10:00".into(),
+            },
+            "2026-11-05T10:00",
+        )
+        .unwrap();
+        let f = forecast(c, "2026-10-31", None).unwrap();
+        let tax: Vec<_> = f.months[1]
+            .items
+            .iter()
+            .filter(|i| i.title == "Налог")
+            .map(|i| (i.date.as_str(), i.amount))
+            .collect();
+        assert_eq!(tax, vec![("2026-11-05", -1_500_000)]);
+    }
+
+    /// Счёт, выключенный из общего баланса, не в старте — и его доходы и
+    /// траты не идут ни в среднее, ни в запланированное.
+    #[test]
+    fn excluded_account_is_not_forecast() {
+        let (db, _) = setup();
+        let c = db.conn();
+        let mut side = input("Карта мамы", "debit", "RUB", 10_000_000);
+        side.opening_date = "2026-07-01".into();
+        side.include_in_total = false;
+        let side = accounts::create(c, &side).unwrap();
+        for m in ["07", "08", "09"] {
+            txn(
+                c,
+                "income",
+                &format!("2026-{m}-20"),
+                &side,
+                2_000_000,
+                "Зарплата",
+            );
+            txn(
+                c,
+                "expense",
+                &format!("2026-{m}-21"),
+                &side,
+                500_000,
+                "Продукты",
+            );
+        }
+        let id = txn(c, "income", "2026-11-20", &side, 1_000_000, "Зарплата");
+        c.execute(
+            "UPDATE transactions SET status = 'planned' WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(f.liquid, 21_400_000, "выключенный счёт не в старте");
+        assert_eq!(f.avg_income, 8_000_000, "его доходы не в среднем");
+        assert_eq!(f.months[1].planned_income, 0, "и не в запланированном");
+        assert_eq!(f.months[11].closing, 21_400_000 + 12 * 3_800_000);
     }
 
     /// Доходы брокерского счёта (дивиденды) не входят в среднее: денег этого
