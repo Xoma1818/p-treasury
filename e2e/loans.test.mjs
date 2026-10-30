@@ -138,7 +138,7 @@ test("«Ставка изменилась» и «Изменить условия
   await setDate(browser, "rateFrom", inDays(5));
   await fill(browser, "newRate", "10");
   await save(browser);
-  await waitText(browser, '[data-testid="loan-changes"]', /Ставка 10 % с/);
+  await waitText(browser, '[data-testid="loan-changes"]', /Ставка 10 % годовых с/);
   await browser.waitUntil(async () => (await (await browser.$('[data-testid="debt-next"]')).getText()) !== before, { timeout: 5000, timeoutMsg: "платёж не пересчитался" });
 
   await click(browser, "Изменить условия");

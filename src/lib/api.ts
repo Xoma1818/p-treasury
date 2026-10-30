@@ -288,6 +288,10 @@ export interface LoanInput {
   maturityDate: string | null;
   /** По умолчанию `monthly` (как раньше). */
   interestMethod?: InterestMethod;
+  /** За какой период введена ставка; `rateBp` всегда годовая. */
+  ratePeriod?: RatePeriod;
+  /** Как часто платить; `termMonths` тогда — число платежей. */
+  payEvery?: PayEvery;
 }
 
 export interface LoanRow {
@@ -323,6 +327,8 @@ export interface DebtInput {
   accountId: string | null;
   /** По умолчанию `daily`. */
   interestMethod?: InterestMethod;
+  ratePeriod?: RatePeriod;
+  payEvery?: PayEvery;
   rateChanges?: RateChangeInput[];
   plannedEarly?: PlannedEarlyInput[];
 }
@@ -368,6 +374,8 @@ export interface DebtCard {
   overdueAmount: number;
   defaultAccountId: string | null;
   interestMethod: InterestMethod;
+  ratePeriod: RatePeriod;
+  payEvery: PayEvery;
   firstPaymentDate: string | null;
 }
 
@@ -378,6 +386,7 @@ export interface DebtDetail {
   rateChanges: (RateChangeInput & { id: string })[];
   holidays: (HolidayInput & { id: string })[];
   plannedEarly: (PlannedEarlyInput & { id: string })[];
+  rowAmounts: (RowAmountInput & { id: string })[];
 }
 
 // --- Займы 0.16 ---
@@ -386,6 +395,15 @@ export type InterestMethod = "daily" | "monthly";
 export type RecalcMode = "reduce_payment" | "reduce_term";
 export type HolidayKind = "interest_only" | "shift";
 export type EarlyFrequency = "once" | "monthly" | "quarterly" | "yearly";
+export type RatePeriod = "year" | "month" | "day";
+export type PayEvery = "month" | "quarter" | "two_weeks";
+
+/** Своя сумма строки графика: следующие строки пересчитываются. */
+export interface RowAmountInput {
+  seq: number;
+  amount: number;
+  mode: RecalcMode;
+}
 
 export interface RateChangeInput {
   /** С какой даты действует ставка, YYYY-MM-DD. */
@@ -443,14 +461,17 @@ export interface CalcInput extends LoanInput {
   rateChanges?: RateChangeInput[];
   holidays?: HolidayInput[];
   plannedEarly?: PlannedEarlyInput[];
+  rowAmounts?: RowAmountInput[];
   /** Что рассчитать; по умолчанию платёж. */
-  solve?: "payment" | "term" | "principal";
+  solve?: "payment" | "term" | "principal" | "rate";
   /** Желаемый платёж для расчёта срока или суммы. */
   payment?: number | null;
 }
 
 export interface CalcResult {
   principal: number;
+  /** Годовая ставка (рассчитанная, если считали ставку). */
+  rateBp: number;
   termMonths: number | null;
   payment: number;
   base: SimView;
@@ -467,6 +488,8 @@ export interface TermsInput {
   firstPaymentDate: string | null;
   maturityDate: string | null;
   interestMethod: InterestMethod;
+  ratePeriod?: RatePeriod;
+  payEvery?: PayEvery;
 }
 
 export interface QuoteInput {
@@ -1472,6 +1495,8 @@ export const api = {
   deleteDebtRateChange: (rateChangeId: string) => invoke<void>("delete_debt_rate_change", { rateChangeId }),
   addDebtHoliday: (id: string, input: HolidayInput) => invoke<string>("add_debt_holiday", { id, input }),
   deleteDebtHoliday: (holidayId: string) => invoke<void>("delete_debt_holiday", { holidayId }),
+  setDebtRowAmount: (id: string, input: RowAmountInput) => invoke<string>("set_debt_row_amount", { id, input }),
+  deleteDebtRowAmount: (rowAmountId: string) => invoke<void>("delete_debt_row_amount", { rowAmountId }),
   setDebtPlannedEarly: (id: string, list: PlannedEarlyInput[]) => invoke<void>("set_debt_planned_early", { id, list }),
   quoteDebtPayment: (id: string, input: QuoteInput) => invoke<Quote>("quote_debt_payment", { id, input }),
   debtForecast: (id: string) => invoke<Forecast>("debt_forecast", { id }),

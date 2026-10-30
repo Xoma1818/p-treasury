@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, balancePoints, earlyLines, monthsToTerm, plannedEarly, rateChanges, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateToInput, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -8,8 +8,10 @@ const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   term: "2",
   termUnit: "years",
   rate: "12",
+  ratePeriod: "year",
   rates: [],
   repayment: "annuity",
+  payEvery: "month",
   issueDate: "2026-10-15",
   firstPayment: "2026-11-15",
   maturity: "",
@@ -141,5 +143,41 @@ describe("даты", () => {
     expect(addMonths("2026-10-15", 1)).toBe("2026-11-15");
     expect(addMonths("2027-01-31", 1)).toBe("2027-02-28");
     expect(addMonths("2026-12-10", 1)).toBe("2027-01-10");
+  });
+});
+
+describe("0.20: ставка за период, частота платежей, срок в днях", () => {
+  it("ставка за месяц и день переводится в годовую", () => {
+    expect(parseRate("18")).toBe(1800);
+    expect(parseRate("1,5", "month")).toBe(1800);
+    expect(parseRate("0,5", "day")).toBe(18_250);
+    expect(parseRate("3", "day")).toBeNull();
+    expect(rateToInput(18_250, "day")).toBe("0,5");
+    expect(rateLabel(1800, "month")).toBe("1,5 % в месяц");
+    expect(annualHint(18_250, "day")).toBe("≈ 182,5 % годовых");
+    expect(annualHint(1800, "year")).toBeUndefined();
+  });
+  it("срок переводится в число платежей", () => {
+    expect(monthsToPayments(24, "month")).toBe(24);
+    expect(monthsToPayments(24, "quarter")).toBe(8);
+    expect(monthsToPayments(10, "quarter")).toBeNull();
+    expect(monthsToPayments(12, "two_weeks")).toBe(26);
+    expect(paymentsText(8, "quarter")).toBe("8 платежей раз в квартал (2 года)");
+    expect(paymentsText(26, "two_weeks")).toBe("26 платежей раз в две недели (≈ 1 год)");
+    expect(paymentsText(24)).toBe("2 года");
+  });
+  it("форма передаёт период ставки и частоту платежей", () => {
+    const r = toCalcInput(form({ rate: "1", ratePeriod: "month", payEvery: "quarter", rates: [{ from: "2027-01-01", rate: "0,5" }] }));
+    expect(r.input).toMatchObject({ rateBp: 1200, ratePeriod: "month", payEvery: "quarter", termMonths: 8, rateChanges: [{ from: "2027-01-01", rateBp: 600 }] });
+    expect(toCalcInput(form({ term: "10", termUnit: "months", payEvery: "quarter" })).error).toMatch(/кратен трём/);
+  });
+  it("рассчитать ставку: поле ставки не нужно, нужен платёж", () => {
+    expect(toCalcInput(form({ solve: "rate", rate: "abc", payment: "" })).error).toMatch(/платёж/);
+    expect(toCalcInput(form({ solve: "rate", rate: "abc", payment: "15 000" })).input).toMatchObject({ solve: "rate", rateBp: 0, payment: 1_500_000, termMonths: 24 });
+  });
+  it("срок в днях", () => {
+    expect(daysBetween("2026-11-01", "2026-12-01")).toBe(30);
+    expect(addDays("2028-02-20", 10)).toBe("2028-03-01");
+    expect(daysBetween("2026-11-01", "")).toBeNull();
   });
 });

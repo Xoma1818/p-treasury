@@ -4,16 +4,16 @@ import { AmountInput, amountText, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
-import { api, REPAYMENTS, type DebtCard, type DebtDetail, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type TermsInput } from "../../lib/api";
+import { api, REPAYMENTS, type DebtCard, type DebtDetail, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { earlyLines, METHODS, MODES, parseRate, plannedEarly, termToMonths, type EarlyLine, type TermUnit } from "../../lib/loan";
-import { formatAmount, parseAmount } from "../../lib/money";
+import { annualHint, earlyLines, METHODS, MODES, monthsToPayments, paymentsToMonths, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, termToMonths, type EarlyLine, type TermUnit } from "../../lib/loan";
+import { parseAmount } from "../../lib/money";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
 import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor } from "./Editors";
+import { PayEverySelect, RatePeriodSelect } from "./LoanPlanner";
 
-const rateText = (bp: number) => `${formatAmount(bp, 2)} %`;
 const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} minorUnits={card.minorUnits} />;
 
 /** Строка «было → стало» с подсветкой того, что изменилось. */
@@ -37,9 +37,11 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
   const [f, setF] = useState({
     amount: amountText(c.principal, mu),
     issueDate: c.issueDate,
-    rate: c.rateBp ? formatAmount(c.rateBp, 2) : "",
+    rate: c.rateBp ? rateToInput(c.rateBp, c.ratePeriod) : "",
+    ratePeriod: c.ratePeriod,
     repayment: c.repaymentType,
-    term: c.termMonths ? String(c.termMonths) : "",
+    payEvery: c.payEvery,
+    term: c.termMonths ? String(paymentsToMonths(c.termMonths, c.payEvery)) : "",
     termUnit: "months" as TermUnit,
     firstPayment: c.firstPaymentDate ?? "",
     maturity: c.repaymentType === "bullet" ? c.maturityDate : "",
@@ -48,13 +50,26 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
   const terms = useMemo((): TermsInput | null => {
     const principal = parseAmount(f.amount, mu);
-    const rateBp = parseRate(f.rate);
+    const rateBp = parseRate(f.rate, f.ratePeriod);
     if (!principal || principal <= 0 || rateBp === null) return null;
     const bullet = f.repayment === "bullet";
-    const termMonths = bullet ? null : termToMonths(f.term, f.termUnit);
+    const months = bullet ? null : termToMonths(f.term, f.termUnit);
+    // У ядра срок — число платежей.
+    const termMonths = months === null ? null : monthsToPayments(months, f.payEvery);
     if (!bullet && termMonths === null) return null;
     if (bullet && !f.maturity) return null;
-    return { principal, issueDate: f.issueDate, rateBp, repaymentType: f.repayment, termMonths, firstPaymentDate: bullet ? null : f.firstPayment || null, maturityDate: bullet ? f.maturity : null, interestMethod: f.method };
+    return {
+      principal,
+      issueDate: f.issueDate,
+      rateBp,
+      repaymentType: f.repayment,
+      termMonths,
+      firstPaymentDate: bullet ? null : f.firstPayment || null,
+      maturityDate: bullet ? f.maturity : null,
+      interestMethod: f.method,
+      ratePeriod: f.ratePeriod,
+      payEvery: bullet ? "month" : f.payEvery,
+    };
   }, [f, mu]);
   const key = useDebounced(terms ? JSON.stringify(terms) : null, 250);
   // Точный предпросмотр ядра: с уже внесёнными платежами, изменениями ставки и каникулами.
@@ -79,8 +94,13 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
             {(id) => <AmountInput id={id} name="termsPrincipal" value={f.amount} onChange={(v) => set({ amount: v })} minorUnits={mu} autoFocus />}
           </Field>
           <Field label="Дата выдачи">{(id) => <input id={id} name="termsIssue" type="date" value={f.issueDate} onChange={(e) => set({ issueDate: e.target.value })} />}</Field>
-          <Field label="Ставка, % годовых" help="loan.rate">
-            {(id) => <input id={id} name="termsRate" className="amount" inputMode="decimal" value={f.rate} onChange={(e) => set({ rate: e.target.value })} placeholder="0" />}
+          <Field label="Ставка" help="loan.rate" hint={annualHint(terms?.rateBp ?? 0, f.ratePeriod)}>
+            {(id) => (
+              <span className="term-input">
+                <input id={id} name="termsRate" className="amount" inputMode="decimal" value={f.rate} onChange={(e) => set({ rate: e.target.value })} placeholder="0" />
+                <RatePeriodSelect value={f.ratePeriod} onChange={(ratePeriod) => set({ ratePeriod })} />
+              </span>
+            )}
           </Field>
         </div>
         <div className="row">
@@ -109,6 +129,9 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
                     </select>
                   </span>
                 )}
+              </Field>
+              <Field label="Платить" help="loan.every">
+                {(id) => <PayEverySelect id={id} value={f.payEvery} onChange={(payEvery) => set({ payEvery })} />}
               </Field>
               <Field label="Начало выплат" help="loan.first">
                 {(id) => <input id={id} name="termsFirst" type="date" value={f.firstPayment} onChange={(e) => set({ firstPayment: e.target.value })} />}
@@ -168,7 +191,7 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
   const [from, setFrom] = useState(today());
   const [rate, setRate] = useState("");
   const save = useAction(async () => {
-    const bp = parseRate(rate);
+    const bp = parseRate(rate, card.ratePeriod);
     if (bp === null || rate.trim() === "") throw "Введите новую ставку";
     return api.addDebtRateChange(card.id, { from, rateBp: bp });
   }, onClose, { celebrate: true });
@@ -179,7 +202,7 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
           <Field label="С какой даты" help="loan.rateChanged">
             {(id) => <input id={id} name="rateFrom" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />}
           </Field>
-          <Field label="Новая ставка, % годовых" hint={`Сейчас ${rateText(card.rateBp)}`}>
+          <Field label={`Новая ставка, ${RATE_PERIODS[card.ratePeriod]}`} hint={`Сейчас ${rateLabel(card.rateBp, card.ratePeriod)}`}>
             {(id) => <input id={id} name="newRate" className="amount" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} autoFocus />}
           </Field>
         </div>
@@ -280,7 +303,7 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
         {detail.rateChanges.map((r) => (
           <li key={r.id} data-testid="rate-change">
             <span>
-              Ставка {rateText(r.rateBp)} с {formatDate(r.from)}
+              Ставка {rateLabel(r.rateBp, detail.card.ratePeriod)} с {formatDate(r.from)}
             </span>
             <button className="link danger" title="Удалить изменение ставки" aria-label="Удалить изменение ставки" onClick={() => delRate.run(r.id)}>
               ×
@@ -513,5 +536,61 @@ export function History({ card }: { card: DebtCard }) {
           })}
       </ol>
     </div>
+  );
+}
+
+/** Своя сумма неоплаченного платежа: больше или меньше графика; следующие пересчитываются. */
+export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; row: ScheduleRow; onClose: () => void }) {
+  const c = detail.card;
+  const own = detail.rowAmounts.find((a) => a.seq === row.seq);
+  const [amount, setAmount] = useState(amountText(own?.amount ?? row.payment, c.minorUnits));
+  const [mode, setMode] = useState<RecalcMode>(own?.mode ?? "reduce_term");
+  const m = money(c);
+  const save = useAction(
+    async () => {
+      const v = parseAmount(amount, c.minorUnits);
+      if (v === null || v < 0) throw "Введите сумму платежа";
+      return api.setDebtRowAmount(c.id, { seq: row.seq, amount: v, mode });
+    },
+    onClose,
+    { celebrate: true },
+  );
+  const reset = useAction(() => api.deleteDebtRowAmount(own!.id), onClose);
+  const v = parseAmount(amount, c.minorUnits);
+  return (
+    <Modal title={`Платёж №${row.seq}, ${formatDate(row.dueDate)}`} onClose={onClose}>
+      <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
+        <Field label="Сколько заплатить" help="loan.rowAmount" hint={`По графику ${amountText(row.payment, c.minorUnits)} ${c.currencySymbol}, из них проценты ${amountText(row.interestPart, c.minorUnits)} ${c.currencySymbol}`}>
+          {(id) => <AmountInput id={id} name="rowAmount" value={amount} onChange={setAmount} minorUnits={c.minorUnits} autoFocus />}
+        </Field>
+        {v !== null && v < row.interestPart && <p className="hint warn">Меньше процентов: в этот раз уйдут только проценты {m(row.interestPart)}, долг не уменьшится.</p>}
+        <div className="loan-method">
+          <span className="loan-solve-label">Остальные платежи</span>
+          <div className="tabs small" role="tablist" aria-label="Как пересчитать остальные платежи">
+            {(Object.keys(MODES) as RecalcMode[]).map((x) => (
+              <button key={x} type="button" role="tab" aria-selected={mode === x} className={mode === x ? "tab active" : "tab"} onClick={() => setMode(x)}>
+                {MODES[x]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="hint">Сумма пойдёт в график и напоминания. Прежний график сохранится в истории.</p>
+        <ErrorText error={save.error ?? reset.error} />
+        <div className="actions">
+          {own && (
+            <button type="button" className="link" onClick={() => reset.run()}>
+              Вернуть сумму по графику
+            </button>
+          )}
+          <span className="spacer" />
+          <button type="button" className="btn" onClick={onClose}>
+            Отмена
+          </button>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
+            Сохранить
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
