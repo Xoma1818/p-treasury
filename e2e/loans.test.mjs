@@ -144,7 +144,7 @@ test("«Ставка изменилась» и «Изменить условия
   await click(browser, "Изменить условия");
   assert.equal(await (await browser.$('[role="dialog"] [name="termsPrincipal"]')).getValue(), "300000");
   await fill(browser, "termsTerm", "36");
-  await waitText(browser, '[data-testid="diff-maturity"]', /\d\d\.\d\d\.\d{4}\s*→\s*\d\d\.\d\d\.\d{4}/);
+  await waitText(browser, '[data-testid="cmp-maturity"]', /\d\d\.\d\d\.\d{4}\s*→\s*\d\d\.\d\d\.\d{4}/);
   await save(browser);
   await waitText(browser, '[data-testid="debt-terms"]', /36 мес\./);
 });

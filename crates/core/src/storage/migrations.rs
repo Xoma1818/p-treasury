@@ -78,8 +78,13 @@ pub const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 13,
+        name: "clear_and_safe",
+        sql: include_str!("../../migrations/0013_clear_and_safe.sql"),
+    },
+    Migration {
+        version: 14,
         name: "import_matching",
-        sql: include_str!("../../migrations/0013_import_matching.sql"),
+        sql: include_str!("../../migrations/0014_import_matching.sql"),
     },
 ];
 

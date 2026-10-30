@@ -1536,6 +1536,8 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
 pub struct TermsPreview {
     pub before: SimView,
     pub after: SimView,
+    /// «Было → станет»: ставка, число платежей, переплата, дата закрытия.
+    pub compare: LoanCompare,
 }
 
 /// Точный предпросмотр [`update_terms`] без записи: с уже внесёнными платежами,
@@ -1585,9 +1587,17 @@ pub fn preview_terms(conn: &Connection, debt_id: &str, input: &TermsInput) -> Re
     if bullet {
         events.retain(|e| !matches!(e, Event::Holiday(_)));
     }
+    let saved = self::events(conn, debt_id)?;
+    let before = loan_calc::simulate(&t.engine()?, &saved);
+    let after = loan_calc::simulate(&engine, &events);
+    let compare = LoanCompare {
+        before: loan_snap(t.rate_bp, t.period, &saved, &before),
+        after: loan_snap(input.rate_bp, period, &events, &after),
+    };
     Ok(TermsPreview {
-        before: simulate_debt(conn, &t)?.into(),
-        after: loan_calc::simulate(&engine, &events).into(),
+        before: before.into(),
+        after: after.into(),
+        compare,
     })
 }
 
@@ -1834,6 +1844,8 @@ pub struct Quote {
     pub new_payment: i64,
     /// Экономия на процентах: было − стало.
     pub savings: i64,
+    /// «Было → станет»: ставка, число платежей, переплата, дата закрытия.
+    pub compare: LoanCompare,
 }
 
 /// Разбивка платежа и графики «до» и «после» без записи.
@@ -1878,9 +1890,15 @@ pub fn quote_payment(conn: &Connection, debt_id: &str, input: &QuoteInput) -> Re
         seq,
         mode,
     }));
-    let after: SimView = loan_calc::simulate(&engine, &events).into();
+    let after = loan_calc::simulate(&engine, &events);
+    let compare = LoanCompare {
+        before: loan_snap(t.rate_bp, t.period, &events[..events.len() - 1], &before),
+        after: loan_snap(t.rate_bp, t.period, &events, &after),
+    };
+    let after: SimView = after.into();
     let before: SimView = before.into();
     Ok(Quote {
+        compare,
         interest,
         principal,
         new_payment: after.totals.payment,
@@ -1904,7 +1922,13 @@ pub struct Forecast {
     pub savings: i64,
 }
 
-fn forecast_sim(conn: &Connection, t: &Terms, today: &str) -> Result<(String, Sim, Sim)> {
+/// `list` — свои плановые досрочки вместо сохранённых (для предпросмотра).
+fn forecast_sim(
+    conn: &Connection,
+    t: &Terms,
+    today: &str,
+    list: Option<&[PlannedEarlyInput]>,
+) -> Result<(String, Sim, Sim)> {
     let engine = t.engine()?;
     let mut events = events(conn, &t.id)?;
     let base = loan_calc::simulate(&engine, &events);
@@ -1923,18 +1947,25 @@ fn forecast_sim(conn: &Connection, t: &Terms, today: &str) -> Result<(String, Si
         .map(|r| loan_calc::parse_date(&r.row.due_date))
         .transpose()?
         .unwrap_or(from_date);
-    let list: Vec<PlannedEarlyInput> = planned_early(conn, &t.id)?
-        .into_iter()
-        .map(|p| p.input)
-        .collect();
-    events.extend(loan_calc::expand_planned(&list, from_date, until)?);
+    let saved: Vec<PlannedEarlyInput>;
+    let list = match list {
+        Some(l) => l,
+        None => {
+            saved = planned_early(conn, &t.id)?
+                .into_iter()
+                .map(|p| p.input)
+                .collect();
+            &saved
+        }
+    };
+    events.extend(loan_calc::expand_planned(list, from_date, until)?);
     let with = loan_calc::simulate(&engine, &events);
     Ok((from, base, with))
 }
 
 pub fn forecast(conn: &Connection, debt_id: &str, today: &str) -> Result<Forecast> {
     let t = terms(conn, debt_id)?;
-    let (from, base, with) = forecast_sim(conn, &t, today)?;
+    let (from, base, with) = forecast_sim(conn, &t, today, None)?;
     let base = base.totals();
     let totals = with.totals();
     Ok(Forecast {
@@ -1957,7 +1988,7 @@ pub fn schedule_doc(
     use crate::loan_export::{doc_rows, doc_totals, my_name, DocTerms, ScheduleDoc};
     let t = terms(conn, debt_id)?;
     let sim = if with_forecast {
-        forecast_sim(conn, &t, today)?.2
+        forecast_sim(conn, &t, today, None)?.2
     } else {
         simulate_debt(conn, &t)?
     };
@@ -1998,6 +2029,165 @@ pub fn schedule_doc(
         totals: doc_totals(&sim.totals()),
         with_signatures: true,
         created_on: today.to_string(),
+    })
+}
+
+/// Итоги займа для сравнения «было → станет» перед сохранением.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoanSnap {
+    /// Годовая ставка, которая будет действовать после всех изменений ставки.
+    pub rate_bp: i64,
+    /// С какой даты действует эта ставка (`None` — с выдачи).
+    pub rate_from: Option<String>,
+    /// `year`, `month` или `day`: как показывать ставку.
+    pub rate_period: String,
+    /// Все платежи графика и сколько из них ещё впереди.
+    pub payments: u32,
+    pub payments_left: u32,
+    /// Ближайший платёж (0 — долг закрыт).
+    pub payment: i64,
+    /// Переплата: все проценты за весь срок (уплаченные и предстоящие).
+    pub overpayment: i64,
+    /// Дата последнего платежа.
+    pub maturity_date: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoanCompare {
+    pub before: LoanSnap,
+    pub after: LoanSnap,
+}
+
+fn loan_snap(base_rate: i64, period: RatePeriod, events: &[Event], sim: &Sim) -> LoanSnap {
+    let last = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::RateChange(r) => Some(*r),
+            _ => None,
+        })
+        .max_by_key(|r| r.from);
+    let totals = sim.totals();
+    // Плановые досрочки (прогноз) тоже платежи: считаем их вместе со строками графика.
+    let planned = sim.early.iter().filter(|e| e.planned).count() as u32;
+    LoanSnap {
+        rate_bp: last.map_or(base_rate, |r| r.rate_bp),
+        rate_from: last.map(|r| r.from.to_string()),
+        rate_period: period.as_str().to_string(),
+        payments: sim.rows.len() as u32 + planned,
+        payments_left: totals.rows_left + planned,
+        payment: totals.payment,
+        overpayment: totals.total_interest,
+        maturity_date: totals.maturity_date,
+    }
+}
+
+/// Изменение займа, которое ещё не сохранено.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ChangeInput {
+    #[serde(rename_all = "camelCase")]
+    RateChange {
+        from: String,
+        rate_bp: i64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Holiday {
+        from_seq: u32,
+        months: u32,
+        holiday_kind: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    RowAmount {
+        seq: u32,
+        amount: i64,
+        mode: String,
+    },
+    PlannedEarly {
+        list: Vec<PlannedEarlyInput>,
+    },
+}
+
+/// Точное «было → станет» для изменения займа без записи: ставка, число
+/// платежей, переплата и дата закрытия. Плановые досрочки сравниваются по
+/// прогнозу (с ними), остальные изменения — по графику.
+pub fn preview_change(
+    conn: &Connection,
+    debt_id: &str,
+    input: &ChangeInput,
+    today: &str,
+) -> Result<LoanCompare> {
+    let t = terms(conn, debt_id)?;
+    let mut events = events(conn, debt_id)?;
+    if let ChangeInput::PlannedEarly { list } = input {
+        for p in list {
+            p.check()?;
+        }
+        let before = forecast_sim(conn, &t, today, None)?.2;
+        let after = forecast_sim(conn, &t, today, Some(list))?.2;
+        return Ok(LoanCompare {
+            before: loan_snap(t.rate_bp, t.period, &events, &before),
+            after: loan_snap(t.rate_bp, t.period, &events, &after),
+        });
+    }
+    if t.status == "closed" {
+        return invalid("долг уже погашен");
+    }
+    let engine = t.engine()?;
+    let before = loan_snap(
+        t.rate_bp,
+        t.period,
+        &events,
+        &loan_calc::simulate(&engine, &events),
+    );
+    match input {
+        ChangeInput::RateChange { from, rate_bp } => {
+            let rc = RateChangeInput {
+                from: from.clone(),
+                rate_bp: *rate_bp,
+            }
+            .parse()?;
+            if from.as_str() < t.issue_date.as_str() {
+                return invalid("дата раньше выдачи долга");
+            }
+            events.retain(|e| !matches!(e, Event::RateChange(x) if x.from == rc.from));
+            events.push(Event::RateChange(rc));
+        }
+        ChangeInput::Holiday {
+            from_seq,
+            months,
+            holiday_kind,
+        } => {
+            if t.repayment == Repayment::Bullet || t.every != PayEvery::Month {
+                return invalid("каникулы бывают только у ежемесячных платежей");
+            }
+            let h = HolidayInput {
+                from_seq: *from_seq,
+                months: *months,
+                kind: holiday_kind.clone(),
+            };
+            events.push(Event::Holiday(h.parse()?));
+        }
+        ChangeInput::RowAmount { seq, amount, mode } => {
+            if t.repayment == Repayment::Bullet {
+                return invalid("у разового возврата одна строка: измените условия займа");
+            }
+            let a = RowAmountInput {
+                seq: *seq,
+                amount: *amount,
+                mode: mode.clone(),
+            };
+            let ev = a.parse()?;
+            events.retain(|e| !matches!(e, Event::RowAmount { seq: s, .. } if s == seq));
+            events.push(ev);
+        }
+        ChangeInput::PlannedEarly { .. } => unreachable!("разобрано выше"),
+    }
+    let after = loan_calc::simulate(&engine, &events);
+    Ok(LoanCompare {
+        before,
+        after: loan_snap(t.rate_bp, t.period, &events, &after),
     })
 }
 
@@ -3153,6 +3343,211 @@ mod tests {
                     proptest::prop_assert_eq!(r.payment, r.principal_part + r.interest_part);
                 }
             }
+        }
+    }
+
+    /// Итоги займа сейчас — так же, как их считает предпросмотр.
+    fn snap_now(c: &Connection, id: &str) -> LoanSnap {
+        let t = terms(c, id).unwrap();
+        let ev = events(c, id).unwrap();
+        let sim = loan_calc::simulate(&t.engine().unwrap(), &ev);
+        loan_snap(t.rate_bp, t.period, &ev, &sim)
+    }
+
+    #[test]
+    fn preview_change_matches_what_is_saved() {
+        let mut f = Fx::new();
+        let id = f.credit();
+        let today = "2026-10-20";
+
+        // Ставка с даты.
+        let was = snap_now(f.db.conn(), &id);
+        let p = preview_change(
+            f.db.conn(),
+            &id,
+            &ChangeInput::RateChange {
+                from: "2027-01-01".into(),
+                rate_bp: 1200,
+            },
+            today,
+        )
+        .unwrap();
+        assert_eq!(p.before, was);
+        assert_eq!(
+            (p.after.rate_bp, p.after.rate_from.as_deref()),
+            (1200, Some("2027-01-01"))
+        );
+        assert!(p.after.overpayment < p.before.overpayment);
+        assert_eq!(p.after.payments, 24, "срок прежний");
+        add_rate_change(
+            f.c(),
+            &id,
+            &RateChangeInput {
+                from: "2027-01-01".into(),
+                rate_bp: 1200,
+            },
+        )
+        .unwrap();
+        assert_eq!(snap_now(f.db.conn(), &id), p.after);
+
+        // Каникулы.
+        let p = preview_change(
+            f.db.conn(),
+            &id,
+            &ChangeInput::Holiday {
+                from_seq: 3,
+                months: 2,
+                holiday_kind: "interest_only".into(),
+            },
+            today,
+        )
+        .unwrap();
+        assert_eq!(p.after.payments, 26, "срок удлинился на 2 платежа");
+        assert!(p.after.maturity_date > p.before.maturity_date);
+        add_holiday(
+            f.c(),
+            &id,
+            &HolidayInput {
+                from_seq: 3,
+                months: 2,
+                kind: "interest_only".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(snap_now(f.db.conn(), &id), p.after);
+
+        // Своя сумма платежа.
+        let row = f.detail(&id).schedule[6].clone();
+        let p = preview_change(
+            f.db.conn(),
+            &id,
+            &ChangeInput::RowAmount {
+                seq: 7,
+                amount: row.payment + 3_000_000,
+                mode: "reduce_term".into(),
+            },
+            today,
+        )
+        .unwrap();
+        assert!(p.after.payments < p.before.payments);
+        set_row_amount(
+            f.c(),
+            &id,
+            &RowAmountInput {
+                seq: 7,
+                amount: row.payment + 3_000_000,
+                mode: "reduce_term".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(snap_now(f.db.conn(), &id), p.after);
+
+        // Плановые досрочки сравниваются по прогнозу.
+        let list = vec![PlannedEarlyInput {
+            amount: 1_000_000,
+            start_date: "2027-03-01".into(),
+            frequency: "monthly".into(),
+            end_date: None,
+            mode: "reduce_term".into(),
+        }];
+        let p = preview_change(
+            f.db.conn(),
+            &id,
+            &ChangeInput::PlannedEarly { list: list.clone() },
+            today,
+        )
+        .unwrap();
+        assert_eq!(p.before, snap_now(f.db.conn(), &id), "досрочек ещё нет");
+        assert!(p.after.maturity_date < p.before.maturity_date);
+        set_planned_early(f.c(), &id, &list).unwrap();
+        let fc = forecast(f.db.conn(), &id, today).unwrap();
+        assert_eq!(p.after.maturity_date, fc.totals.maturity_date);
+        assert_eq!(p.after.overpayment, fc.totals.total_interest);
+
+        // Ничего не записано предпросмотром: изменения ставки — одно.
+        assert_eq!(f.detail(&id).rate_changes.len(), 1);
+    }
+
+    /// Сочетание: досрочка и своя сумма платежа в любом порядке дают
+    /// согласованный график, а предпросмотр совпадает с сохранённым.
+    #[test]
+    fn early_payment_with_own_row_amount() {
+        for early_first in [true, false] {
+            let mut f = Fx::new();
+            let id = f.credit();
+            f.pay(&id, "2026-11-15", 1_047_723, 450_000, true, None)
+                .unwrap();
+            let own = |f: &mut Fx| {
+                let row = f.detail(&id).schedule[4].clone();
+                let input = RowAmountInput {
+                    seq: row.seq,
+                    amount: row.payment * 2,
+                    mode: "reduce_payment".into(),
+                };
+                let p = preview_change(
+                    f.db.conn(),
+                    &id,
+                    &ChangeInput::RowAmount {
+                        seq: input.seq,
+                        amount: input.amount,
+                        mode: input.mode.clone(),
+                    },
+                    "2026-11-20",
+                )
+                .unwrap();
+                set_row_amount(f.c(), &id, &input).unwrap();
+                assert_eq!(snap_now(f.db.conn(), &id), p.after);
+            };
+            let early = |f: &mut Fx| {
+                let q = quote_payment(
+                    f.db.conn(),
+                    &id,
+                    &QuoteInput {
+                        date: "2026-11-20".into(),
+                        amount: 5_000_000,
+                        kind: "early".into(),
+                        mode: Some("reduce_term".into()),
+                    },
+                )
+                .unwrap();
+                f.pay(
+                    &id,
+                    "2026-11-20",
+                    q.principal,
+                    q.interest,
+                    false,
+                    Some("reduce_term"),
+                )
+                .unwrap();
+                assert_eq!(snap_now(f.db.conn(), &id), q.compare.after);
+            };
+            if early_first {
+                early(&mut f);
+                own(&mut f);
+            } else {
+                own(&mut f);
+                early(&mut f);
+            }
+            let d = f.detail(&id);
+            assert_eq!(
+                d.schedule.last().unwrap().balance_after,
+                0,
+                "долг гасится полностью"
+            );
+            let paid: i64 = d.payments.iter().map(|p| p.principal).sum();
+            let planned: i64 = d
+                .schedule
+                .iter()
+                .filter(|r| r.status == "pending")
+                .map(|r| r.principal_part)
+                .sum();
+            assert_eq!(paid + planned, 30_000_000, "порядок {early_first}");
+            assert_eq!(
+                d.row_amounts.len(),
+                1,
+                "своя сумма сохранилась после досрочки"
+            );
+            assert!(d.schedule.len() < 24, "досрочка сократила срок");
         }
     }
 }

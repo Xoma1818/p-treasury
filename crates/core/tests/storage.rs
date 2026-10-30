@@ -747,7 +747,16 @@ fn upgrade_from_0_17_keeps_data_and_forecast_works() {
     );
     let c = db.conn();
     for ((t, cols), old) in tables.iter().zip(&before) {
-        assert_eq!(&dump(c, t, cols), old, "таблица {t} не изменилась");
+        let now = dump(c, t, cols);
+        if t == "settings" {
+            // Новые версии добавляют свои настройки; прежние не меняются.
+            assert!(
+                old.iter().all(|r| now.contains(r)),
+                "настройки не изменились"
+            );
+            continue;
+        }
+        assert_eq!(&now, old, "таблица {t} не изменилась");
     }
     assert!(budget_core::forecast::list(c).unwrap().is_empty());
     let f = budget_core::forecast::forecast(c, AS_OF, None).unwrap();

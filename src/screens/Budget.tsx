@@ -203,6 +203,18 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   const showTransactions = useUi((s) => s.showTransactions);
   const lines = b.lines.filter((l) => l.kind === kind);
   const [newCat, setNewCat] = useState("");
+  // «Изменить план» из предупреждения: фокус на лимите категории (или на добавлении, если строки нет).
+  const planFocus = useUi((s) => s.planFocus);
+  const editPlan = useUi((s) => s.editPlan);
+  const focused = kind === "expense" && planFocus ? planFocus : null;
+  const hasLine = focused ? lines.some((l) => l.categoryId === focused) : false;
+  useEffect(() => {
+    if (!focused) return;
+    if (!hasLine) setNewCat(focused);
+    // Фокус держим, пока человек не перейдёт дальше; сам флаг сбрасываем сразу.
+    editPlan(null);
+  }, [focused, hasLine, editPlan]);
+  const [focusCat] = useState(focused);
   const [newLimit, setNewLimit] = useState("");
   const add = useAction((categoryId: string, limit: number) => api.setBudgetLimit(b.id!, categoryId, limit), () => {
     setNewCat("");
@@ -265,7 +277,13 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           </thead>
           <tbody>
             {lines.map((l) => (
-              <tr key={l.categoryId} data-testid="budget-line" data-category={l.categoryName} className={!income && barLevel(l.percent) === "over" ? "over-row" : undefined}>
+              <tr
+                key={l.categoryId}
+                data-testid="budget-line"
+                data-category={l.categoryName}
+                data-focus={focusCat === l.categoryId || undefined}
+                className={[!income && barLevel(l.percent) === "over" && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
+              >
                 <td className={l.parentId ? "child-name" : "main"}>
                   {l.categoryName}
                   {notable.has(l.categoryId) && (
@@ -290,7 +308,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                   )}
                 </td>
                 <td className="num">
-                  <LimitInput budgetId={b.id!} line={l} minor={minor} />
+                  <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} />
                 </td>
                 <td className="num">
                   <button
@@ -344,7 +362,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
 }
 
 /** Лимит редактируется на месте: сохраняется при уходе из поля или по Enter; пустое поле убирает строку. */
-function LimitInput({ budgetId, line, minor }: { budgetId: string; line: BudgetLine; minor: number }) {
+function LimitInput({ budgetId, line, minor, focus }: { budgetId: string; line: BudgetLine; minor: number; focus?: boolean }) {
   const [text, setText] = useState(amountText(line.limit, minor));
   useEffect(() => setText(amountText(line.limit, minor)), [line.limit, minor]);
   const save = useAction((limit: number | null) => api.setBudgetLimit(budgetId, line.categoryId, limit));
@@ -356,7 +374,7 @@ function LimitInput({ budgetId, line, minor }: { budgetId: string; line: BudgetL
   };
   return (
     <span onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}>
-      <AmountInput name="limit" value={text} onChange={setText} minorUnits={minor} />
+      <AmountInput name="limit" value={text} onChange={setText} minorUnits={minor} autoFocus={focus} />
     </span>
   );
 }

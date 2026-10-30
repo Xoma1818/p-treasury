@@ -4,6 +4,7 @@ import { CbrButton } from "../components/CbrButton";
 import { ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
 import { ImportHistoryDialog } from "../components/ImportHistory";
 import { VaultCard } from "../components/Vault";
+import { HomeCardsCard } from "../components/HomeCards";
 import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -170,6 +171,8 @@ export function Settings() {
         </div>
         <ErrorText error={setSetting.error ?? setHotkey.error} />
       </div>
+
+      <HomeCardsCard />
 
       <Rates base={base} />
 

@@ -14,7 +14,7 @@ let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
 let killPattern;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false } = {}) {
   currentDir = dataDir;
   killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
@@ -32,7 +32,23 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
     },
   });
+  // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
+  // карточки, поэтому включаем их (как у пользователя, который их включил);
+  // `homeDefaults: true` оставляет Главную как после установки.
+  if (!homeDefaults) await showAllHomeCards(browser);
   return { browser, dataDir };
+}
+
+/** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
+export async function showAllHomeCards(browser) {
+  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && !!window.__TAURI_INTERNALS__), { timeout: 15000 });
+  const ok = await browser.executeAsync((done) => {
+    window.__TAURI_INTERNALS__
+      .invoke("set_setting", { key: "home_layout", value: JSON.stringify({ order: [], hidden: [] }) })
+      .then(() => done(true), () => done(false));
+  });
+  // База могла не открыться (сценарии ошибок): тогда тест сам увидит своё.
+  if (ok) await browser.refresh();
 }
 
 export async function stop(browser) {
