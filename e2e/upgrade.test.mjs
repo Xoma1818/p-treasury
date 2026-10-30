@@ -1,5 +1,5 @@
 // Большой итоговый тест, пункт 3: данные старой версии открываются новой.
-// Старая программа (PTREASURY_OLD_BIN, например первый выпуск 0.11.1 со схемой данных 5)
+// Старая программа (PTREASURY_OLD_BIN: первый выпуск 0.11.1 со схемой 5 или 0.16.0 со схемой 9)
 // заполняет данные, затем новая открывает ту же папку: копия перед обновлением сделана,
 // балансы, отчёты и долги не изменились. Без PTREASURY_OLD_BIN тест пропускается.
 // Старую версию собирать в отдельный --target-dir, иначе она затрёт target/debug/budget-app.
@@ -13,6 +13,10 @@ const OLD = process.env.PTREASURY_OLD_BIN;
 // Последняя версия схемы данных: по числу миграций ядра.
 const LATEST = readdirSync(new URL("../crates/core/migrations/", import.meta.url)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).length;
 const ready = OLD && existsSync(OLD);
+// В CI старая сборка обязательна: пропуск не должен выглядеть как успешная проверка.
+if (process.env.PTREASURY_REQUIRE_OLD === "1" && !ready) {
+  throw new Error(`нет старой сборки PTREASURY_OLD_BIN: ${OLD ?? "не задана"}`);
+}
 let browser, dataDir;
 after(async () => {
   if (browser) await stop(browser);
@@ -53,14 +57,28 @@ test("данные старой версии открываются новой �
     await save(browser);
   }
   await openSection(browser, "Займы и долги");
-  await click(browser, "+ Новый долг");
-  await fill(browser, "counterparty", "Банк");
-  await fill(browser, "principal", "300000");
-  await fill(browser, "rate", "18");
-  await fill(browser, "term", "24");
-  await choose(browser, "account", "Карта (₽)");
-  await save(browser);
-  await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
+  if (await browser.$('//main//button[normalize-space()="Калькулятор"]').isExisting()) {
+    // С 0.16 кредит записывается из калькулятора; проценты по дням от сегодняшней выдачи.
+    await click(browser, "Калькулятор");
+    await fill(browser, "principal", "300000");
+    await fill(browser, "rate", "18");
+    await choose(browser, "termUnit", "месяцев");
+    await fill(browser, "term", "24");
+    await click(browser, "Записать заём");
+    await fill(browser, "counterparty", "Банк");
+    await choose(browser, "account", "Карта (₽)");
+    await save(browser);
+    await waitText(browser, '[data-testid="debt-next"]', /\d[\d\s]*,\d\d\s₽/);
+  } else {
+    await click(browser, "+ Новый долг");
+    await fill(browser, "counterparty", "Банк");
+    await fill(browser, "principal", "300000");
+    await fill(browser, "rate", "18");
+    await fill(browser, "term", "24");
+    await choose(browser, "account", "Карта (₽)");
+    await save(browser);
+    await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
+  }
   const old = await figures();
   await openSection(browser, "Настройки");
   const before = await waitText(browser, '//h2[normalize-space()="О программе"]/..', /(\d+) из \1/);
