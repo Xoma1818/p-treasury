@@ -605,6 +605,13 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
                OR old_id IN (SELECT id FROM transactions WHERE ?2 IS NOT NULL AND split_id = ?2))",
             params![s.old_id, split_id],
         )?;
+        // Что успели прикрепить к строке выписки, переходит к ручной записи.
+        carry_attached(conn, &s.new_id, &s.old_id)?;
+        conn.execute(
+            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+             SELECT ?2, tag_id FROM transaction_tags WHERE transaction_id = ?1",
+            params![s.new_id, s.old_id],
+        )?;
         conn.execute("DELETE FROM transactions WHERE id = ?1", [&s.new_id])?;
         conn.execute(
             "UPDATE import_batches SET added = added - 1, linked = linked + 1 WHERE id = ?1",
@@ -663,6 +670,7 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
     }
     for side_id in [out_id, into_id] {
         remember_side(conn, &transfer, side_id)?;
+        carry_attached(conn, side_id, &transfer)?;
     }
     conn.execute(
         "DELETE FROM transactions WHERE id IN (?1, ?2)",
@@ -688,14 +696,56 @@ fn remember_side(conn: &Connection, transfer: &str, side_id: &str) -> Result<()>
         .join(", ");
     conn.execute(
         &format!(
-            "INSERT INTO import_merges (transfer_id, side_id, import_id, row_json, tags_json)
+            "INSERT INTO import_merges (transfer_id, side_id, import_id, row_json, tags_json,
+                                        attached_json)
              SELECT ?1, id, import_id, json_object({fields}),
-                    (SELECT coalesce(json_group_array(tag_id), '[]')
-                     FROM transaction_tags WHERE transaction_id = t.id)
+                    (SELECT json_group_array(tag_id) FROM transaction_tags
+                     WHERE transaction_id = t.id),
+                    json_object(
+                      'notes', (SELECT json_group_array(id) FROM notes
+                                WHERE transaction_id = t.id),
+                      'occurrences', (SELECT json_group_array(id) FROM reminder_occurrences
+                                      WHERE transaction_id = t.id))
              FROM transactions t WHERE id = ?2"
         ),
         params![transfer, side_id],
     )?;
+    Ok(())
+}
+
+/// Заметки и отметки «оплачено» у напоминаний переходят к другой операции:
+/// при удалении `from` связь иначе обнулится (ON DELETE SET NULL).
+pub(crate) fn carry_attached(conn: &Connection, from: &str, to: &str) -> Result<()> {
+    for table in ["notes", "reminder_occurrences"] {
+        conn.execute(
+            &format!("UPDATE {table} SET transaction_id = ?2 WHERE transaction_id = ?1"),
+            params![from, to],
+        )?;
+    }
+    Ok(())
+}
+
+/// Связи строк банка и предложения сопоставления у частей чека, который
+/// записывается заново (`receipts::update`), переходят к новым частям.
+pub(crate) fn carry_matches(conn: &Connection, old: &[String], new: &[String]) -> Result<()> {
+    for o in old {
+        for n in new {
+            conn.execute(
+                "INSERT OR IGNORE INTO import_links
+                   (transaction_id, account_id, import_id, kind, bank_date, bank_amount,
+                    bank_payee, auto)
+                 SELECT ?2, account_id, import_id, kind, bank_date, bank_amount, bank_payee, auto
+                 FROM import_links WHERE transaction_id = ?1",
+                params![o, n],
+            )?;
+        }
+        if let Some(anchor) = new.iter().max() {
+            conn.execute(
+                "UPDATE OR IGNORE import_suggestions SET old_id = ?2 WHERE old_id = ?1",
+                params![o, anchor],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -713,24 +763,38 @@ fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
         .map(|c| format!("\"{c}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    // Необязательная ссылка на то, что успели удалить (событие, правило
+    // повтора, категорию), возвращается пустой, а не ломает отмену.
+    let fks: Vec<(String, String, String)> = conn
+        .prepare("SELECT \"from\", \"table\", \"to\" FROM pragma_foreign_key_list('transactions')")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<std::result::Result<_, _>>()?;
     let values = cols
         .iter()
-        .map(|c| format!("json_extract(row_json, '$.\"{c}\"')"))
+        .map(|c| {
+            let v = format!("json_extract(row_json, '$.\"{c}\"')");
+            match fks.iter().find(|(from, _, _)| from == c) {
+                Some((_, table, to)) if c != "account_id" => format!(
+                    "CASE WHEN EXISTS (SELECT 1 FROM \"{table}\" WHERE \"{to}\" = {v}) THEN {v} END"
+                ),
+                _ => v,
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     for transfer in transfers {
-        let back: Vec<(String, Option<String>, String)> = conn
+        let back: Vec<(String, Option<String>, String, String)> = conn
             .prepare(
-                "SELECT m.side_id, m.import_id, m.tags_json FROM import_merges m
+                "SELECT m.side_id, m.import_id, m.tags_json, m.attached_json FROM import_merges m
                  LEFT JOIN import_batches b ON b.id = m.import_id
                  WHERE m.transfer_id = ?1
                    AND (m.import_id IS NULL OR (m.import_id <> ?2 AND b.undone_at IS NULL))",
             )?
             .query_map(params![transfer, import_id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })?
             .collect::<std::result::Result<_, _>>()?;
-        for (side, from, tags) in &back {
+        for (side, from, tags, attached) in &back {
             conn.execute(
                 &format!(
                     "INSERT INTO transactions ({names})
@@ -740,9 +804,20 @@ fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
             )?;
             conn.execute(
                 "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
-                 SELECT ?1, value FROM json_each(?2)",
+                 SELECT ?1, value FROM json_each(?2) WHERE value IN (SELECT id FROM tags)",
                 params![side, tags],
             )?;
+            // Заметки и отметки «оплачено», если их не перевесили на другое.
+            for (table, key) in [("notes", "notes"), ("reminder_occurrences", "occurrences")] {
+                conn.execute(
+                    &format!(
+                        "UPDATE {table} SET transaction_id = ?1
+                         WHERE transaction_id = ?2
+                           AND id IN (SELECT value FROM json_each(?3, '$.{key}'))"
+                    ),
+                    params![side, transfer, attached],
+                )?;
+            }
             if let Some(from) = from {
                 conn.execute(
                     "UPDATE import_batches SET added = added + 1, linked = linked - 1 WHERE id = ?1",
@@ -1071,6 +1146,33 @@ mod tests {
                 .unwrap();
             c.execute("INSERT INTO transaction_tags VALUES (?1, 't1')", [&id])
                 .unwrap();
+            // Своя категория и прикреплённая заметка.
+            let gifts = crate::categories::create(
+                c,
+                &crate::categories::CategoryInput {
+                    name: "Маме".into(),
+                    kind: "expense".into(),
+                    parent_id: None,
+                },
+            )
+            .unwrap();
+            c.execute(
+                "UPDATE transactions SET category_id = ?2 WHERE id = ?1",
+                params![id, gifts],
+            )
+            .unwrap();
+            crate::notes::create(
+                c,
+                &crate::notes::NoteInput {
+                    body: "на день рождения".into(),
+                    date: None,
+                    transaction_id: Some(id),
+                    account_id: None,
+                    debt_id: None,
+                    budget_id: None,
+                },
+            )
+            .unwrap();
             None
         } else {
             Some(
@@ -1195,7 +1297,8 @@ mod tests {
             })
             .unwrap();
         assert_eq!((id.as_str(), note.as_str()), (old.as_str(), "маме"));
-        assert_eq!(category, Some(cat(c, "Прочие расходы")));
+        assert_eq!(category, Some(cat(c, "Маме")));
+        assert_eq!(note_of(c), Some(id.clone()), "заметка вернулась к записи");
         let tag: String = c
             .query_row(
                 "SELECT tag_id FROM transaction_tags WHERE transaction_id = ?1",
@@ -1205,6 +1308,146 @@ mod tests {
             .unwrap();
         assert_eq!(tag, "t1");
         assert_eq!((bal(c, &sber), bal(c, &tbank)), (-500_000, 0));
+    }
+
+    fn note_of(c: &Connection) -> Option<String> {
+        c.query_row("SELECT transaction_id FROM notes", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn merge_keeps_note_and_undo_survives_deleted_tag_and_category() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let (_, _, _, second, transfer) = merged(db.conn(), true);
+        let c = db.conn();
+        assert_eq!(note_of(c), Some(transfer), "заметка перешла к переводу");
+        // После объединения удалили тег и категорию: без переноса нельзя —
+        // в ней сторона перевода.
+        c.execute("DELETE FROM tags WHERE id = 't1'", []).unwrap();
+        let (gifts, other) = (cat(c, "Маме"), cat(c, "Прочие расходы"));
+        assert!(crate::categories::delete(db.conn_mut(), &gifts, None).is_err());
+        crate::categories::delete(db.conn_mut(), &gifts, Some(&other)).unwrap();
+        let c = db.conn();
+        undo(c, &second).unwrap();
+        let (id, category): (String, Option<String>) = c
+            .query_row("SELECT id, category_id FROM transactions", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(category, Some(other));
+        assert_eq!(note_of(c), Some(id));
+        let tags: i64 = c
+            .query_row("SELECT count(*) FROM transaction_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tags, 0);
+    }
+
+    #[test]
+    fn confirmed_same_match_keeps_what_was_attached_to_bank_row() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = account(c, "Карта");
+        let fun = cat(c, "Развлечения");
+        let mine = |d: &str| {
+            transactions::create(c, &op("expense", d, &card, 120_000, &fun, "Игра")).unwrap()
+        };
+        let (a, b) = (mine("2026-10-17"), mine("2026-10-19"));
+        let row = op("expense", "2026-10-18", &card, 120_000, &fun, "STEAM");
+        let r = save(c, Origin::Manual, "t.csv", Some("Т-Банк"), &[row], 0).unwrap();
+        assert_eq!(r.suggested, 2);
+        let new_id: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE import_id IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        crate::notes::create(
+            c,
+            &crate::notes::NoteInput {
+                body: "чек в почте".into(),
+                date: None,
+                transaction_id: Some(new_id.clone()),
+                account_id: None,
+                debt_id: None,
+                budget_id: None,
+            },
+        )
+        .unwrap();
+        c.execute("INSERT INTO tags (id, name) VALUES ('g', 'игры')", [])
+            .unwrap();
+        c.execute("INSERT INTO transaction_tags VALUES (?1, 'g')", [&new_id])
+            .unwrap();
+        let s = suggestions(c).unwrap();
+        let kept = accept(c, &s[0].id).unwrap();
+        assert!(kept == a || kept == b);
+        assert_eq!(note_of(c), Some(kept.clone()));
+        let tag: String = c
+            .query_row("SELECT transaction_id FROM transaction_tags", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(tag, kept);
+    }
+
+    #[test]
+    fn edited_receipt_stays_linked_to_bank_row() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = account(db.conn(), "Карта");
+        let food = cat(db.conn(), "Продукты");
+        let other = cat(db.conn(), "Прочие расходы");
+        let receipt = |a: i64, b: i64| crate::receipts::ReceiptInput {
+            date: "2026-10-05".into(),
+            account_id: card.clone(),
+            payee: Some("Ашан".into()),
+            note: None,
+            total: a + b,
+            parts: [(&food, a), (&other, b)]
+                .into_iter()
+                .map(|(c, amount)| crate::receipts::PartInput {
+                    category_id: c.clone(),
+                    amount,
+                    note: None,
+                })
+                .collect(),
+            tags: Vec::new(),
+            event_id: None,
+        };
+        let split = crate::receipts::create(db.conn_mut(), &receipt(200_000, 100_000)).unwrap();
+        let row = op("expense", "2026-10-06", &card, 300_000, &food, "AUCHAN");
+        let r = save(
+            db.conn(),
+            Origin::Manual,
+            "s.pdf",
+            Some("Сбер"),
+            std::slice::from_ref(&row),
+            0,
+        )
+        .unwrap();
+        assert_eq!(r.linked, 1);
+        // Перераспределили сумму между частями и добавили третью.
+        let mut edited = receipt(150_000, 100_000);
+        edited.total = 300_000;
+        edited.parts.push(crate::receipts::PartInput {
+            category_id: food.clone(),
+            amount: 50_000,
+            note: None,
+        });
+        crate::receipts::update(db.conn_mut(), &split, &edited).unwrap();
+        let c = db.conn();
+        assert!(
+            crate::bank_import::exists(c, &row).unwrap(),
+            "повтор выписки узнаётся"
+        );
+        let again = save(c, Origin::Manual, "s.pdf", Some("Сбер"), &[], 1).unwrap();
+        assert_eq!(again.added, 0);
+        assert_eq!(count(c), 3);
+        // Отмена импорта снимает связи и с новых частей.
+        undo(c, &r.import_id).unwrap();
+        assert!(!crate::bank_import::exists(c, &row).unwrap());
+        assert_eq!(count(c), 3);
     }
 
     #[test]

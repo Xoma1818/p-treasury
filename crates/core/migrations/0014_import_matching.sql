@@ -52,7 +52,7 @@ CREATE TABLE import_suggestions (
 );
 
 -- Две операции, объединённые в перевод (accept transfer): исходные строки
--- хранятся здесь, чтобы отмена импорта одной стороны вернула другую как была,
+-- (все колонки, теги, прикреплённое) хранятся здесь, чтобы отмена импорта одной стороны вернула другую как была,
 -- а отмена обоих импортов не оставила перевода.
 CREATE TABLE import_merges (
     transfer_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
@@ -60,5 +60,9 @@ CREATE TABLE import_merges (
     import_id   TEXT REFERENCES import_batches(id) ON DELETE SET NULL,
     row_json    TEXT NOT NULL,
     tags_json   TEXT NOT NULL DEFAULT '[]',
+    -- Прикреплённые к стороне заметки и отметки «оплачено» у напоминаний:
+    -- {"notes": [id…], "occurrences": [id…]}; при объединении они переходят
+    -- к переводу, при отмене возвращаются.
+    attached_json TEXT NOT NULL DEFAULT '{"notes":[],"occurrences":[]}',
     PRIMARY KEY (transfer_id, side_id)
 );
