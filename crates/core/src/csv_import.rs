@@ -11,8 +11,8 @@ use serde::Serialize;
 
 use crate::error::invalid;
 use crate::export::{write_csv, Sheet, TXN_HEADERS};
-use crate::transactions::{self, TxnInput};
-use crate::{bank_import, money, Error, Result};
+use crate::transactions::TxnInput;
+use crate::{bank_import, import_log, money, Error, Result};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +30,10 @@ pub struct Row {
     pub error: Option<String>,
     /// Такая операция уже есть (выписка банка за пересекающийся период): пропускается.
     pub duplicate: bool,
+    /// Строка свяжется с записанной вручную операцией: «19.10 · Продукты».
+    pub linked_to: Option<String>,
+    /// Возможных совпадений, которые попросят подтверждения.
+    pub maybe: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +44,10 @@ pub struct Preview {
     pub errors: usize,
     /// Строки, которые уже загружены раньше: пропускаются.
     pub duplicates: usize,
+    /// Строки, которые сами свяжутся с ручными записями.
+    pub linked: usize,
+    /// Строки с возможными совпадениями на подтверждение.
+    pub doubtful: usize,
     /// Выписка банка («Сбер», «Т-Банк»); `None` — CSV по шаблону.
     pub bank: Option<String>,
     /// Счёт, на который пойдёт выписка банка (выбранный или запомненный).
@@ -194,6 +202,8 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
             payee: get(c_payee),
             error: None,
             duplicate: false,
+            linked_to: None,
+            maybe: 0,
         };
         let checked = (|| -> std::result::Result<TxnInput, String> {
             let date = parse_date(&row.date)
@@ -327,9 +337,25 @@ fn parse_any(
 /// Предпросмотр: каждая строка с ошибкой или без. Для выписки банка
 /// `account_id` — выбранный счёт (без него — запомненный).
 pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Preview> {
-    let (parsed, bank) = parse_any(conn, path, account_id)?;
+    let (mut parsed, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
+    let inputs: Vec<TxnInput> = parsed.iter().filter_map(|p| p.input.clone()).collect();
+    let mut marks = import_log::marks(conn, bank.is_some(), &inputs)?.into_iter();
+    let (mut linked, mut doubtful) = (0, 0);
+    for p in parsed.iter_mut().filter(|p| p.input.is_some()) {
+        match marks.next() {
+            Some(import_log::Mark::Link(what)) => {
+                p.row.linked_to = Some(what);
+                linked += 1;
+            }
+            Some(import_log::Mark::Doubt(n)) => {
+                p.row.maybe = n;
+                doubtful += 1;
+            }
+            _ => {}
+        }
+    }
     let account_id = match &bank {
         Some((b, _)) => account_id
             .map(str::to_string)
@@ -337,9 +363,11 @@ pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Resu
         None => None,
     };
     Ok(Preview {
-        valid: parsed.iter().filter(|p| p.input.is_some()).count(),
+        valid: parsed.iter().filter(|p| p.input.is_some()).count() - linked,
         errors,
         duplicates,
+        linked,
+        doubtful,
         bank: bank.map(|(b, _)| b.title().to_string()),
         account_id,
         rows: parsed.into_iter().map(|p| p.row).collect(),
@@ -348,14 +376,15 @@ pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Resu
 
 /// Загрузить правильные строки одной транзакцией. Без `skip_errors` файл с
 /// ошибками не загружается вовсе; уже загруженные раньше строки выписки
-/// пропускаются. Выбранный для выписки счёт запоминается. Возвращает число
-/// загруженных операций.
+/// пропускаются, а строки, похожие на записанные вручную, связываются с ними
+/// (см. [`import_log`]). Импорт попадает в историю. Выбранный для выписки счёт
+/// запоминается.
 pub fn import(
     conn: &mut Connection,
     path: &Path,
     skip_errors: bool,
     account_id: Option<&str>,
-) -> Result<usize> {
+) -> Result<import_log::Saved> {
     let (parsed, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
@@ -363,20 +392,26 @@ pub fn import(
             "в файле строк с ошибками: {errors}; исправьте их или загрузите только правильные"
         ));
     }
+    let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
+    let inputs: Vec<TxnInput> = parsed.into_iter().filter_map(|p| p.input).collect();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     let tx = conn.transaction()?;
-    let mut n = 0;
-    for p in &parsed {
-        if let Some(input) = &p.input {
-            transactions::create(&tx, input)
-                .map_err(|e| Error::Validation(format!("строка {}: {e}", p.row.line)))?;
-            n += 1;
-        }
-    }
+    let saved = import_log::save(
+        &tx,
+        import_log::Origin::Manual,
+        &name,
+        bank.as_ref().map(|(b, _)| b.title()),
+        &inputs,
+        skipped,
+    )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
         bank_import::remember(&tx, *bank, ops, id)?;
     }
     tx.commit()?;
-    Ok(n)
+    Ok(saved)
 }
 
 /// Шаблон CSV: заголовок и две строки-примера.
@@ -496,7 +531,7 @@ mod tests {
         );
         let p = preview(db.conn(), &fixed, None).unwrap();
         assert_eq!(p.errors, 0, "{:?}", p.rows);
-        assert_eq!(import(db.conn_mut(), &fixed, false, None).unwrap(), 6);
+        assert_eq!(import(db.conn_mut(), &fixed, false, None).unwrap().added, 6);
         let card: String = db
             .conn()
             .query_row(
@@ -544,7 +579,7 @@ mod tests {
         let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!((p.valid, p.errors), (1, 1));
         assert!(p.rows[1].error.as_deref().unwrap().contains("нет правила"));
-        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap(), 1);
+        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap().added, 1);
         let (cat, payee): (String, String) = db
             .conn()
             .query_row(
@@ -570,7 +605,7 @@ mod tests {
         let mut db = setup();
         let dir = tempfile::tempdir().unwrap();
         let f = file(&dir, "a.csv", "Дата,Тип,Счёт,Категория,Сумма\n05.10.2026,Расход,Карта,Продукты,100\n05.10.2026,Расход,Сейф,Продукты,100\n");
-        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap(), 1);
+        assert_eq!(import(db.conn_mut(), &f, true, None).unwrap().added, 1);
         let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!(p.rows[1].error.as_deref(), Some("нет счёта «Сейф»"));
     }
@@ -581,13 +616,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tpl = dir.path().join("template.csv");
         write_template(&tpl).unwrap();
-        assert_eq!(import(db.conn_mut(), &tpl, false, None).unwrap(), 3);
+        assert_eq!(import(db.conn_mut(), &tpl, false, None).unwrap().added, 3);
         let out = dir.path().join("export.csv");
         let sheet = transactions_sheet(db.conn(), &Filter::default()).unwrap();
         write_one(&out, &sheet).unwrap();
         // Новая база, загружаем выгрузку: операции те же.
         let mut db2 = setup();
-        assert_eq!(import(db2.conn_mut(), &out, false, None).unwrap(), 3);
+        assert_eq!(import(db2.conn_mut(), &out, false, None).unwrap().added, 3);
         let again = transactions_sheet(db2.conn(), &Filter::default()).unwrap();
         assert_eq!(again.rows, sheet.rows);
     }

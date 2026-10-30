@@ -628,6 +628,8 @@ pub(crate) fn to_parsed(
             payee: op.payee.clone(),
             error: None,
             duplicate: false,
+            linked_to: None,
+            maybe: 0,
         };
         let checked = (|| -> std::result::Result<TxnInput, String> {
             if op.date.is_empty() {
@@ -688,8 +690,12 @@ pub(crate) fn to_parsed(
     Ok(out)
 }
 
-/// Такая операция уже есть: та же дата, счёт, тип, сумма и получатель.
+/// Такая операция уже есть: та же дата, счёт, тип, сумма и получатель —
+/// или эта строка выписки уже связана с записанной вручную операцией.
 pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
+    if crate::import_log::linked(conn, t)? {
+        return Ok(true);
+    }
     Ok(conn
         .query_row(
             "SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3

@@ -76,6 +76,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "flexible_loans",
         sql: include_str!("../../migrations/0012_flexible_loans.sql"),
     },
+    Migration {
+        version: 13,
+        name: "import_matching",
+        sql: include_str!("../../migrations/0013_import_matching.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
