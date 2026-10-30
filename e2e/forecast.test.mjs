@@ -65,7 +65,7 @@ test("поток денег за месяц: продукты справа, не
   await waitText(browser, '[data-testid="fc-now"]', money("95 000 ₽"));
   await click(browser, "Поток денег", '//*[@role="tablist"]');
   await waitText(browser, '[data-testid="flow-title"]', new RegExp(monthName(11)));
-  await waitText(browser, '[data-testid="flow-card"]', /доходов и расходов нет/);
+  await waitText(browser, '[data-testid="flow-card"]', /доходов, расходов и вложений нет/);
   await (await browser.$('button[aria-label="Позже"]')).click();
   await waitText(browser, '[data-testid="flow-title"]', new RegExp(monthName(0)));
   await waitText(browser, '[data-testid="flow-chart"]', /Продукты/);

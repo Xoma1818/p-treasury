@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Forecast, MoneyFlow } from "./api";
-import { chartPoints, describeChange, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "./forecast";
+import { chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "./forecast";
 import { formatMoney } from "./money";
 
 const flow = (over: Partial<MoneyFlow>): MoneyFlow => ({
@@ -89,7 +89,17 @@ describe("поток денег", () => {
   });
 
   it("пустой период ничего не рисует", () => {
+    expect(flowIsEmpty(flow({}))).toBe(true);
     expect(flowLayout(flow({}), 100)).toEqual({ left: [], right: [], total: 0 });
+  });
+
+  it("месяц только с переводом в инвестиции не пустой: «Из накоплений» → «Инвестиции»", () => {
+    const f = flow({ invested: 5000, saved: -5000 });
+    expect(flowIsEmpty(f)).toBe(false);
+    const l = flowLayout(f, 100, 0);
+    expect(l.left.map((b) => b.name)).toEqual(["Из накоплений"]);
+    expect(l.right.map((b) => b.name)).toEqual(["Инвестиции"]);
+    expect(flowIsEmpty(flow({ invested: -3000, saved: 3000 }))).toBe(false);
   });
 
   it("лента — замкнутая кривая между двумя отрезками", () => {

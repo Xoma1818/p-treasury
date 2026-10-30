@@ -9,7 +9,7 @@ import { BaseMoney as M } from "../components/Money";
 import { ScreenTitle } from "../components/SectionIcon";
 import { api, type ChangeInput, type ChangeKind, type Forecast as ForecastData, type ForecastItem, type ForecastMonth, type MoneyFlow, type Scenario } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { CHANGE_KINDS, chartPoints, describeChange, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "../lib/forecast";
+import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "../lib/forecast";
 import { amountToInput, parseAmount } from "../lib/money";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
@@ -629,7 +629,7 @@ const NODE_W = 12;
 
 function FlowChart({ f }: { f: MoneyFlow }) {
   const [hover, setHover] = useState<string | null>(null);
-  if (f.totalIncome === 0 && f.totalExpense === 0) return <p className="muted" data-testid="flow-empty">За этот период доходов и расходов нет.</p>;
+  if (flowIsEmpty(f)) return <p className="muted" data-testid="flow-empty">За этот период доходов, расходов и вложений нет.</p>;
   const layout = flowLayout(f, FH - 20);
   const top = 10;
   const xl = 190;

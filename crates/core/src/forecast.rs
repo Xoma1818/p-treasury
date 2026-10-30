@@ -7,7 +7,8 @@
 //! * известное по датам — напоминания с суммой, платежи по графикам займов и
 //!   запланированные операции;
 //! * остальное — «обычные» доходы и траты: среднее по категориям за последние
-//!   полные месяцы. Из среднего убраны платежи по займам, поездки и события,
+//!   полные месяцы. Доходы и расходы брокерских счетов не входят: их деньги не
+//!   в стартовом остатке, и прогноз не должен превращать их в доступные. Из среднего убраны платежи по займам, поездки и события,
 //!   операции, отмеченные по напоминанию, и категории повторяющихся напоминаний —
 //!   они уже посчитаны по датам, второй раз их не берём.
 //!
@@ -147,6 +148,7 @@ fn regular_by_category(
         "SELECT t.type, t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('income', 'expense')
+           AND a.type NOT IN ('investment', 'debt')
            AND t.debt_id IS NULL AND t.event_id IS NULL
            AND t.date BETWEEN ?1 AND ?2
            AND t.id NOT IN (SELECT transaction_id FROM reminder_occurrences
@@ -190,12 +192,24 @@ fn known_items(
     let mut items = Vec::new();
 
     // Напоминания с суммой, ещё не выполненные (суммы в основной валюте).
-    let from = time::parse_date(today)?.and_time(NaiveTime::MIN);
+    // Отложенное считается в день, до которого отложено: поэтому берём и
+    // срабатывания за прошлый год — их могли отложить на сегодня и позже.
+    let today_date = time::parse_date(today)?;
+    let from = (today_date - chrono::Duration::days(366)).and_time(NaiveTime::MIN);
     let to = time::parse_date(last)?
         .and_hms_opt(23, 59, 0)
         .expect("время");
     for o in reminders::occurrences(conn, from, to)? {
-        if o.key.source != "reminder" || !matches!(o.status.as_str(), "pending" | "snoozed") {
+        if o.key.source != "reminder" {
+            continue;
+        }
+        let date = match o.status.as_str() {
+            "pending" => o.key.scheduled_at[..10].to_string(),
+            "snoozed" => o.due_at[..10].to_string(),
+            _ => continue,
+        };
+        // Просроченные и не отложенные в прогноз не идут (как в Календаре).
+        if date.as_str() < today {
             continue;
         }
         let Some(a) = o.amount else { continue };
@@ -205,7 +219,7 @@ fn known_items(
             -1
         };
         items.push(Item {
-            date: o.key.scheduled_at[..10].to_string(),
+            date,
             title: o.title,
             kind: "reminder".into(),
             amount: sign * a,
@@ -247,7 +261,8 @@ fn known_items(
                 COALESCE(NULLIF(trim(t.payee), ''), c.name, 'Запланировано')
          FROM transactions t JOIN accounts a ON a.id = t.account_id
          LEFT JOIN categories c ON c.id = t.category_id
-         WHERE t.status = 'planned' AND t.type IN ('income', 'expense') AND t.date BETWEEN ?1 AND ?2",
+         WHERE t.status = 'planned' AND t.type IN ('income', 'expense') AND t.date BETWEEN ?1 AND ?2
+           AND a.type NOT IN ('investment', 'debt')",
     )?;
     let rows: Vec<(String, String, i64, String, String)> = stmt
         .query_map(params![today, last], |r| {
@@ -1059,6 +1074,81 @@ mod tests {
             .map(|m| m.regular_income - m.regular_expense + m.planned_income - m.planned_expense)
             .sum();
         assert_eq!(f.months[11].closing, f.liquid + total);
+    }
+
+    /// Напоминание 31 октября отложили на 5 ноября: платёж в ноябре, а не в
+    /// октябре, и не теряется, когда 31 октября уже прошло.
+    #[test]
+    fn snoozed_reminder_counts_on_new_date() {
+        let (db, _) = setup();
+        let c = db.conn();
+        let id = reminders::create(
+            c,
+            &ReminderInput {
+                title: "Аренда".into(),
+                start_at: "2026-08-31T10:00".into(),
+                repeat: "monthly".into(),
+                amount: Some(2_500_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        reminders::snooze(
+            c,
+            &reminders::Key {
+                source: "reminder".into(),
+                ref_id: id,
+                scheduled_at: "2026-10-31T10:00".into(),
+            },
+            "2026-11-05T10:00",
+        )
+        .unwrap();
+        let rent = |m: &Month| -> Vec<String> {
+            m.items
+                .iter()
+                .filter(|i| i.title == "Аренда")
+                .map(|i| i.date.clone())
+                .collect()
+        };
+        let f = forecast(c, "2026-10-31", None).unwrap();
+        assert!(rent(&f.months[0]).is_empty(), "в октябре платежа уже нет");
+        assert_eq!(rent(&f.months[1]), vec!["2026-11-05", "2026-11-30"]);
+        // 31 октября прошло — отложенный платёж всё равно на месте.
+        let f = forecast(c, "2026-11-02", None).unwrap();
+        assert_eq!(rent(&f.months[0]), vec!["2026-11-05", "2026-11-30"]);
+        assert_eq!(f.months[0].planned_expense, 2 * 2_500_000);
+    }
+
+    /// Доходы брокерского счёта (дивиденды) не входят в среднее: денег этого
+    /// счёта нет в стартовом остатке, и прогноз не делает их доступными.
+    #[test]
+    fn investment_account_income_is_not_forecast() {
+        let (db, _) = setup();
+        let c = db.conn();
+        let mut broker = input("Брокер", "investment", "RUB", 50_000_000);
+        broker.opening_date = "2026-07-01".into();
+        let broker = accounts::create(c, &broker).unwrap();
+        for m in ["07", "08", "09"] {
+            txn(
+                c,
+                "income",
+                &format!("2026-{m}-20"),
+                &broker,
+                1_000_000,
+                "Зарплата",
+            );
+        }
+        let id = txn(c, "income", "2026-11-20", &broker, 1_000_000, "Зарплата");
+        c.execute(
+            "UPDATE transactions SET status = 'planned' WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(f.liquid, 21_400_000, "брокерский счёт не в старте");
+        assert_eq!(f.avg_income, 8_000_000, "дивиденды не в среднем");
+        assert_eq!(f.months[1].planned_income, 0, "и не в запланированном");
+        assert_eq!(f.months[11].closing, 21_400_000 + 12 * 3_800_000);
     }
 
     #[test]

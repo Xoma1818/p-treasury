@@ -136,6 +136,11 @@ export function flowLayout(f: MoneyFlow, height: number, gap = 6): FlowLayout {
   return { left: place(left), right: place(right), total };
 }
 
+/** Рисовать нечего: ни доходов, ни расходов, ни переводов в инвестиции и обратно. */
+export function flowIsEmpty(f: MoneyFlow): boolean {
+  return f.totalIncome === 0 && f.totalExpense === 0 && f.invested === 0;
+}
+
 /** Лента между двумя вертикальными отрезками: от (x0, a0–a1) к (x1, b0–b1). */
 export function ribbon(x0: number, a0: number, a1: number, x1: number, b0: number, b1: number): string {
   const c = (x0 + x1) / 2;
