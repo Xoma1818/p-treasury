@@ -9,7 +9,7 @@ import { BaseMoney as M } from "../components/Money";
 import { ScreenTitle } from "../components/SectionIcon";
 import { api, type ChangeInput, type ChangeKind, type Forecast as ForecastData, type ForecastItem, type ForecastMonth, type MoneyFlow, type Scenario } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "../lib/forecast";
+import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, seasonText } from "../lib/forecast";
 import { amountToInput, parseAmount } from "../lib/money";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
@@ -177,6 +177,15 @@ function ForecastView({ f }: { f: ForecastData }) {
           )}
         </div>
         <ForecastChart f={f} />
+        {f.goals.length > 0 && (
+          <ul className="fc-goals" data-testid="fc-goals">
+            {f.goals.map((g) => (
+              <li key={g.id} className={g.free >= 0 ? "ok" : "over"}>
+                <span className="fc-goal-key" /> {goalText(g, f.currencySymbol, f.minorUnits)}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <MonthsTable f={f} />
@@ -207,7 +216,7 @@ function ForecastChart({ f }: { f: ForecastData }) {
   const [hover, setHover] = useState<number | null>(null);
   const hidden = useSettings().data?.hide_amounts === "1";
   const points = chartPoints(f);
-  const values = points.flatMap((p) => (p.scenario == null ? [p.base] : [p.base, p.scenario]));
+  const values = [...points.flatMap((p) => (p.scenario == null ? [p.base] : [p.base, p.scenario])), ...f.goals.map((g) => g.need)];
   const { min, max, step } = netWorthScale(values);
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
@@ -238,6 +247,15 @@ function ForecastChart({ f }: { f: ForecastData }) {
         <path d={area} className="nw-area" />
         <path d={base} className="nw-line" pathLength={1} />
         {scenario && <path d={scenario} className="fc-scenario-line" />}
+        {f.goals.map((g) => {
+          const i = f.months.findIndex((m) => m.month === g.month) + 1;
+          return (
+            <g key={g.id} className={g.free >= 0 ? "fc-goal ok" : "fc-goal short"} data-testid="fc-goal-mark">
+              <line x1={x(i)} x2={x(i)} y1={y(g.need)} y2={y(points[i].base)} />
+              <path d={`M${x(i).toFixed(1)} ${(y(g.need) - 6).toFixed(1)} l6 6 l-6 6 l-6 -6 Z`} />
+            </g>
+          );
+        })}
         {points.map((p, i) => (
           <g key={i} onMouseEnter={() => setHover(i)}>
             <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
@@ -267,6 +285,14 @@ function ForecastChart({ f }: { f: ForecastData }) {
                   <M amount={m.scenario.closing} />
                 </div>
               )}
+              {f.goals
+                .filter((g) => g.month === m.month)
+                .map((g) => (
+                  <div key={g.id} className={g.free >= 0 ? "nw-tip-row goal" : "nw-tip-row goal over"}>
+                    <span>Цель «{g.name}»</span>
+                    <M amount={g.need} />
+                  </div>
+                ))}
             </>
           ) : (
             <>
@@ -352,6 +378,11 @@ function MonthsTable({ f }: { f: ForecastData }) {
                             <span>Обычные траты {i === 0 ? "(ещё ожидаются)" : "(среднее)"}</span>
                             <M amount={-m.regularExpense} />
                           </div>
+                          {seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits) && (
+                            <div className="hint" data-testid="fc-season">
+                              Учтена сезонность, {seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits)}
+                            </div>
+                          )}
                         </div>
                         <div>
                           {items.length === 0 ? (
@@ -386,7 +417,8 @@ function HowCounted({ f }: { f: ForecastData }) {
       <h2>Как считается</h2>
       <ul>
         <li>
-          Старт — деньги на наличных, картах и вкладах «в общем балансе» сегодня: <M amount={f.liquid} />.
+          Старт — деньги на наличных, картах и вкладах «в общем балансе» сегодня: <M amount={f.liquid} />
+          {f.excludedAccounts.length > 0 && <> (без {f.excludedAccounts.join(", ")})</>}.
         </li>
         <li>
           По датам: напоминания с суммой, платежи по графикам займов и запланированные операции.
@@ -399,9 +431,38 @@ function HowCounted({ f }: { f: ForecastData }) {
         ) : (
           <li>Прошлых полных месяцев ещё нет: обычные доходы и траты появятся в прогнозе через месяц учёта.</li>
         )}
+        {f.seasonal && (
+          <li>
+            Сезонность: учёт ведётся больше года, поэтому каждый месяц поправлен на то, насколько тот же месяц год назад отличался от среднего за год. Например, дорогой декабрь
+            снова будет дороже, а за год сумма та же.
+          </li>
+        )}
         <li>Сценарий меняет только линию «что если», ваши данные он не трогает.</li>
       </ul>
+      <AccountsPicker />
       {f.missingRates.length > 0 && <p className="hint warn">Нет курса для {f.missingRates.join(", ")}: такие суммы не вошли. Курс вводится в Настройках.</p>}
+    </div>
+  );
+}
+
+/** Какие быстрые счета входят в прогноз: по умолчанию все «в общем балансе». */
+function AccountsPicker() {
+  const list = useQuery({ queryKey: ["forecastAccounts"], queryFn: api.forecastAccounts }).data;
+  const save = useAction(api.setForecastExcluded);
+  if (!list || list.length < 2) return null;
+  const toggle = (id: string) => {
+    const excluded = list.filter((a) => (a.id === id ? a.included : !a.included)).map((a) => a.id);
+    if (excluded.length === list.length) return;
+    save.run(excluded);
+  };
+  return (
+    <div className="fc-accounts" data-testid="fc-accounts">
+      <span className="hint">В прогнозе:</span>
+      {list.map((a) => (
+        <button key={a.id} className={a.included ? "fc-chip active" : "fc-chip"} onClick={() => toggle(a.id)} aria-pressed={a.included} data-testid="fc-account">
+          {a.name}
+        </button>
+      ))}
     </div>
   );
 }

@@ -72,3 +72,21 @@ test("поток денег за месяц: продукты справа, не
   await waitText(browser, '[data-testid="flow-chart"]', /Из накоплений/);
   await waitText(browser, '[data-testid="flow-card"]', money("Расходы 5 000 ₽"));
 });
+
+test("0.19: плитка на Главной, строка в Календаре и выбор счетов прогноза", async () => {
+  await openSection(browser, "Главная");
+  await waitText(browser, '[data-testid="home-ahead"]', money("95 000 ₽"));
+  await waitText(browser, '[data-testid="home-ahead"]', /хватает на все 12 месяцев/);
+
+  await openSection(browser, "Календарь");
+  await waitText(browser, '[data-testid="cal-forecast"]', money("95 000 ₽"));
+
+  // Без «Карты» в прогнозе остаются только пустые наличные.
+  await openSection(browser, "Взгляд вперёд");
+  await waitCount(browser, '[data-testid="fc-account"]', 2);
+  await click(browser, "Карта", '//*[@data-testid="fc-accounts"]');
+  await waitText(browser, '[data-testid="fc-now"]', money("0 ₽"));
+  await waitText(browser, '[data-testid="fc-how"]', /без Карта/);
+  await click(browser, "Карта", '//*[@data-testid="fc-accounts"]');
+  await waitText(browser, '[data-testid="fc-now"]', money("95 000 ₽"));
+});
