@@ -54,7 +54,7 @@ fn budget_name(state: &AppState, db: &Storage) -> String {
 pub fn sync(state: &AppState, only_if_due: bool) {
     static RUNNING: Mutex<()> = Mutex::new(());
     let Ok(_running) = RUNNING.lock() else { return };
-    let (copy, dir, name) = {
+    let (copy, dir, name, origin) = {
         let guard = state.lock_db();
         let Ok(db) = guard.as_ref() else { return };
         let c = db.conn();
@@ -69,7 +69,7 @@ pub fn sync(state: &AppState, only_if_due: bool) {
         };
         let name = budget_name(state, db);
         match vault::sync_copy(c, &dir, &name) {
-            Ok(copy) => (copy, dir, name),
+            Ok(copy) => (copy, dir, name, db.path().to_path_buf()),
             Err(e) => {
                 eprintln!("папка сохранности не обновлена: {e}");
                 let _ = vault::record(c, &Err(e));
@@ -86,11 +86,12 @@ pub fn sync(state: &AppState, only_if_due: bool) {
     // Свежую копию сразу проверяем пробным восстановлением (в памяти, без базы).
     let verified = backups::verify(&copy);
     let guard = state.lock_db();
-    // Пока строился Excel, могли открыть другой файл бюджета: его статус не трогаем.
+    // Пока строился Excel и шла проверка, могли открыть другой файл бюджета:
+    // его статус не трогаем (сверяем файл базы, а не имя — имена бывают одинаковые).
     if let Ok(db) = guard.as_ref() {
-        if budget_name(state, db) == name {
+        if db.path() == origin {
             let _ = vault::record(db.conn(), &report);
-            let _ = backups::record_verify(db.conn(), &verified);
+            let _ = backups::record_verify_for(db, &origin, &verified);
         }
     }
 }
@@ -99,16 +100,20 @@ pub fn sync(state: &AppState, only_if_due: bool) {
 /// или выбранный файл копии. Итог запоминается, его видно в Настройках.
 #[tauri::command(async)]
 pub fn verify_backup(state: State<AppState>, path: Option<String>) -> CmdResult<Status> {
-    let file = match path.filter(|p| !p.trim().is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => {
-            let guard = state.lock_db();
-            let db = guard.as_ref().map_err(|e| e.clone())?;
-            let dir = vault::dir(db.conn(), &state.vault_default)
-                .map_err(|e| e.to_string())?
-                .ok_or("папка сохранности выключена: выберите файл копии")?;
-            dir.join(format!("{}.{}", budget_name(&state, db), vault::EXT))
-        }
+    // Бюджет, для которого проверяем: итог запишется только в него.
+    let (file, origin) = {
+        let guard = state.lock_db();
+        let db = guard.as_ref().map_err(|e| e.clone())?;
+        let file = match path.filter(|p| !p.trim().is_empty()) {
+            Some(p) => PathBuf::from(p),
+            None => {
+                let dir = vault::dir(db.conn(), &state.vault_default)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("папка сохранности выключена: выберите файл копии")?;
+                dir.join(format!("{}.{}", budget_name(&state, db), vault::EXT))
+            }
+        };
+        (file, db.path().to_path_buf())
     };
     let result = if file.exists() {
         backups::verify(&file)
@@ -121,7 +126,12 @@ pub fn verify_backup(state: State<AppState>, path: Option<String>) -> CmdResult<
     {
         let guard = state.lock_db();
         let db = guard.as_ref().map_err(|e| e.clone())?;
-        backups::record_verify(db.conn(), &result).map_err(|e| e.to_string())?;
+        if !backups::record_verify_for(db, &origin, &result).map_err(|e| e.to_string())? {
+            return Err(
+                "пока шла проверка, открыли другой бюджет: итог не записан, проверьте ещё раз"
+                    .into(),
+            );
+        }
     }
     result.map_err(|e| e.to_string())?;
     status_of(&state)

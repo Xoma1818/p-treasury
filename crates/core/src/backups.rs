@@ -8,7 +8,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::error::invalid;
-use crate::storage::{backup_to, LATEST_VERSION};
+use crate::storage::{backup_to, Storage, LATEST_VERSION};
 use crate::{settings, time, Error, Result};
 
 /// Итог проверки восстановления копии.
@@ -82,6 +82,18 @@ pub fn record_verify(conn: &Connection, result: &Result<Verified>) -> Result<()>
         Err(e) => settings::set(conn, "backup_verify_error", &e.to_string())?,
     }
     Ok(())
+}
+
+/// Записать итог проверки в тот бюджет, копию которого проверяли (`origin` —
+/// его файл). Проверка идёт без замка на базу, и за это время могли открыть
+/// другой бюджет: тогда итог не записывается (`false`), иначе другой бюджет
+/// показал бы проверку, которой у него не было.
+pub fn record_verify_for(db: &Storage, origin: &Path, result: &Result<Verified>) -> Result<bool> {
+    if db.path() != origin {
+        return Ok(false);
+    }
+    record_verify(db.conn(), result)?;
+    Ok(true)
 }
 
 /// Последняя успешно проверенная копия и ошибка последней проверки.
@@ -171,7 +183,7 @@ pub fn reminder_due(conn: &Connection, today: &str) -> Result<bool> {
 mod tests {
     use super::*;
     use crate::accounts::{self, tests::input};
-    use crate::storage::{OpenOptions, Storage};
+    use crate::storage::OpenOptions;
 
     fn opts(dir: &Path) -> OpenOptions {
         OpenOptions {
@@ -325,6 +337,30 @@ mod tests {
         let txt = dir.path().join("notes.txt");
         std::fs::write(&txt, "привет").unwrap();
         assert!(verify(&txt).is_err());
+    }
+
+    #[test]
+    fn verify_result_stays_with_its_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let a_path = dir.path().join("a.db");
+        let a = Storage::open(&a_path, &opts(dir.path())).unwrap();
+        accounts::create(a.conn(), &input("Карта", "debit", "RUB", 1_000)).unwrap();
+        let copy = dir.path().join("a-copy.db");
+        backup(a.conn(), &copy).unwrap();
+        let b = Storage::open(&dir.path().join("b.db"), &opts(dir.path())).unwrap();
+
+        // Проверяли копию бюджета A, а к концу проверки открыт бюджет B.
+        let ok = verify(&copy);
+        assert!(ok.is_ok());
+        assert!(!record_verify_for(&b, &a_path, &ok).unwrap());
+        assert_eq!(last_verified(b.conn()).unwrap(), (None, None));
+        let bad: Result<Verified> = Err(Error::Validation("сбой".into()));
+        assert!(!record_verify_for(&b, &a_path, &bad).unwrap());
+        assert_eq!(last_verified(b.conn()).unwrap(), (None, None));
+
+        // Тот же бюджет — итог записан.
+        assert!(record_verify_for(&a, &a_path, &ok).unwrap());
+        assert_eq!(last_verified(a.conn()).unwrap().0, Some(ok.unwrap()));
     }
 
     #[test]
