@@ -164,7 +164,7 @@ test("закрытие окна: по умолчанию в трей, с нас�
   // Выбрана папка облака: файлы ложатся в её подпапку P-Treasury, папка сразу обновляется.
   await waitText(browser, '[data-testid="vault-dir"]', new RegExp(vault.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   await browser.waitUntil(async () => !(await (await browser.$('[role="dialog"]')).isExisting()), { timeout: 5000 });
-  await choose(browser, "autobackupKeep", "хранить 3");
+  await choose(browser, "autobackupKeep", "3");
   assert.ok(existsSync(join(vault, "Мой бюджет.ptreasury")));
   assert.equal(readdirSync(join(vault, "Копии")).length, 1);
 

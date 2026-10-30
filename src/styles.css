@@ -453,6 +453,11 @@ tr.dup td { color: var(--muted); }
 .update-notes { white-space: pre-wrap; max-height: 320px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .card .facts + .btn-group { margin-top: 12px; }
 .card > .btn-group + .hint { margin-top: 10px; }
+/* «Сохранность данных»: флажок сверху, сведения, затем две группы действий с подзаголовками. */
+.vault-card > .check { margin-bottom: 12px; }
+.vault-card .sub-head { display: flex; align-items: center; }
+.vault-card .btn-group { flex-wrap: wrap; align-items: center; }
+.vault-keep { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 
 /* Этап 7: удобство. */
 .amount-field { display: inline-flex; align-items: center; gap: 8px; }

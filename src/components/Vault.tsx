@@ -189,11 +189,15 @@ export function VaultCard() {
   const open = useAction(() => api.openFolder(s!.dir));
 
   return (
-    <div className="card" data-testid="backup-card">
+    <div className="card vault-card" data-testid="backup-card">
       <h2>
         Сохранность данных
         <Hint of="backups" />
       </h2>
+      <label className="check">
+        <input type="checkbox" name="vaultOn" checked={s?.on ?? true} onChange={(e) => setSetting.run("vault_on", e.target.checked ? "1" : "0")} />
+        Вести папку сохранности
+      </label>
       {s && !s.on && <p className="warn">Папка сохранности выключена: копии делаются только вручную.</p>}
       {s?.on && s.error && (
         <p className="warn" data-testid="vault-error">
@@ -219,6 +223,7 @@ export function VaultCard() {
         </dt>
         <dd>копия всех данных (.ptreasury), прошлые копии, Excel: операции, сводка за год, все данные</dd>
       </dl>
+      <h3 className="sub-head">Папка сохранности</h3>
       <div className="btn-group">
         <button className="btn primary" onClick={() => sync.run()} disabled={sync.busy || !s?.on} aria-busy={sync.busy} data-done={sync.done || undefined}>
           Сохранить сейчас
@@ -229,27 +234,30 @@ export function VaultCard() {
         <button className="btn" onClick={() => setDialog("place")}>
           Сменить папку
         </button>
-        <select name="autobackupKeep" aria-label="Сколько прошлых копий хранить" value={s?.keep ?? "10"} onChange={(e) => setSetting.run("autobackup_keep", e.target.value)}>
-          {[3, 5, 10, 20, 30].map((n) => (
-            <option key={n} value={String(n)}>
-              хранить {n}
-            </option>
-          ))}
-        </select>
+        <span className="spacer" />
+        <label className="vault-keep">
+          Хранить прошлых копий
+          <select name="autobackupKeep" value={s?.keep ?? "10"} onChange={(e) => setSetting.run("autobackup_keep", e.target.value)}>
+            {[3, 5, 10, 20, 30].map((n) => (
+              <option key={n} value={String(n)}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-      <div className="btn-group">
-        <button className="btn" onClick={() => setDialog("transfer")}>
-          Перенести данные с другого компьютера
-        </button>
+      <h3 className="sub-head">
+        Копия и перенос
         <Hint of="transfer" />
+      </h3>
+      <div className="btn-group">
         <button className="btn" onClick={() => copy.run()} title="Сохранить копию в любой файл, например на флешку">
           Сделать копию
         </button>
         <RestoreButton onDone={setMsg} />
-        <label className="check">
-          <input type="checkbox" name="vaultOn" checked={s?.on ?? true} onChange={(e) => setSetting.run("vault_on", e.target.checked ? "1" : "0")} />
-          Вести папку сохранности
-        </label>
+        <button className="btn" onClick={() => setDialog("transfer")}>
+          Перенести данные с другого компьютера
+        </button>
       </div>
       {msg && (
         <p className="ok" data-testid="backup-msg">
