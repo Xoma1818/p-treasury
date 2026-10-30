@@ -1,3 +1,4 @@
+import { LeadDaysPicker, parseLead } from "../components/Reminders";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
@@ -82,6 +83,31 @@ export function Settings() {
                 {[0, 1, 2, 3, 5, 7, 10].map((d) => (
                   <option key={d} value={String(d)}>
                     {d === 0 ? "в день платежа" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label="Своё напоминание о платеже — заранее" hint="Для новых и старых напоминаний без своих сроков; в сам день оно приходит всегда.">
+            {() => (
+              <LeadDaysPicker
+                name="defaultLeadDays"
+                value={parseLead(settings?.reminder_lead_days ?? "3,1")}
+                onChange={(v) => setSetting.run("reminder_lead_days", v.join(","))}
+              />
+            )}
+          </Field>
+          <Field label="Проверять деньги на счёте перед платежом" hint="Если к расходу с выбранного счёта денег не хватит с учётом других платежей, придёт предупреждение.">
+            {(id) => (
+              <select
+                id={id}
+                name="fundsDays"
+                value={settings?.reminder_funds_days ?? "3"}
+                onChange={(e) => setSetting.run("reminder_funds_days", e.target.value)}
+              >
+                {[0, 1, 2, 3, 5, 7].map((d) => (
+                  <option key={d} value={String(d)}>
+                    {d === 0 ? "не проверять" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
                   </option>
                 ))}
               </select>

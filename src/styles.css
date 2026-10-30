@@ -757,3 +757,9 @@ input[type="checkbox"]:checked { animation: none; }
 .nav-key { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
 .tree li { position: relative; }
 .tree .row-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; padding-left: 16px; background: linear-gradient(90deg, transparent, var(--card) 14px); }
+
+/* Напоминания наперёд (0.23) */
+.lead-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lead-days .lead-own { width: 110px; }
+.occurrence .shortfall { color: var(--over-strong); }
+.occurrence .edited { color: var(--muted); font-style: italic; }

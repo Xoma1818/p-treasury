@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type BudgetEvent } from "../lib/api";
-import { formatDate, today } from "../lib/dates";
+import { addDays, formatDate, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
 import { useSettings, useCurrencies } from "../lib/queries";
 import { useUi } from "../lib/store";
@@ -10,6 +10,7 @@ import { AmountInput, amountText, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 import { Hint } from "./Hint";
+import { ReminderButton } from "./Reminders";
 
 const STATE: Record<BudgetEvent["state"], string> = { upcoming: "скоро", current: "идёт сейчас", past: "прошло" };
 
@@ -64,6 +65,12 @@ export function EventsCard() {
                 )}
               </div>
               <div className="event-actions">
+                {e.state !== "past" && (
+                  <ReminderButton
+                    reminderId={e.reminderId}
+                    preset={{ title: e.name, startAt: `${addDays(e.startDate, -1)}T09:00`, eventId: e.id }}
+                  />
+                )}
                 {e.count > 0 && (
                   <button className="link" onClick={() => showTransactions({ eventId: e.id })}>
                     Операции: {e.count}

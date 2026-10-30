@@ -32,7 +32,7 @@ pub struct Note {
     pub budget_id: Option<String>,
     /// К чему привязана, для списка: «Счёт: Карта», «Долг: Банк».
     pub link: Option<String>,
-    /// Напоминание у заметки (0.24).
+    /// Напоминание у заметки (0.23).
     pub reminder_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,

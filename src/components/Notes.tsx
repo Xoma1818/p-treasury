@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useState } from "react";
 import { api, type Note, type NoteFilter, type NoteInput } from "../lib/api";
-import { formatDate } from "../lib/dates";
+import { formatDate, today } from "../lib/dates";
 import { loadReceiptNotes } from "../lib/receiptNotes";
 import { useAction } from "../lib/useAction";
 import { Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
+import { ReminderButton } from "./Reminders";
 
 /** Привязка заметки: одна из операции, счёта, долга или месяца бюджета. */
 export type NoteLink = Pick<NoteInput, "transactionId" | "accountId" | "debtId" | "budgetId">;
@@ -34,6 +35,12 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
         <Field label="Текст">{(id) => <textarea id={id} name="noteBody" rows={4} value={body} onChange={(e) => setBody(e.target.value)} autoFocus />}</Field>
         <Field label="Дата (необязательно)">{(id) => <input id={id} name="noteDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         {note?.link && <p className="hint">Привязана: {note.link}</p>}
+        {note && (
+          <ReminderButton
+            reminderId={note.reminderId}
+            preset={{ title: note.body.split("\n")[0].slice(0, 80), startAt: `${note.date ?? today()}T09:00`, noteId: note.id }}
+          />
+        )}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {note && (
@@ -61,6 +68,7 @@ export function NoteList({ notes, onOpen, showLink = true }: { notes: Note[]; on
         <li key={n.id} className="clickable" onClick={() => onOpen(n)} data-testid="note">
           <div className="note-body">{n.body}</div>
           <div className="sub">
+            {n.reminderId && <span title="Есть напоминание">🔔 </span>}
             {n.date && formatDate(n.date)}
             {showLink && n.link && <span> · {n.link}</span>}
           </div>

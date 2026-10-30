@@ -38,7 +38,7 @@ pub struct Event {
     /// `upcoming`, `current` или `past`.
     pub state: String,
     pub missing_rates: Vec<String>,
-    /// Напоминание у события (0.24).
+    /// Напоминание у события (0.23).
     pub reminder_id: Option<String>,
 }
 
