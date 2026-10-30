@@ -6,7 +6,7 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type DebtCard, type DebtDetail, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { annualHint, earlyLines, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
+import { annualHint, earlyLines, keptRate, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
 import { parseAmount } from "../../lib/money";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -49,7 +49,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
   const terms = useMemo((): TermsInput | null => {
     const principal = parseAmount(f.amount, mu);
-    const rateBp = parseRate(f.rate, f.ratePeriod);
+    const rateBp = keptRate(f.rate, f.ratePeriod, c.rateBp, c.ratePeriod);
     if (!principal || principal <= 0 || rateBp === null) return null;
     const bullet = f.repayment === "bullet";
     // У ядра срок — число платежей.

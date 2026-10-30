@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, keptRate, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -204,5 +204,23 @@ describe("0.20: правка условий не меняет число пла�
     expect(toCalcInput(form({ payEvery: "quarter", term: "4", termUnit: "months" })).error).toBe("Раз в квартал: срок кратен трём месяцам");
     expect(termToPayments("1301", "payments", "two_weeks")).toBeNull();
     expect(termToPayments("1300", "payments", "two_weeks")).toBe(1300);
+  });
+});
+
+describe("0.20: правка условий не меняет ставку", () => {
+  it("ставку не трогали — сохраняется точно, даже если в поле она округлена", () => {
+    // 18 % годовых в день — «0,05» в поле; раньше при сохранении становилось 18,25 %.
+    expect(rateToInput(1800, "day")).toBe("0,05");
+    expect(parseRate("0,05", "day")).toBe(1825);
+    expect(keptRate("0,05", "day", 1800, "day")).toBe(1800);
+    // В месяц: 17,5 % годовых — «1,46» в поле, а не 17,52 %.
+    expect(rateToInput(1750, "month")).toBe("1,46");
+    expect(keptRate("1,46", "month", 1750, "month")).toBe(1750);
+    expect(keptRate("", "year", 0, "year")).toBe(0);
+  });
+  it("ставку или период поменяли — берётся новое значение", () => {
+    expect(keptRate("0,06", "day", 1800, "day")).toBe(2190);
+    expect(keptRate("0,05", "month", 1800, "day")).toBe(60);
+    expect(keptRate("1,5", "month", 1800, "year")).toBe(1800);
   });
 });

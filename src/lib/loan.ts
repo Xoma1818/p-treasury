@@ -112,6 +112,13 @@ export function rateToInput(bp: number, period: RatePeriod = "year"): string {
   return pct(Math.round(bp / PER_YEAR[period]));
 }
 
+/** Ставка из поля при правке сохранённого займа: если поле и период не трогали, — сохранённая
+ *  ставка без потерь (18 % годовых в поле «в день» показаны как «0,05», а не 18,25 %). */
+export function keptRate(rate: string, period: RatePeriod, savedBp: number, savedPeriod: RatePeriod): number | null {
+  if (period === savedPeriod && rate === (savedBp ? rateToInput(savedBp, savedPeriod) : "")) return savedBp;
+  return parseRate(rate, period);
+}
+
 /** «0,5 % в день», «18 % годовых». */
 export function rateLabel(bp: number, period: RatePeriod = "year"): string {
   return `${pct(Math.round(bp / PER_YEAR[period]))} ${RATE_PERIODS[period]}`;
