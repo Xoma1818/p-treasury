@@ -420,6 +420,7 @@ pub fn undo(conn: &Connection, import_id: &str) -> Result<usize> {
         Some(Some(_)) => return invalid("этот импорт уже отменён"),
         Some(None) => {}
     }
+    unmerge(conn, import_id)?;
     conn.execute(
         "DELETE FROM import_suggestions WHERE import_id = ?1",
         [import_id],
@@ -660,11 +661,99 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
             )?;
         }
     }
+    for side_id in [out_id, into_id] {
+        remember_side(conn, &transfer, side_id)?;
+    }
     conn.execute(
         "DELETE FROM transactions WHERE id IN (?1, ?2)",
         params![out_id, into_id],
     )?;
     Ok(transfer)
+}
+
+/// Колонки `transactions`, как они есть в этой версии базы.
+fn txn_columns(conn: &Connection) -> Result<Vec<String>> {
+    Ok(conn
+        .prepare("SELECT name FROM pragma_table_info('transactions')")?
+        .query_map([], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?)
+}
+
+/// Запомнить сторону перевода целиком (все колонки и теги) перед удалением.
+fn remember_side(conn: &Connection, transfer: &str, side_id: &str) -> Result<()> {
+    let fields = txn_columns(conn)?
+        .iter()
+        .map(|c| format!("'{c}', \"{c}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    conn.execute(
+        &format!(
+            "INSERT INTO import_merges (transfer_id, side_id, import_id, row_json, tags_json)
+             SELECT ?1, id, import_id, json_object({fields}),
+                    (SELECT coalesce(json_group_array(tag_id), '[]')
+                     FROM transaction_tags WHERE transaction_id = t.id)
+             FROM transactions t WHERE id = ?2"
+        ),
+        params![transfer, side_id],
+    )?;
+    Ok(())
+}
+
+/// Отмена импорта, одна сторона которого вошла в объединённый перевод:
+/// перевод удаляется, а сторона другой выписки (если её импорт не отменён) или
+/// ручная запись возвращается как была.
+fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
+    let transfers: Vec<String> = conn
+        .prepare("SELECT DISTINCT transfer_id FROM import_merges WHERE import_id = ?1")?
+        .query_map([import_id], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    let cols = txn_columns(conn)?;
+    let names = cols
+        .iter()
+        .map(|c| format!("\"{c}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let values = cols
+        .iter()
+        .map(|c| format!("json_extract(row_json, '$.\"{c}\"')"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    for transfer in transfers {
+        let back: Vec<(String, Option<String>, String)> = conn
+            .prepare(
+                "SELECT m.side_id, m.import_id, m.tags_json FROM import_merges m
+                 LEFT JOIN import_batches b ON b.id = m.import_id
+                 WHERE m.transfer_id = ?1
+                   AND (m.import_id IS NULL OR (m.import_id <> ?2 AND b.undone_at IS NULL))",
+            )?
+            .query_map(params![transfer, import_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        for (side, from, tags) in &back {
+            conn.execute(
+                &format!(
+                    "INSERT INTO transactions ({names})
+                     SELECT {values} FROM import_merges WHERE transfer_id = ?1 AND side_id = ?2"
+                ),
+                params![transfer, side],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+                 SELECT ?1, value FROM json_each(?2)",
+                params![side, tags],
+            )?;
+            if let Some(from) = from {
+                conn.execute(
+                    "UPDATE import_batches SET added = added + 1, linked = linked - 1 WHERE id = ?1",
+                    [from],
+                )?;
+            }
+        }
+        // Связи строк банка и сохранённые стороны уходят вместе с переводом.
+        conn.execute("DELETE FROM transactions WHERE id = ?1", [&transfer])?;
+    }
+    Ok(())
 }
 
 /// Это разные операции: предложение больше не показывается.
@@ -947,6 +1036,175 @@ mod tests {
             &op("income", "2026-10-11", &tbank, 500_000, &inc, "Пополнение")
         )
         .unwrap());
+    }
+
+    /// Две стороны перевода: Сбер (выписка или ручная запись) и Т-Банк
+    /// (выписка), объединены в перевод. Возвращает (сбер, т-банк, импорт Сбера
+    /// или None, импорт Т-Банка, перевод).
+    fn merged(
+        c: &Connection,
+        sber_manual: bool,
+    ) -> (String, String, Option<String>, String, String) {
+        crate::categories::seed_defaults(c).unwrap();
+        let sber = account(c, "Сбер");
+        let tbank = account(c, "Т-Банк");
+        let other = cat(c, "Прочие расходы");
+        let inc = cat(c, "Прочие доходы");
+        let out = op(
+            "expense",
+            "2026-10-10",
+            &sber,
+            500_000,
+            &other,
+            "Перевод на Т-Банк",
+        );
+        let first = if sber_manual {
+            let id = transactions::create(
+                c,
+                &TxnInput {
+                    note: Some("маме".into()),
+                    ..out
+                },
+            )
+            .unwrap();
+            c.execute("INSERT INTO tags (id, name) VALUES ('t1', 'семья')", [])
+                .unwrap();
+            c.execute("INSERT INTO transaction_tags VALUES (?1, 't1')", [&id])
+                .unwrap();
+            None
+        } else {
+            Some(
+                save(c, Origin::Manual, "sber.pdf", Some("Сбер"), &[out], 0)
+                    .unwrap()
+                    .import_id,
+            )
+        };
+        let r = save(
+            c,
+            Origin::Manual,
+            "tbank.csv",
+            Some("Т-Банк"),
+            &[op(
+                "income",
+                "2026-10-11",
+                &tbank,
+                500_000,
+                &inc,
+                "Пополнение",
+            )],
+            0,
+        )
+        .unwrap();
+        let s = suggestions(c).unwrap();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, "transfer");
+        let transfer = accept(c, &s[0].id).unwrap();
+        (sber, tbank, first, r.import_id, transfer)
+    }
+
+    fn bal(c: &Connection, acc: &str) -> i64 {
+        accounts::balance(c, acc, None).unwrap()
+    }
+
+    fn counters(c: &Connection, id: &str) -> (i64, i64) {
+        c.query_row(
+            "SELECT added, linked FROM import_batches WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn undoing_both_imports_removes_merged_transfer() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let (sber, tbank, first, second, _) = merged(c, false);
+        let before = (bal(c, &sber), bal(c, &tbank));
+        undo(c, &first.unwrap()).unwrap();
+        undo(c, &second).unwrap();
+        assert_eq!(count(c), 0, "перевода не осталось");
+        assert_eq!(
+            (bal(c, &sber), bal(c, &tbank)),
+            (0, 0),
+            "балансы как до выписок"
+        );
+        assert_eq!(before, (-500_000, 500_000));
+        let left: i64 = c
+            .query_row("SELECT count(*) FROM import_merges", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn undoing_one_import_brings_back_the_other_side() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let (sber, tbank, first, second, _) = merged(c, false);
+        let first = first.unwrap();
+        undo(c, &second).unwrap();
+        // Осталась строка выписки Сбера, как до объединения.
+        let (kind, amount, payee, from): (String, i64, String, String) = c
+            .query_row(
+                "SELECT type, amount, payee, import_id FROM transactions",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (kind.as_str(), amount, payee.as_str()),
+            ("expense", 500_000, "Перевод на Т-Банк")
+        );
+        assert_eq!(from, first);
+        assert_eq!(counters(c, &first), (1, 0));
+        assert_eq!((bal(c, &sber), bal(c, &tbank)), (-500_000, 0));
+        // Повторная выписка Т-Банка снова предложит перевод, отмена Сбера — уберёт всё.
+        assert!(!crate::bank_import::exists(
+            c,
+            &op(
+                "income",
+                "2026-10-11",
+                &tbank,
+                500_000,
+                &cat(c, "Прочие доходы"),
+                "Пополнение"
+            )
+        )
+        .unwrap());
+        assert_eq!(undo(c, &first).unwrap(), 1);
+        assert_eq!(count(c), 0);
+    }
+
+    #[test]
+    fn undoing_import_restores_manual_side_with_tags() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let (sber, tbank, _, second, transfer) = merged(c, true);
+        let old: String = c
+            .query_row(
+                "SELECT side_id FROM import_merges WHERE import_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_ne!(old, transfer);
+        undo(c, &second).unwrap();
+        let (id, note, category): (String, String, Option<String>) = c
+            .query_row("SELECT id, note, category_id FROM transactions", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!((id.as_str(), note.as_str()), (old.as_str(), "маме"));
+        assert_eq!(category, Some(cat(c, "Прочие расходы")));
+        let tag: String = c
+            .query_row(
+                "SELECT tag_id FROM transaction_tags WHERE transaction_id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tag, "t1");
+        assert_eq!((bal(c, &sber), bal(c, &tbank)), (-500_000, 0));
     }
 
     #[test]

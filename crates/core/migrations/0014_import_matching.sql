@@ -1,5 +1,5 @@
 -- 0.22 «Понятные цифры»: история импорта и сопоставление записей (Issue #44).
--- Номер миграции 0014: 0013 занята 0.21 «Понятно и надёжно».
+-- Номер миграции 0014: 0013 занята 0.21 «Понятнее и надёжнее».
 
 -- Каждый импорт выписки или CSV — одна запись истории. Сколько операций
 -- добавлено и связано, считается по import_id и import_links; skipped —
@@ -49,4 +49,16 @@ CREATE TABLE import_suggestions (
     old_id     TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
     UNIQUE (new_id, old_id)
+);
+
+-- Две операции, объединённые в перевод (accept transfer): исходные строки
+-- хранятся здесь, чтобы отмена импорта одной стороны вернула другую как была,
+-- а отмена обоих импортов не оставила перевода.
+CREATE TABLE import_merges (
+    transfer_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    side_id     TEXT NOT NULL,
+    import_id   TEXT REFERENCES import_batches(id) ON DELETE SET NULL,
+    row_json    TEXT NOT NULL,
+    tags_json   TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (transfer_id, side_id)
 );
