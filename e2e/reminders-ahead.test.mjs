@@ -2,7 +2,7 @@
 // проверка денег на счёте, правка одного платежа, напоминание у заметки и сроки «заранее» в Настройках.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -90,9 +90,14 @@ test("заметка «Продлить страховку»: напоминан
   await click(browser, "за день", lastDialog);
   await click(browser, "за неделю", lastDialog);
   await click(browser, "Сохранить", lastDialog);
-  await browser.waitUntil(async () => (await browser.$$('[role="dialog"]')).length === 1, { timeout: 5000 });
-  await click(browser, "Отмена", '//*[@role="dialog"]');
-  await waitText(browser, '[data-testid="notes"]', /🔔/);
+  await browser
+    .waitUntil(async () => (await browser.$$('[role="dialog"]')).length <= 1, { timeout: 5000 })
+    .catch(async () => {
+      const alert = await browser.$('[role="alert"]');
+      throw new Error(`напоминание не сохранилось: ${(await alert.isExisting()) ? await alert.getText() : "диалогов " + (await browser.$$('[role="dialog"]')).length}`);
+    });
+  if ((await browser.$$('[role="dialog"]')).length) await click(browser, "Отмена", '//*[@role="dialog"]');
+  await waitContent(browser, '[data-testid="notes"]', /🔔/);
 
   await openReminders();
   await waitText(browser, '[data-testid="rem-all"]', /Продлить страховку.*за неделю.*из заметки/s);
@@ -107,7 +112,7 @@ test("Настройки: сроки «заранее» по умолчанию 
   await choose(browser, "fundsDays", "за 5 дней");
   await openReminders();
   await click(browser, "+ Напоминание");
-  const opt = await (await browser.$('[name="reminderLeadMode"] option[value="default"]')).getText();
+  const opt = await browser.execute(() => document.querySelector('[name="reminderLeadMode"] option[value="default"]').textContent);
   assert.match(opt, /за неделю, за 3 дня, за день/);
   await click(browser, "Отмена", '//*[@role="dialog"]');
 });

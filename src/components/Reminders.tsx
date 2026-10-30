@@ -154,6 +154,8 @@ export function ReminderForm({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
+          // Форма может открываться поверх другой (заметки): та не должна сохраняться.
+          e.stopPropagation();
           submit();
         }}
       >

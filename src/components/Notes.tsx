@@ -35,12 +35,6 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
         <Field label="Текст">{(id) => <textarea id={id} name="noteBody" rows={4} value={body} onChange={(e) => setBody(e.target.value)} autoFocus />}</Field>
         <Field label="Дата (необязательно)">{(id) => <input id={id} name="noteDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         {note?.link && <p className="hint">Привязана: {note.link}</p>}
-        {note && (
-          <ReminderButton
-            reminderId={note.reminderId}
-            preset={{ title: note.body.split("\n")[0].slice(0, 80), startAt: `${note.date ?? today()}T09:00`, noteId: note.id }}
-          />
-        )}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {note && (
@@ -57,6 +51,12 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
           </button>
         </div>
       </form>
+      {note && (
+        <ReminderButton
+          reminderId={note.reminderId}
+          preset={{ title: note.body.split("\n")[0].slice(0, 80), startAt: `${note.date ?? today()}T09:00`, noteId: note.id }}
+        />
+      )}
     </Modal>
   );
 }
