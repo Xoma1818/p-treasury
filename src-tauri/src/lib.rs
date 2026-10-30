@@ -315,6 +315,7 @@ pub fn run() {
             commands::report_by_tag,
             commands::spending_vs_usual,
             commands::list_checks,
+            commands::budget_warnings,
             commands::dismiss_check,
             commands::delete_duplicate,
             commands::net_worth_history,

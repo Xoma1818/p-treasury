@@ -130,7 +130,7 @@ fn budget_limits(app: &AppHandle) {
             .notification()
             .builder()
             .title("P-Treasury")
-            .body(&a.text)
+            .body(budget_alerts::notify_text(a))
             .show();
     }
     let _ = app.emit("budget-alerts", alerts.len());

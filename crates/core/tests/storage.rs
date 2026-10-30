@@ -750,7 +750,10 @@ fn upgrade_from_0_17_keeps_data_and_forecast_works() {
         let now = dump(c, t, cols);
         if t == "settings" {
             // Новые версии добавляют свои настройки; прежние не меняются.
-            assert!(old.iter().all(|r| now.contains(r)), "настройки не изменились");
+            assert!(
+                old.iter().all(|r| now.contains(r)),
+                "настройки не изменились"
+            );
             continue;
         }
         assert_eq!(&now, old, "таблица {t} не изменилась");

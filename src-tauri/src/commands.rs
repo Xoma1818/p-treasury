@@ -14,6 +14,7 @@ use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::auto_import::{self, ScanResult};
 use budget_core::backups::{self, BackupInfo};
+use budget_core::budget_alerts;
 use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::bulk::{self, BulkResult};
 use budget_core::calendar::{self, Month};
@@ -1860,6 +1861,14 @@ pub fn spending_vs_usual(state: State<AppState>, month: String) -> CmdResult<Usu
 #[tauri::command(async)]
 pub fn list_checks(state: State<AppState>) -> CmdResult<Vec<Check>> {
     with_db(&state, |db| checks::list(db.conn(), &time::today_local()))
+}
+
+/// Предупреждения бюджета, которые сейчас в силе: с причиной и периодом.
+#[tauri::command(async)]
+pub fn budget_warnings(state: State<AppState>) -> CmdResult<Vec<budget_alerts::Alert>> {
+    with_db(&state, |db| {
+        budget_alerts::active(db.conn(), &time::today_local())
+    })
 }
 
 #[tauri::command(async)]

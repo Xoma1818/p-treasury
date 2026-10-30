@@ -1,7 +1,7 @@
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Check } from "../lib/api";
+import { api, type BudgetWarning, type Check } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
@@ -16,6 +16,7 @@ export function UnusualCard() {
   const month = useMonthOf(today()).data?.month;
   const r = useQuery({ queryKey: ["usual", month], queryFn: () => api.spendingVsUsual(month!), enabled: !!month }).data;
   const showTransactions = useUi((s) => s.showTransactions);
+  const editPlan = useUi((s) => s.editPlan);
   return (
     <div className="card qw-card" data-testid="home-unusual">
       <h2>
@@ -29,7 +30,7 @@ export function UnusualCard() {
           {r.home.map((u) => {
             const up = (u.percent ?? 0) > 0;
             return (
-              <li key={u.categoryId}>
+              <li key={u.categoryId} className="qw-unusual">
                 <button
                   className="qw-row clickable"
                   data-testid="unusual-row"
@@ -43,9 +44,20 @@ export function UnusualCard() {
                     {u.percent == null ? "раньше не было" : `на ${Math.abs(u.percent)} % ${up ? "больше" : "меньше"} обычного`}
                   </span>
                   <span className="qw-sub muted">
-                    обычно <Money amount={u.usual} symbol={r.baseSymbol} />
+                    {up ? "Почему: " : ""}обычно за это время <Money amount={u.usual} symbol={r.baseSymbol} />
+                    {u.percent == null ? ", в прошлые месяцы трат здесь не было" : ""}
                   </span>
                 </button>
+                <span className="qw-actions">
+                  <button className="btn small" onClick={() => showTransactions({ categoryId: u.categoryId, dateFrom: r.from, dateTo: r.to })}>
+                    Посмотреть операции
+                  </button>
+                  {up && (
+                    <button className="btn small" onClick={() => editPlan(u.categoryId)} title="Открыть бюджет месяца на лимите этой категории">
+                      Изменить план
+                    </button>
+                  )}
+                </span>
               </li>
             );
           })}
@@ -75,7 +87,10 @@ export function ChecksCard() {
   const hidden = useSettings().data?.hide_amounts === "1";
   const show = (t: string) => (hidden ? maskAmounts(t) : t);
   const checks = useQuery({ queryKey: ["checks"], queryFn: api.listChecks }).data;
+  const warnings = useQuery({ queryKey: ["budgetWarnings"], queryFn: api.budgetWarnings }).data ?? [];
   const openTxnForm = useUi((s) => s.openTxnForm);
+  const showTransactions = useUi((s) => s.showTransactions);
+  const editPlan = useUi((s) => s.editPlan);
   const dismiss = useAction(api.dismissCheck);
   const removeSecond = useAction(api.deleteDuplicate);
   const [opening, setOpening] = useState<string | null>(null);
@@ -105,7 +120,14 @@ export function ChecksCard() {
         Проверьте
         <Hint of="home.checks" />
       </h2>
-      {checks && checks.length === 0 && (
+      {warnings.length > 0 && (
+        <ul className="qw-list" data-testid="budget-warnings">
+          {warnings.map((w) => (
+            <WarningRow key={w.key} w={w} show={show} onOps={() => showTransactions({ categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end })} onPlan={() => editPlan(w.categoryId)} onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />
+          ))}
+        </ul>
+      )}
+      {checks && checks.length === 0 && warnings.length === 0 && (
         <p className="qw-calm" data-testid="checks-calm">
           <span className="qw-ok" aria-hidden>
             ✓
@@ -153,6 +175,32 @@ export function ChecksCard() {
       )}
       <ErrorText error={dismiss.error ?? removeSecond.error ?? openError} />
     </div>
+  );
+}
+
+/** Предупреждение бюджета: что случилось, почему и что сделать. */
+function WarningRow({ w, show, onOps, onPlan, onOk, busy }: { w: BudgetWarning; show: (t: string) => string; onOps: () => void; onPlan: () => void; onOk: () => void; busy: boolean }) {
+  return (
+    <li className="qw-check" data-testid="warning-row" data-level={w.level}>
+      <span className={w.level === 100 ? "qw-kind over" : "qw-kind warn"}>{w.level === 100 ? "Лимит превышен" : "Скоро лимит"}</span>
+      <span className="qw-text">
+        <span className="qw-main">{show(w.text)}</span>
+        <span className="qw-sub muted" data-testid="warning-reason">
+          {show(w.reason)}
+        </span>
+      </span>
+      <span className="qw-actions">
+        <button className="btn small" onClick={onOps} data-testid="warning-ops">
+          Посмотреть операции
+        </button>
+        <button className="btn small" onClick={onPlan} data-testid="warning-plan">
+          Изменить план
+        </button>
+        <button className="btn small" onClick={onOk} disabled={busy} title="Скрыть до следующего порога в этом месяце">
+          Понятно
+        </button>
+      </span>
+    </li>
   );
 }
 

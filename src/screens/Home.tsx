@@ -42,6 +42,8 @@ export function Home() {
   const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
+  const vault = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus }).data;
+  const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
   const { openTxnForm, showTransactions, go } = useUi();
@@ -263,7 +265,36 @@ export function Home() {
 
       {backup?.reminderDue && (
         <div className="card banner warn" data-testid="backup-reminder">
-          Резервной копии не было больше месяца. Сделайте копию на флешку или включите автокопию.
+          <span>
+            Резервной копии не было больше месяца.{" "}
+            <span className="muted" data-testid="backup-reason">
+              {backup.lastBackupAt ? `Последняя — ${formatDate(backup.lastBackupAt.slice(0, 10))}` : "Копия ещё не делалась"}
+              {vault && !vault.on ? ", папка сохранности выключена" : vault?.error ? `, папка сохранности не обновляется: ${vault.error}` : ""}. Если компьютер сломается, данные пропадут.
+            </span>
+          </span>
+          {vault?.on && (
+            <button className="btn primary" onClick={() => syncVault.run()} disabled={syncVault.busy} aria-busy={syncVault.busy}>
+              Сохранить сейчас
+            </button>
+          )}
+          <button className="btn" onClick={() => go("settings")}>
+            Открыть настройки
+          </button>
+        </div>
+      )}
+      {vault?.verifyError && (
+        <div className="card banner warn" data-testid="verify-warning">
+          <span>
+            Последняя копия не прошла проверку восстановления.{" "}
+            <span className="muted">
+              Причина: {vault.verifyError}. {vault.verified ? `Последняя исправная копия проверена ${formatDate(vault.verified.checkedAt.slice(0, 10))}.` : "Исправной копии пока нет."}
+            </span>
+          </span>
+          {vault.on && (
+            <button className="btn primary" onClick={() => syncVault.run()} disabled={syncVault.busy} aria-busy={syncVault.busy}>
+              Сделать новую копию
+            </button>
+          )}
           <button className="btn" onClick={() => go("settings")}>
             Открыть настройки
           </button>

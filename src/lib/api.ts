@@ -1478,6 +1478,22 @@ export interface Check {
   secondId: string | null;
 }
 
+/** Предупреждение бюджета: что случилось, почему и за какой период. */
+export interface BudgetWarning {
+  key: string;
+  month: string;
+  categoryId: string;
+  categoryName: string;
+  level: 80 | 100;
+  actual: number;
+  limit: number;
+  percent: number;
+  text: string;
+  reason: string;
+  start: string;
+  end: string;
+}
+
 /** Чистые активы на конец месяца (В3). */
 export interface NetWorthPoint {
   month: string;
@@ -1715,6 +1731,7 @@ export const api = {
   reportByTag: (tagId: string, from: string, to: string) => invoke<TagReport>("report_by_tag", { tagId, from, to }),
   spendingVsUsual: (month: string) => invoke<UsualReport>("spending_vs_usual", { month }),
   listChecks: () => invoke<Check[]>("list_checks"),
+  budgetWarnings: () => invoke<BudgetWarning[]>("budget_warnings"),
   dismissCheck: (key: string) => invoke<void>("dismiss_check", { key }),
   deleteDuplicate: (secondId: string) => invoke<void>("delete_duplicate", { secondId }),
   /** months: 12, 36 или null — всё время. */
