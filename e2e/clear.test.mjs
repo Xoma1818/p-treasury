@@ -2,7 +2,7 @@
 // причиной и действием, «было → станет» у займов, проверка восстановления копии.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, click, save, waitText } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, click, choose, save, waitText } from "./app.mjs";
 
 let browser;
 const today = new Date().toISOString().slice(0, 10);
@@ -50,7 +50,7 @@ test("предупреждение бюджета объясняет причи�
   await invoke("set_budget_limit", { budgetId: budget, categoryId: cafe.id, limit: 1_000_000 });
   for (const amount of [500_000, 450_000]) {
     await invoke("create_transaction", {
-      input: { kind: "expense", date: today, accountId: card.id, amount, categoryId: cafe.id, toAccountId: null, toAmount: null, payee: "Шоколадница", note: null },
+      input: { type: "expense", date: today, accountId: card.id, amount, categoryId: cafe.id, toAccountId: null, toAmount: null, payee: "Шоколадница", note: null },
       eventId: null,
     });
   }
@@ -74,6 +74,7 @@ test("займ: «было → станет» перед сохранением 
   await click(browser, "Калькулятор");
   await fill(browser, "principal", "300000");
   await fill(browser, "rate", "18");
+  await choose(browser, "termUnit", "месяцев");
   await fill(browser, "term", "24");
   await click(browser, "Записать заём");
   await fill(browser, "counterparty", "Банк сравнения");
