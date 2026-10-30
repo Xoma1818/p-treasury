@@ -107,9 +107,7 @@ fn notices(app: &AppHandle) {
         let Ok(list) = reminders::due_notices(db.conn(), time::now_local()) else {
             return;
         };
-        if list.is_empty()
-            || reminders::mark_notices(db.conn(), &list, &time::now_utc()).is_err()
-        {
+        if list.is_empty() || reminders::mark_notices(db.conn(), &list, &time::now_utc()).is_err() {
             return;
         }
         list
@@ -139,7 +137,9 @@ pub fn register_actions(app: &AppHandle) {
             { "id": "tomorrow", "title": "Завтра" }
         ]
     }]);
-    let Ok(types) = serde_json::from_value(types) else { return };
+    let Ok(types) = serde_json::from_value(types) else {
+        return;
+    };
     let n = app.notification();
     let _ = n.register_action_types(types);
     let handle = app.clone();
@@ -166,7 +166,9 @@ pub fn register_actions(app: &AppHandle) {
                         "{}T09:00",
                         time::now_local().date() + chrono::Duration::days(1)
                     );
-                    reminders::snooze(db.conn(), &key, &until).ok().map(|_| Paid::Marked)
+                    reminders::snooze(db.conn(), &key, &until)
+                        .ok()
+                        .map(|_| Paid::Marked)
                 }
                 _ => Some(Paid::NeedsForm),
             }

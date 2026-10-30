@@ -1292,7 +1292,9 @@ pub fn reopen_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
 
 #[tauri::command(async)]
 pub fn get_reminder(state: State<AppState>, id: String) -> CmdResult<reminders::Reminder> {
-    with_db(&state, |db| reminders::get(db.conn(), &id, time::now_local()))
+    with_db(&state, |db| {
+        reminders::get(db.conn(), &id, time::now_local())
+    })
 }
 
 /// Один платёж серии: своя сумма и (или) перенос.
@@ -1311,9 +1313,11 @@ pub fn edit_reminder_occurrence(
 /// «Этот и все следующие»: с платежа `key` серия идёт по `input`.
 #[tauri::command(async)]
 pub fn split_reminder(state: State<AppState>, key: Key, input: ReminderInput) -> CmdResult<String> {
-    with_undo(&state, "Изменение следующих платежей", |c| {
-        reminders::split_from(c, &key, &input)
-    })
+    with_undo(
+        &state,
+        "Изменение следующих платежей",
+        |c| reminders::split_from(c, &key, &input),
+    )
 }
 
 #[tauri::command(async)]
