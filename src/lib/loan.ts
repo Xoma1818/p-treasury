@@ -116,6 +116,11 @@ export function rateLabel(bp: number, period: RatePeriod = "year"): string {
   return `${pct(Math.round(bp / PER_YEAR[period]))} ${RATE_PERIODS[period]}`;
 }
 
+/** Коротко для списка: годовая — «18 %», иначе «0,5 % в день». */
+export function rateShort(bp: number, period: RatePeriod = "year"): string {
+  return period === "year" ? `${pct(bp)} %` : rateLabel(bp, period);
+}
+
 /** Пояснение к ставке не за год: «≈ 182,5 % годовых». */
 export function annualHint(bp: number, period: RatePeriod): string | undefined {
   return period === "year" || !bp ? undefined : `≈ ${pct(bp)} % годовых`;

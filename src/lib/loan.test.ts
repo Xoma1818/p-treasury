@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateToInput, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -154,6 +154,8 @@ describe("0.20: ставка за период, частота платежей,
     expect(parseRate("3", "day")).toBeNull();
     expect(rateToInput(18_250, "day")).toBe("0,5");
     expect(rateLabel(1800, "month")).toBe("1,5 % в месяц");
+    expect(rateShort(1250)).toBe("12,5 %");
+    expect(rateShort(1800, "month")).toBe("1,5 % в месяц");
     expect(annualHint(18_250, "day")).toBe("≈ 182,5 % годовых");
     expect(annualHint(1800, "year")).toBeUndefined();
   });

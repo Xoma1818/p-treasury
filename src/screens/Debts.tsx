@@ -6,7 +6,7 @@ import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { api, REPAYMENTS, type DebtCard, type ScheduleRow } from "../lib/api";
 import { formatDate } from "../lib/dates";
-import { METHODS, PAY_EVERY, paymentsText, rateLabel } from "../lib/loan";
+import { METHODS, PAY_EVERY, paymentsText, rateLabel, rateShort } from "../lib/loan";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -122,7 +122,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
                     <td>
                       <div className="main">{d.counterparty}</div>
                       <div className="sub">
-                        {d.direction === "lent" ? "Я дал" : "Я взял"} · {d.rateBp ? rateLabel(d.rateBp, d.ratePeriod) : "без процентов"} · {REPAYMENTS[d.repaymentType].split(" (")[0].toLowerCase()}
+                        {d.direction === "lent" ? "Я дал" : "Я взял"} · {d.rateBp ? rateShort(d.rateBp, d.ratePeriod) : "без процентов"} · {REPAYMENTS[d.repaymentType].split(" (")[0].toLowerCase()}
                       </div>
                     </td>
                     <td className="num">
