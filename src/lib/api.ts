@@ -648,6 +648,94 @@ export interface Cushion {
   missingRates: string[];
 }
 
+/** Известная по дате сумма прогноза: + приход, − расход, в основной валюте. */
+export interface ForecastItem {
+  date: string;
+  title: string;
+  /** `reminder`, `debt`, `planned` или `change` (изменение сценария). */
+  kind: "reminder" | "debt" | "planned" | "change";
+  amount: number;
+}
+
+export interface ForecastMonth {
+  month: string;
+  start: string;
+  end: string;
+  opening: number;
+  regularIncome: number;
+  regularExpense: number;
+  plannedIncome: number;
+  plannedExpense: number;
+  closing: number;
+  items: ForecastItem[];
+  scenario: { delta: number; closing: number; items: ForecastItem[] } | null;
+}
+
+export interface Forecast {
+  baseCurrency: string;
+  currencySymbol: string;
+  minorUnits: number;
+  today: string;
+  liquid: number;
+  historyMonths: number;
+  avgIncome: number;
+  avgExpense: number;
+  excludedCategories: string[];
+  months: ForecastMonth[];
+  lowestMonth: string;
+  lowestBalance: number;
+  shortMonth: string | null;
+  cushionTenths: number | null;
+  scenarioId: string | null;
+  scenarioName: string | null;
+  scenarioLowestBalance: number | null;
+  scenarioShortMonth: string | null;
+  missingRates: string[];
+}
+
+export type ChangeKind = "once" | "monthly" | "income_pct" | "expense_pct";
+
+export interface ChangeInput {
+  kind: ChangeKind;
+  title: string;
+  /** Для once и monthly: + доход, − трата. */
+  amount: number | null;
+  /** Для income_pct и expense_pct: от −100 до 1000. */
+  percent: number | null;
+  startMonth: string;
+  months: number | null;
+}
+
+export interface ScenarioChange extends ChangeInput {
+  id: string;
+}
+
+export interface Scenario {
+  id: string;
+  name: string;
+  changes: ScenarioChange[];
+}
+
+export interface FlowNode {
+  id: string;
+  name: string;
+  amount: number;
+}
+
+export interface MoneyFlow {
+  baseCurrency: string;
+  currencySymbol: string;
+  minorUnits: number;
+  period: Period;
+  income: FlowNode[];
+  expense: FlowNode[];
+  totalIncome: number;
+  totalExpense: number;
+  invested: number;
+  saved: number;
+  missingRates: string[];
+}
+
 export interface Valuation {
   date: string;
   value: number;
@@ -1403,6 +1491,12 @@ export const api = {
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
     invoke<number>("fill_budget", { budgetId, mode, categoryId }),
   cushion: () => invoke<Cushion>("cushion"),
+  forecast: (scenarioId: string | null) => invoke<Forecast>("forecast", { scenarioId }),
+  listScenarios: () => invoke<Scenario[]>("list_scenarios"),
+  createScenario: (input: { name: string; changes: ChangeInput[] }) => invoke<string>("create_scenario", { input }),
+  updateScenario: (id: string, input: { name: string; changes: ChangeInput[] }) => invoke<void>("update_scenario", { id, input }),
+  deleteScenario: (id: string) => invoke<void>("delete_scenario", { id }),
+  moneyFlow: (kind: "month" | "year", month: string) => invoke<MoneyFlow>("money_flow", { kind, month }),
   investOverview: () => invoke<InvestOverview>("invest_overview"),
   investMonth: (month: string) => invoke<InvestMonth>("invest_month", { month }),
   setInvestValue: (accountId: string, date: string, value: number) => invoke<void>("set_invest_value", { accountId, date, value }),

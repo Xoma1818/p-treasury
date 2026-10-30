@@ -717,3 +717,40 @@ fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
         .unwrap();
     assert_eq!(restored_payment, 0);
 }
+
+/// Настоящая схема 0.17 (0001–0010) с данными примера обновляется до 0.18
+/// (0011_forecast): прежние таблицы не меняются, сценариев нет, прогноз и
+/// поток денег считаются на старых данных.
+#[test]
+fn upgrade_from_0_17_keeps_data_and_forecast_works() {
+    const AS_OF: &str = "2026-10-20";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let options = opts(dir.path());
+    let (tables, before) = {
+        let mut db = Storage::open_with(&path, &options, &MIGRATIONS[..10]).unwrap();
+        assert_eq!(db.schema_version().unwrap(), 10);
+        budget_core::demo::seed(db.conn_mut(), AS_OF).unwrap();
+        let c = db.conn();
+        let tables = schema_tables(c);
+        assert!(!tables.iter().any(|(t, _)| t.starts_with("forecast_")));
+        let before: Vec<Vec<String>> = tables.iter().map(|(t, cols)| dump(c, t, cols)).collect();
+        (tables, before)
+    };
+    let db = Storage::open(&path, &options).unwrap();
+    assert_eq!(db.schema_version().unwrap(), LATEST_VERSION);
+    assert!(
+        db.pre_migration_backup().is_some(),
+        "копия перед обновлением"
+    );
+    let c = db.conn();
+    for ((t, cols), old) in tables.iter().zip(&before) {
+        assert_eq!(&dump(c, t, cols), old, "таблица {t} не изменилась");
+    }
+    assert!(budget_core::forecast::list(c).unwrap().is_empty());
+    let f = budget_core::forecast::forecast(c, AS_OF, None).unwrap();
+    assert_eq!(f.months.len(), budget_core::forecast::HORIZON);
+    assert!(f.history_months > 0, "в примере есть прошлые месяцы");
+    budget_core::forecast::flow(c, "month", "2026-09").unwrap();
+    budget_core::forecast::flow(c, "year", "2026-10").unwrap();
+}

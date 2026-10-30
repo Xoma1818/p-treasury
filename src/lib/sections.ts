@@ -6,6 +6,7 @@ export const SECTIONS = [
   { id: "calendar", title: "Календарь", group: "Каждый день", hint: "Платежи и напоминания по дням", color: "#f472b6", stage: 5 },
   { id: "budget", title: "Бюджет", group: "Планы", hint: "Сколько можно тратить в этом месяце", color: "#a78bfa", stage: 2 },
   { id: "reports", title: "Отчёты", group: "Планы", hint: "Куда уходят деньги и что изменилось", color: "#facc15", stage: 3 },
+  { id: "forecast", title: "Взгляд вперёд", group: "Планы", hint: "Сколько денег будет через год и что, если что-то изменится", color: "#818cf8", stage: 7 },
   { id: "debts", title: "Займы и долги", group: "Долги и займы", hint: "Кому вы должны и кто должен вам, кредиты и график платежей", color: "#fb923c", stage: 4 },
   { id: "accounts", title: "Счета", group: "Справочники", hint: "Карты, наличные и вклады", color: "#34d399", stage: 1 },
   { id: "categories", title: "Категории", group: "Справочники", hint: "Статьи доходов и расходов", color: "#38bdf8", stage: 1 },

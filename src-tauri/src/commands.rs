@@ -26,6 +26,7 @@ use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::demo;
 use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
+use budget_core::forecast::{self, Flow, Forecast, Scenario, ScenarioInput};
 use budget_core::goals::{self, Goal, GoalInput};
 use budget_core::habits::{self, WeekSummary};
 use budget_core::invest::{self, MonthProgress};
@@ -492,6 +493,46 @@ pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()>
     with_undo(&state, "Удаление бюджета", |c| {
         budgets::delete(c, &budget_id)
     })
+}
+
+/// «Взгляд вперёд»: прогноз на 12 месяцев, со сценарием — и его линия.
+#[tauri::command(async)]
+pub fn forecast(state: State<AppState>, scenario_id: Option<String>) -> CmdResult<Forecast> {
+    with_db(&state, |db| {
+        forecast::forecast(db.conn(), &time::today_local(), scenario_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn list_scenarios(state: State<AppState>) -> CmdResult<Vec<Scenario>> {
+    with_db(&state, |db| forecast::list(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn create_scenario(state: State<AppState>, input: ScenarioInput) -> CmdResult<String> {
+    with_undo(&state, "Новый сценарий", |c| {
+        forecast::create(c, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_scenario(state: State<AppState>, id: String, input: ScenarioInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение сценария", |c| {
+        forecast::update(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_scenario(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление сценария", |c| {
+        forecast::delete(c, &id)
+    })
+}
+
+/// Поток денег за месяц или год (`kind` = `month` | `year`).
+#[tauri::command(async)]
+pub fn money_flow(state: State<AppState>, kind: String, month: String) -> CmdResult<Flow> {
+    with_db(&state, |db| forecast::flow(db.conn(), &kind, &month))
 }
 
 #[tauri::command(async)]

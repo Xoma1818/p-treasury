@@ -124,23 +124,96 @@ fn days_apart(a: &str, b: &str) -> Result<i64> {
         .abs())
 }
 
-/// Похоже на дубль: один счёт, одна сумма, тот же получатель (или то же
-/// описание), тот же или соседний день. Части разбитых чеков не сравниваются:
-/// удаление части действует на весь чек и не соответствует сумме предупреждения.
-fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
-    let mut out = Vec::new();
-    for (i, a) in list.iter().enumerate() {
-        for b in &list[i + 1..] {
-            if b.date.as_str() < since || a.account_id != b.account_id || a.amount != b.amount {
-                continue;
+/// Сравниваемая единица: одиночная операция или разбитый чек целиком.
+struct Unit<'a> {
+    /// Id операции или `split:<split_id>` у чека: ключ строки и «Удалить второй».
+    id: String,
+    /// Операция, которую открывает «Открыть» (у чека — его первая часть).
+    open_id: &'a str,
+    date: &'a str,
+    account_id: &'a str,
+    amount: i64,
+    payee: &'a str,
+    note: &'a str,
+    symbol: &'a str,
+    minor: u32,
+    /// Частей у разбитого чека; 0 — обычная операция.
+    parts: usize,
+}
+
+/// Префикс id разбитого чека в `second_id`.
+const SPLIT_PREFIX: &str = "split:";
+
+/// Части одного разбитого чека сводятся в одну единицу с суммой чека: так чек
+/// сравнивается целиком и с другим чеком, и с одиночной операцией на ту же сумму.
+fn units(list: &[Spend]) -> Vec<Unit<'_>> {
+    let mut out: Vec<Unit> = Vec::new();
+    let mut receipt_at: HashMap<&str, usize> = HashMap::new();
+    for s in list {
+        let unit = Unit {
+            id: s.id.clone(),
+            open_id: &s.id,
+            date: &s.date,
+            account_id: &s.account_id,
+            amount: s.amount,
+            payee: &s.payee,
+            note: &s.note,
+            symbol: &s.symbol,
+            minor: s.minor,
+            parts: 0,
+        };
+        let Some(split) = s.split_id.as_deref() else {
+            out.push(unit);
+            continue;
+        };
+        match receipt_at.get(split) {
+            Some(&i) => {
+                let r = &mut out[i];
+                r.amount += s.amount;
+                r.parts += 1;
+                // Описание общее, только если оно у всех частей одинаковое.
+                if r.note.to_lowercase() != s.note.to_lowercase() {
+                    r.note = "";
+                }
             }
-            if a.split_id.is_some() || b.split_id.is_some() {
+            None => {
+                receipt_at.insert(split, out.len());
+                out.push(Unit {
+                    id: format!("{SPLIT_PREFIX}{split}"),
+                    parts: 1,
+                    ..unit
+                });
+            }
+        }
+    }
+    out
+}
+
+/// «из 3 частей», «из 21 части».
+fn parts_of(n: usize) -> String {
+    let word = if n % 10 == 1 && n % 100 != 11 {
+        "части"
+    } else {
+        "частей"
+    };
+    format!("{n} {word}")
+}
+
+/// Похоже на дубль: один счёт, одна сумма, тот же получатель (или то же
+/// описание), тот же или соседний день. Разбитый чек сравнивается целиком
+/// (сумма всех частей), а «Удалить второй» удаляет его весь.
+fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
+    let all = units(list);
+    let mut out = Vec::new();
+    for (i, a) in all.iter().enumerate() {
+        for b in &all[i + 1..] {
+            if b.date < since || a.account_id != b.account_id || a.amount != b.amount {
                 continue;
             }
             let same_payee =
                 !a.payee.is_empty() && a.payee.to_lowercase() == b.payee.to_lowercase();
             let same_note = !a.note.is_empty() && a.note.to_lowercase() == b.note.to_lowercase();
-            if !(same_payee || same_note) || days_apart(&a.date, &b.date)? > 1 {
+            if !(same_payee || same_note) || days_apart(a.date, b.date)? > 1 {
                 continue;
             }
             // Список упорядочен по дате и времени записи: b — второй.
@@ -149,20 +222,29 @@ fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
             } else {
                 (&b.id, &a.id)
             };
-            let who = if same_payee { &a.payee } else { &a.note };
+            let who = if same_payee { a.payee } else { a.note };
             let when = if a.date == b.date {
-                dd_mm(&a.date)
+                dd_mm(a.date)
             } else {
-                format!("{} и {}", dd_mm(&a.date), dd_mm(&b.date))
+                format!("{} и {}", dd_mm(a.date), dd_mm(b.date))
+            };
+            let receipt = match (a.parts, b.parts) {
+                (0, 0) => String::new(),
+                (n, 0) => format!(" (первый — чек из {})", parts_of(n)),
+                (0, n) => format!(" (второй — чек из {})", parts_of(n)),
+                _ => " (оба — разбитые чеки)".to_string(),
             };
             out.push(Check {
                 key: format!("dup:{lo}:{hi}"),
                 kind: "duplicate".into(),
                 title: format!("Похоже на дубль: {who}"),
-                detail: format!("2 раза по {}: {when}", fmt(a.amount, a.minor, &a.symbol)),
+                detail: format!(
+                    "2 раза по {}: {when}{receipt}",
+                    fmt(a.amount, a.minor, a.symbol)
+                ),
                 // Дата — та же операция, что открывает «Открыть».
-                date: a.date.clone(),
-                transaction_id: a.id.clone(),
+                date: a.date.to_string(),
+                transaction_id: a.open_id.to_string(),
                 second_id: Some(b.id.clone()),
             });
         }
@@ -285,8 +367,12 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Check>> {
 /// «Удалить второй» у дубля: обычное удаление операции (в оболочке — шагом
 /// журнала отмены, Ctrl+Z возвращает её).
 pub fn delete_second(conn: &Connection, second_id: &str) -> Result<()> {
-    // Защита и от устаревшей карточки: «Удалить второй» не может удалить чек
-    // целиком, показывая пользователю только сумму одной его части.
+    // Разбитый чек приходит как `split:<id>`: строка показывала сумму всего чека.
+    if let Some(split) = second_id.strip_prefix(SPLIT_PREFIX) {
+        return crate::receipts::delete(conn, split);
+    }
+    // Защита и от устаревшей карточки: по id одной части «Удалить второй» не
+    // удаляет чек целиком, показывая пользователю только сумму этой части.
     if transactions::get(conn, second_id)?.split_id.is_some() {
         return crate::error::invalid(
             "это часть разбитого чека: удалите чек целиком в «Операциях»",
@@ -366,7 +452,13 @@ mod tests {
         };
         let split = receipts::create(c, &receipt()).unwrap();
         let other_split = receipts::create(c, &receipt()).unwrap();
-        assert!(list(c, TODAY).unwrap().is_empty());
+        // Части по отдельности не сравниваются: строка одна — на чеки целиком.
+        let checks = list(c, TODAY).unwrap();
+        assert_eq!(checks.len(), 1, "{checks:?}");
+        assert_eq!(
+            checks[0].second_id.as_deref(),
+            Some(format!("split:{other_split}").as_str())
+        );
 
         // Даже прямой вызов из устаревшей карточки не удаляет весь чек за
         // 1 500 ₽ под видом одного дубля на 1 000 ₽.
@@ -380,10 +472,147 @@ mod tests {
         // Настоящие дубли одиночных операций по-прежнему обнаруживаются.
         let second = spend(c, &card, &food, TODAY, 100_000, "Ашан");
         let checks = list(c, TODAY).unwrap();
+        let single: Vec<_> = checks
+            .iter()
+            .filter(|ch| ch.transaction_id == first)
+            .collect();
+        assert_eq!(checks.len(), 2, "{checks:?}");
+        assert_eq!(single.len(), 1, "{checks:?}");
+        assert_eq!(single[0].kind, "duplicate");
+        assert_eq!(single[0].second_id.as_deref(), Some(second.as_str()));
+    }
+
+    #[test]
+    fn whole_split_receipts_are_duplicates_and_deleted_whole_with_undo() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
+        let cash = accounts::create(db.conn(), &input("Наличные", "cash", "RUB", 0)).unwrap();
+        let food = cat(db.conn(), "Супермаркет");
+        let drug = cat(db.conn(), "Аптека");
+        let receipt = |date: &str, account: &str, food_amount: i64| ReceiptInput {
+            date: date.into(),
+            account_id: account.into(),
+            payee: Some("Перекрёсток".into()),
+            note: None,
+            total: food_amount + 50_000,
+            parts: vec![
+                PartInput {
+                    category_id: food.clone(),
+                    amount: food_amount,
+                    note: None,
+                },
+                PartInput {
+                    category_id: drug.clone(),
+                    amount: 50_000,
+                    note: None,
+                },
+            ],
+            tags: vec![],
+            event_id: None,
+        };
+        let c = db.conn_mut();
+        let first = receipts::create(c, &receipt("2026-10-14", &card, 70_000)).unwrap();
+        // Тот же чек, внесённый повторно на следующий день, но разбитый иначе:
+        // сумма чека та же — это дубль.
+        let mut again = receipt("2026-10-15", &card, 70_000);
+        again.parts[0].amount = 60_000;
+        again.parts[1].amount = 60_000;
+        let second = receipts::create(c, &again).unwrap();
+        // Не дубли: другой счёт, другая сумма чека, через день.
+        receipts::create(c, &receipt("2026-10-15", &cash, 70_000)).unwrap();
+        receipts::create(c, &receipt("2026-10-15", &card, 70_001)).unwrap();
+        receipts::create(c, &receipt("2026-10-17", &card, 70_000)).unwrap();
+
+        let checks = list(c, TODAY).unwrap();
         assert_eq!(checks.len(), 1, "{checks:?}");
-        assert_eq!(checks[0].kind, "duplicate");
-        assert_eq!(checks[0].transaction_id, first);
-        assert_eq!(checks[0].second_id.as_deref(), Some(second.as_str()));
+        let d = &checks[0];
+        assert_eq!(d.title, "Похоже на дубль: Перекрёсток");
+        assert_eq!(
+            d.detail,
+            "2 раза по 1\u{a0}200 ₽: 14.10 и 15.10 (оба — разбитые чеки)"
+        );
+        // «Открыть» ведёт на часть первого чека и находит её за дату строки.
+        let first_parts: Vec<String> = receipts::get(c, &first)
+            .unwrap()
+            .parts
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert!(first_parts.contains(&d.transaction_id), "{d:?}");
+        assert_eq!(d.date, "2026-10-14");
+        assert_eq!(
+            d.second_id.as_deref(),
+            Some(format!("split:{second}").as_str())
+        );
+
+        // «Удалить второй» удаляет второй чек целиком, первый не трогает;
+        // одна отмена возвращает все его части.
+        let balance = accounts::balance(c, &card, None).unwrap();
+        let mut journal = Journal::default();
+        journal
+            .record(c, "Удалить второй", |c| {
+                delete_second(c, d.second_id.as_deref().unwrap())
+            })
+            .unwrap();
+        assert!(receipts::get(c, &second).is_err());
+        assert_eq!(receipts::get(c, &first).unwrap().total, 120_000);
+        assert_eq!(
+            accounts::balance(c, &card, None).unwrap(),
+            balance + 120_000
+        );
+        assert!(list(c, TODAY).unwrap().is_empty());
+        journal.undo(c).unwrap();
+        assert_eq!(receipts::get(c, &second).unwrap().parts.len(), 2);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), balance);
+        assert_eq!(list(c, TODAY).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn single_operation_duplicating_a_split_receipt() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 0)).unwrap();
+        let food = cat(db.conn(), "Супермаркет");
+        let drug = cat(db.conn(), "Аптека");
+        let c = db.conn_mut();
+        // Чек разбит вручную, затем та же покупка пришла одной операцией.
+        let split = receipts::create(
+            c,
+            &ReceiptInput {
+                date: "2026-10-14".into(),
+                account_id: card.clone(),
+                payee: Some("Лента".into()),
+                note: None,
+                total: 90_000,
+                parts: [(&food, 40_000), (&drug, 30_000), (&food, 20_000)]
+                    .into_iter()
+                    .map(|(cat, amount)| PartInput {
+                        category_id: cat.clone(),
+                        amount,
+                        note: None,
+                    })
+                    .collect(),
+                tags: vec![],
+                event_id: None,
+            },
+        )
+        .unwrap();
+        let single = spend(c, &card, &food, "2026-10-14", 90_000, "ЛЕНТА");
+        let checks = list(c, TODAY).unwrap();
+        assert_eq!(checks.len(), 1, "{checks:?}");
+        assert_eq!(
+            checks[0].detail,
+            "2 раза по 900 ₽: 14.10 (первый — чек из 3 частей)"
+        );
+        assert_eq!(checks[0].second_id.as_deref(), Some(single.as_str()));
+        delete_second(c, &single).unwrap();
+        assert_eq!(receipts::get(c, &split).unwrap().total, 90_000);
+        assert!(list(c, TODAY).unwrap().is_empty());
     }
 
     #[test]

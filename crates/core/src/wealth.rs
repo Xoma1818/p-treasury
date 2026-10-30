@@ -9,7 +9,7 @@ use crate::money::Rate;
 use crate::{accounts, budgets, currencies, reports, settings, Result};
 
 /// Типы счетов, деньги на которых можно быстро потратить.
-const LIQUID_TYPES: &[&str] = &["cash", "debit", "savings"];
+pub(crate) const LIQUID_TYPES: &[&str] = &["cash", "debit", "savings"];
 
 /// Сколько полных месяцев брать для средних расходов.
 const CUSHION_MONTHS: i32 = 6;
