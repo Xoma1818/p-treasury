@@ -16,7 +16,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
@@ -49,7 +49,7 @@ export function Home() {
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
   const layout = parseLayout(useSettings().data?.home_layout);
   const setSetting = useAction(api.setSetting);
-  const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", JSON.stringify(l));
+  const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
   const monthShort = monthName.replace(/ \d{4}$/, "");
@@ -272,9 +272,9 @@ export function Home() {
 
       {editing && (
         <p className="hint home-edit-hint">
-          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной.{" "}
+          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
           <button className="link" onClick={() => saveLayout(DEFAULT_LAYOUT)}>
-            Вернуть как было
+            Вернуть по умолчанию
           </button>
         </p>
       )}

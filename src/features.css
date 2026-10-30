@@ -352,3 +352,5 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }
 .ok-mark { color: var(--ok); font-weight: 600; }
+.home-cards-list { list-style: none; margin: 8px 0 12px; padding: 0; columns: 2 220px; column-gap: 24px; }
+.home-cards-list li { break-inside: avoid; padding: 2px 0; }

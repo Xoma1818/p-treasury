@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LAYOUT, moveBlock, parseLayout, placeBefore, toggleBlock } from "./homeLayout";
+import { DEFAULT_LAYOUT, DEFAULT_SHOWN, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting } from "./homeLayout";
 
 describe("своя Главная", () => {
   it("пустая или повреждённая настройка — порядок по умолчанию", () => {
@@ -22,7 +22,8 @@ describe("своя Главная", () => {
   });
 
   it("стрелки, перетаскивание и скрытие", () => {
-    let l = moveBlock(DEFAULT_LAYOUT, "summary", -1);
+    const all = { order: DEFAULT_LAYOUT.order, hidden: [] };
+    let l = moveBlock(all, "summary", -1);
     expect(l.order.slice(0, 2)).toEqual(["summary", "quick"]);
     l = moveBlock(l, "summary", -1);
     expect(l.order[0]).toBe("summary");
@@ -44,5 +45,26 @@ describe("своя Главная", () => {
     const old = DEFAULT_LAYOUT.order.filter((b) => b !== "ahead");
     const l = parseLayout(JSON.stringify({ order: old, hidden: [] }));
     expect(l.order[l.order.indexOf("cushion") + 1]).toBe("ahead");
+  });
+
+  it("0.21: по умолчанию видны пять основных карточек, остальные скрыты", () => {
+    const shown = DEFAULT_LAYOUT.order.filter((b) => !DEFAULT_LAYOUT.hidden.includes(b));
+    expect(shown).toEqual(["quick", "tiles", "checks", "main", "plans"]);
+    expect(DEFAULT_SHOWN).toHaveLength(5);
+    expect(DEFAULT_LAYOUT.hidden).toHaveLength(DEFAULT_LAYOUT.order.length - 5);
+  });
+
+  it("0.21: уже настроенная Главная не меняется, сохранение — в новом виде", () => {
+    const old = parseLayout(JSON.stringify({ order: DEFAULT_LAYOUT.order, hidden: ["trend"] }));
+    expect(old.hidden).toEqual(["trend"]);
+    const saved = JSON.parse(toSetting(old));
+    expect(saved).toEqual({ order: DEFAULT_LAYOUT.order, hidden: ["trend"], v: 2 });
+  });
+
+  it("0.21: в новой раскладке карточки из будущих обновлений приходят скрытыми", () => {
+    const order = DEFAULT_LAYOUT.order.filter((b) => b !== "ahead" && b !== "checks");
+    const l = parseLayout(JSON.stringify({ order, hidden: [], v: 2 }));
+    expect(l.hidden).toEqual(["ahead"]);
+    expect(l.order).toContain("checks");
   });
 });
