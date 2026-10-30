@@ -2,12 +2,11 @@
 
 **Личные и семейные финансы на вашем компьютере.** Счета, бюджет, займы, инвестиции и понятные отчёты — с локальным хранением данных, без обязательной регистрации.
 
-[Скачать для Windows](https://github.com/Xoma1818/p-treasury-releases/releases/latest) · [Что нового](CHANGELOG.md) · [Приёмка 0.17](https://github.com/Xoma1818/p-treasury/issues/28) · [Сообщить об ошибке](https://github.com/Xoma1818/p-treasury/issues/new/choose)
+[Скачать для Windows](https://github.com/Xoma1818/p-treasury-releases/releases/latest) · [Что нового](CHANGELOG.md) · [Задачи](https://github.com/Xoma1818/p-treasury/issues) · [Сообщить об ошибке](https://github.com/Xoma1818/p-treasury/issues/new/choose)
 
 | Сейчас | Где посмотреть |
 |---|---|
-| Стабильный выпуск **0.17.0 «Быстрые победы»** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.17.0) |
-| Приёмка 0.17 в настоящем окне | [Оставшиеся проверки](https://github.com/Xoma1818/p-treasury/issues/28) |
+| Стабильный выпуск **0.18.0 «Взгляд вперёд»** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.18.0) |
 | Следующая версия | Выписки популярных банков (ВТБ, Альфа, Газпромбанк, Озон, Яндекс и др.) — ждём настоящие выписки |
 | Команда и порядок работы | [Команда](docs/team.md), [рабочий план](docs/work-plan.md), [текущее состояние](docs/project-state.md) |
 
