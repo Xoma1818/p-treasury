@@ -107,9 +107,14 @@ pub struct Status {
     /// Что не удалось при последнем обновлении.
     pub error: Option<String>,
     pub keep: String,
+    /// Последняя копия, которая прошла проверку восстановления.
+    pub verified: Option<backups::Verified>,
+    /// Ошибка последней проверки восстановления.
+    pub verify_error: Option<String>,
 }
 
 pub fn status(conn: &Connection, default: &Path) -> Result<Status> {
+    let (verified, verify_error) = backups::last_verified(conn)?;
     let get = |k: &str| -> Result<String> { Ok(settings::get(conn, k)?.unwrap_or_default()) };
     let chosen = get("vault_dir")?;
     let custom = !chosen.trim().is_empty();
@@ -127,6 +132,8 @@ pub fn status(conn: &Connection, default: &Path) -> Result<Status> {
         keep: Some(get("autobackup_keep")?)
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "10".into()),
+        verified,
+        verify_error,
     })
 }
 

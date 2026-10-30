@@ -184,8 +184,19 @@ export function VaultCard() {
     const path = await pickSave(backup?.defaultName ?? "p-treasury.db", [DB]);
     if (!path) return;
     await api.backupNow(path);
-    setMsg(`Копия сохранена: ${baseName(path)}`);
+    // Сразу проверяем, что из этой копии можно восстановиться.
+    try {
+      await api.verifyBackup(path);
+      setMsg(`Копия сохранена и проверена: ${baseName(path)}`);
+    } catch (e) {
+      setMsg(`Копия сохранена: ${baseName(path)}, но проверка не прошла: ${String(e)}`);
+    }
   });
+  const verify = useAction((path?: string) => api.verifyBackup(path));
+  const verifyFile = async () => {
+    const path = await pickOpen([DB]);
+    if (path) verify.run(path);
+  };
   const open = useAction(() => api.openFolder(s!.dir));
 
   return (
@@ -218,6 +229,28 @@ export function VaultCard() {
         <dt>Последняя копия</dt>
         <dd data-testid="last-backup">{localWhen(backup?.lastBackupAt)}</dd>
         <dt>
+          Проверена
+          <Hint of="backupVerify" />
+        </dt>
+        <dd data-testid="backup-verified">
+          {s?.verified ? (
+            <>
+              <span className="ok-mark" aria-hidden>
+                ✓
+              </span>{" "}
+              {localWhen(s.verified.checkedAt)}: восстановление проходит, {contents(s.verified)}
+              <div className="hint mono">{s.verified.path}</div>
+            </>
+          ) : (
+            "ещё не проверялась"
+          )}
+          {s?.verifyError && (
+            <div className="warn" data-testid="backup-verify-error">
+              Последняя проверка не прошла: {s.verifyError}
+            </div>
+          )}
+        </dd>
+        <dt>
           В папке
           <Hint of="vaultExcel" />
         </dt>
@@ -233,6 +266,9 @@ export function VaultCard() {
         </button>
         <button className="btn" onClick={() => setDialog("place")}>
           Сменить папку
+        </button>
+        <button className="btn" onClick={() => verify.run()} disabled={verify.busy || !s?.on} aria-busy={verify.busy} data-done={verify.done || undefined} data-testid="verify-backup" title="Пробно восстановить свежую копию в памяти: рабочие данные не меняются">
+          Проверить восстановление
         </button>
         <span className="spacer" />
         <label className="vault-keep">
@@ -255,6 +291,9 @@ export function VaultCard() {
           Сделать копию
         </button>
         <RestoreButton onDone={setMsg} />
+        <button className="btn" onClick={() => verifyFile()} title="Проверить, что из выбранного файла копии можно восстановиться">
+          Проверить файл копии…
+        </button>
         <button className="btn" onClick={() => setDialog("transfer")}>
           Перенести данные с другого компьютера
         </button>
@@ -264,7 +303,7 @@ export function VaultCard() {
           {msg}
         </p>
       )}
-      <ErrorText error={copy.error ?? open.error ?? setSetting.error ?? sync.error} />
+      <ErrorText error={copy.error ?? open.error ?? setSetting.error ?? sync.error ?? verify.error} />
       {dialog === "place" && <PlaceDialog current={s?.dir ?? ""} onClose={() => setDialog(null)} />}
       {dialog === "transfer" && <TransferDialog onClose={() => setDialog(null)} onDone={setMsg} />}
     </div>

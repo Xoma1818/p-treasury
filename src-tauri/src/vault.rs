@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use budget_core::vault::{self, Found, Status};
-use budget_core::{onboarding, settings, storage::Storage, time};
+use budget_core::{backups, onboarding, settings, storage::Storage, time};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
@@ -83,13 +83,48 @@ pub fn sync(state: &AppState, only_if_due: bool) {
             .map(|e| e.to_string()),
         copy: copy.display().to_string(),
     });
+    // Свежую копию сразу проверяем пробным восстановлением (в памяти, без базы).
+    let verified = backups::verify(&copy);
     let guard = state.lock_db();
     // Пока строился Excel, могли открыть другой файл бюджета: его статус не трогаем.
     if let Ok(db) = guard.as_ref() {
         if budget_name(state, db) == name {
             let _ = vault::record(db.conn(), &report);
+            let _ = backups::record_verify(db.conn(), &verified);
         }
     }
+}
+
+/// Проверить восстановление: свежая копия в папке сохранности (`path` пусто)
+/// или выбранный файл копии. Итог запоминается, его видно в Настройках.
+#[tauri::command(async)]
+pub fn verify_backup(state: State<AppState>, path: Option<String>) -> CmdResult<Status> {
+    let file = match path.filter(|p| !p.trim().is_empty()) {
+        Some(p) => PathBuf::from(p),
+        None => {
+            let guard = state.lock_db();
+            let db = guard.as_ref().map_err(|e| e.clone())?;
+            let dir = vault::dir(db.conn(), &state.vault_default)
+                .map_err(|e| e.to_string())?
+                .ok_or("папка сохранности выключена: выберите файл копии")?;
+            dir.join(format!("{}.{}", budget_name(&state, db), vault::EXT))
+        }
+    };
+    let result = if file.exists() {
+        backups::verify(&file)
+    } else {
+        Err(budget_core::Error::Validation(format!(
+            "копии ещё нет: {}. Нажмите «Сохранить сейчас»",
+            file.display()
+        )))
+    };
+    {
+        let guard = state.lock_db();
+        let db = guard.as_ref().map_err(|e| e.clone())?;
+        backups::record_verify(db.conn(), &result).map_err(|e| e.to_string())?;
+    }
+    result.map_err(|e| e.to_string())?;
+    status_of(&state)
 }
 
 /// При выходе из приложения — один раз (и закрытие окна, и событие выхода вызывают её).

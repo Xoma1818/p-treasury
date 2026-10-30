@@ -1172,6 +1172,19 @@ export interface VaultStatus {
   syncedAt: string | null;
   error: string | null;
   keep: string;
+  /** Последняя копия, прошедшая проверку восстановления. */
+  verified: VerifiedBackup | null;
+  /** Ошибка последней проверки восстановления. */
+  verifyError: string | null;
+}
+
+export interface VerifiedBackup {
+  path: string;
+  checkedAt: string;
+  schemaVersion: number;
+  accounts: number;
+  transactions: number;
+  lastDate: string | null;
 }
 
 export interface VaultPlace {
@@ -1649,6 +1662,8 @@ export const api = {
   restoreBackup: (path: string) => invoke<string>("restore_backup", { path }),
   vaultStatus: () => invoke<VaultStatus>("vault_status"),
   vaultSync: () => invoke<VaultStatus>("vault_sync"),
+  /** Пробное восстановление: свежая копия папки сохранности (без пути) или выбранный файл. */
+  verifyBackup: (path?: string) => invoke<VaultStatus>("verify_backup", { path: path ?? null }),
   vaultPlaces: () => invoke<VaultPlace[]>("vault_places"),
   setVaultDir: (path: string | null) => invoke<VaultStatus>("set_vault_dir", { path }),
   vaultScan: (dirs?: string[]) => invoke<VaultFound[]>("vault_scan", { dirs: dirs ?? null }),

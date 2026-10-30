@@ -351,3 +351,4 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-tip { min-width: 240px; }
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }
+.ok-mark { color: var(--ok); font-weight: 600; }

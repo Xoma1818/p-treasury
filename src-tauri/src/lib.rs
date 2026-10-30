@@ -256,6 +256,7 @@ pub fn run() {
             commands::restore_backup,
             vault::vault_status,
             vault::vault_sync,
+            vault::verify_backup,
             vault::vault_places,
             vault::set_vault_dir,
             vault::vault_scan,
