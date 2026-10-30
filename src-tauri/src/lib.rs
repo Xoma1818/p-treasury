@@ -277,6 +277,8 @@ pub fn run() {
             commands::update_scenario,
             commands::delete_scenario,
             commands::money_flow,
+            commands::forecast_accounts,
+            commands::set_forecast_excluded,
             commands::create_goal,
             commands::update_goal,
             commands::delete_goal,

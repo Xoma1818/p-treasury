@@ -86,8 +86,18 @@ test("вид месяца: платёж по кредиту, подарок 20-�
   await openReminders();
   await newReminder({ title: "Подарок маме", date: `${futureMonth}-20`, time: "10:00", repeat: "Ежегодно", amount: "5000", category: "Подарки" });
   await click(browser, "Месяц");
-  while (!(await browser.$(`[data-testid="cal-day"][data-date="${futureMonth}-20"]`).isExisting())) {
+  // Листаем по одному месяцу и ждём, пока он загрузится: иначе быстрые щелчки
+  // проскакивают нужный месяц, пока данные ещё считаются.
+  const shown = async () => {
+    await browser.waitUntil(() => browser.$('[data-testid="cal-day"]').isExisting(), { timeout: 10000 });
+    return (await browser.$('[data-testid="cal-day"]').getAttribute("data-date")).slice(0, 7);
+  };
+  for (let m = await shown(); m < futureMonth; ) {
+    const [y, mm] = m.split("-").map(Number);
+    const next = `${mm === 12 ? y + 1 : y}-${String((mm % 12) + 1).padStart(2, "0")}`;
     await (await browser.$('button[aria-label="Следующий месяц"]')).click();
+    await browser.waitUntil(async () => (await shown()) === next, { timeout: 10000, timeoutMsg: `не открылся ${next}` });
+    m = next;
   }
   await waitContent(browser, `[data-testid="cal-day"][data-date="${futureMonth}-20"]`, /Подарок маме/);
   const debtDays = await browser.$$('[data-testid="cal-day"] [data-testid="cal-debt"]');

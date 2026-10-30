@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { CushionCard } from "../components/Cushion";
+import { AheadCard } from "../components/Ahead";
 import { change, DaysCard, Delta, Sparkline, sparkSeries, SummaryCard, TrendCard, useDashboard } from "../components/Dashboard";
 import { InvestCard } from "../components/Invest";
 import { QuickEntry } from "../components/QuickEntry";
@@ -132,6 +133,7 @@ export function Home() {
     checks: <ChecksCard />,
     unusual: <UnusualCard />,
     cushion: <CushionCard />,
+    ahead: <AheadCard />,
     invest: <InvestCard />,
     templates: <TemplatesCard />,
     spend: <SpendCard />,

@@ -26,7 +26,7 @@ use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::demo;
 use budget_core::events::{self, Event, EventInput};
 use budget_core::export;
-use budget_core::forecast::{self, Flow, Forecast, Scenario, ScenarioInput};
+use budget_core::forecast::{self, Flow, Forecast, ForecastAccount, Scenario, ScenarioInput};
 use budget_core::goals::{self, Goal, GoalInput};
 use budget_core::habits::{self, WeekSummary};
 use budget_core::invest::{self, MonthProgress};
@@ -526,6 +526,19 @@ pub fn update_scenario(state: State<AppState>, id: String, input: ScenarioInput)
 pub fn delete_scenario(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление сценария", |c| {
         forecast::delete(c, &id)
+    })
+}
+
+/// Счета, которые входят в прогноз (по умолчанию все быстрые «в общем балансе»).
+#[tauri::command(async)]
+pub fn forecast_accounts(state: State<AppState>) -> CmdResult<Vec<ForecastAccount>> {
+    with_db(&state, |db| forecast::accounts(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn set_forecast_excluded(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_db(&state, |db| {
+        forecast::set_excluded_accounts(db.conn(), &ids)
     })
 }
 

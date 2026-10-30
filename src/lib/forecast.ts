@@ -1,7 +1,7 @@
 // «Взгляд вперёд» (0.18): подписи изменений сценария, заготовки «что если»
 // и раскладка диаграммы «Поток денег». Чистые функции — проверяются тестами.
-import type { ChangeInput, ChangeKind, Forecast, MoneyFlow } from "./api";
-import { monthTitle, shiftMonth } from "./dates";
+import type { ChangeInput, ChangeKind, Forecast, GoalMark, MoneyFlow } from "./api";
+import { formatDate, monthTitle, shiftMonth } from "./dates";
 import { formatMoney } from "./money";
 
 export const CHANGE_KINDS: [ChangeKind, string][] = [
@@ -146,4 +146,34 @@ export function ribbon(x0: number, a0: number, a1: number, x1: number, b0: numbe
   const c = (x0 + x1) / 2;
   const f = (n: number) => n.toFixed(1);
   return `M${f(x0)} ${f(a0)} C${f(c)} ${f(a0)} ${f(c)} ${f(b0)} ${f(x1)} ${f(b0)} L${f(x1)} ${f(b1)} C${f(c)} ${f(b1)} ${f(c)} ${f(a1)} ${f(x0)} ${f(a1)} Z`;
+}
+
+// ---------------------------------------------------------------------------
+// 0.19 «Прогноз повсюду»
+
+/** «Отпуск к 15.01.2027: хватит, останется 66 000 ₽» или «…: не хватит 18 000 ₽». */
+export function goalText(g: GoalMark, symbol = "₽", minorUnits = 2): string {
+  const money = formatMoney(Math.abs(g.free), symbol, minorUnits);
+  const verdict = g.free >= 0 ? `хватит, останется ${money}` : `не хватит ${money}`;
+  return `${g.name} к ${formatDate(g.deadline)}: ${verdict}`;
+}
+
+/** Плитка Главной: остаток через `ahead` месяцев (на конец месяца) и первый месяц с минусом. */
+export function aheadSummary(f: Forecast, ahead = 3): { month: string; closing: number; change: number; short: string | null } {
+  const m = f.months[Math.min(ahead, f.months.length - 1)];
+  return { month: m.month, closing: m.closing, change: m.closing - f.liquid, short: f.shortMonth };
+}
+
+/** Строка Календаря: прогноз на конец показанного месяца, если он в пределах прогноза. */
+export function monthLine(f: Forecast, month: string): { end: string; closing: number; change: number; goals: GoalMark[] } | null {
+  const m = f.months.find((x) => x.month === month);
+  if (!m) return null;
+  return { end: m.end, closing: m.closing, change: m.closing - m.opening, goals: f.goals.filter((g) => g.month === month) };
+}
+
+/** Поправка на сезонность месяца по-человечески или null, если её нет. */
+export function seasonText(seasonIncome: number, seasonExpense: number, symbol = "₽", minorUnits = 2): string | null {
+  const part = (v: number, what: string) => (v === 0 ? null : `${what} ${v > 0 ? "+" : "−"}${formatMoney(Math.abs(v), symbol, minorUnits)}`);
+  const parts = [part(seasonIncome, "доходы"), part(seasonExpense, "траты")].filter(Boolean);
+  return parts.length ? `как год назад: ${parts.join(", ")}` : null;
 }

@@ -66,3 +66,23 @@
 .flow-amount { fill: var(--muted); font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) { .flow-band { transition: none; } }
+
+/* 0.19 «Прогноз повсюду»: цели со сроком, выбор счетов, строка в Календаре, плитка Главной. */
+.fc-goal line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.fc-goal path { fill: var(--ok); stroke: var(--card); stroke-width: 1.5; }
+.fc-goal.short path { fill: var(--over); }
+.fc-goals { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.fc-goals li.ok { color: var(--ok); }
+.fc-goals li.over { color: var(--over-strong); }
+.fc-goal-key { display: inline-block; width: 8px; height: 8px; background: currentColor; transform: rotate(45deg); margin-right: 4px; }
+.nw-tip-row.goal { color: var(--ok); }
+.nw-tip-row.goal.over { color: var(--over); }
+.fc-accounts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.cal-forecast { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 14px; font-size: 13px; color: var(--muted); }
+.cal-forecast b { color: var(--text); }
+.cal-forecast .over { color: var(--over-strong); }
+.cal-forecast .ok { color: var(--ok); }
+.ahead-card .ahead-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.ahead-card .ahead-warn { color: var(--over-strong); margin-top: 6px; font-size: 13px; }
+.ahead-card .ahead-ok { color: var(--ok); margin-top: 6px; font-size: 13px; }
+.fc-accounts .fc-chip.active::before { content: "✓"; margin-right: 4px; }
