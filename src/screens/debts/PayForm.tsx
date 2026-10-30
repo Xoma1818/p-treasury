@@ -10,6 +10,7 @@ import { formatAmount, parseAmount } from "../../lib/money";
 import { useAccounts } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
+import { LoanCompareTable } from "./LoanTools";
 
 /** Окно платежа. По графику: при дате раньше ближайшего платежа — подсказка «в счёт платежа от …»
  *  и переключатель «считать досрочкой». Досрочно: сумма делится на проценты и долг по quoteDebtPayment
@@ -85,7 +86,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
   const title = !early ? "Платёж по графику" : monthly ? "Досрочный платёж" : "Частичный возврат";
 
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <div className="row">
           <Field label="Дата">{(id) => <input id={id} name="payDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
@@ -141,6 +142,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
             / экономия <b>{m(Math.max(0, q.savings))}</b>
           </div>
         )}
+        {q && <LoanCompareTable card={card} compare={q.compare} after="После платежа" />}
         {early && quote.error && <p className="hint warn">{String(quote.error)}</p>}
         <p className="hint">
           Основной долг запишется переводом {lent ? "со счёта долга на ваш счёт" : "с вашего счёта на счёт долга"}, проценты отдельной операцией.

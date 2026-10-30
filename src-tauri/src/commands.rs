@@ -1131,6 +1131,17 @@ pub fn preview_debt_terms(
 }
 
 #[tauri::command(async)]
+pub fn preview_debt_change(
+    state: State<AppState>,
+    id: String,
+    input: debts::ChangeInput,
+) -> CmdResult<debts::LoanCompare> {
+    with_db(&state, |db| {
+        debts::preview_change(db.conn(), &id, &input, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
 pub fn export_schedule_pdf(path: String, doc: loan_export::ScheduleDoc) -> CmdResult<()> {
     loan_export::export_schedule_pdf(Path::new(&path), &doc).map_err(|e| e.to_string())
 }

@@ -506,6 +506,7 @@ export interface Quote {
   after: SimView;
   newPayment: number;
   savings: number;
+  compare: LoanCompare;
 }
 
 export interface Forecast {
@@ -521,7 +522,34 @@ export interface Forecast {
 export interface TermsPreview {
   before: SimView;
   after: SimView;
+  compare: LoanCompare;
 }
+
+/** Итоги займа для «было → станет» перед сохранением. */
+export interface LoanSnap {
+  rateBp: number;
+  /** С какой даты действует ставка; null — с выдачи. */
+  rateFrom: string | null;
+  ratePeriod: RatePeriod;
+  payments: number;
+  paymentsLeft: number;
+  payment: number;
+  /** Переплата: все проценты за весь срок. */
+  overpayment: number;
+  maturityDate: string;
+}
+
+export interface LoanCompare {
+  before: LoanSnap;
+  after: LoanSnap;
+}
+
+/** Несохранённое изменение займа для предпросмотра. */
+export type LoanChangeInput =
+  | { kind: "rateChange"; from: string; rateBp: number }
+  | { kind: "holiday"; fromSeq: number; months: number; holidayKind: HolidayKind }
+  | { kind: "rowAmount"; seq: number; amount: number; mode: RecalcMode }
+  | { kind: "plannedEarly"; list: PlannedEarlyInput[] };
 
 export interface DebtVersion {
   /** null у текущего графика. */
@@ -1529,6 +1557,7 @@ export const api = {
   exportScheduleXlsx: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_xlsx", { path, doc }),
   exportSchedulePdf: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_pdf", { path, doc }),
   previewDebtTerms: (id: string, input: TermsInput) => invoke<TermsPreview>("preview_debt_terms", { id, input }),
+  previewDebtChange: (id: string, input: LoanChangeInput) => invoke<LoanCompare>("preview_debt_change", { id, input }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
