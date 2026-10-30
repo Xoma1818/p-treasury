@@ -10,6 +10,11 @@
 //! - `daily` — по фактическим дням: `остаток × R × дни / дней в году`, отрезок
 //!   через 1 января делится по годам (365/366), сумма за период округляется один раз.
 //!
+//! Ставку можно задать за год, месяц или день ([`RatePeriod`]). Внутри движка
+//! она всегда годовая (`rate_bp`): месячная × 12, дневная × 365. У дневной ставки
+//! проценты по дням считаются на базе 365 дней в любом году, поэтому
+//! «0,5 % в день» даёт ровно `остаток × 0,5 % × дни`.
+//!
 //! Аннуитетный платёж для обоих способов — по формуле с `r = R / 12`
 //! ([`annuity_payment`]); при `daily` основная часть равна платежу минус
 //! проценты за фактические дни, последняя строка добирает остаток.
@@ -100,6 +105,109 @@ impl InterestMethod {
         match self {
             Self::Monthly => "по месяцам (ставка ÷ 12)",
             Self::Daily => "по дням",
+        }
+    }
+}
+
+/// За какой период задана ставка.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RatePeriod {
+    #[default]
+    Year,
+    Month,
+    Day,
+}
+
+impl RatePeriod {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "year" => Ok(Self::Year),
+            "month" => Ok(Self::Month),
+            "day" => Ok(Self::Day),
+            _ => invalid(format!("неизвестный период ставки: {s}")),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Year => "year",
+            Self::Month => "month",
+            Self::Day => "day",
+        }
+    }
+
+    /// Сколько периодов в году: годовая ставка = ставка за период × столько.
+    pub fn per_year(self) -> i64 {
+        match self {
+            Self::Year => 1,
+            Self::Month => 12,
+            Self::Day => 365,
+        }
+    }
+
+    /// «годовых», «в месяц», «в день».
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Self::Year => "годовых",
+            Self::Month => "в месяц",
+            Self::Day => "в день",
+        }
+    }
+}
+
+/// Как часто платить по графику. Срок (`term_months`) у займа — число платежей:
+/// для ежемесячных это месяцы.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PayEvery {
+    #[default]
+    Month,
+    Quarter,
+    TwoWeeks,
+}
+
+impl PayEvery {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "month" => Ok(Self::Month),
+            "quarter" => Ok(Self::Quarter),
+            "two_weeks" => Ok(Self::TwoWeeks),
+            _ => invalid(format!("неизвестная периодичность платежей: {s}")),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Month => "month",
+            Self::Quarter => "quarter",
+            Self::TwoWeeks => "two_weeks",
+        }
+    }
+
+    /// Платежей в году: ставка за период платежа = годовая ÷ столько.
+    pub fn per_year(self) -> i64 {
+        match self {
+            Self::Month => 12,
+            Self::Quarter => 4,
+            Self::TwoWeeks => 26,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Month => "каждый месяц",
+            Self::Quarter => "раз в квартал",
+            Self::TwoWeeks => "раз в две недели",
+        }
+    }
+
+    /// Дата `k`-го платежа после `first`.
+    pub fn nth(self, first: NaiveDate, k: u32) -> NaiveDate {
+        match self {
+            Self::Month => due_date(first, k),
+            Self::Quarter => due_date(first, 3 * k),
+            Self::TwoWeeks => first + chrono::Days::new(14 * k as u64),
         }
     }
 }
@@ -215,6 +323,12 @@ pub struct LoanInput {
     /// Способ начисления процентов; по умолчанию `monthly`, как раньше.
     #[serde(default)]
     pub interest_method: InterestMethod,
+    /// За какой период человек ввёл ставку; `rate_bp` всё равно годовая.
+    #[serde(default)]
+    pub rate_period: RatePeriod,
+    /// Как часто платить; `term_months` тогда — число платежей.
+    #[serde(default)]
+    pub pay_every: PayEvery,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,24 +378,38 @@ fn div_round(num: i128, den: i128) -> i128 {
 
 /// Проценты за месяц на остаток.
 pub fn month_interest(balance: i64, rate_bp: i64) -> i64 {
-    div_round(balance as i128 * rate_bp as i128, MONTH_DEN) as i64
+    period_interest(balance, rate_bp, 12)
+}
+
+/// Проценты за один из `per_year` периодов года: `остаток × R / per_year`.
+pub fn period_interest(balance: i64, rate_bp: i64, per_year: i64) -> i64 {
+    div_round(
+        balance as i128 * rate_bp as i128,
+        MONTH_DEN / 12 * per_year as i128,
+    ) as i64
 }
 
 /// Аннуитетный платёж `A = P · r / (1 − (1 + r)^−n)`, округлённый до минимальной единицы.
 pub fn annuity_payment(principal: i64, rate_bp: i64, n: u32) -> i64 {
+    annuity_payment_per(principal, rate_bp, n, 12)
+}
+
+/// Аннуитет при `per_year` платежах в году: `r = R / per_year`.
+pub fn annuity_payment_per(principal: i64, rate_bp: i64, n: u32, per_year: i64) -> i64 {
     assert!(n > 0, "срок не может быть нулевым");
     if rate_bp == 0 {
         return div_round(principal as i128, n as i128) as i64;
     }
     // A = P · r / (1 − (1 + r)^−n). Считаем g = (1 + r)^−n в фиксированной точке:
     // степень меньше единицы не переполняется при любом сроке.
-    let q = MONTH_DEN + rate_bp as i128;
+    let den_r = MONTH_DEN / 12 * per_year as i128;
+    let q = den_r + rate_bp as i128;
     let mut g = SCALE;
     for _ in 0..n {
-        g = div_round(g * MONTH_DEN, q);
+        g = div_round(g * den_r, q);
     }
     let num = principal as i128 * rate_bp as i128 * SCALE;
-    let den = MONTH_DEN * (SCALE - g);
+    let den = den_r * (SCALE - g);
     div_round(num, den) as i64
 }
 
@@ -326,6 +454,8 @@ pub struct Terms {
     pub repayment: Repayment,
     pub rate_bp: i64,
     pub method: InterestMethod,
+    pub rate_period: RatePeriod,
+    pub every: PayEvery,
 }
 
 impl Terms {
@@ -347,6 +477,8 @@ impl Terms {
             repayment: input.repayment,
             rate_bp: input.rate_bp,
             method: input.interest_method,
+            rate_period: input.rate_period,
+            every: input.pay_every,
         };
         if input.repayment == Repayment::Bullet {
             let Some(m) = input.maturity_date.as_deref() else {
@@ -363,14 +495,15 @@ impl Terms {
         }
         let n = match input.term_months {
             Some(n) if (1..=MAX_TERM).contains(&n) => n,
-            Some(_) => return invalid("срок должен быть от 1 до 600 месяцев"),
-            None => return invalid("укажите срок в месяцах"),
+            Some(_) if input.pay_every == PayEvery::Month => {
+                return invalid("срок должен быть от 1 до 600 месяцев")
+            }
+            Some(_) => return invalid("платежей должно быть от 1 до 600"),
+            None => return invalid("укажите срок"),
         };
         let first = match input.first_payment_date.as_deref() {
             Some(d) => parse_date(d)?,
-            None => issue
-                .checked_add_months(Months::new(1))
-                .expect("дата в пределах календаря"),
+            None => input.pay_every.nth(issue, 1),
         };
         if first <= issue {
             return invalid("первый платёж должен быть позже даты выдачи");
@@ -379,8 +512,11 @@ impl Terms {
     }
 }
 
+/// Наибольшая годовая ставка: 1000 %.
+pub const MAX_RATE: i64 = 100_000;
+
 pub fn check_rate(rate_bp: i64) -> Result<()> {
-    if !(0..=100_000).contains(&rate_bp) {
+    if !(0..=MAX_RATE).contains(&rate_bp) {
         return invalid("ставка должна быть от 0 до 1000 %");
     }
     Ok(())
@@ -422,6 +558,39 @@ pub enum Event {
         amount: i64,
         mode: Recalc,
     },
+    /// Своя сумма строки графика `seq` (договорились платить больше или меньше);
+    /// следующие строки пересчитываются по `mode`.
+    RowAmount {
+        seq: u32,
+        amount: i64,
+        mode: Recalc,
+    },
+}
+
+/// Своя сумма платежа в строке графика.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowAmountInput {
+    pub seq: u32,
+    pub amount: i64,
+    /// `reduce_payment` или `reduce_term`.
+    pub mode: String,
+}
+
+impl RowAmountInput {
+    pub fn parse(&self) -> Result<Event> {
+        if self.seq < 1 {
+            return invalid("номер платежа начинается с 1");
+        }
+        if !(0..=MAX_PRINCIPAL).contains(&self.amount) {
+            return invalid("проверьте сумму платежа");
+        }
+        Ok(Event::RowAmount {
+            seq: self.seq,
+            amount: self.amount,
+            mode: Recalc::parse(&self.mode)?,
+        })
+    }
 }
 
 /// Плановое досрочное погашение (разовое или регулярное).
@@ -697,7 +866,8 @@ impl<'a> Ctx<'a> {
         let mut holidays: Vec<Holiday> = events
             .iter()
             .filter_map(|e| match e {
-                Event::Holiday(h) => Some(*h),
+                // Каникулы считаются в месяцах: только у ежемесячных платежей.
+                Event::Holiday(h) if t.every == PayEvery::Month => Some(*h),
                 _ => None,
             })
             .collect();
@@ -737,7 +907,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn due(&self, seq: u32) -> NaiveDate {
-        due_date(self.t.first, seq - 1 + self.shift_before(seq))
+        self.t
+            .every
+            .nth(self.t.first, seq - 1 + self.shift_before(seq))
     }
 
     fn period_start(&self, seq: u32) -> NaiveDate {
@@ -766,7 +938,10 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(to);
             let b = to.min(new_year).min(next_rate);
             let days = (b - a).num_days() as i128;
-            let other = if days_in_year(a.year()) == 366 {
+            // Дневная ставка: база 365 в любом году (× 366 / (365 × 366) = 1 / 365).
+            let other = if self.t.rate_period == RatePeriod::Day {
+                366
+            } else if days_in_year(a.year()) == 366 {
                 365
             } else {
                 366
@@ -783,11 +958,12 @@ impl<'a> Ctx<'a> {
         match self.t.method {
             InterestMethod::Monthly => {
                 let start = self.period_start(seq);
-                let normal = month_interest(balance, self.rate_at(start));
+                let per_year = self.t.every.per_year();
+                let normal = period_interest(balance, self.rate_at(start), per_year);
                 let mut full = normal;
                 for j in 1..=self.pause(seq) {
                     let d = start.checked_add_months(Months::new(j)).unwrap_or(start);
-                    full += month_interest(balance, self.rate_at(d));
+                    full += period_interest(balance, self.rate_at(d), per_year);
                 }
                 (full, normal)
             }
@@ -862,10 +1038,11 @@ impl<'a> Ctx<'a> {
         let mut left = balance;
         let annuity = match plan {
             Plan::Fixed(a, _) | Plan::Payment(a) => Some(a),
-            Plan::Count(n) if is_annuity => Some(annuity_payment(
+            Plan::Count(n) if is_annuity => Some(annuity_payment_per(
                 balance,
                 self.rate_at(self.due(start_seq)),
                 n,
+                t.every.per_year(),
             )),
             _ => None,
         };
@@ -889,7 +1066,8 @@ impl<'a> Ctx<'a> {
                 // Новая ставка: аннуитет пересчитывается на оставшиеся строки, срок прежний.
                 let remaining = match plan {
                     Plan::Payment(a) => {
-                        rows_needed(left, self.rate_at(self.due(seq - 1)), a).min(MAX_ROWS - k)
+                        rows_needed(left, self.rate_at(self.due(seq - 1)), a, t.every.per_year())
+                            .min(MAX_ROWS - k)
                     }
                     _ => count - k,
                 };
@@ -1040,11 +1218,11 @@ fn amortizing(rows: &[SimRow]) -> u32 {
 }
 
 /// Сколько строк нужно платежу `a`, чтобы погасить `left` при ставке `rate_bp`.
-fn rows_needed(left: i64, rate_bp: i64, a: i64) -> u32 {
+fn rows_needed(left: i64, rate_bp: i64, a: i64, per_year: i64) -> u32 {
     let mut l = left;
     let mut k = 0;
     while l > 0 && k < MAX_ROWS {
-        let p = a - month_interest(l, rate_bp);
+        let p = a - period_interest(l, rate_bp, per_year);
         k += 1;
         if p <= 0 {
             break;
@@ -1241,6 +1419,39 @@ pub fn simulate(t: &Terms, events: &[Event]) -> Sim {
             r.ctx.recalc(&mut r.lines, i, new_balance, mode, Some(acc));
         }
     }
+    let mut amounts: Vec<(u32, i64, Recalc)> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::RowAmount { seq, amount, mode } => Some((*seq, *amount, *mode)),
+            _ => None,
+        })
+        .collect();
+    amounts.sort_by_key(|a| a.0);
+    if t.repayment != Repayment::Bullet {
+        for (seq, amount, mode) in amounts {
+            let Some(i) = r
+                .lines
+                .iter()
+                .position(|l| l.row.seq == seq && l.status == Status::Pending)
+            else {
+                continue;
+            };
+            let row = &r.lines[i].row;
+            if row.payment == amount {
+                continue;
+            }
+            let balance = row.balance_after + row.principal_part;
+            // Проценты строки платятся всегда; остальное — в основной долг.
+            let interest = row.interest_part;
+            let principal = (amount - interest).clamp(0, balance);
+            let left = balance - principal;
+            let line = &mut r.lines[i];
+            line.row.payment = principal + interest;
+            line.row.principal_part = principal;
+            line.row.balance_after = left;
+            r.ctx.recalc(&mut r.lines, i + 1, left, mode, None);
+        }
+    }
     Sim {
         rows: r.lines,
         early: r.early,
@@ -1297,39 +1508,46 @@ pub fn compare(input: &LoanInput) -> Result<Comparison> {
 
 // --- Обратные расчёты ---
 
-/// Первый (наибольший) ежемесячный платёж: у аннуитета — сам аннуитет.
-fn first_payment(principal: i64, rate_bp: i64, n: u32, repayment: Repayment) -> i64 {
+/// Первый (наибольший) платёж: у аннуитета — сам аннуитет.
+fn first_payment(principal: i64, rate_bp: i64, n: u32, repayment: Repayment, per_year: i64) -> i64 {
     match repayment {
         Repayment::Differentiated => {
-            div_round(principal as i128, n as i128) as i64 + month_interest(principal, rate_bp)
+            div_round(principal as i128, n as i128) as i64
+                + period_interest(principal, rate_bp, per_year)
         }
-        _ => annuity_payment(principal, rate_bp, n),
+        _ => annuity_payment_per(principal, rate_bp, n, per_year),
     }
 }
 
 /// Сколько месяцев нужно, чтобы платить не больше `payment` (наименьший срок).
 pub fn solve_term(principal: i64, rate_bp: i64, payment: i64) -> Result<u32> {
-    solve_term_for(principal, rate_bp, payment, Repayment::Annuity)
+    solve_term_for(principal, rate_bp, payment, Repayment::Annuity, 12)
 }
 
-fn solve_term_for(principal: i64, rate_bp: i64, payment: i64, repayment: Repayment) -> Result<u32> {
+fn solve_term_for(
+    principal: i64,
+    rate_bp: i64,
+    payment: i64,
+    repayment: Repayment,
+    per_year: i64,
+) -> Result<u32> {
     if principal <= 0 || principal > MAX_PRINCIPAL {
         return invalid("сумма должна быть больше нуля");
     }
     check_rate(rate_bp)?;
     // Платёж, равный процентам первого месяца, ещё гасит долг: на долгом сроке
     // с высокой ставкой округлённый аннуитет совпадает с процентами.
-    if payment < month_interest(principal, rate_bp) {
+    if payment < period_interest(principal, rate_bp, per_year) {
         return invalid("платёж меньше процентов: долг не уменьшится");
     }
-    if first_payment(principal, rate_bp, MAX_TERM, repayment) > payment {
-        return invalid("с таким платежом срок больше 50 лет");
+    if first_payment(principal, rate_bp, MAX_TERM, repayment, per_year) > payment {
+        return invalid("с таким платежом нужно больше 600 платежей");
     }
     // Платёж убывает с ростом срока: ищем наименьший подходящий срок.
     let (mut lo, mut hi) = (1u32, MAX_TERM);
     while lo < hi {
         let mid = (lo + hi) / 2;
-        if first_payment(principal, rate_bp, mid, repayment) <= payment {
+        if first_payment(principal, rate_bp, mid, repayment, per_year) <= payment {
             hi = mid;
         } else {
             lo = mid + 1;
@@ -1340,10 +1558,16 @@ fn solve_term_for(principal: i64, rate_bp: i64, payment: i64, repayment: Repayme
 
 /// Наибольшая сумма, при которой платёж не больше `payment`, округлённая вниз до рубля.
 pub fn solve_principal(payment: i64, rate_bp: i64, n: u32) -> Result<i64> {
-    solve_principal_for(payment, rate_bp, n, Repayment::Annuity)
+    solve_principal_for(payment, rate_bp, n, Repayment::Annuity, 12)
 }
 
-fn solve_principal_for(payment: i64, rate_bp: i64, n: u32, repayment: Repayment) -> Result<i64> {
+fn solve_principal_for(
+    payment: i64,
+    rate_bp: i64,
+    n: u32,
+    repayment: Repayment,
+    per_year: i64,
+) -> Result<i64> {
     if payment <= 0 {
         return invalid("платёж должен быть больше нуля");
     }
@@ -1352,7 +1576,7 @@ fn solve_principal_for(payment: i64, rate_bp: i64, n: u32, repayment: Repayment)
         return invalid("срок должен быть от 1 до 600 месяцев");
     }
     // Ищем в рублях (по 100 минимальных единиц): платёж растёт с суммой.
-    let ok = |rub: i64| first_payment(rub * 100, rate_bp, n, repayment) <= payment;
+    let ok = |rub: i64| first_payment(rub * 100, rate_bp, n, repayment, per_year) <= payment;
     let (mut lo, mut hi) = (0i64, MAX_PRINCIPAL / 100);
     if ok(hi) {
         return Ok(hi * 100);
@@ -1371,6 +1595,41 @@ fn solve_principal_for(payment: i64, rate_bp: i64, n: u32, repayment: Repayment)
     Ok(lo * 100)
 }
 
+/// Ставка по известному платежу: наименьшая годовая ставка (в сотых долях
+/// процента), при которой первый платёж не меньше `payment`.
+pub fn solve_rate(
+    principal: i64,
+    payment: i64,
+    n: u32,
+    repayment: Repayment,
+    per_year: i64,
+) -> Result<i64> {
+    if principal <= 0 || principal > MAX_PRINCIPAL {
+        return invalid("сумма должна быть больше нуля");
+    }
+    if !(1..=MAX_TERM).contains(&n) {
+        return invalid("укажите срок");
+    }
+    let pay = |r: i64| first_payment(principal, r, n, repayment, per_year);
+    if payment < pay(0) {
+        return invalid("платёж меньше, чем без процентов: так долг не погасить");
+    }
+    if payment > pay(MAX_RATE) {
+        return invalid("с таким платежом ставка больше 1000 % годовых");
+    }
+    // Платёж растёт со ставкой: ищем наименьшую ставку с платежом не меньше заданного.
+    let (mut lo, mut hi) = (0i64, MAX_RATE);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if pay(mid) >= payment {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    Ok(lo)
+}
+
 // --- Калькулятор ---
 
 /// Что рассчитать: платёж, срок или сумму.
@@ -1381,6 +1640,8 @@ pub enum Solve {
     Payment,
     Term,
     Principal,
+    /// Ставка по известному платежу.
+    Rate,
 }
 
 /// Расчёт калькулятора: условия, изменения ставки, каникулы и плановые досрочки.
@@ -1395,6 +1656,9 @@ pub struct CalcInput {
     pub holidays: Vec<HolidayInput>,
     #[serde(default)]
     pub planned_early: Vec<PlannedEarlyInput>,
+    /// Свои суммы строк графика.
+    #[serde(default)]
+    pub row_amounts: Vec<RowAmountInput>,
     #[serde(default)]
     pub solve: Solve,
     /// Желаемый платёж — для расчёта срока или суммы.
@@ -1425,6 +1689,8 @@ impl From<Sim> for SimView {
 pub struct CalcResult {
     /// Сумма (рассчитанная, если считали сумму).
     pub principal: i64,
+    /// Годовая ставка (рассчитанная, если считали ставку).
+    pub rate_bp: i64,
     /// Срок (рассчитанный, если считали срок).
     pub term_months: Option<u32>,
     /// Первый платёж.
@@ -1447,6 +1713,7 @@ impl CalcInput {
         let Some(payment) = self.payment else {
             return invalid("укажите желаемый платёж");
         };
+        let per_year = loan.pay_every.per_year();
         match self.solve {
             Solve::Term => {
                 loan.term_months = Some(solve_term_for(
@@ -1454,13 +1721,21 @@ impl CalcInput {
                     loan.rate_bp,
                     payment,
                     loan.repayment,
+                    per_year,
                 )?)
             }
             Solve::Principal => {
                 let Some(n) = loan.term_months else {
-                    return invalid("укажите срок в месяцах");
+                    return invalid("укажите срок");
                 };
-                loan.principal = solve_principal_for(payment, loan.rate_bp, n, loan.repayment)?;
+                loan.principal =
+                    solve_principal_for(payment, loan.rate_bp, n, loan.repayment, per_year)?;
+            }
+            Solve::Rate => {
+                let Some(n) = loan.term_months else {
+                    return invalid("укажите срок");
+                };
+                loan.rate_bp = solve_rate(loan.principal, payment, n, loan.repayment, per_year)?;
             }
             Solve::Payment => {}
         }
@@ -1478,10 +1753,13 @@ impl CalcInput {
             events.push(Event::RateChange(r));
         }
         for h in &self.holidays {
-            if t.repayment == Repayment::Bullet {
+            if t.repayment == Repayment::Bullet || t.every != PayEvery::Month {
                 return invalid("каникулы бывают только у ежемесячных платежей");
             }
             events.push(Event::Holiday(h.parse()?));
+        }
+        for a in &self.row_amounts {
+            events.push(a.parse()?);
         }
         Ok(events)
     }
@@ -1508,6 +1786,7 @@ pub fn plan(input: &CalcInput) -> Result<CalcResult> {
         .map_or(0, |w| base.totals.total_interest - w.totals.total_interest);
     Ok(CalcResult {
         principal: t.principal,
+        rate_bp: t.rate_bp,
         term_months: (t.repayment != Repayment::Bullet).then_some(t.n),
         payment,
         base,
@@ -1743,6 +2022,8 @@ mod tests {
             first_payment_date: None,
             maturity_date: None,
             interest_method: InterestMethod::Monthly,
+            rate_period: RatePeriod::Year,
+            pay_every: PayEvery::Month,
         }
     }
 
@@ -1755,6 +2036,191 @@ mod tests {
 
     fn d(s: &str) -> NaiveDate {
         parse_date(s).unwrap()
+    }
+
+    // --- 0.20: ставка за период, частота платежей, ставка по платежу, своя сумма строки ---
+
+    #[test]
+    fn day_rate_counts_exactly_per_day_even_in_leap_year() {
+        // 100 000 ₽ под 0,5 % в день на 30 дней, 2028 — високосный.
+        let mut i = input(10_000_000, 50 * 365, 1, Repayment::Bullet);
+        i.issue_date = "2028-01-10".into();
+        i.maturity_date = Some("2028-02-09".into());
+        i.interest_method = InterestMethod::Daily;
+        i.rate_period = RatePeriod::Day;
+        let s = simulate(&Terms::from_input(&i).unwrap(), &[]);
+        assert_eq!(s.rows[0].row.interest_part, 1_500_000);
+        // Та же годовая ставка, введённая как годовая, в високосном году даёт меньше.
+        i.rate_period = RatePeriod::Year;
+        let y = simulate(&Terms::from_input(&i).unwrap(), &[]);
+        assert!(y.rows[0].row.interest_part < 1_500_000);
+    }
+
+    #[test]
+    fn month_rate_is_annual_divided_by_twelve() {
+        // 1,5 % в месяц = 18 % годовых: проценты первой строки — 1,5 % остатка.
+        let mut i = input(30_000_000, 150 * 12, 24, Repayment::Annuity);
+        i.rate_period = RatePeriod::Month;
+        let s = simulate(&Terms::from_input(&i).unwrap(), &[]);
+        assert_eq!(s.rows[0].row.interest_part, 450_000);
+        assert_eq!(s.rows[0].row.payment, annuity_payment(30_000_000, 1800, 24));
+    }
+
+    #[test]
+    fn quarterly_payments_every_three_months() {
+        let mut i = input(12_000_000, 1200, 8, Repayment::Annuity);
+        i.pay_every = PayEvery::Quarter;
+        let s = simulate(&Terms::from_input(&i).unwrap(), &[]);
+        assert_eq!(s.rows.len(), 8);
+        let dates: Vec<&str> = s
+            .rows
+            .iter()
+            .take(3)
+            .map(|r| r.row.due_date.as_str())
+            .collect();
+        assert_eq!(dates, ["2027-01-15", "2027-04-15", "2027-07-15"]);
+        // Проценты за квартал: 12 % ÷ 4 = 3 %.
+        assert_eq!(s.rows[0].row.interest_part, 360_000);
+        assert_eq!(
+            s.rows[0].row.payment,
+            annuity_payment_per(12_000_000, 1200, 8, 4)
+        );
+        assert_eq!(
+            s.rows.iter().map(|r| r.row.principal_part).sum::<i64>(),
+            12_000_000
+        );
+        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+    }
+
+    #[test]
+    fn two_week_payments_every_fourteen_days() {
+        let mut i = input(2_600_000, 2600, 26, Repayment::Differentiated);
+        i.pay_every = PayEvery::TwoWeeks;
+        i.interest_method = InterestMethod::Daily;
+        let s = simulate(&Terms::from_input(&i).unwrap(), &[]);
+        assert_eq!(s.rows.len(), 26);
+        assert_eq!(s.rows[0].row.due_date, "2026-10-29");
+        assert_eq!(s.rows[1].row.due_date, "2026-11-12");
+        assert_eq!(s.rows[0].row.principal_part, 100_000);
+        // 26 % годовых за 14 дней невисокосного года.
+        assert_eq!(
+            s.rows[0].row.interest_part,
+            (2_600_000i64 * 2600 * 14 + 10_000 * 365 / 2) / (10_000 * 365)
+        );
+        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+    }
+
+    #[test]
+    fn holidays_need_monthly_payments() {
+        let mut i = input(12_000_000, 1200, 8, Repayment::Annuity);
+        i.pay_every = PayEvery::Quarter;
+        let c = CalcInput {
+            loan: i,
+            rate_changes: vec![],
+            holidays: vec![HolidayInput {
+                from_seq: 2,
+                months: 2,
+                kind: "shift".into(),
+            }],
+            planned_early: vec![],
+            row_amounts: vec![],
+            solve: Solve::Payment,
+            payment: None,
+        };
+        assert!(plan(&c).is_err());
+    }
+
+    #[test]
+    fn solve_rate_finds_rate_from_payment() {
+        for (rate, n, every, kind) in [
+            (1800, 24, PayEvery::Month, Repayment::Annuity),
+            (2390, 60, PayEvery::Month, Repayment::Differentiated),
+            (900, 12, PayEvery::Quarter, Repayment::Annuity),
+        ] {
+            let pay = first_payment(30_000_000, rate, n, kind, every.per_year());
+            let got = solve_rate(30_000_000, pay, n, kind, every.per_year()).unwrap();
+            assert!(got <= rate);
+            assert_eq!(
+                first_payment(30_000_000, got, n, kind, every.per_year()),
+                pay
+            );
+        }
+        assert_eq!(
+            solve_rate(1_200_000, 100_000, 12, Repayment::Annuity, 12).unwrap(),
+            0
+        );
+        assert!(solve_rate(1_200_000, 99_999, 12, Repayment::Annuity, 12).is_err());
+        assert!(solve_rate(1_200_000, 1_200_000, 12, Repayment::Annuity, 12).is_err());
+    }
+
+    #[test]
+    fn calculator_solves_rate() {
+        let a = annuity_payment(30_000_000, 1800, 24);
+        let c = CalcInput {
+            loan: input(30_000_000, 0, 24, Repayment::Annuity),
+            rate_changes: vec![],
+            holidays: vec![],
+            planned_early: vec![],
+            row_amounts: vec![],
+            solve: Solve::Rate,
+            payment: Some(a),
+        };
+        let r = plan(&c).unwrap();
+        assert_eq!(r.payment, a);
+        assert!((1790..=1800).contains(&r.rate_bp));
+    }
+
+    #[test]
+    fn row_amount_recalculates_the_rest() {
+        let t = Terms::from_input(&input(30_000_000, 1200, 24, Repayment::Annuity)).unwrap();
+        let base = simulate(&t, &[]);
+        let row3 = base.rows[2].row.clone();
+        // Платёж №3 больше на 50 000 ₽, срок короче.
+        let more = Event::RowAmount {
+            seq: 3,
+            amount: row3.payment + 5_000_000,
+            mode: Recalc::ReduceTerm,
+        };
+        let s = simulate(&t, &[more]);
+        assert_eq!(s.rows[2].row.payment, row3.payment + 5_000_000);
+        assert_eq!(s.rows[2].row.interest_part, row3.interest_part);
+        assert_eq!(s.rows[3].row.payment, base.rows[3].row.payment);
+        assert!(s.rows.len() < 24);
+        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+        assert_eq!(
+            s.rows.iter().map(|r| r.row.principal_part).sum::<i64>(),
+            30_000_000
+        );
+        // Тот же платёж, но срок прежний: платежи после него меньше.
+        let pay = Event::RowAmount {
+            seq: 3,
+            amount: row3.payment + 5_000_000,
+            mode: Recalc::ReducePayment,
+        };
+        let s = simulate(&t, &[pay]);
+        assert_eq!(s.rows.len(), 24);
+        assert!(s.rows[3].row.payment < base.rows[3].row.payment);
+        // Только проценты: долг не уменьшается, остальные платежи больше.
+        let less = Event::RowAmount {
+            seq: 3,
+            amount: 0,
+            mode: Recalc::ReducePayment,
+        };
+        let s = simulate(&t, &[less]);
+        assert_eq!(s.rows[2].row.payment, row3.interest_part);
+        assert_eq!(s.rows[2].row.principal_part, 0);
+        assert!(s.rows[3].row.payment > base.rows[3].row.payment);
+        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+        // Меньше на последней строке: остаток переносится на строку позже.
+        let last = base.rows[23].row.clone();
+        let tail = Event::RowAmount {
+            seq: 24,
+            amount: last.payment - 100_000,
+            mode: Recalc::ReducePayment,
+        };
+        let s = simulate(&t, &[tail]);
+        assert_eq!(s.rows.len(), 25);
+        assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
     }
 
     fn early(date: &str, principal: i64, interest: i64, mode: Recalc) -> Event {
@@ -2179,6 +2645,7 @@ mod tests {
             rate_changes: vec![],
             holidays: vec![],
             planned_early: vec![],
+            row_amounts: vec![],
             solve: Solve::Principal,
             payment: Some(a),
         };

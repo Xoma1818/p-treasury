@@ -35,6 +35,12 @@ pub struct DocTerms {
     pub repayment_type: String,
     /// `daily` или `monthly`.
     pub interest_method: String,
+    /// `year`, `month` или `day`; пусто — годовая.
+    #[serde(default)]
+    pub rate_period: String,
+    /// `month`, `quarter` или `two_weeks`; пусто — каждый месяц.
+    #[serde(default)]
+    pub pay_every: String,
     pub issue_date: String,
     pub first_payment_date: Option<String>,
 }
@@ -176,6 +182,8 @@ pub fn calc_schedule_doc(
             term_months: (t.repayment != loan_calc::Repayment::Bullet).then_some(t.n),
             repayment_type: t.repayment.as_str().into(),
             interest_method: t.method.as_str().into(),
+            rate_period: t.rate_period.as_str().into(),
+            pay_every: t.every.as_str().into(),
             issue_date: t.issue.to_string(),
             first_payment_date: Some(t.first.to_string()),
         },
@@ -208,6 +216,18 @@ pub fn rate_text(bp: i64) -> String {
     }
 }
 
+/// Ставка за свой период: «18 % годовых», «1,5 % в месяц», «0,5 % в день».
+/// `bp` — годовая ставка; за период — с точностью до сотых долей процента.
+pub fn rate_in(bp: i64, period: loan_calc::RatePeriod) -> String {
+    let per = period.per_year();
+    let v = (2 * bp + per) / (2 * per);
+    format!("{} {}", rate_text(v), period.suffix())
+}
+
+fn period_of(s: &str) -> loan_calc::RatePeriod {
+    loan_calc::RatePeriod::parse(s).unwrap_or_default()
+}
+
 fn method_title(m: &str) -> &'static str {
     loan_calc::InterestMethod::parse(m).map_or("", |m| m.title())
 }
@@ -231,16 +251,28 @@ fn terms_lines(doc: &ScheduleDoc, symbol: &str) -> Vec<(String, String)> {
     let m = |v: i64| format!("{} {symbol}", format_amount(v, t.minor_units, false));
     let mut out = vec![
         ("Сумма займа".into(), m(t.principal)),
-        ("Ставка".into(), format!("{} годовых", rate_text(t.rate_bp))),
+        (
+            "Ставка".into(),
+            rate_in(t.rate_bp, period_of(&t.rate_period)),
+        ),
     ];
     for r in &t.rate_changes {
         out.push((
             String::new(),
-            format!("с {} — {}", ru_date(&r.from), rate_text(r.rate_bp)),
+            format!(
+                "с {} — {}",
+                ru_date(&r.from),
+                rate_in(r.rate_bp, period_of(&t.rate_period))
+            ),
         ));
     }
+    let every = loan_calc::PayEvery::parse(&t.pay_every).unwrap_or_default();
     if let Some(n) = t.term_months {
-        out.push(("Срок".into(), format!("{n} мес.")));
+        if every == loan_calc::PayEvery::Month {
+            out.push(("Срок".into(), format!("{n} мес.")));
+        } else {
+            out.push(("Срок".into(), format!("{n} платежей, {}", every.title())));
+        }
     }
     out.push((
         "Тип платежей".into(),
@@ -562,6 +594,8 @@ mod tests {
             first_payment_date: Some("2026-11-15".into()),
             maturity_date: None,
             interest_method: loan_calc::InterestMethod::Daily,
+            rate_period: loan_calc::RatePeriod::Year,
+            pay_every: loan_calc::PayEvery::Month,
         };
         let t = loan_calc::Terms::from_input(&input).unwrap();
         let sim = loan_calc::simulate(&t, &[]);
@@ -583,6 +617,8 @@ mod tests {
                 term_months: Some(rows),
                 repayment_type: "annuity".into(),
                 interest_method: "daily".into(),
+                rate_period: String::new(),
+                pay_every: String::new(),
                 issue_date: "2026-10-15".into(),
                 first_payment_date: Some("2026-11-15".into()),
             },

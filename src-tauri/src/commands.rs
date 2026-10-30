@@ -1027,6 +1027,24 @@ pub fn delete_debt_holiday(state: State<AppState>, holiday_id: String) -> CmdRes
 }
 
 #[tauri::command(async)]
+pub fn set_debt_row_amount(
+    state: State<AppState>,
+    id: String,
+    input: loan_calc::RowAmountInput,
+) -> CmdResult<String> {
+    with_undo(&state, "Своя сумма платежа", |c| {
+        debts::set_row_amount(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_debt_row_amount(state: State<AppState>, row_amount_id: String) -> CmdResult<()> {
+    with_undo(&state, "Платёж снова по графику", |c| {
+        debts::delete_row_amount(c, &row_amount_id)
+    })
+}
+
+#[tauri::command(async)]
 pub fn set_debt_planned_early(
     state: State<AppState>,
     id: String,
