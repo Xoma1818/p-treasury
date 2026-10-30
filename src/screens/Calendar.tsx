@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { ErrorText } from "../components/Modal";
-import { Money } from "../components/Money";
+import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { OccurrenceItem, ReminderForm } from "../components/Reminders";
 import { TXN_DRAG, TxnTable } from "../components/TxnTable";
@@ -11,6 +11,7 @@ import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, WEE
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import { goalText, monthLine } from "../lib/forecast";
 
 type Tab = "month" | "week" | "reminders";
 
@@ -106,6 +107,29 @@ function Totals({ m, partial }: { m: CalendarMonth; partial?: boolean }) {
   );
 }
 
+/** Строка прогноза над месяцем (0.19): сколько денег будет на конец месяца. */
+function ForecastLine({ month }: { month: string }) {
+  const f = useQuery({ queryKey: ["forecast", null], queryFn: () => api.forecast(null) }).data;
+  const { go } = useUi();
+  const line = f ? monthLine(f, month) : null;
+  if (!f || !line) return null;
+  return (
+    <div className="card cal-forecast clickable" onClick={() => go("forecast")} title="Открыть «Взгляд вперёд»" data-testid="cal-forecast">
+      <span>
+        Прогноз на {formatDate(line.end)}: <b className={line.closing < 0 ? "over" : undefined}><BaseMoney amount={line.closing} /></b>
+      </span>
+      <span>
+        за месяц <BaseMoney amount={line.change} signed />
+      </span>
+      {line.goals.map((g) => (
+        <span key={g.id} className={g.free >= 0 ? "ok" : "over"}>
+          ◆ {goalText(g, f.currencySymbol, f.minorUnits)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function MonthView({ month, setMonth, selected, select }: { month: string; setMonth: (m: string) => void; selected: string | null; select: (d: string) => void }) {
   const q = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) });
   const m = q.data;
@@ -132,6 +156,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
         )}
       </div>
       {q.error && <p className="error">{String(q.error)}</p>}
+      <ForecastLine month={month} />
       {m && (
         <>
           <div className="card cal-grid" data-testid="calendar">

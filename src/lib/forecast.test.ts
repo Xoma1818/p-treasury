@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Forecast, MoneyFlow } from "./api";
-import { chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "./forecast";
+import type { Forecast, GoalMark, MoneyFlow } from "./api";
+import { aheadSummary, chartPoints, describeChange, goalText, monthLine, seasonText, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "./forecast";
 import { formatMoney } from "./money";
 
 const flow = (over: Partial<MoneyFlow>): MoneyFlow => ({
@@ -44,7 +44,7 @@ describe("подписи изменений сценария", () => {
 describe("график прогноза", () => {
   it("первая точка — сегодня, дальше конец каждого месяца", () => {
     const month = (m: string, closing: number, sc: number | null) => ({
-      month: m, start: `${m}-01`, end: `${m}-28`, opening: 0, regularIncome: 0, regularExpense: 0, plannedIncome: 0, plannedExpense: 0,
+      month: m, start: `${m}-01`, end: `${m}-28`, opening: 0, regularIncome: 0, regularExpense: 0, plannedIncome: 0, plannedExpense: 0, seasonIncome: 0, seasonExpense: 0,
       closing, items: [], scenario: sc == null ? null : { delta: 0, closing: sc, items: [] },
     });
     const f = { liquid: 100, scenarioId: "s", months: [month("2026-10", 150, 120), month("2026-11", 200, 90)] } as unknown as Forecast;
@@ -104,5 +104,37 @@ describe("поток денег", () => {
 
   it("лента — замкнутая кривая между двумя отрезками", () => {
     expect(ribbon(0, 0, 10, 100, 20, 30)).toBe("M0.0 0.0 C50.0 0.0 50.0 20.0 100.0 20.0 L100.0 30.0 C50.0 30.0 50.0 10.0 0.0 10.0 Z");
+  });
+});
+
+describe("прогноз повсюду (0.19)", () => {
+  const month = (m: string, opening: number, closing: number) => ({
+    month: m, start: `${m}-01`, end: `${m}-28`, opening, regularIncome: 0, regularExpense: 0, plannedIncome: 0, plannedExpense: 0,
+    seasonIncome: 0, seasonExpense: 0, closing, items: [], scenario: null,
+  });
+  const goal: GoalMark = { id: "g", name: "Отпуск", deadline: "2027-01-15", month: "2027-01", need: 30_000_000, closing: 36_600_000, free: 6_600_000 };
+  const f = {
+    liquid: 10_000_000,
+    shortMonth: "2027-02",
+    goals: [goal],
+    months: [month("2026-10", 10_000_000, 12_000_000), month("2026-11", 12_000_000, 9_000_000), month("2026-12", 9_000_000, 11_000_000), month("2027-01", 11_000_000, 14_000_000)],
+  } as unknown as Forecast;
+
+  it("плитка Главной берёт конец месяца через три", () => {
+    expect(aheadSummary(f)).toEqual({ month: "2027-01", closing: 14_000_000, change: 4_000_000, short: "2027-02" });
+    expect(aheadSummary(f, 99).month).toBe("2027-01");
+  });
+
+  it("строка Календаря только для месяцев прогноза", () => {
+    expect(monthLine(f, "2026-11")).toEqual({ end: "2026-11-28", closing: 9_000_000, change: -3_000_000, goals: [] });
+    expect(monthLine(f, "2027-01")?.goals).toEqual([goal]);
+    expect(monthLine(f, "2026-09")).toBeNull();
+  });
+
+  it("цель и сезонность по-человечески", () => {
+    expect(goalText(goal)).toBe(`Отпуск к 15.01.2027: хватит, останется ${formatMoney(6_600_000, "₽")}`);
+    expect(goalText({ ...goal, free: -1_800_000 })).toBe(`Отпуск к 15.01.2027: не хватит ${formatMoney(1_800_000, "₽")}`);
+    expect(seasonText(0, 0)).toBeNull();
+    expect(seasonText(0, 2_750_000)).toBe(`как год назад: траты +${formatMoney(2_750_000, "₽")}`);
   });
 });

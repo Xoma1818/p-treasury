@@ -680,6 +680,21 @@ export interface ForecastItem {
   amount: number;
 }
 
+/** Цель со сроком внутри прогноза: `free` < 0 — к сроку не хватит. */
+export interface GoalMark {
+  id: string;
+  name: string;
+  deadline: string;
+  month: string;
+  need: number;
+  closing: number;
+  free: number;
+}
+export interface ForecastAccount {
+  id: string;
+  name: string;
+  included: boolean;
+}
 export interface ForecastMonth {
   month: string;
   start: string;
@@ -689,6 +704,9 @@ export interface ForecastMonth {
   regularExpense: number;
   plannedIncome: number;
   plannedExpense: number;
+  /** Поправка на сезонность (со знаком), уже входит в `regular*`. */
+  seasonIncome: number;
+  seasonExpense: number;
   closing: number;
   items: ForecastItem[];
   scenario: { delta: number; closing: number; items: ForecastItem[] } | null;
@@ -704,6 +722,11 @@ export interface Forecast {
   avgIncome: number;
   avgExpense: number;
   excludedCategories: string[];
+  /** Учтена сезонность: учёт ведётся не меньше года. */
+  seasonal: boolean;
+  /** Счета, выключенные из прогноза. */
+  excludedAccounts: string[];
+  goals: GoalMark[];
   months: ForecastMonth[];
   lowestMonth: string;
   lowestBalance: number;
@@ -1518,6 +1541,8 @@ export const api = {
   cushion: () => invoke<Cushion>("cushion"),
   forecast: (scenarioId: string | null) => invoke<Forecast>("forecast", { scenarioId }),
   listScenarios: () => invoke<Scenario[]>("list_scenarios"),
+  forecastAccounts: () => invoke<ForecastAccount[]>("forecast_accounts"),
+  setForecastExcluded: (ids: string[]) => invoke<void>("set_forecast_excluded", { ids }),
   createScenario: (input: { name: string; changes: ChangeInput[] }) => invoke<string>("create_scenario", { input }),
   updateScenario: (id: string, input: { name: string; changes: ChangeInput[] }) => invoke<void>("update_scenario", { id, input }),
   deleteScenario: (id: string) => invoke<void>("delete_scenario", { id }),

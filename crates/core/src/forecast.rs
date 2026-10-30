@@ -13,6 +13,10 @@
 //!   они уже посчитаны по датам, второй раз их не берём.
 //!
 //! Месяцы — бюджетные (настройка «первый день месяца»), как в бюджете и отчётах.
+//!
+//! 0.19 «Прогноз повсюду»: сезонность (когда учёт ведётся год, месяц
+//! поправляется на то, насколько тот же месяц год назад отличался от среднего
+//! за год), выбор счетов для прогноза и цели со сроком на графике.
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,12 +27,18 @@ use serde::{Deserialize, Serialize};
 use crate::budgets::{self, Period};
 use crate::error::invalid;
 use crate::wealth::LIQUID_TYPES;
-use crate::{accounts, categories, currencies, ids, reminders, reports, time, Result};
+use crate::{
+    accounts, categories, currencies, goals, ids, reminders, reports, settings, time, Result,
+};
 
 /// На сколько месяцев вперёд строится прогноз (текущий месяц входит).
 pub const HORIZON: usize = 12;
 /// Сколько прошлых полных месяцев берётся для обычных доходов и трат.
 const HISTORY_MONTHS: i32 = 3;
+/// Сколько прошлых полных месяцев нужно для сезонности: тот же месяц год назад.
+const SEASON_MONTHS: i32 = 12;
+/// Настройка: счета, которые не входят в прогноз (JSON-список id).
+pub const EXCLUDED_ACCOUNTS_KEY: &str = "forecast_excluded_accounts";
 
 /// Известная по дате сумма прогноза. `amount` со знаком: + приход, − расход,
 /// в основной валюте.
@@ -68,9 +78,39 @@ pub struct Month {
     /// Известные по датам приходы и расходы (положительные числа).
     pub planned_income: i64,
     pub planned_expense: i64,
+    /// Поправка на сезонность (со знаком), уже входит в `regular_*`.
+    pub season_income: i64,
+    pub season_expense: i64,
     pub closing: i64,
     pub items: Vec<Item>,
     pub scenario: Option<ScenarioMonth>,
+}
+
+/// Цель со сроком внутри прогноза: хватит ли денег к сроку.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalMark {
+    pub id: String,
+    pub name: String,
+    pub deadline: String,
+    /// Месяц прогноза, в котором срок.
+    pub month: String,
+    /// Сколько денег цели нужно к сроку, в основной валюте: вся сумма, если
+    /// копите на счёте из прогноза, иначе — сколько осталось.
+    pub need: i64,
+    /// Остаток прогноза на конец этого месяца.
+    pub closing: i64,
+    /// `closing − need`: меньше нуля — не хватит.
+    pub free: i64,
+}
+
+/// Счёт, который может входить в прогноз.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForecastAccount {
+    pub id: String,
+    pub name: String,
+    pub included: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +128,11 @@ pub struct Forecast {
     pub avg_expense: i64,
     /// Категории, которые не вошли в среднее: их считают напоминания.
     pub excluded_categories: Vec<String>,
+    /// Учтена сезонность: история не короче года.
+    pub seasonal: bool,
+    /// Счета, выключенные из прогноза.
+    pub excluded_accounts: Vec<String>,
+    pub goals: Vec<GoalMark>,
     pub months: Vec<Month>,
     /// Самый низкий остаток на конец месяца и месяц, когда он будет.
     pub lowest_month: String,
@@ -110,11 +155,17 @@ fn add_missing(missing: &mut Vec<String>, code: String) {
 }
 
 /// Деньги на быстрых счетах «в общем балансе» на дату, в основной валюте.
-fn liquid_on(conn: &Connection, base: &str, on: &str, missing: &mut Vec<String>) -> Result<i64> {
+fn liquid_on(
+    conn: &Connection,
+    base: &str,
+    on: &str,
+    skip: &HashSet<String>,
+    missing: &mut Vec<String>,
+) -> Result<i64> {
     let mut total = 0i64;
-    for a in accounts::list(conn, false)?
+    for a in liquid_accounts(conn)?
         .into_iter()
-        .filter(|a| a.include_in_total && LIQUID_TYPES.contains(&a.kind.as_str()))
+        .filter(|a| !skip.contains(&a.id))
     {
         let bal = accounts::balance(conn, &a.id, Some(on))?;
         match currencies::convert(conn, bal, &a.currency_code, base, on)? {
@@ -123,6 +174,55 @@ fn liquid_on(conn: &Connection, base: &str, on: &str, missing: &mut Vec<String>)
         }
     }
     Ok(total)
+}
+
+/// Быстрые счета «в общем балансе»: из них складывается прогноз.
+fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
+    Ok(accounts::list(conn, false)?
+        .into_iter()
+        .filter(|a| a.include_in_total && LIQUID_TYPES.contains(&a.kind.as_str()))
+        .collect())
+}
+
+/// Счета, выключенные из прогноза (настройка [`EXCLUDED_ACCOUNTS_KEY`]).
+fn excluded_accounts(conn: &Connection) -> Result<HashSet<String>> {
+    Ok(settings::get(conn, EXCLUDED_ACCOUNTS_KEY)?
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect())
+}
+
+/// Счета для выбора «что входит в прогноз».
+pub fn accounts(conn: &Connection) -> Result<Vec<ForecastAccount>> {
+    let skip = excluded_accounts(conn)?;
+    Ok(liquid_accounts(conn)?
+        .into_iter()
+        .map(|a| ForecastAccount {
+            included: !skip.contains(&a.id),
+            id: a.id,
+            name: a.name,
+        })
+        .collect())
+}
+
+/// Выключить счета из прогноза (пустой список — все быстрые счета, как в 0.18).
+pub fn set_excluded_accounts(conn: &Connection, ids: &[String]) -> Result<()> {
+    let mut list: Vec<String> = Vec::new();
+    for id in ids {
+        accounts::head(conn, id)?;
+        if !list.contains(id) {
+            list.push(id.clone());
+        }
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![
+            EXCLUDED_ACCOUNTS_KEY,
+            serde_json::to_string(&list).expect("список строк")
+        ],
+    )?;
+    Ok(())
 }
 
 /// Категории повторяющихся напоминаний с суммой: их суммы идут по датам.
@@ -142,10 +242,11 @@ fn regular_by_category(
     from: &str,
     to: &str,
     excluded: &HashSet<String>,
+    skip: &HashSet<String>,
     missing: &mut Vec<String>,
 ) -> Result<HashMap<(String, String), i64>> {
     let mut stmt = conn.prepare(
-        "SELECT t.type, t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
+        "SELECT t.type, t.category_id, t.date, t.amount, a.currency_code, t.account_id FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('income', 'expense')
            AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1
@@ -154,14 +255,22 @@ fn regular_by_category(
            AND t.id NOT IN (SELECT transaction_id FROM reminder_occurrences
                             WHERE transaction_id IS NOT NULL)",
     )?;
-    let rows: Vec<(String, String, String, i64, String)> = stmt
+    type Row = (String, String, String, i64, String, String);
+    let rows: Vec<Row> = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut out: HashMap<(String, String), i64> = HashMap::new();
-    for (kind, cat, date, amount, cur) in rows {
-        if excluded.contains(&cat) {
+    for (kind, cat, date, amount, cur, account) in rows {
+        if excluded.contains(&cat) || skip.contains(&account) {
             continue;
         }
         match currencies::convert(conn, amount, &cur, base, &date)? {
@@ -187,6 +296,7 @@ fn known_items(
     base: &str,
     today: &str,
     last: &str,
+    skip: &HashSet<String>,
     missing: &mut Vec<String>,
 ) -> Result<Vec<Item>> {
     let mut items = Vec::new();
@@ -268,18 +378,29 @@ fn known_items(
     // Запланированные операции (ещё не проведены, в баланс не входят).
     let mut stmt = conn.prepare(
         "SELECT t.type, t.date, t.amount, a.currency_code,
-                COALESCE(NULLIF(trim(t.payee), ''), c.name, 'Запланировано')
+                COALESCE(NULLIF(trim(t.payee), ''), c.name, 'Запланировано'), t.account_id
          FROM transactions t JOIN accounts a ON a.id = t.account_id
          LEFT JOIN categories c ON c.id = t.category_id
          WHERE t.status = 'planned' AND t.type IN ('income', 'expense') AND t.date BETWEEN ?1 AND ?2
            AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1",
     )?;
-    let rows: Vec<(String, String, i64, String, String)> = stmt
+    type Row = (String, String, i64, String, String, String);
+    let rows: Vec<Row> = stmt
         .query_map(params![today, last], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    for (kind, date, amount, cur, title) in rows {
+    for (kind, date, amount, cur, title, account) in rows {
+        if skip.contains(&account) {
+            continue;
+        }
         let Some(v) = currencies::convert(conn, amount, &cur, base, today)? else {
             add_missing(missing, cur);
             continue;
@@ -296,6 +417,71 @@ fn known_items(
     Ok(items)
 }
 
+/// Во сколько раз месяц может быть больше обычного: единичная крупная трата
+/// год назад не раздувает прогноз.
+const SEASON_CAP: f64 = 2.0;
+/// Сколько месяцев из 12 категория должна встречаться, чтобы учитывать её
+/// сезонность (иначе — новая или редкая категория, ровно по среднему).
+const SEASON_ACTIVE: usize = 6;
+
+/// Разложить обычный уровень `level` на 12 месяцев прогноза по долям прошлого
+/// года (`year[i]` — тот же месяц год назад). Доля месяца не больше
+/// [`SEASON_CAP`] средней, лишнее делится между остальными месяцами; сумма за
+/// год ровно `12 × level`, ни один месяц не меньше нуля.
+fn season_split(level: i64, year: &[i64; HORIZON]) -> [i64; HORIZON] {
+    let n = HORIZON as f64;
+    let total: i64 = year.iter().map(|v| (*v).max(0)).sum();
+    let active = year.iter().filter(|v| **v > 0).count();
+    if level <= 0 || total <= 0 || active < SEASON_ACTIVE {
+        return [level.max(0); HORIZON];
+    }
+    // Доли месяцев (в сумме 12), крупные срезаются до потолка, остальные
+    // растягиваются, пока ни одна не выше потолка.
+    let mut idx = year.map(|v| v.max(0) as f64 * n / total as f64);
+    let mut capped = [false; HORIZON];
+    loop {
+        let free: f64 = (0..HORIZON).filter(|i| !capped[*i]).map(|i| idx[i]).sum();
+        let left = n - capped.iter().filter(|c| **c).count() as f64 * SEASON_CAP;
+        if free > 0.0 {
+            for i in (0..HORIZON).filter(|i| !capped[*i]) {
+                idx[i] *= left / free;
+            }
+        }
+        let mut changed = false;
+        for i in 0..HORIZON {
+            if !capped[i] && idx[i] > SEASON_CAP {
+                idx[i] = SEASON_CAP;
+                capped[i] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // Целые копейки: остаток от округления вниз — месяцам с большей дробью.
+    let target = level as i128 * HORIZON as i128;
+    let exact: Vec<f64> = idx.iter().map(|x| level as f64 * x).collect();
+    let mut out = [0i64; HORIZON];
+    for i in 0..HORIZON {
+        out[i] = exact[i].floor() as i64;
+    }
+    let mut rest = target - out.iter().map(|v| *v as i128).sum::<i128>();
+    let mut order: Vec<usize> = (0..HORIZON).collect();
+    order.sort_by(|a, b| {
+        (exact[*b] - exact[*b].floor()).total_cmp(&(exact[*a] - exact[*a].floor()))
+    });
+    for i in order.into_iter().cycle() {
+        if rest == 0 {
+            break;
+        }
+        let step = rest.signum();
+        out[i] += step as i64;
+        rest -= step;
+    }
+    out
+}
+
 /// Прогноз на [`HORIZON`] месяцев от `today`. С `scenario_id` поверх обычного
 /// прогноза считается линия сценария.
 pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Result<Forecast> {
@@ -303,7 +489,8 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     let base = currencies::base_currency(conn)?;
     let bc = currencies::get(conn, &base)?;
     let mut missing = Vec::new();
-    let liquid = liquid_on(conn, &base, today, &mut missing)?;
+    let skip = excluded_accounts(conn)?;
+    let liquid = liquid_on(conn, &base, today, &skip, &mut missing)?;
 
     let current = budgets::month_of(conn, today)?;
     let sd = budgets::start_day(conn)?;
@@ -315,27 +502,65 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
         )?);
     }
 
-    // Среднее по категориям за прошлые полные месяцы (с начала учёта).
+    // Прошлые полные месяцы по категориям: `past[i - 1]` — месяц `current − i`
+    // (None — учёта тогда ещё не было). Для сезонности нужен целый год.
     let excluded = reminder_categories(conn)?;
     let first = first_activity(conn)?;
-    let mut sums: HashMap<(String, String), i64> = HashMap::new();
-    let mut counted = 0i64;
-    if let Some(first) = &first {
-        for i in 1..=HISTORY_MONTHS {
-            let p = budgets::period(&budgets::shift_month(&current.month, -i)?, sd)?;
-            if p.end.as_str() < first.as_str() {
-                continue;
-            }
-            for (k, v) in
-                regular_by_category(conn, &base, &p.start, &p.end, &excluded, &mut missing)?
-            {
-                *sums.entry(k).or_default() += v;
-            }
-            counted += 1;
-        }
+    let year_ago = budgets::period(&budgets::shift_month(&current.month, -SEASON_MONTHS)?, sd)?;
+    let seasonal = first.as_deref().is_some_and(|f| f <= year_ago.end.as_str());
+    let depth = if seasonal {
+        SEASON_MONTHS
+    } else {
+        HISTORY_MONTHS
+    };
+    let mut past: Vec<Option<HashMap<(String, String), i64>>> = Vec::new();
+    for i in 1..=depth {
+        let p = budgets::period(&budgets::shift_month(&current.month, -i)?, sd)?;
+        let covered = first.as_deref().is_some_and(|f| p.end.as_str() >= f);
+        past.push(if covered {
+            Some(regular_by_category(
+                conn,
+                &base,
+                &p.start,
+                &p.end,
+                &excluded,
+                &skip,
+                &mut missing,
+            )?)
+        } else {
+            None
+        });
     }
-    let avg: HashMap<(String, String), i64> = if counted > 0 {
-        sums.into_iter().map(|(k, v)| (k, v / counted)).collect()
+    let average = |maps: &[Option<HashMap<(String, String), i64>>]| {
+        let counted = maps.iter().flatten().count() as i64;
+        let mut sums: HashMap<(String, String), i64> = HashMap::new();
+        for m in maps.iter().flatten() {
+            for (k, v) in m {
+                *sums.entry(k.clone()).or_default() += v;
+            }
+        }
+        if counted > 0 {
+            sums.values_mut().for_each(|v| *v /= counted);
+        }
+        (sums, counted)
+    };
+    // Обычный уровень — среднее за последние полные месяцы (с начала учёта).
+    let (avg, counted) = average(&past[..HISTORY_MONTHS as usize]);
+    // Сезонность: обычный уровень за год раскладывается по месяцам так же,
+    // как год назад (см. [`season_split`]).
+    let seasonal_split: HashMap<(String, String), [i64; HORIZON]> = if seasonal {
+        avg.iter()
+            .map(|(key, level)| {
+                let mut year = [0i64; HORIZON];
+                for (i, y) in year.iter_mut().enumerate() {
+                    *y = past[SEASON_MONTHS as usize - 1 - i]
+                        .as_ref()
+                        .and_then(|m| m.get(key).copied())
+                        .unwrap_or(0);
+                }
+                (key.clone(), season_split(*level, &year))
+            })
+            .collect()
     } else {
         HashMap::new()
     };
@@ -347,18 +572,35 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     };
     let (avg_income, avg_expense) = (avg_of("income"), avg_of("expense"));
 
-    // Текущий месяц: по каждой категории осталось «среднее минус уже случилось».
-    let so_far = regular_by_category(conn, &base, &current.start, today, &excluded, &mut missing)?;
-    let rest = |kind: &str| -> i64 {
+    // Текущий месяц: по каждой категории осталось «ожидаемое минус уже случилось».
+    let so_far = regular_by_category(
+        conn,
+        &base,
+        &current.start,
+        today,
+        &excluded,
+        &skip,
+        &mut missing,
+    )?;
+    // Обычные доходы или траты `kind` в месяце прогноза `i`.
+    let regular = |i: usize, kind: &str, with_season: bool| -> i64 {
         avg.iter()
             .filter(|((k, _), _)| k == kind)
-            .map(|(key, v)| (v - so_far.get(key).copied().unwrap_or(0)).max(0))
+            .map(|(key, level)| {
+                let mut v = match seasonal_split.get(key) {
+                    Some(split) if with_season => split[i],
+                    _ => *level,
+                };
+                if i == 0 {
+                    v = (v - so_far.get(key).copied().unwrap_or(0)).max(0);
+                }
+                v
+            })
             .sum()
     };
-    let (rest_income, rest_expense) = (rest("income"), rest("expense"));
 
     let last = &periods[HORIZON - 1].end;
-    let known = known_items(conn, &base, today, last, &mut missing)?;
+    let known = known_items(conn, &base, today, last, &skip, &mut missing)?;
 
     let mut months = Vec::with_capacity(HORIZON);
     let mut balance = liquid;
@@ -378,10 +620,15 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
             .filter(|i| i.amount < 0)
             .map(|i| -i.amount)
             .sum();
-        let (regular_income, regular_expense) = if i == 0 {
-            (rest_income, rest_expense)
+        let regular_income = regular(i, "income", seasonal);
+        let regular_expense = regular(i, "expense", seasonal);
+        let (season_income, season_expense) = if seasonal {
+            (
+                regular_income - regular(i, "income", false),
+                regular_expense - regular(i, "expense", false),
+            )
         } else {
-            (avg_income, avg_expense)
+            (0, 0)
         };
         let opening = balance;
         balance += regular_income - regular_expense + planned_income - planned_expense;
@@ -398,11 +645,14 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
             regular_expense,
             planned_income,
             planned_expense,
+            season_income,
+            season_expense,
             closing: balance,
             items,
             scenario: None,
         });
     }
+    let goals = goal_marks(conn, &base, today, &months, &skip, &mut missing)?;
 
     let lowest = months
         .iter()
@@ -424,6 +674,13 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
         avg_income,
         avg_expense,
         excluded_categories: excluded_names(conn, &excluded)?,
+        seasonal,
+        excluded_accounts: liquid_accounts(conn)?
+            .into_iter()
+            .filter(|a| skip.contains(&a.id))
+            .map(|a| a.name)
+            .collect(),
+        goals,
         months,
         lowest_month,
         lowest_balance,
@@ -451,6 +708,58 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
             .map(|m| m.month.clone());
         out.scenario_id = Some(s.id);
         out.scenario_name = Some(s.name);
+    }
+    Ok(out)
+}
+
+/// Цели со сроком внутри прогноза (ещё не достигнутые).
+fn goal_marks(
+    conn: &Connection,
+    base: &str,
+    today: &str,
+    months: &[Month],
+    skip: &HashSet<String>,
+    missing: &mut Vec<String>,
+) -> Result<Vec<GoalMark>> {
+    let in_forecast: HashSet<String> = liquid_accounts(conn)?
+        .into_iter()
+        .filter(|a| !skip.contains(&a.id))
+        .map(|a| a.id)
+        .collect();
+    let mut out = Vec::new();
+    for g in goals::list(conn, today)? {
+        let Some(deadline) = g.deadline.clone() else {
+            continue;
+        };
+        if g.status == "reached" {
+            continue;
+        }
+        let Some(m) = months
+            .iter()
+            .find(|m| deadline >= m.start && deadline <= m.end)
+        else {
+            continue;
+        };
+        // Копите на счёте из прогноза (или без счёта) — к сроку нужна вся сумма,
+        // иначе накопленное лежит вне прогноза и нужен только остаток.
+        let whole = g
+            .account_id
+            .as_ref()
+            .is_none_or(|a| in_forecast.contains(a));
+        let need = if whole { g.target } else { g.remaining };
+        let Some(need) = currencies::convert(conn, need, &g.currency_code, base, today)? else {
+            add_missing(missing, g.currency_code);
+            continue;
+        };
+        out.push(GoalMark {
+            id: g.id,
+            name: g.name,
+            deadline,
+            month: m.month.clone(),
+            need,
+            closing: m.closing,
+            free: m.closing - need,
+        });
     }
     Ok(out)
 }
@@ -1206,6 +1515,164 @@ mod tests {
         assert_eq!(f.avg_income, 8_000_000, "его доходы не в среднем");
         assert_eq!(f.months[1].planned_income, 0, "и не в запланированном");
         assert_eq!(f.months[11].closing, 21_400_000 + 12 * 3_800_000);
+    }
+
+    #[test]
+    fn chosen_accounts_only() {
+        let (db, card) = setup();
+        let c = db.conn();
+        let mut deposit = input("Вклад", "savings", "RUB", 50_000_000);
+        deposit.opening_date = "2026-07-01".into();
+        let deposit = accounts::create(c, &deposit).unwrap();
+        for m in ["07", "08", "09"] {
+            txn(
+                c,
+                "income",
+                &format!("2026-{m}-28"),
+                &deposit,
+                300_000,
+                "Зарплата",
+            );
+        }
+        let id = txn(c, "expense", "2026-11-20", &deposit, 1_000_000, "Продукты");
+        c.execute(
+            "UPDATE transactions SET status = 'planned' WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+        let all = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(all.liquid, 21_400_000 + 50_900_000);
+        assert_eq!(all.months[1].planned_expense, 1_000_000);
+
+        set_excluded_accounts(c, &[deposit.clone(), deposit.clone()]).unwrap();
+        let list = accounts(c).unwrap();
+        assert!(list.iter().any(|a| a.id == card && a.included));
+        assert!(list.iter().any(|a| a.id == deposit && !a.included));
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(f.liquid, 21_400_000, "вклад не в старте");
+        assert_eq!(f.avg_income, 8_000_000, "его проценты не в среднем");
+        assert_eq!(f.months[1].planned_expense, 0, "и не в запланированном");
+        assert_eq!(f.excluded_accounts, vec!["Вклад".to_string()]);
+
+        set_excluded_accounts(c, &[]).unwrap();
+        assert_eq!(forecast(c, "2026-10-01", None).unwrap().liquid, all.liquid);
+        assert!(set_excluded_accounts(c, &["нет-такого".into()]).is_err());
+    }
+
+    /// Учёт ведётся год: декабрь прошлого года стоил вдвое больше, и декабрь в
+    /// прогнозе дороже, а остальные месяцы чуть дешевле — за год сумма та же.
+    #[test]
+    fn season_from_the_same_month_last_year() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let mut card = input("Карта", "debit", "RUB", 0);
+        card.opening_date = "2025-10-01".into();
+        let card = accounts::create(c, &card).unwrap();
+        for i in 0..12 {
+            let month = budgets::shift_month("2025-10", i).unwrap();
+            txn(
+                c,
+                "income",
+                &format!("{month}-05"),
+                &card,
+                8_000_000,
+                "Зарплата",
+            );
+            let food = if month == "2025-12" {
+                6_000_000
+            } else {
+                3_000_000
+            };
+            txn(
+                c,
+                "expense",
+                &format!("{month}-10"),
+                &card,
+                food,
+                "Продукты",
+            );
+        }
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert!(f.seasonal);
+        assert_eq!(f.avg_expense, 3_000_000, "обычный уровень — 3 месяца");
+        // Год назад 390 000 ₽, декабрь — 60 000 ₽: его доля 60/390 от годовых
+        // 360 000 ₽ = 55 384,62 ₽, остальные по 27 692,31 ₽.
+        assert_eq!(f.months[2].month, "2026-12");
+        assert!((5_538_461..=5_538_462).contains(&f.months[2].regular_expense));
+        assert_eq!(
+            f.months[2].season_expense,
+            f.months[2].regular_expense - 3_000_000
+        );
+        assert!((2_769_230..=2_769_231).contains(&f.months[1].regular_expense));
+        assert_eq!(f.months[0].season_income, 0);
+        let year: i64 = f.months.iter().map(|m| m.regular_expense).sum();
+        assert_eq!(year, 12 * 3_000_000, "за год сумма та же");
+
+        // Меньше года учёта — сезонности нет, как в 0.18.
+        let short = forecast(c, "2026-09-15", None).unwrap();
+        assert!(!short.seasonal);
+        assert!(short.months.iter().all(|m| m.season_expense == 0));
+    }
+
+    /// Единичная крупная трата год назад: декабрь не больше двух обычных
+    /// месяцев, годовая сумма не меняется; редкая категория — ровно по среднему.
+    #[test]
+    fn season_split_keeps_year_and_caps_outliers() {
+        let mut year = [1_000_000i64; HORIZON];
+        year[2] = 13_000_000; // 10 000 ₽ в месяц, в декабре ещё 120 000 ₽
+        let split = season_split(1_000_000, &year);
+        assert_eq!(split.iter().sum::<i64>(), 12 * 1_000_000);
+        assert_eq!(split[2], 2_000_000, "не больше двух обычных месяцев");
+        assert!(split
+            .iter()
+            .enumerate()
+            .all(|(i, v)| i == 2 || (909_090..=909_091).contains(v)));
+
+        let mut rare = [0i64; HORIZON];
+        rare[11] = 5_000_000;
+        rare[10] = 5_000_000;
+        assert_eq!(season_split(700_000, &rare), [700_000; HORIZON]);
+        assert_eq!(season_split(0, &year), [0; HORIZON]);
+        assert!(season_split(1, &year).iter().all(|v| *v >= 0));
+        assert_eq!(season_split(1, &year).iter().sum::<i64>(), 12);
+    }
+
+    #[test]
+    fn goal_deadline_inside_forecast() {
+        let (db, card) = setup();
+        let c = db.conn();
+        let goal = |name: &str, target: i64, deadline: Option<&str>, account: Option<String>| {
+            goals::create(
+                c,
+                &goals::GoalInput {
+                    name: name.into(),
+                    target,
+                    currency_code: "RUB".into(),
+                    account_id: account,
+                    deadline: deadline.map(Into::into),
+                },
+            )
+            .unwrap()
+        };
+        goal("Отпуск", 30_000_000, Some("2027-01-15"), None);
+        goal("Машина", 90_000_000, Some("2027-03-01"), Some(card));
+        goal("Без срока", 10_000_000, None, None);
+        goal("Потом", 10_000_000, Some("2028-01-01"), None);
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!(f.goals.len(), 2, "только со сроком внутри 12 месяцев");
+        let trip = &f.goals[0];
+        assert_eq!(
+            (trip.name.as_str(), trip.month.as_str()),
+            ("Отпуск", "2027-01")
+        );
+        // 214 000 + 4 × 38 000 = 366 000 ₽ к концу января.
+        assert_eq!(trip.closing, 21_400_000 + 4 * 3_800_000);
+        assert_eq!(trip.need, 30_000_000);
+        assert_eq!(trip.free, 6_600_000);
+        let car = &f.goals[1];
+        assert_eq!(car.month, "2027-03");
+        assert!(car.free < 0, "на машину к марту не хватит");
     }
 
     /// Доходы брокерского счёта (дивиденды) не входят в среднее: денег этого

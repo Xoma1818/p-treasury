@@ -39,4 +39,10 @@ describe("своя Главная", () => {
     expect(l.order.slice(2, 5)).toEqual(["tiles", "checks", "unusual"]);
     expect(l.hidden).toEqual(["trend"]);
   });
+
+  it("плитка 0.19 «Взгляд вперёд» встаёт сразу за подушкой", () => {
+    const old = DEFAULT_LAYOUT.order.filter((b) => b !== "ahead");
+    const l = parseLayout(JSON.stringify({ order: old, hidden: [] }));
+    expect(l.order[l.order.indexOf("cushion") + 1]).toBe("ahead");
+  });
 });

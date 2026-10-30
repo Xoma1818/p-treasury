@@ -51,7 +51,9 @@ fn validate(key: &str, value: &str) -> Result<()> {
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
-        "subscriptions_hidden" => serde_json::from_str::<Vec<String>>(value).is_ok(),
+        "subscriptions_hidden" | "forecast_excluded_accounts" => {
+            serde_json::from_str::<Vec<String>>(value).is_ok()
+        }
         "subs_notified" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
         "bank_accounts" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
         _ => true,
