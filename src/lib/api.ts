@@ -506,6 +506,7 @@ export interface Quote {
   after: SimView;
   newPayment: number;
   savings: number;
+  compare: LoanCompare;
 }
 
 export interface Forecast {
@@ -521,7 +522,34 @@ export interface Forecast {
 export interface TermsPreview {
   before: SimView;
   after: SimView;
+  compare: LoanCompare;
 }
+
+/** Итоги займа для «было → станет» перед сохранением. */
+export interface LoanSnap {
+  rateBp: number;
+  /** С какой даты действует ставка; null — с выдачи. */
+  rateFrom: string | null;
+  ratePeriod: RatePeriod;
+  payments: number;
+  paymentsLeft: number;
+  payment: number;
+  /** Переплата: все проценты за весь срок. */
+  overpayment: number;
+  maturityDate: string;
+}
+
+export interface LoanCompare {
+  before: LoanSnap;
+  after: LoanSnap;
+}
+
+/** Несохранённое изменение займа для предпросмотра. */
+export type LoanChangeInput =
+  | { kind: "rateChange"; from: string; rateBp: number }
+  | { kind: "holiday"; fromSeq: number; months: number; holidayKind: HolidayKind }
+  | { kind: "rowAmount"; seq: number; amount: number; mode: RecalcMode }
+  | { kind: "plannedEarly"; list: PlannedEarlyInput[] };
 
 export interface DebtVersion {
   /** null у текущего графика. */
@@ -1144,6 +1172,19 @@ export interface VaultStatus {
   syncedAt: string | null;
   error: string | null;
   keep: string;
+  /** Последняя копия, прошедшая проверку восстановления. */
+  verified: VerifiedBackup | null;
+  /** Ошибка последней проверки восстановления. */
+  verifyError: string | null;
+}
+
+export interface VerifiedBackup {
+  path: string;
+  checkedAt: string;
+  schemaVersion: number;
+  accounts: number;
+  transactions: number;
+  lastDate: string | null;
 }
 
 export interface VaultPlace {
@@ -1437,6 +1478,22 @@ export interface Check {
   secondId: string | null;
 }
 
+/** Предупреждение бюджета: что случилось, почему и за какой период. */
+export interface BudgetWarning {
+  key: string;
+  month: string;
+  categoryId: string;
+  categoryName: string;
+  level: 80 | 100;
+  actual: number;
+  limit: number;
+  percent: number;
+  text: string;
+  reason: string;
+  start: string;
+  end: string;
+}
+
 /** Чистые активы на конец месяца (В3). */
 export interface NetWorthPoint {
   month: string;
@@ -1529,6 +1586,7 @@ export const api = {
   exportScheduleXlsx: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_xlsx", { path, doc }),
   exportSchedulePdf: (path: string, doc: ScheduleDoc) => invoke<void>("export_schedule_pdf", { path, doc }),
   previewDebtTerms: (id: string, input: TermsInput) => invoke<TermsPreview>("preview_debt_terms", { id, input }),
+  previewDebtChange: (id: string, input: LoanChangeInput) => invoke<LoanCompare>("preview_debt_change", { id, input }),
   getBudget: (month: string) => invoke<Budget>("get_budget", { month }),
   monthOf: (date: string) => invoke<Period>("month_of", { date }),
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
@@ -1620,6 +1678,8 @@ export const api = {
   restoreBackup: (path: string) => invoke<string>("restore_backup", { path }),
   vaultStatus: () => invoke<VaultStatus>("vault_status"),
   vaultSync: () => invoke<VaultStatus>("vault_sync"),
+  /** Пробное восстановление: свежая копия папки сохранности (без пути) или выбранный файл. */
+  verifyBackup: (path?: string) => invoke<VaultStatus>("verify_backup", { path: path ?? null }),
   vaultPlaces: () => invoke<VaultPlace[]>("vault_places"),
   setVaultDir: (path: string | null) => invoke<VaultStatus>("set_vault_dir", { path }),
   vaultScan: (dirs?: string[]) => invoke<VaultFound[]>("vault_scan", { dirs: dirs ?? null }),
@@ -1671,6 +1731,7 @@ export const api = {
   reportByTag: (tagId: string, from: string, to: string) => invoke<TagReport>("report_by_tag", { tagId, from, to }),
   spendingVsUsual: (month: string) => invoke<UsualReport>("spending_vs_usual", { month }),
   listChecks: () => invoke<Check[]>("list_checks"),
+  budgetWarnings: () => invoke<BudgetWarning[]>("budget_warnings"),
   dismissCheck: (key: string) => invoke<void>("dismiss_check", { key }),
   deleteDuplicate: (secondId: string) => invoke<void>("delete_duplicate", { secondId }),
   /** months: 12, 36 или null — всё время. */

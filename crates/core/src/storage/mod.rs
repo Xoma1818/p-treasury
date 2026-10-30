@@ -102,6 +102,27 @@ impl Storage {
         })
     }
 
+    /// Пробное восстановление: копия `src` загружается в базу в памяти и
+    /// проходит те же миграции, что и при настоящем восстановлении. Рабочие
+    /// данные и файл копии не меняются.
+    pub fn rehearse_restore(src: &Path) -> Result<Self> {
+        let mut conn = Connection::open_in_memory()?;
+        {
+            let source =
+                Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let backup = rusqlite::backup::Backup::new(&source, &mut conn)?;
+            backup.run_to_completion(256, std::time::Duration::from_millis(0), None)?;
+        }
+        configure(&conn)?;
+        migrate(&mut conn, MIGRATIONS)?;
+        ensure_indexes(&conn)?;
+        Ok(Self {
+            conn,
+            path: PathBuf::from(":memory:"),
+            pre_migration_backup: None,
+        })
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

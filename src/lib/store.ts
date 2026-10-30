@@ -39,6 +39,9 @@ interface UiState {
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
   txnFilter: TxnJump | null;
   showTransactions: (f: TxnJump) => void;
+  /** «Изменить план» из предупреждения: Бюджет открывается на лимите этой категории. */
+  planFocus: string | null;
+  editPlan: (categoryId: string | null) => void;
   txnForm: TxnFormState;
   openTxnForm: (s: TxnFormState) => void;
   /** Открыть карточку долга (и сразу отметку платежа) из напоминания или календаря. */
@@ -64,6 +67,8 @@ export const useUi = create<UiState>((set) => ({
   go: (section) => set((s) => ({ section, visit: s.visit + 1 })),
   txnFilter: null,
   showTransactions: (txnFilter) => set({ txnFilter, section: "transactions" }),
+  planFocus: null,
+  editPlan: (planFocus) => set((s) => (planFocus ? { planFocus, section: "budget", visit: s.visit + 1 } : { planFocus })),
   txnForm: null,
   openTxnForm: (txnForm) => set({ txnForm }),
   debtJump: null,

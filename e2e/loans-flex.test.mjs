@@ -61,6 +61,9 @@ test("своя сумма строки графика: срок короче, о
   await waitCount(browser, '[data-testid="schedule-row"]', 24);
   await (await browser.$('[data-testid="row-amount"]')).click();
   await fill(browser, "rowAmount", "60000");
+  // До сохранения видно «было → станет»: платежей станет меньше, переплата меньше.
+  await waitText(browser, '[data-testid="cmp-payments"]', /Число платежей\s*24[\s\S]*→/);
+  await waitText(browser, '[data-testid="cmp-delta"]', /Экономия на процентах/);
   await save(browser);
   await browser.waitUntil(async () => (await browser.$$('[data-testid="schedule-row"]')).length < 24, { timeout: 5000, timeoutMsg: "срок не сократился" });
   await waitText(browser, '[data-testid="schedule"]', /своя/);

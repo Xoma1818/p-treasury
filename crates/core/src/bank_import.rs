@@ -689,11 +689,18 @@ pub(crate) fn to_parsed(
 }
 
 /// Такая операция уже есть: та же дата, счёт, тип, сумма и получатель.
+/// Разбитый чек считается одной операцией на сумму всех его частей: после
+/// разбивки повторная выписка не добавит покупку второй раз.
 pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
     Ok(conn
         .query_row(
             "SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
-               AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '') LIMIT 1",
+               AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '') AND split_id IS NULL
+             UNION ALL
+             SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
+               AND coalesce(payee, '') = coalesce(?5, '') AND split_id IS NOT NULL
+             GROUP BY split_id HAVING sum(abs(amount)) = ?4
+             LIMIT 1",
             params![t.date, t.account_id, t.kind, t.amount, t.payee],
             |_| Ok(()),
         )
@@ -897,5 +904,82 @@ mod tests {
         assert_eq!(rows[1].0, "Зарплата", "по описанию «Зарплата ООО Ромашка»");
         assert_eq!(rows[2].0, "Интернет и связь");
         assert_eq!(rows[4].0, "Кафе и рестораны");
+    }
+
+    /// Сочетание: выписка загружена, покупку разбили по категориям, ту же
+    /// выписку загружают снова — разбитый чек узнаётся, второй раз не добавляется.
+    #[test]
+    fn reimport_after_split_receipt_is_a_duplicate() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let main = account(db.conn(), "Т-Банк");
+        let (bank, ops) = read(&testdata("tbank.csv")).unwrap().unwrap();
+        let first = to_parsed(db.conn(), bank, &ops, Some(&main)).unwrap();
+        let mut ids = Vec::new();
+        for p in &first {
+            if let Some(i) = &p.input {
+                ids.push((
+                    crate::transactions::create(db.conn(), i).unwrap(),
+                    i.clone(),
+                ));
+            }
+        }
+        // Покупку в супермаркете (1 053,77) разбиваем на две категории.
+        let (id, shop) = ids
+            .iter()
+            .find(|(_, i)| i.amount == 105_377)
+            .unwrap()
+            .clone();
+        let cat = |name: &str| -> String {
+            db.conn()
+                .query_row("SELECT id FROM categories WHERE name = ?1", [name], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        let (food, home) = (cat("Супермаркет"), cat("Прочие расходы"));
+        db.conn()
+            .execute("DELETE FROM transactions WHERE id = ?1", [&id])
+            .unwrap();
+        crate::receipts::create(
+            db.conn_mut(),
+            &crate::receipts::ReceiptInput {
+                date: shop.date.clone(),
+                account_id: shop.account_id.clone(),
+                payee: shop.payee.clone(),
+                note: None,
+                total: 105_377,
+                parts: vec![
+                    crate::receipts::PartInput {
+                        category_id: food,
+                        amount: 80_000,
+                        note: None,
+                    },
+                    crate::receipts::PartInput {
+                        category_id: home,
+                        amount: 25_377,
+                        note: None,
+                    },
+                ],
+                tags: Vec::new(),
+                event_id: None,
+            },
+        )
+        .unwrap();
+        let again = to_parsed(db.conn(), bank, &ops, Some(&main)).unwrap();
+        let fresh: Vec<_> = again
+            .iter()
+            .filter(|p| p.input.is_some())
+            .map(|p| p.row.line)
+            .collect();
+        assert!(fresh.is_empty(), "повторно загрузились бы строки {fresh:?}");
+        assert!(again
+            .iter()
+            .filter(|p| p.row.error.is_none())
+            .all(|p| p.row.duplicate));
+        // Часть чека на ту же сумму, что другая покупка, сама по себе не «повтор».
+        let mut other = shop.clone();
+        other.amount = 80_000;
+        assert!(!exists(db.conn(), &other).unwrap());
     }
 }

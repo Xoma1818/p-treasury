@@ -77,7 +77,7 @@ test("ручная копия на «флешку», после неё напо�
   await openSection(browser, "Настройки");
   await pick(flash);
   await click(browser, "Сделать копию");
-  await waitText(browser, '[data-testid="backup-msg"]', /Копия сохранена: flash\.db/);
+  await waitText(browser, '[data-testid="backup-msg"]', /Копия сохранена и проверена: flash\.db/);
   assert.ok(existsSync(flash));
   await waitText(browser, '[data-testid="last-backup"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);
   await openSection(browser, "Главная");
