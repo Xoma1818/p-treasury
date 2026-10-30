@@ -32,6 +32,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      # Выпуск 0.16.0 для проверки обновления данных (e2e/upgrade.test.mjs). В выпусках
+      # только Windows-установщики, поэтому старая версия собирается здесь из тега.
+      - uses: actions/checkout@v5
+        with:
+          ref: v0.16.0
+          path: old
       - name: Системные библиотеки окна и WebDriver
         run: |
           sudo apt-get update -qq
@@ -41,6 +47,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: e2e
+          workspaces: |
+            . -> target
+            old -> target
       - name: tauri-driver
         run: cargo install tauri-driver --locked
       - uses: actions/setup-node@v5
@@ -52,5 +61,15 @@ jobs:
         run: npm run build
       - name: Приложение со встроенным интерфейсом
         run: cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Старая версия 0.16.0
+        working-directory: old
+        run: |
+          npm ci
+          npx vite build --logLevel warn
+          cargo build -p budget-app --features custom-protocol --locked --quiet
       - name: Сквозные тесты
+        env:
+          PTREASURY_OLD_BIN: ${{ github.workspace }}/old/target/debug/budget-app
+          # Без старой сборки тест обновления падает, а не пропускается.
+          PTREASURY_REQUIRE_OLD: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" node --test --test-concurrency=1 "e2e/*.test.mjs"

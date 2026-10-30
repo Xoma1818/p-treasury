@@ -13,6 +13,10 @@ const OLD = process.env.PTREASURY_OLD_BIN;
 // Последняя версия схемы данных: по числу миграций ядра.
 const LATEST = readdirSync(new URL("../crates/core/migrations/", import.meta.url)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).length;
 const ready = OLD && existsSync(OLD);
+// В CI старая сборка обязательна: пропуск не должен выглядеть как успешная проверка.
+if (process.env.PTREASURY_REQUIRE_OLD === "1" && !ready) {
+  throw new Error(`нет старой сборки PTREASURY_OLD_BIN: ${OLD ?? "не задана"}`);
+}
 let browser, dataDir;
 after(async () => {
   if (browser) await stop(browser);
