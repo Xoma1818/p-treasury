@@ -358,13 +358,17 @@ const SNOOZE: [string, () => string][] = [
 /** «Создать операцию»: для своего напоминания — форма операции с суммой, для долга — отметка платежа. */
 function useCreateFromReminder() {
   const { openTxnForm, openDebt } = useUi();
+  const accounts = useAccounts().data ?? [];
+  const base = useSettings().data?.base_currency;
   return (o: Occurrence) => {
     if (o.key.source === "debt" && o.debtId) return openDebt(o.debtId, true);
+    // Сумма напоминания — в основной валюте: на счёт в другой валюте её не подставляем.
+    const foreign = accounts.find((a) => a.id === o.accountId)?.currencyCode !== base && o.accountId != null;
     openTxnForm({
       mode: "new",
       type: o.txnType ?? "expense",
       date: today(),
-      prefill: { amount: o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
+      prefill: { amount: foreign ? null : o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
       onSaved: (id) => api.completeReminder(o.key, id),
     });
   };
