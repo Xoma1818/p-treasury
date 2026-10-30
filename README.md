@@ -2,12 +2,12 @@
 
 **Личные и семейные финансы на вашем компьютере.** Счета, бюджет, займы, инвестиции и понятные отчёты — с локальным хранением данных, без обязательной регистрации.
 
-[Скачать для Windows](https://github.com/Xoma1818/p-treasury-releases/releases/latest) · [Что нового](CHANGELOG.md) · [План 0.17](https://github.com/Xoma1818/p-treasury/issues/28) · [Сообщить об ошибке](https://github.com/Xoma1818/p-treasury/issues/new/choose)
+[Скачать для Windows](https://github.com/Xoma1818/p-treasury-releases/releases/latest) · [Что нового](CHANGELOG.md) · [Задачи](https://github.com/Xoma1818/p-treasury/issues) · [Сообщить об ошибке](https://github.com/Xoma1818/p-treasury/issues/new/choose)
 
 | Сейчас | Где посмотреть |
 |---|---|
-| Стабильный выпуск **0.16.0** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.16.0) |
-| В работе **0.17 «Быстрые победы»** | [План с проверками](https://github.com/Xoma1818/p-treasury/issues/28), [PR №22](https://github.com/Xoma1818/p-treasury/pull/22) |
+| Стабильный выпуск **0.18.0 «Взгляд вперёд»** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.18.0) |
+| Следующая версия | Выписки популярных банков (ВТБ, Альфа, Газпромбанк, Озон, Яндекс и др.) — ждём настоящие выписки |
 | Команда и порядок работы | [Команда](docs/team.md), [рабочий план](docs/work-plan.md), [текущее состояние](docs/project-state.md) |
 
 ## Что умеет приложение
@@ -26,7 +26,7 @@
 | Нужно | Документ |
 |---|---|
 | Узнать текущую работу и следующий шаг | [Состояние проекта](docs/project-state.md) |
-| Посмотреть задачи и готовность 0.17 | [План выпуска](https://github.com/Xoma1818/p-treasury/issues/28), [очередь](https://github.com/Xoma1818/p-treasury/issues) |
+| Посмотреть задачи и приёмку 0.17 | [Приёмка 0.17](https://github.com/Xoma1818/p-treasury/issues/28), [очередь](https://github.com/Xoma1818/p-treasury/issues) |
 | Понять роли и обязательный порядок работы | [Команда](docs/team.md), [план и регламент](docs/work-plan.md), [процесс](docs/process.md) |
 | Внести изменение или оформить ошибку | [Как участвовать](CONTRIBUTING.md) |
 | Разобраться в продукте и решениях | [Состав продукта](docs/product/mvp-features.md), [решения владельца](docs/decisions.md) |
