@@ -417,6 +417,71 @@ fn known_items(
     Ok(items)
 }
 
+/// Во сколько раз месяц может быть больше обычного: единичная крупная трата
+/// год назад не раздувает прогноз.
+const SEASON_CAP: f64 = 2.0;
+/// Сколько месяцев из 12 категория должна встречаться, чтобы учитывать её
+/// сезонность (иначе — новая или редкая категория, ровно по среднему).
+const SEASON_ACTIVE: usize = 6;
+
+/// Разложить обычный уровень `level` на 12 месяцев прогноза по долям прошлого
+/// года (`year[i]` — тот же месяц год назад). Доля месяца не больше
+/// [`SEASON_CAP`] средней, лишнее делится между остальными месяцами; сумма за
+/// год ровно `12 × level`, ни один месяц не меньше нуля.
+fn season_split(level: i64, year: &[i64; HORIZON]) -> [i64; HORIZON] {
+    let n = HORIZON as f64;
+    let total: i64 = year.iter().map(|v| (*v).max(0)).sum();
+    let active = year.iter().filter(|v| **v > 0).count();
+    if level <= 0 || total <= 0 || active < SEASON_ACTIVE {
+        return [level.max(0); HORIZON];
+    }
+    // Доли месяцев (в сумме 12), крупные срезаются до потолка, остальные
+    // растягиваются, пока ни одна не выше потолка.
+    let mut idx = year.map(|v| v.max(0) as f64 * n / total as f64);
+    let mut capped = [false; HORIZON];
+    loop {
+        let free: f64 = (0..HORIZON).filter(|i| !capped[*i]).map(|i| idx[i]).sum();
+        let left = n - capped.iter().filter(|c| **c).count() as f64 * SEASON_CAP;
+        if free > 0.0 {
+            for i in (0..HORIZON).filter(|i| !capped[*i]) {
+                idx[i] *= left / free;
+            }
+        }
+        let mut changed = false;
+        for i in 0..HORIZON {
+            if !capped[i] && idx[i] > SEASON_CAP {
+                idx[i] = SEASON_CAP;
+                capped[i] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // Целые копейки: остаток от округления вниз — месяцам с большей дробью.
+    let target = level as i128 * HORIZON as i128;
+    let exact: Vec<f64> = idx.iter().map(|x| level as f64 * x).collect();
+    let mut out = [0i64; HORIZON];
+    for i in 0..HORIZON {
+        out[i] = exact[i].floor() as i64;
+    }
+    let mut rest = target - out.iter().map(|v| *v as i128).sum::<i128>();
+    let mut order: Vec<usize> = (0..HORIZON).collect();
+    order.sort_by(|a, b| {
+        (exact[*b] - exact[*b].floor()).total_cmp(&(exact[*a] - exact[*a].floor()))
+    });
+    for i in order.into_iter().cycle() {
+        if rest == 0 {
+            break;
+        }
+        let step = rest.signum();
+        out[i] += step as i64;
+        rest -= step;
+    }
+    out
+}
+
 /// Прогноз на [`HORIZON`] месяцев от `today`. С `scenario_id` поверх обычного
 /// прогноза считается линия сценария.
 pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Result<Forecast> {
@@ -481,18 +546,24 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     };
     // Обычный уровень — среднее за последние полные месяцы (с начала учёта).
     let (avg, counted) = average(&past[..HISTORY_MONTHS as usize]);
-    // Сезонность: среднее за год и тот же месяц год назад.
-    let (avg_year, _) = if seasonal {
-        average(&past)
+    // Сезонность: обычный уровень за год раскладывается по месяцам так же,
+    // как год назад (см. [`season_split`]).
+    let seasonal_split: HashMap<(String, String), [i64; HORIZON]> = if seasonal {
+        avg.iter()
+            .map(|(key, level)| {
+                let mut year = [0i64; HORIZON];
+                for (i, y) in year.iter_mut().enumerate() {
+                    *y = past[SEASON_MONTHS as usize - 1 - i]
+                        .as_ref()
+                        .and_then(|m| m.get(key).copied())
+                        .unwrap_or(0);
+                }
+                (key.clone(), season_split(*level, &year))
+            })
+            .collect()
     } else {
-        (HashMap::new(), 0)
+        HashMap::new()
     };
-    let mut keys: HashSet<(String, String)> = avg.keys().cloned().collect();
-    if seasonal {
-        for m in past.iter().flatten() {
-            keys.extend(m.keys().cloned());
-        }
-    }
     let avg_of = |kind: &str| -> i64 {
         avg.iter()
             .filter(|((k, _), _)| k == kind)
@@ -513,20 +584,13 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     )?;
     // Обычные доходы или траты `kind` в месяце прогноза `i`.
     let regular = |i: usize, kind: &str, with_season: bool| -> i64 {
-        let last_year = if with_season {
-            past[SEASON_MONTHS as usize - 1 - i].as_ref()
-        } else {
-            None
-        };
-        keys.iter()
-            .filter(|(k, _)| k == kind)
-            .map(|key| {
-                let mut v = avg.get(key).copied().unwrap_or(0);
-                if let Some(ly) = last_year {
-                    let shift =
-                        ly.get(key).copied().unwrap_or(0) - avg_year.get(key).copied().unwrap_or(0);
-                    v = (v + shift).max(0);
-                }
+        avg.iter()
+            .filter(|((k, _), _)| k == kind)
+            .map(|(key, level)| {
+                let mut v = match seasonal_split.get(key) {
+                    Some(split) if with_season => split[i],
+                    _ => *level,
+                };
                 if i == 0 {
                     v = (v - so_far.get(key).copied().unwrap_or(0)).max(0);
                 }
@@ -1530,21 +1594,46 @@ mod tests {
         let f = forecast(c, "2026-10-01", None).unwrap();
         assert!(f.seasonal);
         assert_eq!(f.avg_expense, 3_000_000, "обычный уровень — 3 месяца");
-        // Среднее за год 32 500 ₽: декабрь +27 500 ₽, остальные −2 500 ₽.
+        // Год назад 390 000 ₽, декабрь — 60 000 ₽: его доля 60/390 от годовых
+        // 360 000 ₽ = 55 384,62 ₽, остальные по 27 692,31 ₽.
         assert_eq!(f.months[2].month, "2026-12");
-        assert_eq!(f.months[2].regular_expense, 5_750_000);
-        assert_eq!(f.months[2].season_expense, 2_750_000);
-        assert_eq!(f.months[1].regular_expense, 2_750_000);
-        assert_eq!(f.months[1].season_expense, -250_000);
-        assert_eq!(f.months[0].regular_expense, 2_750_000);
+        assert!((5_538_461..=5_538_462).contains(&f.months[2].regular_expense));
+        assert_eq!(
+            f.months[2].season_expense,
+            f.months[2].regular_expense - 3_000_000
+        );
+        assert!((2_769_230..=2_769_231).contains(&f.months[1].regular_expense));
         assert_eq!(f.months[0].season_income, 0);
         let year: i64 = f.months.iter().map(|m| m.regular_expense).sum();
-        assert_eq!(year, 12 * 3_000_000);
+        assert_eq!(year, 12 * 3_000_000, "за год сумма та же");
 
         // Меньше года учёта — сезонности нет, как в 0.18.
         let short = forecast(c, "2026-09-15", None).unwrap();
         assert!(!short.seasonal);
         assert!(short.months.iter().all(|m| m.season_expense == 0));
+    }
+
+    /// Единичная крупная трата год назад: декабрь не больше двух обычных
+    /// месяцев, годовая сумма не меняется; редкая категория — ровно по среднему.
+    #[test]
+    fn season_split_keeps_year_and_caps_outliers() {
+        let mut year = [1_000_000i64; HORIZON];
+        year[2] = 13_000_000; // 10 000 ₽ в месяц, в декабре ещё 120 000 ₽
+        let split = season_split(1_000_000, &year);
+        assert_eq!(split.iter().sum::<i64>(), 12 * 1_000_000);
+        assert_eq!(split[2], 2_000_000, "не больше двух обычных месяцев");
+        assert!(split
+            .iter()
+            .enumerate()
+            .all(|(i, v)| i == 2 || (909_090..=909_091).contains(v)));
+
+        let mut rare = [0i64; HORIZON];
+        rare[11] = 5_000_000;
+        rare[10] = 5_000_000;
+        assert_eq!(season_split(700_000, &rare), [700_000; HORIZON]);
+        assert_eq!(season_split(0, &year), [0; HORIZON]);
+        assert!(season_split(1, &year).iter().all(|v| *v >= 0));
+        assert_eq!(season_split(1, &year).iter().sum::<i64>(), 12);
     }
 
     #[test]
