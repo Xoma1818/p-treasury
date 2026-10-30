@@ -329,17 +329,26 @@ fn validate(conn: &Connection, input: &ReminderInput) -> Result<Checked> {
 
 /// Дата `n`-го срабатывания правила (с 1).
 fn nth(rule: &Rule, n: u32) -> Option<NaiveDateTime> {
-    // Ежедневно и еженедельно — точный шаг, остальное — с запасом по месяцам.
-    let span = match rule.repeat {
-        Repeat::Once => 0,
-        Repeat::Daily => i64::from(n),
-        Repeat::Weekly => 7 * i64::from(n),
-        Repeat::Monthly => 32 * i64::from(n),
-        Repeat::Yearly => 367 * i64::from(n),
-    };
-    expand(rule, rule.start, rule.start + Duration::days(span))
+    first_n(rule, rule.start, n as usize)
         .into_iter()
         .nth(n as usize - 1)
+}
+
+/// Первые `n` срабатываний правила не раньше `from` (меньше — если серия кончается).
+fn first_n(rule: &Rule, from: NaiveDateTime, n: usize) -> Vec<NaiveDateTime> {
+    // Ежедневно и еженедельно — точный шаг, остальное — с запасом по месяцам.
+    let n = n as i64 + 1;
+    let span = match rule.repeat {
+        Repeat::Once => 0,
+        Repeat::Daily => n,
+        Repeat::Weekly => 7 * n,
+        Repeat::Monthly => 32 * n,
+        Repeat::Yearly => 367 * n,
+    };
+    let from = from.max(rule.start);
+    let mut out = expand(rule, from, from + Duration::days(span));
+    out.truncate((n - 1) as usize);
+    out
 }
 
 pub fn create(conn: &Connection, input: &ReminderInput) -> Result<String> {
@@ -456,11 +465,8 @@ fn remap_states(
         return Ok(());
     };
     let before = expand(old, from, last);
-    let after: Vec<NaiveDateTime> =
-        expand(new, from.min(new.start), last + Duration::days(3 * 366))
-            .into_iter()
-            .filter(|d| *d >= from.min(new.start).max(new.start))
-            .collect();
+    // Столько же платежей новой серии, сколько было у старой, без предела по годам.
+    let after = first_n(new, from.min(new.start), before.len());
     if old_id == new_id && before == after[..before.len().min(after.len())] {
         return Ok(()); // расписание то же
     }
@@ -1249,6 +1255,32 @@ pub fn mark_notices(conn: &Connection, notices: &[Notice], at: &str) -> Result<(
     Ok(())
 }
 
+/// Один платёж по ключу — с учётом переноса: ищется и в дне по расписанию, и
+/// в дне, куда его перенесли.
+pub fn occurrence(conn: &Connection, key: &Key) -> Result<Occurrence> {
+    let at = parse_dt(&key.scheduled_at)?;
+    let col = if key.source == "reminder" {
+        "reminder_id"
+    } else {
+        "debt_schedule_id"
+    };
+    let moved: Option<String> = conn
+        .query_row(
+            &format!(
+                "SELECT moved_to FROM reminder_occurrences WHERE source = ?1 AND {col} = ?2 AND scheduled_at = ?3"
+            ),
+            params![key.source, key.ref_id, key.scheduled_at],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let m = moved.as_deref().map(parse_dt).transpose()?.unwrap_or(at);
+    occurrences(conn, at.min(m), at.max(m))?
+        .into_iter()
+        .find(|o| &o.key == key)
+        .ok_or(Error::NotFound("напоминание"))
+}
+
 /// Чем кончилось «Оплачено» из уведомления.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "id")]
@@ -1267,11 +1299,7 @@ pub fn pay(conn: &Connection, key: &Key, today: &str) -> Result<Paid> {
     if key.source != "reminder" {
         return Ok(Paid::NeedsForm);
     }
-    let at = parse_dt(&key.scheduled_at)?;
-    let o = occurrences(conn, at, at)?
-        .into_iter()
-        .find(|o| &o.key == key)
-        .ok_or(Error::NotFound("напоминание"))?;
+    let o = occurrence(conn, key)?;
     if o.status == "done" {
         return Ok(o.transaction_id.map_or(Paid::Marked, Paid::Transaction));
     }
@@ -2083,5 +2111,64 @@ mod tests {
                 ("2027-02-15T09:00", "pending"),
             ]
         );
+    }
+
+    /// «Оплачено» и поиск платежа по ключу работают и после переноса в другой месяц.
+    #[test]
+    fn pay_moved_payment() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let id = create(c, &reminder("Звонок", "2026-11-30T09:00", "once", None)).unwrap();
+        let key = Key {
+            source: "reminder".into(),
+            ref_id: id,
+            scheduled_at: "2026-11-30T09:00".into(),
+        };
+        edit_occurrence(c, &key, None, Some("2026-12-02T09:00")).unwrap();
+        assert_eq!(occurrence(c, &key).unwrap().pay_at, "2026-12-02T09:00");
+        assert_eq!(pay(c, &key, "2026-12-02").unwrap(), Paid::Marked);
+        assert_eq!(occurrence(c, &key).unwrap().status, "done");
+        // Перенос раньше расписания тоже находится.
+        edit_occurrence(c, &key, None, Some("2026-11-20T09:00")).unwrap();
+        assert_eq!(occurrence(c, &key).unwrap().pay_at, "2026-11-20T09:00");
+    }
+
+    /// Ежедневно → ежегодно: оплаченный 10-й платёж остаётся оплаченным 10-м,
+    /// хотя он теперь через 9 лет.
+    #[test]
+    fn remap_has_no_year_limit() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let id = create(
+            c,
+            &reminder("Витамины", "2026-11-01T09:00", "daily", Some(10_000)),
+        )
+        .unwrap();
+        complete(
+            c,
+            &Key {
+                source: "reminder".into(),
+                ref_id: id.clone(),
+                scheduled_at: "2026-11-10T09:00".into(),
+            },
+            None,
+        )
+        .unwrap();
+        update(
+            c,
+            &id,
+            &reminder("Витамины", "2026-11-01T09:00", "yearly", Some(10_000)),
+        )
+        .unwrap();
+        let o = occurrence(
+            c,
+            &Key {
+                source: "reminder".into(),
+                ref_id: id,
+                scheduled_at: "2035-11-01T09:00".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(o.status, "done");
     }
 }
