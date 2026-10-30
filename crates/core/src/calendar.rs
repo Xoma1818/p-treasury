@@ -207,7 +207,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
         if o.key.source != "reminder" {
             continue;
         }
-        let date = o.key.scheduled_at[..10].to_string();
+        let date = o.pay_at[..10].to_string();
         let open = matches!(o.status.as_str(), "pending" | "snoozed");
         if open && date.as_str() >= today {
             if let Some(a) = o.amount {

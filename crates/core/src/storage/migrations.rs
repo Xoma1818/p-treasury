@@ -76,6 +76,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "flexible_loans",
         sql: include_str!("../../migrations/0012_flexible_loans.sql"),
     },
+    // ВРЕМЕННО: 0013–0015 заняты версиями 0.21–0.23 (ещё не слиты), версии
+    // должны идти подряд. Перед слиянием — перебазировать и поставить 16.
+    Migration {
+        version: 13,
+        name: "reminders_ahead",
+        sql: include_str!("../../migrations/0016_reminders_ahead.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

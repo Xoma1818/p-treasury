@@ -48,6 +48,10 @@ fn validate(key: &str, value: &str) -> Result<()> {
             matches!(value, "0" | "1")
         }
         "debt_reminder_days_before" | "autobackup_keep" => value.parse::<u32>().is_ok(),
+        "reminder_lead_days" => crate::reminders::parse_lead_days(value).is_ok(),
+        "reminder_funds_days" => value
+            .parse::<i64>()
+            .is_ok_and(|d| (0..=crate::reminders::MAX_LEAD_DAYS).contains(&d)),
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
