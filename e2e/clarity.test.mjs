@@ -69,7 +69,7 @@ test("строка выписки узнаёт ручную запись, сом
 test("история импорта: счётчики и отмена импорта целиком", async () => {
   await click(browser, "История импорта");
   await waitCount(browser, '[data-testid="history-row"]', 1);
-  await waitText(browser, '[data-testid="history-row"]', /tbank\.csv[\s\S]*2\s+2\s+0/);
+  await waitText(browser, '[data-testid="history-row"]', /tbank\.csv\s*выписка Т-Банк\s*2\s*2\s*0\s*Операции/);
   await (await browser.$('[data-testid="history-undo"]')).click();
   await waitText(browser, '[data-testid="history-confirm"]', /Удалить операции этого импорта \(2\)/);
   await (await browser.$('[data-testid="history-undo-yes"]')).click();
@@ -88,10 +88,10 @@ test("«Как посчитано»: расходы месяца расклад�
   const tile = await browser.$('[data-testid="explain-expense"]');
   await waitText(browser, '[data-testid="explain-expense"]', /\d/);
   await browser.pause(1500); // сумма на плитке «набегает»
-  const shown = money(await tile.getText());
+  const shown = (await tile.getText()).trim();
   await tile.click();
-  await waitText(browser, '[data-testid="explain-total"]', /\d/);
-  assert.equal(money(await (await browser.$('[data-testid="explain-total"]')).getText()), shown);
+  // Сумма разбора совпадает с суммой на плитке.
+  await waitText(browser, '[data-testid="explain-total"]', money(shown));
   await waitText(browser, '[data-testid="explain"]', /Продукты/);
   await browser.keys("Escape");
 
