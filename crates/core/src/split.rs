@@ -118,6 +118,8 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
                 maturity_date: Some(maturity.clone()),
                 account_id: Some(input.account_id.clone()),
                 interest_method: None,
+                rate_period: None,
+                pay_every: None,
                 rate_changes: vec![],
                 planned_early: vec![],
             },

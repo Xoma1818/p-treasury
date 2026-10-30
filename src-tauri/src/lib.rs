@@ -215,6 +215,8 @@ pub fn run() {
             commands::delete_debt_rate_change,
             commands::add_debt_holiday,
             commands::delete_debt_holiday,
+            commands::set_debt_row_amount,
+            commands::delete_debt_row_amount,
             commands::set_debt_planned_early,
             commands::quote_debt_payment,
             commands::debt_forecast,

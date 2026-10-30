@@ -503,9 +503,9 @@ fn debts_sheet(conn: &Connection, today: &str) -> Result<Sheet> {
             Cell::text(&d.currency_code),
             Cell::Money(d.principal, mu),
             Cell::Money(d.outstanding, mu),
-            Cell::text(format!(
-                "{} %",
-                crate::money::format_amount(d.rate_bp, 2, true)
+            Cell::text(crate::loan_export::rate_in(
+                d.rate_bp,
+                crate::loan_calc::RatePeriod::parse(&d.rate_period).unwrap_or_default(),
             )),
             d.next_payment
                 .as_ref()

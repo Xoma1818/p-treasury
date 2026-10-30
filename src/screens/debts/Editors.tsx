@@ -44,7 +44,7 @@ export function EarlyEditor({ lines, onChange, minorUnits, symbol, defaultDate, 
 }
 
 /** Строки «Ставка меняется?»: с даты — ставка. */
-export function RateEditor({ lines, onChange, defaultDate }: { lines: RateLine[]; onChange: (l: RateLine[]) => void; defaultDate: string }) {
+export function RateEditor({ lines, onChange, defaultDate, unit = "%" }: { lines: RateLine[]; onChange: (l: RateLine[]) => void; defaultDate: string; unit?: string }) {
   const set = (i: number, patch: Partial<RateLine>) => onChange(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   return (
     <div className="loan-lines" data-testid="rate-lines">
@@ -55,7 +55,7 @@ export function RateEditor({ lines, onChange, defaultDate }: { lines: RateLine[]
           <span className="loan-line-label">—</span>
           <span className="amount-with-sym">
             <input name={`rate-value-${i}`} className="amount" inputMode="decimal" aria-label="Ставка, %" value={l.rate} onChange={(e) => set(i, { rate: e.target.value })} placeholder="0" />
-            <span className="sym">%</span>
+            <span className="sym">{unit}</span>
           </span>
           <button type="button" className="icon-btn line-del" aria-label="Убрать ставку" title="Убрать" onClick={() => onChange(lines.filter((_, k) => k !== i))}>
             ×

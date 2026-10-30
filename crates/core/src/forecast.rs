@@ -1362,6 +1362,8 @@ mod tests {
                 maturity_date: None,
                 account_id: None,
                 interest_method: None,
+                rate_period: None,
+                pay_every: None,
                 rate_changes: vec![],
                 planned_early: vec![],
             },

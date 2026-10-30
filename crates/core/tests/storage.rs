@@ -535,6 +535,8 @@ fn upgrade_from_0_16_keeps_daily_loan_payments_notes_and_restores_old_backup() {
                 maturity_date: None,
                 account_id: Some(card.clone()),
                 interest_method: Some("daily".into()),
+                rate_period: None,
+                pay_every: None,
                 rate_changes: vec![],
                 planned_early: vec![],
             },

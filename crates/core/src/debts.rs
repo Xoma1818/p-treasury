@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::invalid;
 use crate::loan_calc::{
-    self, Event, HolidayInput, InterestMethod, LoanInput, PlannedEarlyInput, RateChangeInput,
-    Recalc, Repayment, Row, Sim, SimView, Totals,
+    self, Event, HolidayInput, InterestMethod, LoanInput, PayEvery, PlannedEarlyInput,
+    RateChangeInput, RatePeriod, Recalc, Repayment, Row, RowAmountInput, Sim, SimView, Totals,
 };
 use crate::money::format_amount;
 use crate::{accounts, categories, currencies, ids, time, Error, Result};
@@ -41,6 +41,14 @@ pub struct DebtInput {
     /// `daily` (по умолчанию, как в банке) или `monthly` (ставка ÷ 12).
     #[serde(default)]
     pub interest_method: Option<String>,
+    /// За какой период введена ставка: `year` (по умолчанию), `month`, `day`.
+    /// `rate_bp` всегда годовая.
+    #[serde(default)]
+    pub rate_period: Option<String>,
+    /// Как часто платить: `month` (по умолчанию), `quarter`, `two_weeks`;
+    /// `term_months` тогда — число платежей.
+    #[serde(default)]
+    pub pay_every: Option<String>,
     /// Изменения ставки с дат.
     #[serde(default)]
     pub rate_changes: Vec<RateChangeInput>,
@@ -119,6 +127,10 @@ pub struct DebtCard {
     pub default_account_id: Option<String>,
     /// `daily` или `monthly`.
     pub interest_method: String,
+    /// `year`, `month` или `day`: как показывать ставку.
+    pub rate_period: String,
+    /// `month`, `quarter` или `two_weeks`.
+    pub pay_every: String,
     pub first_payment_date: Option<String>,
 }
 
@@ -131,6 +143,8 @@ pub struct DebtDetail {
     pub rate_changes: Vec<RateChangeRow>,
     pub holidays: Vec<HolidayRow>,
     pub planned_early: Vec<PlannedEarlyRow>,
+    /// Свои суммы строк графика.
+    pub row_amounts: Vec<RowAmountRow>,
 }
 
 struct Terms {
@@ -148,6 +162,8 @@ struct Terms {
     maturity_date: String,
     status: String,
     method: InterestMethod,
+    period: RatePeriod,
+    every: PayEvery,
 }
 
 impl Terms {
@@ -162,6 +178,8 @@ impl Terms {
             maturity_date: (self.repayment == Repayment::Bullet)
                 .then(|| self.maturity_date.clone()),
             interest_method: self.method,
+            rate_period: self.period,
+            pay_every: self.every,
         }
     }
 
@@ -200,11 +218,53 @@ fn terms(conn: &Connection, id: &str) -> Result<Terms> {
                 status: r.get(12)?,
                 method: InterestMethod::parse(&r.get::<_, String>(13)?)
                     .unwrap_or(InterestMethod::Monthly),
+                period: RatePeriod::Year,
+                every: PayEvery::Month,
             })
         },
     )
     .optional()?
     .ok_or(Error::NotFound("долг"))
+    .and_then(|mut t| {
+        (t.period, t.every) = flex(conn, id)?;
+        Ok(t)
+    })
+}
+
+/// База старой схемы (до 0012) без новых колонок и таблиц займов: её читают
+/// проверки обновления. Тогда действуют прежние правила.
+fn old_schema(e: &rusqlite::Error) -> bool {
+    e.to_string().starts_with("no such column") || e.to_string().starts_with("no such table")
+}
+
+/// Период ставки и частота платежей (0.20).
+fn flex(conn: &Connection, id: &str) -> Result<(RatePeriod, PayEvery)> {
+    match conn.query_row(
+        "SELECT rate_period, pay_every FROM debts WHERE id = ?1",
+        [id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+    ) {
+        Ok((p, e)) => Ok((
+            RatePeriod::parse(&p).unwrap_or_default(),
+            PayEvery::parse(&e).unwrap_or_default(),
+        )),
+        Err(e) if old_schema(&e) => Ok((RatePeriod::Year, PayEvery::Month)),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Записать период ставки и частоту платежей. Прежние значения (годовая,
+/// каждый месяц) — значения колонок по умолчанию, их не пишем.
+fn set_flex(conn: &Connection, id: &str, period: RatePeriod, every: PayEvery) -> Result<()> {
+    if (period, every) == (RatePeriod::Year, PayEvery::Month) && flex(conn, id)? == (period, every)
+    {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE debts SET rate_period = ?2, pay_every = ?3 WHERE id = ?1",
+        params![id, period.as_str(), every.as_str()],
+    )?;
+    Ok(())
 }
 
 /// Счёт оплаты: обычный открытый счёт в валюте долга.
@@ -311,6 +371,14 @@ pub fn create_in(conn: &Connection, input: &DebtInput) -> Result<String> {
         None | Some("") => InterestMethod::Daily,
         Some(m) => InterestMethod::parse(m)?,
     };
+    let period = match input.rate_period.as_deref() {
+        None | Some("") => RatePeriod::Year,
+        Some(p) => RatePeriod::parse(p)?,
+    };
+    let every = match input.pay_every.as_deref() {
+        None | Some("") => PayEvery::Month,
+        Some(p) => PayEvery::parse(p)?,
+    };
     let loan = LoanInput {
         principal: input.principal,
         rate_bp: input.rate_bp,
@@ -328,6 +396,8 @@ pub fn create_in(conn: &Connection, input: &DebtInput) -> Result<String> {
         },
         maturity_date: clean(&input.maturity_date),
         interest_method: method,
+        rate_period: period,
+        pay_every: every,
     };
     let schedule = loan_calc::calculate(&loan)?;
     let engine = loan_calc::Terms::from_input(&loan)?;
@@ -388,6 +458,7 @@ pub fn create_in(conn: &Connection, input: &DebtInput) -> Result<String> {
             method.as_str()
         ],
     )?;
+    set_flex(tx, &id, period, every)?;
     if let Some(acc) = input.account_id.as_deref() {
         let (from, to, note) = if input.direction == "lent" {
             (acc, account.as_str(), "Выдача долга")
@@ -624,6 +695,9 @@ fn events(conn: &Connection, debt_id: &str) -> Result<Vec<Event>> {
     for h in holidays(conn, debt_id)? {
         events.push(Event::Holiday(h.input.parse()?));
     }
+    for a in row_amounts(conn, debt_id)? {
+        events.push(a.input.parse()?);
+    }
     Ok(events)
 }
 
@@ -758,6 +832,8 @@ fn card(conn: &Connection, t: &Terms, schedule: &[ScheduleRow]) -> Result<DebtCa
         overdue_amount: pending().filter(|r| r.overdue).map(|r| r.payment).sum(),
         default_account_id,
         interest_method: t.method.as_str().into(),
+        rate_period: t.period.as_str().into(),
+        pay_every: t.every.as_str().into(),
         first_payment_date: t.first_payment_date.clone(),
     })
 }
@@ -796,6 +872,7 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
         rate_changes: rate_changes(conn, id)?,
         holidays: holidays(conn, id)?,
         planned_early: planned_early(conn, id)?,
+        row_amounts: row_amounts(conn, id)?,
     })
 }
 
@@ -932,6 +1009,14 @@ pub struct HolidayRow {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RowAmountRow {
+    pub id: String,
+    #[serde(flatten)]
+    pub input: RowAmountInput,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlannedEarlyRow {
     pub id: String,
     #[serde(flatten)]
@@ -965,6 +1050,27 @@ fn holidays(conn: &Connection, debt_id: &str) -> Result<Vec<HolidayRow>> {
                 from_seq: r.get(1)?,
                 months: r.get(2)?,
                 kind: r.get(3)?,
+            },
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn row_amounts(conn: &Connection, debt_id: &str) -> Result<Vec<RowAmountRow>> {
+    let mut stmt = match conn.prepare(
+        "SELECT id, seq, amount, mode FROM debt_row_amounts WHERE debt_id = ?1 ORDER BY seq",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) if old_schema(&e) => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let rows = stmt.query_map([debt_id], |r| {
+        Ok(RowAmountRow {
+            id: r.get(0)?,
+            input: RowAmountInput {
+                seq: r.get(1)?,
+                amount: r.get(2)?,
+                mode: r.get(3)?,
             },
         })
     })?;
@@ -1032,8 +1138,8 @@ fn ru_date(d: &str) -> String {
     crate::loan_export::ru_date(d)
 }
 
-fn rate_text(bp: i64) -> String {
-    crate::loan_export::rate_text(bp)
+fn rate_in(bp: i64, period: RatePeriod) -> String {
+    crate::loan_export::rate_in(bp, period)
 }
 
 /// Сумма для людей: «50 000 ₽».
@@ -1222,6 +1328,12 @@ pub struct TermsInput {
     pub maturity_date: Option<String>,
     /// `daily` или `monthly`.
     pub interest_method: String,
+    /// `year` (по умолчанию), `month` или `day`.
+    #[serde(default)]
+    pub rate_period: Option<String>,
+    /// `month`, `quarter`, `two_weeks`; пусто — как было.
+    #[serde(default)]
+    pub pay_every: Option<String>,
 }
 
 /// Изменить условия займа: сумму, дату выдачи, ставку, срок, первый платёж, тип
@@ -1230,6 +1342,14 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
     let t = terms(conn, debt_id)?;
     let repayment = Repayment::parse(&input.repayment_type)?;
     let method = InterestMethod::parse(&input.interest_method)?;
+    let period = match input.rate_period.as_deref() {
+        None | Some("") => t.period,
+        Some(p) => RatePeriod::parse(p)?,
+    };
+    let every = match input.pay_every.as_deref() {
+        None | Some("") => t.every,
+        Some(p) => PayEvery::parse(p)?,
+    };
     let bullet = repayment == Repayment::Bullet;
     let loan = LoanInput {
         principal: input.principal,
@@ -1244,6 +1364,8 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
         },
         maturity_date: clean(&input.maturity_date),
         interest_method: method,
+        rate_period: period,
+        pay_every: every,
     };
     let schedule = loan_calc::calculate(&loan)?;
     let (principal_paid, first_paid): (i64, Option<String>) = conn.query_row(
@@ -1266,6 +1388,9 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
     if bullet && !holidays(conn, debt_id)?.is_empty() {
         return invalid("у разового возврата нет каникул: сначала удалите их");
     }
+    if every != PayEvery::Month && !holidays(conn, debt_id)?.is_empty() {
+        return invalid("каникулы бывают только у ежемесячных платежей: сначала удалите их");
+    }
     let first_payment = if bullet {
         None
     } else {
@@ -1281,20 +1406,31 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
             money(conn, &t, input.principal)?
         ));
     }
-    if input.rate_bp != t.rate_bp {
-        parts.push(format!(
-            "ставка {} → {}",
-            rate_text(t.rate_bp).trim_end_matches(" %"),
-            rate_text(input.rate_bp)
-        ));
+    if input.rate_bp != t.rate_bp || period != t.period {
+        let old = rate_in(t.rate_bp, t.period);
+        let old = if period == t.period {
+            // «ставка 18 → 12 % годовых»: период один раз.
+            old.split(" %").next().unwrap_or_default().to_string()
+        } else {
+            old
+        };
+        parts.push(format!("ставка {old} → {}", rate_in(input.rate_bp, period)));
     }
     if loan.term_months != t.term_months {
         let m = |v: Option<u32>| v.map_or("—".to_string(), |v| v.to_string());
+        let unit = if every == PayEvery::Month {
+            "мес."
+        } else {
+            "платежей"
+        };
         parts.push(format!(
-            "срок {} → {} мес.",
+            "срок {} → {} {unit}",
             m(t.term_months),
             m(loan.term_months)
         ));
+    }
+    if every != t.every {
+        parts.push(format!("платежи {} → {}", t.every.title(), every.title()));
     }
     if input.issue_date != t.issue_date {
         parts.push(format!(
@@ -1361,6 +1497,7 @@ pub fn update_terms(conn: &mut Connection, debt_id: &str, input: &TermsInput) ->
             now
         ],
     )?;
+    set_flex(&tx, debt_id, period, every)?;
     // Выдача со счёта — перевод без платежа; без счёта — начальный остаток служебного счёта.
     let issue_txn: Option<String> = tx
         .query_row(
@@ -1407,6 +1544,14 @@ pub fn preview_terms(conn: &Connection, debt_id: &str, input: &TermsInput) -> Re
     let t = terms(conn, debt_id)?;
     let repayment = Repayment::parse(&input.repayment_type)?;
     let method = InterestMethod::parse(&input.interest_method)?;
+    let period = match input.rate_period.as_deref() {
+        None | Some("") => t.period,
+        Some(p) => RatePeriod::parse(p)?,
+    };
+    let every = match input.pay_every.as_deref() {
+        None | Some("") => t.every,
+        Some(p) => PayEvery::parse(p)?,
+    };
     let bullet = repayment == Repayment::Bullet;
     let loan = LoanInput {
         principal: input.principal,
@@ -1421,6 +1566,8 @@ pub fn preview_terms(conn: &Connection, debt_id: &str, input: &TermsInput) -> Re
         },
         maturity_date: clean(&input.maturity_date),
         interest_method: method,
+        rate_period: period,
+        pay_every: every,
     };
     let engine = loan_calc::Terms::from_input(&loan)?;
     let principal_paid: i64 = conn.query_row(
@@ -1461,7 +1608,7 @@ pub fn add_rate_change(
         debt_id,
         &format!(
             "Ставка {} с {}",
-            rate_text(rc.rate_bp),
+            rate_in(rc.rate_bp, t.period),
             ru_date(&rc.from.to_string())
         ),
     )?;
@@ -1499,7 +1646,7 @@ pub fn delete_rate_change(conn: &mut Connection, rate_change_id: &str) -> Result
 pub fn add_holiday(conn: &mut Connection, debt_id: &str, input: &HolidayInput) -> Result<String> {
     let t = terms(conn, debt_id)?;
     let h = input.parse()?;
-    if t.repayment == Repayment::Bullet {
+    if t.repayment == Repayment::Bullet || t.every != PayEvery::Month {
         return invalid("каникулы бывают только у ежемесячных платежей");
     }
     if t.status == "closed" {
@@ -1563,6 +1710,75 @@ pub fn delete_holiday(conn: &mut Connection, holiday_id: &str) -> Result<()> {
         &format!("Отменены каникулы с платежа №{from_seq}"),
     )?;
     tx.execute("DELETE FROM debt_holidays WHERE id = ?1", [holiday_id])?;
+    rebuild(&tx, &debt_id)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Своя сумма неоплаченной строки графика: следующие строки пересчитываются.
+/// Повторный вызов для той же строки заменяет сумму.
+pub fn set_row_amount(
+    conn: &mut Connection,
+    debt_id: &str,
+    input: &RowAmountInput,
+) -> Result<String> {
+    let t = terms(conn, debt_id)?;
+    input.parse()?;
+    if t.repayment == Repayment::Bullet {
+        return invalid("у разового возврата одна строка: измените условия займа");
+    }
+    if t.status == "closed" {
+        return invalid("долг уже погашен");
+    }
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM debt_schedule WHERE debt_id = ?1 AND seq = ?2",
+            params![debt_id, input.seq],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match status.as_deref() {
+        None => return invalid("в графике нет платежа с таким номером"),
+        Some("pending") => {}
+        Some(_) => return invalid("сумму можно поменять только у неоплаченного платежа"),
+    }
+    let tx = conn.transaction()?;
+    snapshot(
+        &tx,
+        debt_id,
+        &format!(
+            "Платёж №{}: своя сумма {}",
+            input.seq,
+            money(&tx, &t, input.amount)?
+        ),
+    )?;
+    let id = ids::new_id();
+    tx.execute(
+        "INSERT INTO debt_row_amounts (id, debt_id, seq, amount, mode, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (debt_id, seq) DO UPDATE SET amount = excluded.amount, mode = excluded.mode",
+        params![id, debt_id, input.seq, input.amount, input.mode, time::now_utc()],
+    )?;
+    rebuild(&tx, debt_id)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// Вернуть строке сумму по графику.
+pub fn delete_row_amount(conn: &mut Connection, row_amount_id: &str) -> Result<()> {
+    let (debt_id, seq): (String, u32) = conn
+        .query_row(
+            "SELECT debt_id, seq FROM debt_row_amounts WHERE id = ?1",
+            [row_amount_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or(Error::NotFound("своя сумма платежа"))?;
+    let tx = conn.transaction()?;
+    snapshot(&tx, &debt_id, &format!("Платёж №{seq}: снова по графику"))?;
+    tx.execute(
+        "DELETE FROM debt_row_amounts WHERE id = ?1",
+        [row_amount_id],
+    )?;
     rebuild(&tx, &debt_id)?;
     tx.commit()?;
     Ok(())
@@ -1773,6 +1989,8 @@ pub fn schedule_doc(
             term_months: t.term_months,
             repayment_type: t.repayment.as_str().into(),
             interest_method: t.method.as_str().into(),
+            rate_period: t.period.as_str().into(),
+            pay_every: t.every.as_str().into(),
             issue_date: t.issue_date.clone(),
             first_payment_date: t.first_payment_date.clone(),
         },
@@ -1882,9 +2100,104 @@ mod tests {
             account_id: account,
             // Прежние тесты — контракт метода «по месяцам».
             interest_method: Some("monthly".into()),
+            rate_period: None,
+            pay_every: None,
             rate_changes: vec![],
             planned_early: vec![],
         }
+    }
+
+    #[test]
+    fn day_rate_and_quarterly_payments_are_saved() {
+        let mut f = Fx::new();
+        let mut input = loan(
+            "borrowed",
+            "Микрозайм",
+            1_000_000,
+            50 * 365,
+            "bullet",
+            None,
+            Some("2026-11-14"),
+            None,
+        );
+        input.rate_period = Some("day".into());
+        input.interest_method = Some("daily".into());
+        let id = create(f.c(), &input).unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.card.rate_period, "day");
+        // 10 000 ₽ × 0,5 % × 30 дней.
+        assert_eq!(d.schedule[0].interest_part, 150_000);
+
+        let mut q = loan(
+            "borrowed",
+            "Банк",
+            12_000_000,
+            1200,
+            "annuity",
+            Some(8),
+            None,
+            None,
+        );
+        q.pay_every = Some("quarter".into());
+        let id = create(f.c(), &q).unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.card.pay_every, "quarter");
+        assert_eq!(d.schedule.len(), 8);
+        assert_eq!(d.schedule[1].due_date, "2027-04-15");
+        assert!(add_holiday(
+            f.c(),
+            &id,
+            &HolidayInput {
+                from_seq: 2,
+                months: 1,
+                kind: "shift".into()
+            }
+        )
+        .is_err());
+        // Смена периодичности — через условия займа.
+        let mut t = terms_of(&d);
+        t.pay_every = Some("month".into());
+        t.term_months = Some(24);
+        update_terms(f.c(), &id, &t).unwrap();
+        let d = f.detail(&id);
+        assert_eq!((d.card.pay_every.as_str(), d.schedule.len()), ("month", 24));
+    }
+
+    #[test]
+    fn row_amount_changes_schedule_and_can_be_removed() {
+        let mut f = Fx::new();
+        let id = f.credit();
+        let before = f.detail(&id);
+        let row = before.schedule[2].clone();
+        let input = RowAmountInput {
+            seq: 3,
+            amount: row.payment + 5_000_000,
+            mode: "reduce_term".into(),
+        };
+        set_row_amount(f.c(), &id, &input).unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.schedule[2].payment, row.payment + 5_000_000);
+        assert!(d.schedule.len() < 24);
+        assert_eq!(d.row_amounts.len(), 1);
+        assert!(d.card.interest_planned < before.card.interest_planned);
+        // Повтор для той же строки заменяет сумму.
+        set_row_amount(
+            f.c(),
+            &id,
+            &RowAmountInput {
+                amount: row.payment,
+                ..input.clone()
+            },
+        )
+        .unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.row_amounts.len(), 1);
+        assert_eq!(d.schedule.len(), 24);
+        delete_row_amount(f.c(), &d.row_amounts[0].id).unwrap();
+        let d = f.detail(&id);
+        assert!(d.row_amounts.is_empty());
+        assert_eq!(d.schedule.len(), 24);
+        assert!(set_row_amount(f.c(), &id, &RowAmountInput { seq: 99, ..input }).is_err());
     }
 
     #[test]
@@ -2279,6 +2592,8 @@ mod tests {
             first_payment_date: d.card.first_payment_date.clone(),
             maturity_date: Some(d.card.maturity_date.clone()),
             interest_method: d.card.interest_method.clone(),
+            rate_period: Some(d.card.rate_period.clone()),
+            pay_every: Some(d.card.pay_every.clone()),
         }
     }
 
@@ -2657,6 +2972,8 @@ mod tests {
                 first_payment_date: None,
                 maturity_date: maturity.map(str::to_string),
                 interest_method: InterestMethod::Monthly,
+                rate_period: RatePeriod::Year,
+                pay_every: PayEvery::Month,
             };
             let base = legacy::calculate(&input);
             let (account, id) = (format!("acc{i}"), format!("debt{i}"));
@@ -2699,6 +3016,8 @@ mod tests {
                 maturity_date: base.maturity_date.clone(),
                 status: "active".into(),
                 method: InterestMethod::Monthly,
+                period: RatePeriod::Year,
+                every: PayEvery::Month,
             };
             debts.push((t, input));
         }

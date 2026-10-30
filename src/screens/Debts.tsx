@@ -6,20 +6,18 @@ import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { api, REPAYMENTS, type DebtCard, type ScheduleRow } from "../lib/api";
 import { formatDate } from "../lib/dates";
-import { formatAmount } from "../lib/money";
-import { METHODS } from "../lib/loan";
+import { METHODS, PAY_EVERY, paymentsText, rateLabel, rateShort } from "../lib/loan";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { LoanPlanner } from "./debts/LoanPlanner";
 import { PayForm } from "./debts/PayForm";
-import { ChangesList, History, HolidayForm, PlannedBlock, RateChangeForm, TermsForm, WhatIf } from "./debts/LoanTools";
+import { ChangesList, History, HolidayForm, PlannedBlock, RateChangeForm, RowAmountForm, TermsForm, WhatIf } from "./debts/LoanTools";
 import { ExportDialog, savedText } from "./debts/ExportDialog";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "plan"; example: boolean };
 
-const rateText = (bp: number) => `${formatAmount(bp, 2)} %`;
 const STATUS: Record<ScheduleRow["status"], string> = { pending: "ожидается", paid: "оплачен", partial: "оплачен частично" };
 
 /** Раздел «Займы и долги»: сводка, список, карточка долга с графиком, калькулятор. */
@@ -124,7 +122,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
                     <td>
                       <div className="main">{d.counterparty}</div>
                       <div className="sub">
-                        {d.direction === "lent" ? "Я дал" : "Я взял"} · {d.rateBp ? rateText(d.rateBp) : "без процентов"} · {REPAYMENTS[d.repaymentType].split(" (")[0].toLowerCase()}
+                        {d.direction === "lent" ? "Я дал" : "Я взял"} · {d.rateBp ? rateShort(d.rateBp, d.ratePeriod) : "без процентов"} · {REPAYMENTS[d.repaymentType].split(" (")[0].toLowerCase()}
                       </div>
                     </td>
                     <td className="num">
@@ -165,7 +163,7 @@ const TABS: [Tab, string][] = [
   ["whatif", "А что если"],
   ["history", "История"],
 ];
-type Dialog = "pay" | "early" | "terms" | "rate" | "holiday" | "export" | "rename" | null;
+type Dialog = "pay" | "early" | "terms" | "rate" | "holiday" | "export" | "rename" | { row: ScheduleRow } | null;
 
 function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?: boolean }) {
   const detail = useQuery({ queryKey: ["debt", id], queryFn: () => api.getDebt(id) });
@@ -244,13 +242,22 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
         <dl className="facts">
           <dt>Условия</dt>
           <dd data-testid="debt-terms">
-            {c.rateBp ? `${rateText(c.rateBp)} годовых` : "без процентов"}, {REPAYMENTS[c.repaymentType].toLowerCase()}
-            {c.termMonths ? `, ${c.termMonths} мес.` : ""}, до {formatDate(c.maturityDate)}
+            {c.rateBp ? rateLabel(c.rateBp, c.ratePeriod) : "без процентов"}, {REPAYMENTS[c.repaymentType].toLowerCase()}
+            {c.termMonths ? `, ${c.payEvery === "month" ? `${c.termMonths} мес.` : paymentsText(c.termMonths, c.payEvery)}` : ""}, до {formatDate(c.maturityDate)}
           </dd>
           {c.rateBp > 0 && (
             <>
               <dt>Проценты</dt>
-              <dd>{METHODS[c.interestMethod]}</dd>
+              <dd>
+                {METHODS[c.interestMethod]}
+                {c.ratePeriod !== "year" && `, ≈ ${rateLabel(c.rateBp, "year")}`}
+              </dd>
+            </>
+          )}
+          {c.repaymentType !== "bullet" && c.payEvery !== "month" && (
+            <>
+              <dt>Платежи</dt>
+              <dd>{PAY_EVERY[c.payEvery]}</dd>
             </>
           )}
           {c.note && (
@@ -355,7 +362,16 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
                     <tr key={r.id} className={r.overdue ? "overdue" : r.status !== "pending" ? "done" : undefined} data-testid="schedule-row">
                       <td>{r.seq}</td>
                       <td>{formatDate(r.dueDate)}</td>
-                      <td className="num">{m(r.payment)}</td>
+                      <td className="num">
+                        {active && r.status === "pending" && c.repaymentType !== "bullet" ? (
+                          <button className="link row-amount" title="Своя сумма этого платежа" data-testid="row-amount" onClick={() => setDialog({ row: r })}>
+                            {m(r.payment)}
+                          </button>
+                        ) : (
+                          m(r.payment)
+                        )}
+                        {d.rowAmounts.some((a) => a.seq === r.seq) && <span className="sub"> своя</span>}
+                      </td>
                       <td className="num">{m(r.principalPart)}</td>
                       <td className="num">{m(r.interestPart)}</td>
                       <td className="num">{m(r.balanceAfter)}</td>
@@ -409,6 +425,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
       {dialog === "holiday" && <HolidayForm detail={d} onClose={close} />}
       {dialog === "export" && <ExportDialog source={{ kind: "debt", card: c }} format="pdf" onClose={close} onSaved={(p) => (close(), setStatus(savedText(p)))} />}
       {dialog === "rename" && <RenameForm card={c} onClose={close} />}
+      {dialog && typeof dialog === "object" && <RowAmountForm detail={d} row={dialog.row} onClose={close} />}
     </>
   );
 }

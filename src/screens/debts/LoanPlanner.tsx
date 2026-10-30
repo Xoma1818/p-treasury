@@ -4,9 +4,9 @@ import { AccountSelect, AmountInput, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
-import { api, REPAYMENTS, type CalcInput, type CalcResult, type DebtInput, type Direction, type InterestMethod, type Repayment, type SimView } from "../../lib/api";
+import { api, REPAYMENTS, type CalcInput, type CalcResult, type DebtInput, type Direction, type InterestMethod, type PayEvery, type RatePeriod, type Repayment, type SimView } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { addMonths, METHODS, termText, toCalcInput, type LoanForm, type Solve, type TermUnit } from "../../lib/loan";
+import { addDays, addMonths, annualHint, daysBetween, METHODS, PAY_EVERY, paymentsText, RATE_PERIODS, rateLabel, toCalcInput, type LoanForm, type Solve, type TermUnit } from "../../lib/loan";
 import { useAccounts, useCurrencies, useSettings } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -18,6 +18,7 @@ const SOLVES: [Solve, string][] = [
   ["payment", "Платёж"],
   ["term", "Срок"],
   ["principal", "Сумму"],
+  ["rate", "Ставку"],
 ];
 
 /** Начальные поля: «Калькулятор» открывается с примером, «Новый долг» — пустым. */
@@ -29,8 +30,10 @@ export function initialForm(example: boolean): LoanForm {
     term: example ? "2" : "",
     termUnit: example ? "years" : "months",
     rate: example ? "18" : "",
+    ratePeriod: "year",
     rates: [],
     repayment: "annuity",
+    payEvery: "month",
     issueDate: today(),
     firstPayment: "",
     maturity: "",
@@ -120,16 +123,33 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
             </Field>
           </div>
           {solve !== "payment" && (
-            <Field label="Желаемый платёж в месяц" help="loan.payment">
+            <Field label={solve === "rate" ? "Платёж по договору" : f.payEvery === "month" ? "Желаемый платёж в месяц" : "Желаемый платёж"} help="loan.payment">
               {(id) => <AmountInput id={id} name="desiredPayment" value={f.payment} onChange={(v) => set({ payment: v })} minorUnits={mu} />}
             </Field>
           )}
           <div className="row">
             {bullet ? (
-              <Field label="Вернуть до">{(id) => <input id={id} name="maturity" type="date" value={f.maturity} onChange={(e) => set({ maturity: e.target.value })} />}</Field>
+              <>
+                <Field label="Вернуть до">{(id) => <input id={id} name="maturity" type="date" value={f.maturity} onChange={(e) => set({ maturity: e.target.value })} />}</Field>
+                <Field label="Или через, дней" help="loan.days">
+                  {(id) => (
+                    <input
+                      id={id}
+                      name="termDays"
+                      className="amount"
+                      inputMode="numeric"
+                      value={daysBetween(f.issueDate, f.maturity) ?? ""}
+                      onChange={(e) => {
+                        const n = Number(e.target.value.replace(/\D/g, ""));
+                        set({ maturity: e.target.value.trim() === "" ? "" : addDays(f.issueDate, Math.min(n, 36_500)) });
+                      }}
+                    />
+                  )}
+                </Field>
+              </>
             ) : solve === "term" ? (
               <Field label="Срок" help="loan.term">
-                {() => <div className="loan-solved" data-testid="solved-term">{r?.termMonths ? termText(r.termMonths) : "—"}</div>}
+                {() => <div className="loan-solved" data-testid="solved-term">{r?.termMonths ? paymentsText(r.termMonths, f.payEvery) : "—"}</div>}
               </Field>
             ) : (
               <Field label="Срок" help="loan.term">
@@ -139,43 +159,71 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                     <select name="termUnit" aria-label="Единица срока" value={f.termUnit} onChange={(e) => set({ termUnit: e.target.value as TermUnit })}>
                       <option value="years">лет</option>
                       <option value="months">месяцев</option>
+                      {(f.payEvery !== "month" || f.termUnit === "payments") && <option value="payments">платежей</option>}
                     </select>
                   </span>
                 )}
               </Field>
             )}
-            <Field label="Ставка, % годовых" help="loan.rate">
-              {(id) => <input id={id} name="rate" className="amount" inputMode="decimal" value={f.rate} onChange={(e) => set({ rate: e.target.value })} placeholder="0" />}
-            </Field>
+            {solve === "rate" ? (
+              <Field label="Ставка" help="loan.rate">
+                {() => (
+                  <div className="loan-solved" data-testid="solved-rate">
+                    {r ? rateLabel(r.rateBp, f.ratePeriod) : "—"}
+                  </div>
+                )}
+              </Field>
+            ) : (
+              <Field label="Ставка" help="loan.rate" hint={annualHint(input?.rateBp ?? 0, f.ratePeriod)}>
+                {(id) => (
+                  <span className="term-input">
+                    <input id={id} name="rate" className="amount" inputMode="decimal" value={f.rate} onChange={(e) => set({ rate: e.target.value })} placeholder="0" />
+                    <RatePeriodSelect value={f.ratePeriod} onChange={(ratePeriod) => set({ ratePeriod })} />
+                  </span>
+                )}
+              </Field>
+            )}
           </div>
+          {solve === "rate" && (
+            <Field label="Ставку показать" help="loan.rate">
+              {(id) => <RatePeriodSelect id={id} value={f.ratePeriod} onChange={(ratePeriod) => set({ ratePeriod })} />}
+            </Field>
+          )}
           {showRates || f.rates.length > 0 ? (
             <div className="loan-sub">
               <div className="loan-sub-head">
                 Ставка меняется
                 <Hint of="loan.rates" />
               </div>
-              <RateEditor lines={f.rates} onChange={(rates) => (set({ rates }), rates.length === 0 && setShowRates(false))} defaultDate={f.issueDate} />
+              <RateEditor lines={f.rates} unit={RATE_PERIODS[f.ratePeriod]} onChange={(rates) => (set({ rates }), rates.length === 0 && setShowRates(false))} defaultDate={f.issueDate} />
             </div>
           ) : (
             <button type="button" className="link rate-link" onClick={() => (setShowRates(true), set({ rates: [{ from: f.issueDate, rate: "" }] }))}>
               Ставка меняется?
             </button>
           )}
-          <Field label="Тип платежей" help="loan.repayment">
-            {(id) => (
-              <select id={id} name="repayment" value={f.repayment} onChange={(e) => set({ repayment: e.target.value as Repayment })}>
-                {(Object.keys(REPAYMENTS) as Repayment[]).map((x) => (
-                  <option key={x} value={x}>
-                    {REPAYMENTS[x]}
-                  </option>
-                ))}
-              </select>
+          <div className="row">
+            <Field label="Тип платежей" help="loan.repayment">
+              {(id) => (
+                <select id={id} name="repayment" value={f.repayment} onChange={(e) => set({ repayment: e.target.value as Repayment })}>
+                  {(Object.keys(REPAYMENTS) as Repayment[]).map((x) => (
+                    <option key={x} value={x}>
+                      {REPAYMENTS[x]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            {!bullet && (
+              <Field label="Платить" help="loan.every">
+                {(id) => <PayEverySelect id={id} value={f.payEvery} onChange={(payEvery) => set({ payEvery })} />}
+              </Field>
             )}
-          </Field>
+          </div>
           <div className="row">
             <Field label="Дата выдачи">{(id) => <input id={id} name="issueDate" type="date" value={f.issueDate} onChange={(e) => set({ issueDate: e.target.value })} />}</Field>
             {!bullet && (
-              <Field label="Начало выплат" help="loan.first" hint={f.firstPayment ? undefined : "через месяц после выдачи"}>
+              <Field label="Начало выплат" help="loan.first" hint={f.firstPayment ? undefined : f.payEvery === "month" ? "через месяц после выдачи" : `через один период: ${PAY_EVERY[f.payEvery]}`}>
                 {(id) => <input id={id} name="firstPayment" type="date" value={f.firstPayment} onChange={(e) => set({ firstPayment: e.target.value })} />}
               </Field>
             )}
@@ -214,7 +262,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                 {String(plan.error)}
               </p>
             )}
-            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} sym={sym} mu={mu} />}
+            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} period={f.ratePeriod} every={f.payEvery} sym={sym} mu={mu} />}
             {r && !plan.error && (
               <>
                 <div className="loan-chart-head">
@@ -271,7 +319,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
 }
 
 /** У дифференцированного платёж убывает: «первый → последний». */
-function Totals({ r, solve, bullet, falling, sym, mu }: { r: CalcResult; solve: Solve; bullet: boolean; falling: boolean; sym: string; mu: number }) {
+function Totals({ r, solve, bullet, falling, period, every, sym, mu }: { r: CalcResult; solve: Solve; bullet: boolean; falling: boolean; period: RatePeriod; every: PayEvery; sym: string; mu: number }) {
   const m = (v: number) => <Money amount={v} symbol={sym} minorUnits={mu} />;
   const v = r.withEarly ?? r.base;
   const last = r.base.rows[r.base.rows.length - 1]?.payment ?? r.payment;
@@ -280,7 +328,16 @@ function Totals({ r, solve, bullet, falling, sym, mu }: { r: CalcResult; solve: 
       {solve === "term" && (
         <div className="loan-total big" data-testid="loan-term">
           <dt>Срок</dt>
-          <dd>{r.termMonths ? termText(r.termMonths) : "—"}</dd>
+          <dd>{r.termMonths ? paymentsText(r.termMonths, every) : "—"}</dd>
+        </div>
+      )}
+      {solve === "rate" && (
+        <div className="loan-total big" data-testid="loan-rate">
+          <dt>Ставка</dt>
+          <dd>
+            {rateLabel(r.rateBp, period)}
+            {annualHint(r.rateBp, period) && <span className="sub"> {annualHint(r.rateBp, period)}</span>}
+          </dd>
         </div>
       )}
       {solve === "principal" && (
@@ -387,7 +444,9 @@ function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: 
       currencyCode: currency,
       principal: result.principal,
       issueDate: input.issueDate,
-      rateBp: input.rateBp,
+      rateBp: result.rateBp,
+      ratePeriod: input.ratePeriod,
+      payEvery: input.payEvery,
       repaymentType: input.repayment,
       termMonths: input.repayment === "bullet" ? null : result.termMonths,
       firstPaymentDate: input.firstPaymentDate,
@@ -424,8 +483,8 @@ function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: 
         <Field label="Комментарий">{(id) => <input id={id} name="debtNote" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
         <div className="card preview" data-testid="debt-preview">
           <Money amount={result.principal} symbol={sym} minorUnits={mu} />
-          {input.rateBp ? ` под ${(input.rateBp / 100).toLocaleString("ru-RU")} %` : " без процентов"}
-          {result.termMonths && input.repayment !== "bullet" ? ` на ${termText(result.termMonths)}` : ""}, {input.repayment === "bullet" ? "к возврату" : "платёж"}{" "}
+          {result.rateBp ? ` под ${rateLabel(result.rateBp, input.ratePeriod)}` : " без процентов"}
+          {result.termMonths && input.repayment !== "bullet" ? `, ${paymentsText(result.termMonths, input.payEvery)}` : ""}, {input.repayment === "bullet" ? "к возврату" : "платёж"}{" "}
           <b>
             <Money amount={result.payment} symbol={sym} minorUnits={mu} />
           </b>
@@ -447,3 +506,29 @@ function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: 
   );
 }
 
+
+/** «% годовых / в месяц / в день». */
+export function RatePeriodSelect({ id, value, onChange }: { id?: string; value: RatePeriod; onChange: (v: RatePeriod) => void }) {
+  return (
+    <select id={id} name="ratePeriod" aria-label="Период ставки" value={value} onChange={(e) => onChange(e.target.value as RatePeriod)}>
+      {(Object.keys(RATE_PERIODS) as RatePeriod[]).map((p) => (
+        <option key={p} value={p}>
+          {RATE_PERIODS[p]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** «каждый месяц / раз в квартал / раз в две недели». */
+export function PayEverySelect({ id, value, onChange }: { id?: string; value: PayEvery; onChange: (v: PayEvery) => void }) {
+  return (
+    <select id={id} name="payEvery" value={value} onChange={(e) => onChange(e.target.value as PayEvery)}>
+      {(Object.keys(PAY_EVERY) as PayEvery[]).map((p) => (
+        <option key={p} value={p}>
+          {PAY_EVERY[p]}
+        </option>
+      ))}
+    </select>
+  );
+}
