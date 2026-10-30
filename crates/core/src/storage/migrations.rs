@@ -66,6 +66,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "quick_wins",
         sql: include_str!("../../migrations/0010_quick_wins.sql"),
     },
+    Migration {
+        version: 11,
+        name: "forecast",
+        sql: include_str!("../../migrations/0011_forecast.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

@@ -12,6 +12,7 @@ import "./styles.css";
 import "./features.css";
 import "./invest.css";
 import "./loans.css";
+import "./forecast.css";
 
 installPressEffect();
 applyTheme(savedTheme());

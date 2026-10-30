@@ -23,6 +23,7 @@ pub mod demo;
 pub mod error;
 pub mod events;
 pub mod export;
+pub mod forecast;
 pub mod goals;
 pub mod habits;
 pub mod ids;
