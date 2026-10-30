@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type ImportPreview, type UpdateInfo } from "../lib/api";
+import { api, type ImportPreview, type ImportSaved, type UpdateInfo } from "../lib/api";
+import { ImportHistoryDialog, MatchesDialog } from "./ImportHistory";
 import { formatDate, monthBounds, today } from "../lib/dates";
 import { baseName, CSV, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
 import { useAccounts, useSettings } from "../lib/queries";
@@ -85,7 +86,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState<number | null>(null);
+  const [loaded, setLoaded] = useState<ImportSaved | null>(null);
+  const [next, setNext] = useState<"history" | "matches" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
   const qc = useQueryClient();
@@ -121,10 +123,12 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
+  if (next === "history") return <ImportHistoryDialog onClose={onClose} />;
+  if (next === "matches") return <MatchesDialog onClose={onClose} />;
   return (
     <Modal title="Импорт выписки или CSV" onClose={onClose} wide>
       <p className="muted">
-        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или CSV по шаблону приложения. Категории подберутся по правилам и по категориям банка, уже загруженные операции пропускаются.
+        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или CSV по шаблону приложения. Категории подберутся по правилам и по категориям банка, уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
       </p>
       <div className="btn-group">
         <button className="btn primary" onClick={choose}>
@@ -137,6 +141,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         )}
         <button className="link" onClick={template}>
           Скачать шаблон CSV
+        </button>
+        <button className="link" data-testid="open-import-history" onClick={() => setNext("history")}>
+          История импорта
         </button>
       </div>
       {preview?.bank && (
@@ -155,6 +162,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
             {preview.errors > 0 && `, с ошибками ${preview.errors}`}
             {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
+            {preview.linked > 0 && `, свяжутся с вашими записями ${preview.linked}`}
+            {preview.doubtful > 0 && `, спросим про совпадения ${preview.doubtful}`}
           </p>
           <div className="import-table">
             <table className="table" data-testid="import-preview">
@@ -172,7 +181,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {preview.rows.map((r) => (
-                  <tr key={r.line} className={r.error ? "bad" : r.duplicate ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"}>
+                  <tr key={r.line} className={r.error ? "bad" : r.duplicate || r.linkedTo ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"} data-linked={r.linkedTo ? "1" : "0"}>
                     <td>{r.line}</td>
                     <td>{/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? formatDate(r.date) : r.date}</td>
                     <td>{r.type}</td>
@@ -180,7 +189,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                     <td>{r.category}</td>
                     {preview.bank && <td className="import-payee">{r.payee}</td>}
                     <td className="num">{r.amount}</td>
-                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.duplicate ? "уже есть, пропустим" : "ок")}</td>
+                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.duplicate ? "уже есть, пропустим" : r.linkedTo ? `ваша запись ${r.linkedTo}` : r.maybe > 0 ? `похоже на ваши записи (${r.maybe}), спросим` : "ок")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -190,7 +199,16 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       )}
       {loaded !== null && (
         <p className="ok" data-testid="import-done">
-          Загружено операций: {loaded}
+          Загружено операций: {loaded.added}
+          {loaded.linked > 0 && `, связано с вашими записями: ${loaded.linked}`}
+          {loaded.suggested > 0 && (
+            <>
+              {`. Совпадений на проверку: ${loaded.suggested}. `}
+              <button className="link" data-testid="open-matches" onClick={() => setNext("matches")}>
+                Разобрать
+              </button>
+            </>
+          )}
         </p>
       )}
       <ErrorText error={error} />

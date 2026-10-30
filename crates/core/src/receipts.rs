@@ -149,7 +149,14 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
     // весь чек и открывает его заметки. Переносим их до удаления старых частей,
     // иначе ON DELETE SET NULL разорвёт привязку. Число частей может измениться.
     let anchor = ids.iter().max().expect("проверено не меньше двух частей");
+    // Чек, узнанный в выписке, остаётся связанным со строкой банка, иначе
+    // повторная выписка добавит покупку второй раз.
+    crate::import_log::carry_matches(&tx, &previous, &ids)?;
     for old in previous {
+        tx.execute(
+            "UPDATE reminder_occurrences SET transaction_id = ?2 WHERE transaction_id = ?1",
+            params![old, anchor],
+        )?;
         tx.execute(
             "UPDATE notes SET transaction_id = ?2 WHERE transaction_id = ?1",
             params![old, anchor],

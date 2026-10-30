@@ -29,6 +29,10 @@ export interface TxnJump {
   tagId?: string;
   /** Поиск по получателю, комментарию или сумме. */
   search?: string;
+  /** Операции одного импорта. */
+  importId?: string;
+  /** Только эти типы (доходы или расходы из «Как посчитано»). */
+  types?: TxnType[];
 }
 
 interface UiState {

@@ -200,6 +200,14 @@ fn scan_folder(app: &AppHandle) {
     };
     let errors = result.files.iter().filter(|f| f.error.is_some()).count();
     let mut body = format!("Импорт из папки: добавлено операций — {}", result.added);
+    let linked: usize = result.files.iter().map(|f| f.linked).sum();
+    let suggested: usize = result.files.iter().map(|f| f.suggested).sum();
+    if linked > 0 {
+        body.push_str(&format!(", связано с вашими записями — {linked}"));
+    }
+    if suggested > 0 {
+        body.push_str(&format!(", проверьте совпадения — {suggested}"));
+    }
     if errors > 0 {
         body.push_str(&format!(", файлов с ошибкой — {errors}"));
     }

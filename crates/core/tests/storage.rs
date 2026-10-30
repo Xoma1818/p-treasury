@@ -765,3 +765,28 @@ fn upgrade_from_0_17_keeps_data_and_forecast_works() {
     budget_core::forecast::flow(c, "month", "2026-09").unwrap();
     budget_core::forecast::flow(c, "year", "2026-10").unwrap();
 }
+
+/// Каждый файл `NNNN_имя.sql` зарегистрирован ровно под своим номером и
+/// именем, номера идут подряд без повторов: параллельные ветки не могут
+/// незаметно занять один номер (0.21 — 0013, 0.22 — 0014).
+#[test]
+fn migration_files_match_their_numbers() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".sql"))
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), MIGRATIONS.len(), "файлы: {files:?}");
+    for (i, (file, m)) in files.iter().zip(MIGRATIONS).enumerate() {
+        assert_eq!(m.version, i as i64 + 1);
+        assert_eq!(file, &format!("{:04}_{}.sql", m.version, m.name));
+        let sql = std::fs::read_to_string(dir.join(file)).unwrap();
+        assert_eq!(sql, m.sql, "{file} зарегистрирован не под своим номером");
+    }
+    let at = |v: i64| MIGRATIONS.iter().find(|m| m.version == v).unwrap().name;
+    assert_eq!(at(13), "clear_and_safe");
+    assert_eq!(at(14), "import_matching");
+    assert_eq!(LATEST_VERSION, 14);
+}

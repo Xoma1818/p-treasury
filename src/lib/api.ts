@@ -156,6 +156,8 @@ export interface TxnFilter {
   eventId?: string;
   /** Операции с тегом. */
   tagId?: string;
+  /** Операции одного импорта (история импорта). */
+  importId?: string;
   limit?: number;
   offset?: number;
 }
@@ -1143,6 +1145,10 @@ export interface ImportRow {
   payee: string;
   error: string | null;
   duplicate: boolean;
+  /** Свяжется с записанной вручную операцией: «19.10 · Продукты». */
+  linkedTo: string | null;
+  /** Возможных совпадений, которые попросят подтверждения. */
+  maybe: number;
 }
 
 export interface ImportPreview {
@@ -1150,6 +1156,10 @@ export interface ImportPreview {
   valid: number;
   errors: number;
   duplicates: number;
+  /** Строки, которые сами свяжутся с ручными записями. */
+  linked: number;
+  /** Строки с возможными совпадениями на подтверждение. */
+  doubtful: number;
   /** «Сбер», «Т-Банк»; null — CSV по шаблону. */
   bank: string | null;
   accountId: string | null;
@@ -1344,6 +1354,8 @@ export interface SearchHit {
 export interface ImportFileResult {
   name: string;
   added: number;
+  linked: number;
+  suggested: number;
   skipped: number;
   error: string | null;
 }
@@ -1351,6 +1363,98 @@ export interface ImportFileResult {
 export interface ScanResult {
   files: ImportFileResult[];
   added: number;
+}
+
+// --- 0.22 «Понятные цифры» ---
+
+/** Итог импорта (вручную или из папки). */
+export interface ImportSaved {
+  importId: string;
+  added: number;
+  /** Строки, сами связанные с записанными вручную операциями. */
+  linked: number;
+  /** Возможные совпадения на подтверждение. */
+  suggested: number;
+}
+
+/** Запись истории импорта. */
+export interface ImportBatch {
+  id: string;
+  createdAt: string;
+  origin: "manual" | "folder";
+  fileName: string;
+  bank: string | null;
+  added: number;
+  linked: number;
+  skipped: number;
+  /** Операций импорта сейчас в базе. */
+  present: number;
+  /** Из них изменены после импорта. */
+  edited: number;
+  pending: number;
+  undoneAt: string | null;
+}
+
+export interface MatchSide {
+  id: string;
+  type: string;
+  date: string;
+  amount: number;
+  accountId: string;
+  account: string;
+  toAccount: string | null;
+  currency: string;
+  category: string | null;
+  payee: string | null;
+  note: string | null;
+  parts: number;
+  tags: number;
+  imported: boolean;
+}
+
+/** Возможное совпадение: same — одна операция, transfer — две стороны перевода. */
+export interface ImportSuggestion {
+  id: string;
+  importId: string;
+  kind: "same" | "transfer";
+  new: MatchSide;
+  old: MatchSide;
+}
+
+export interface AccountPart {
+  id: string;
+  name: string;
+  currency: string;
+  balance: number;
+  converted: number | null;
+  status: "in" | "excluded" | "no_rate";
+}
+
+export interface BalanceExplain {
+  baseCurrency: string;
+  total: number;
+  accounts: AccountPart[];
+}
+
+export interface CategoryPart {
+  categoryId: string;
+  name: string;
+  amount: number;
+  count: number;
+}
+
+export interface PeriodExplain {
+  baseCurrency: string;
+  total: number;
+  categories: CategoryPart[];
+  count: number;
+  spreadParts: number;
+  spreadAmount: number;
+  splitParts: number;
+  missingRates: string[];
+  planned: number;
+  transfers: number;
+  adjustments: number;
 }
 
 // --- 0.16 «Быстрые победы» ---
@@ -1669,7 +1773,14 @@ export const api = {
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
   importPreview: (path: string, accountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null }),
-  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<number>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  importHistory: () => invoke<ImportBatch[]>("import_history"),
+  importUndo: (id: string) => invoke<number>("import_undo", { id }),
+  importSuggestions: () => invoke<ImportSuggestion[]>("import_suggestions"),
+  importAccept: (id: string) => invoke<string>("import_accept", { id }),
+  importReject: (id: string) => invoke<void>("import_reject", { id }),
+  explainBalance: (on: string) => invoke<BalanceExplain>("explain_balance", { on }),
+  explainPeriod: (from: string, to: string, kind: "income" | "expense") => invoke<PeriodExplain>("explain_period", { from, to, kind }),
   saveBytes: (path: string, data: Uint8Array) => invoke<void>("save_bytes", { path, data: Array.from(data) }),
   writeImportTemplate: (path: string) => invoke<void>("write_import_template", { path }),
   backupStatus: () => invoke<BackupStatus>("backup_status"),

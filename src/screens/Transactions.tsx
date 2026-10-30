@@ -140,7 +140,7 @@ export function Transactions() {
   };
   const [defFrom, defTo] = [from, to];
   const filtered =
-    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId) || f.dateFrom !== defFrom || f.dateTo !== defTo;
+    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId || f.importId) || f.dateFrom !== defFrom || f.dateTo !== defTo;
 
   return (
     <section className="screen wide">
@@ -199,6 +199,14 @@ export function Transactions() {
             </button>
           </span>
         )}
+        {f.importId && (
+          <span className="view-chip" data-testid="filter-import">
+            <span className="view-apply">Один импорт</span>
+            <button className="view-del" aria-label="Убрать фильтр по импорту" onClick={() => set({ importId: undefined })}>
+              ✕
+            </button>
+          </span>
+        )}
         {f.eventId && (
           <span className="view-chip" data-testid="filter-event">
             <span className="view-apply">{events.find((e) => e.id === f.eventId)?.name ?? "Событие"}</span>
@@ -213,7 +221,7 @@ export function Transactions() {
           setSel(EMPTY_SEL);
           setSearch(e.target.value);
         }} />
-        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined }))}>
+        <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined }))}>
           Сбросить
         </button>
       </div>

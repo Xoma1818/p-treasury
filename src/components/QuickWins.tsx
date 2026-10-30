@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type BudgetWarning, type Check } from "../lib/api";
+import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
@@ -97,6 +98,8 @@ export function ChecksCard() {
   const [openError, setOpenError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const shown = checks && !showAll ? checks.slice(0, CHECKS_SHOWN) : checks;
+  const matches = useSuggestions().data?.length ?? 0;
+  const [matchesOpen, setMatchesOpen] = useState(false);
 
   // Операцию находим среди операций её дня: отдельной команды «одна операция» нет.
   const open = async (c: Check) => {
@@ -120,6 +123,15 @@ export function ChecksCard() {
         Проверьте
         <Hint of="home.checks" />
       </h2>
+      {matches > 0 && (
+        <p className="warn" data-testid="checks-matches">
+          Выписка: совпадений на подтверждение — {matches}.{" "}
+          <button className="link" onClick={() => setMatchesOpen(true)}>
+            Разобрать
+          </button>
+        </p>
+      )}
+      {matchesOpen && <MatchesDialog onClose={() => setMatchesOpen(false)} />}
       {warnings.length > 0 && (
         <ul className="qw-list" data-testid="budget-warnings">
           {warnings.map((w) => (

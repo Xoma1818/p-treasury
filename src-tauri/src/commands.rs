@@ -26,10 +26,12 @@ use budget_core::currencies::{self, Currency, ExchangeRate};
 use budget_core::debts::{self, DebtCard, DebtDetail, DebtInput, PaymentInput};
 use budget_core::demo;
 use budget_core::events::{self, Event, EventInput};
+use budget_core::explain::{self, BalanceExplain, PeriodExplain};
 use budget_core::export;
 use budget_core::forecast::{self, Flow, Forecast, ForecastAccount, Scenario, ScenarioInput};
 use budget_core::goals::{self, Goal, GoalInput};
 use budget_core::habits::{self, WeekSummary};
+use budget_core::import_log::{self, Batch, Suggestion};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::loan_export;
@@ -1382,7 +1384,7 @@ pub fn import_csv(
     path: String,
     skip_errors: bool,
     account_id: Option<String>,
-) -> CmdResult<usize> {
+) -> CmdResult<import_log::Saved> {
     with_undo(&state, "Импорт операций", |c| {
         csv_import::import(c, Path::new(&path), skip_errors, account_id.as_deref())
     })
@@ -1891,5 +1893,62 @@ pub fn delete_duplicate(state: State<AppState>, second_id: String) -> CmdResult<
 pub fn net_worth_history(state: State<AppState>, months: Option<u32>) -> CmdResult<NwHistory> {
     with_db(&state, |db| {
         net_worth::history(db.conn(), &time::today_local(), months)
+    })
+}
+
+// --- 0.22 «Понятные цифры» ---
+
+/// Из чего сложился общий баланс.
+#[tauri::command(async)]
+pub fn explain_balance(state: State<AppState>, on: String) -> CmdResult<BalanceExplain> {
+    with_db(&state, |db| explain::balance(db.conn(), &on))
+}
+
+/// Доходы или расходы периода по категориям и что не вошло.
+#[tauri::command(async)]
+pub fn explain_period(
+    state: State<AppState>,
+    from: String,
+    to: String,
+    kind: String,
+) -> CmdResult<PeriodExplain> {
+    with_db(&state, |db| explain::period(db.conn(), &from, &to, &kind))
+}
+
+#[tauri::command(async)]
+pub fn import_history(state: State<AppState>) -> CmdResult<Vec<Batch>> {
+    with_db(&state, |db| import_log::history(db.conn(), 100))
+}
+
+/// Отменить импорт целиком (Ctrl+Z возвращает его).
+#[tauri::command(async)]
+pub fn import_undo(state: State<AppState>, id: String) -> CmdResult<usize> {
+    with_undo(&state, "Отмена импорта", |c| {
+        let tx = c.transaction()?;
+        let n = import_log::undo(&tx, &id)?;
+        tx.commit()?;
+        Ok(n)
+    })
+}
+
+#[tauri::command(async)]
+pub fn import_suggestions(state: State<AppState>) -> CmdResult<Vec<Suggestion>> {
+    with_db(&state, |db| import_log::suggestions(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn import_accept(state: State<AppState>, id: String) -> CmdResult<String> {
+    with_undo(&state, "Связать с выпиской", |c| {
+        let tx = c.transaction()?;
+        let kept = import_log::accept(&tx, &id)?;
+        tx.commit()?;
+        Ok(kept)
+    })
+}
+
+#[tauri::command(async)]
+pub fn import_reject(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Это разные операции", |c| {
+        import_log::reject(c, &id)
     })
 }
