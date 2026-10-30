@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, termText, termToMonths, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -181,5 +181,28 @@ describe("0.20: ставка за период, частота платежей,
     expect(daysBetween("2026-11-01", "2026-12-01")).toBe(30);
     expect(addDays("2028-02-20", 10)).toBe("2028-03-01");
     expect(daysBetween("2026-11-01", "")).toBeNull();
+  });
+});
+
+describe("0.20: правка условий не меняет число платежей", () => {
+  it("раз в 2 недели и раз в квартал: сохранённый срок возвращается ровно", () => {
+    for (const every of ["two_weeks", "quarter", "month"] as const) {
+      for (let n = 1; n <= 60; n++) {
+        const t = savedTerm(n, every);
+        expect(termToPayments(t.term, t.termUnit, every)).toBe(n);
+      }
+    }
+    // Было: 3 платежа раз в 2 недели → «1 месяц» → 2 платежа.
+    expect(savedTerm(3, "two_weeks")).toEqual({ term: "3", termUnit: "payments" });
+    expect(savedTerm(12, "month")).toEqual({ term: "12", termUnit: "months" });
+  });
+  it("срок числом платежей в калькуляторе", () => {
+    const r = toCalcInput(form({ payEvery: "two_weeks", term: "3", termUnit: "payments" }));
+    expect(r.input?.termMonths).toBe(3);
+    expect(toCalcInput(form({ payEvery: "quarter", term: "8", termUnit: "payments" })).input?.termMonths).toBe(8);
+    expect(toCalcInput(form({ term: "2,5", termUnit: "payments" })).error).toBe("Введите число платежей");
+    expect(toCalcInput(form({ payEvery: "quarter", term: "4", termUnit: "months" })).error).toBe("Раз в квартал: срок кратен трём месяцам");
+    expect(termToPayments("1301", "payments", "two_weeks")).toBeNull();
+    expect(termToPayments("1300", "payments", "two_weeks")).toBe(1300);
   });
 });

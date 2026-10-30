@@ -68,3 +68,19 @@ test("своя сумма строки графика: срок короче, о
   await click(browser, "Вернуть сумму по графику");
   await waitCount(browser, '[data-testid="schedule-row"]', 24);
 });
+
+test("правка условий не меняет число платежей раз в две недели", async () => {
+  await click(browser, "Изменить условия");
+  await choose(browser, "payEvery", "раз в две недели");
+  await choose(browser, "termsTermUnit", "платежей");
+  await fill(browser, "termsTerm", "3");
+  await save(browser);
+  await waitCount(browser, '[data-testid="schedule-row"]', 3);
+  // Меняем только ставку: срок остаётся ровно 3 платежа (раньше становился 2).
+  await click(browser, "Изменить условия");
+  assert.equal(await (await browser.$('[role="dialog"] [name="termsTerm"]')).getValue(), "3");
+  await fill(browser, "termsRate", "2");
+  await save(browser);
+  await waitText(browser, '[data-testid="debt-terms"]', /2 % в месяц/);
+  await waitCount(browser, '[data-testid="schedule-row"]', 3);
+});

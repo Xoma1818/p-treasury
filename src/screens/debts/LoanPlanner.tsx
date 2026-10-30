@@ -159,6 +159,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                     <select name="termUnit" aria-label="Единица срока" value={f.termUnit} onChange={(e) => set({ termUnit: e.target.value as TermUnit })}>
                       <option value="years">лет</option>
                       <option value="months">месяцев</option>
+                      {(f.payEvery !== "month" || f.termUnit === "payments") && <option value="payments">платежей</option>}
                     </select>
                   </span>
                 )}

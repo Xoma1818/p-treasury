@@ -547,7 +547,8 @@ pub struct Payment {
 }
 
 /// Событие графика. Платежи применяются в переданном порядке (по дате);
-/// ставки и каникулы действуют на весь график; плановые досрочки — после всех платежей.
+/// ставки и каникулы действуют на весь график; плановые досрочки и свои суммы строк —
+/// после всех платежей, вместе и по порядку дат.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     Payment(Payment),
@@ -1370,86 +1371,32 @@ fn run<'a>(t: &'a Terms, events: &[Event]) -> Run<'a> {
 /// График по условиям и событиям.
 pub fn simulate(t: &Terms, events: &[Event]) -> Sim {
     let mut r = run(t, events);
-    let mut planned: Vec<(NaiveDate, i64, Recalc)> = events
-        .iter()
-        .filter_map(|e| match e {
-            Event::PlannedEarly { date, amount, mode } => Some((*date, *amount, *mode)),
-            _ => None,
-        })
-        .collect();
-    planned.sort_by_key(|p| p.0);
-    if t.repayment != Repayment::Bullet {
-        for (date, amount, mode) in planned {
-            // Строки с датой не позже досрочки считаются оплаченными по графику.
-            let day = date.to_string();
-            let start = first_pending(&r.lines);
-            let Some(i) = (start..r.lines.len()).find(|&i| r.lines[i].row.due_date > day) else {
-                break;
-            };
-            let balance = match r.acc {
-                Some(a) if a.index == i => a.balance,
-                _ if i == 0 => r.left,
-                _ => r.lines[i - 1].row.balance_after,
-            };
-            if balance == 0 {
-                break;
-            }
-            let a = r.ctx.accrual_at(&r.lines, i, r.acc, balance);
-            let (d, accrued) = match t.method {
-                InterestMethod::Daily => r.ctx.accrued(&r.lines, &a, i, date),
-                InterestMethod::Monthly => (a.start, 0),
-            };
-            let interest = accrued.min(amount);
-            let principal = (amount - interest).min(balance);
-            let new_balance = balance - principal;
-            r.early.push(EarlyRow {
-                date: day,
-                principal,
-                interest,
-                balance_after: new_balance,
-                planned: true,
-            });
-            let acc = Accrual {
-                index: i,
-                start: d,
-                carry: accrued - interest,
-                balance: new_balance,
-            };
-            r.acc = Some(acc);
-            r.ctx.recalc(&mut r.lines, i, new_balance, mode, Some(acc));
-        }
+    // Плановые досрочки и свои суммы строк применяются вместе по датам: каждое
+    // изменение пересчитывает график после себя, а более ранние сохраняются.
+    // Своя сумма строки идёт по дате платежа и раньше досрочки того же дня.
+    enum Step {
+        Row(u32),
+        Early,
     }
-    let mut amounts: Vec<(u32, i64, Recalc)> = events
+    let mut steps: Vec<(NaiveDate, u8, Step, Recalc, i64)> = events
         .iter()
         .filter_map(|e| match e {
-            Event::RowAmount { seq, amount, mode } => Some((*seq, *amount, *mode)),
+            Event::PlannedEarly { date, amount, mode } => {
+                Some((*date, 1, Step::Early, *mode, *amount))
+            }
+            Event::RowAmount { seq, amount, mode } if *seq >= 1 => {
+                Some((r.ctx.due(*seq), 0, Step::Row(*seq), *mode, *amount))
+            }
             _ => None,
         })
         .collect();
-    amounts.sort_by_key(|a| a.0);
+    steps.sort_by_key(|s| (s.0, s.1));
     if t.repayment != Repayment::Bullet {
-        for (seq, amount, mode) in amounts {
-            let Some(i) = r
-                .lines
-                .iter()
-                .position(|l| l.row.seq == seq && l.status == Status::Pending)
-            else {
-                continue;
-            };
-            let row = &r.lines[i].row;
-            if row.payment == amount {
-                continue;
+        for (date, _, step, mode, amount) in steps {
+            match step {
+                Step::Row(seq) => apply_row_amount(&mut r, seq, amount, mode),
+                Step::Early => apply_planned_early(&mut r, t, date, amount, mode),
             }
-            let balance = row.balance_after + row.principal_part;
-            // Проценты строки платятся всегда; остальное — в основной долг.
-            let interest = row.interest_part;
-            let principal = (amount - interest).clamp(0, balance);
-            let left = balance - principal;
-            let line = &mut r.lines[i];
-            line.row.payment = principal + interest;
-            line.row.principal_part = principal;
-            line.row.balance_after = left;
-            r.ctx.recalc(&mut r.lines, i + 1, left, mode, None);
         }
     }
     Sim {
@@ -1459,6 +1406,72 @@ pub fn simulate(t: &Terms, events: &[Event]) -> Sim {
         principal_paid: r.principal_paid,
         interest_paid: r.interest_paid,
     }
+}
+
+/// Плановая досрочка `amount` на дату `date` с пересчётом графика после неё.
+fn apply_planned_early(r: &mut Run, t: &Terms, date: NaiveDate, amount: i64, mode: Recalc) {
+    // Строки с датой не позже досрочки считаются оплаченными по графику.
+    let day = date.to_string();
+    let start = first_pending(&r.lines);
+    let Some(i) = (start..r.lines.len()).find(|&i| r.lines[i].row.due_date > day) else {
+        return;
+    };
+    let balance = match r.acc {
+        Some(a) if a.index == i => a.balance,
+        _ if i == 0 => r.left,
+        _ => r.lines[i - 1].row.balance_after,
+    };
+    if balance == 0 {
+        return;
+    }
+    let a = r.ctx.accrual_at(&r.lines, i, r.acc, balance);
+    let (d, accrued) = match t.method {
+        InterestMethod::Daily => r.ctx.accrued(&r.lines, &a, i, date),
+        InterestMethod::Monthly => (a.start, 0),
+    };
+    let interest = accrued.min(amount);
+    let principal = (amount - interest).min(balance);
+    let new_balance = balance - principal;
+    r.early.push(EarlyRow {
+        date: day,
+        principal,
+        interest,
+        balance_after: new_balance,
+        planned: true,
+    });
+    let acc = Accrual {
+        index: i,
+        start: d,
+        carry: accrued - interest,
+        balance: new_balance,
+    };
+    r.acc = Some(acc);
+    r.ctx.recalc(&mut r.lines, i, new_balance, mode, Some(acc));
+}
+
+/// Своя сумма неоплаченной строки `seq`: проценты строки платятся всегда,
+/// остальное идёт в долг; строки после неё пересчитываются.
+fn apply_row_amount(r: &mut Run, seq: u32, amount: i64, mode: Recalc) {
+    let Some(i) = r
+        .lines
+        .iter()
+        .position(|l| l.row.seq == seq && l.status == Status::Pending)
+    else {
+        return;
+    };
+    let row = &r.lines[i].row;
+    if row.payment == amount {
+        return;
+    }
+    let balance = row.balance_after + row.principal_part;
+    let interest = row.interest_part;
+    let principal = (amount - interest).clamp(0, balance);
+    let left = balance - principal;
+    let line = &mut r.lines[i];
+    line.row.payment = principal + interest;
+    line.row.principal_part = principal;
+    line.row.balance_after = left;
+    r.ctx.recalc(&mut r.lines, i + 1, left, mode, None);
 }
 
 /// Подсказка разбивки досрочного платежа `amount` на дату `date`: сначала
@@ -2221,6 +2234,33 @@ mod tests {
         let s = simulate(&t, &[tail]);
         assert_eq!(s.rows.len(), 25);
         assert_eq!(s.rows.last().unwrap().row.balance_after, 0);
+    }
+
+    #[test]
+    fn row_amount_keeps_later_planned_early() {
+        // Своя сумма ранней строки не стирает досрочку, запланированную позже.
+        let t = Terms::from_input(&input(30_000_000, 1200, 24, Repayment::Annuity)).unwrap();
+        let row3 = simulate(&t, &[]).rows[2].row.clone();
+        let row = Event::RowAmount {
+            seq: 3,
+            amount: row3.payment + 1_000_000,
+            mode: Recalc::ReducePayment,
+        };
+        let plan = Event::PlannedEarly {
+            date: d("2027-06-01"),
+            amount: 5_000_000,
+            mode: Recalc::ReduceTerm,
+        };
+        let only_row = simulate(&t, &[row]);
+        for events in [[row, plan], [plan, row]] {
+            let s = simulate(&t, &events);
+            assert_eq!(s.early.len(), 1);
+            assert!(s.rows.len() < only_row.rows.len());
+            assert_eq!(s.rows[2].row.payment, row3.payment + 1_000_000);
+            let paid: i64 = s.rows.iter().map(|r| r.row.principal_part).sum::<i64>()
+                + s.early.iter().map(|e| e.principal).sum::<i64>();
+            assert_eq!(paid, 30_000_000);
+        }
     }
 
     fn early(date: &str, principal: i64, interest: i64, mode: Recalc) -> Event {

@@ -4,7 +4,8 @@ import type { CalcInput, EarlyFrequency, EarlyRow, InterestMethod, LoanRow, PayE
 import { amountToInput, formatAmount, parseAmount } from "./money";
 
 export type Solve = "payment" | "term" | "principal" | "rate";
-export type TermUnit = "years" | "months";
+/** «payments» — срок числом платежей: точно для «раз в 2 недели» и «раз в квартал». */
+export type TermUnit = "years" | "months" | "payments";
 
 /** Строка «Ставка меняется?»: с даты — ставка. */
 export interface RateLine {
@@ -138,6 +139,25 @@ export function paymentsToMonths(n: number, every: PayEvery): number {
   return every === "quarter" ? n * 3 : every === "two_weeks" ? Math.round((n * 12) / 26) : n;
 }
 
+/** Число платежей из поля «срок»: в платежах — как есть, в годах и месяцах — через месяцы.
+ *  null — срок не задан, неверен или (раз в квартал) не кратен трём месяцам. */
+export function termToPayments(term: string, unit: TermUnit, every: PayEvery): number | null {
+  if (unit === "payments") {
+    const t = term.trim();
+    if (!/^\d+$/.test(t)) return null;
+    const n = Number(t);
+    return n >= 1 && n <= (monthsToPayments(600, every) ?? 600) ? n : null;
+  }
+  const months = termToMonths(term, unit);
+  return months === null ? null : monthsToPayments(months, every);
+}
+
+/** Поле «срок» для сохранённого займа: помесячно — в месяцах, иначе ровно числом платежей,
+ *  чтобы правка других условий не меняла срок. */
+export function savedTerm(payments: number | null, every: PayEvery): { term: string; termUnit: TermUnit } {
+  return { term: payments ? String(payments) : "", termUnit: every === "month" ? "months" : "payments" };
+}
+
 /** «2 года», «8 платежей раз в квартал (2 года)». */
 export function paymentsText(n: number, every: PayEvery = "month"): string {
   if (every === "month") return termText(n);
@@ -211,11 +231,13 @@ export function toCalcInput(f: LoanForm, minorUnits = 2): FormResult {
       input: { ...base, termMonths: null, firstPaymentDate: null, maturityDate: f.maturity, rateChanges: rates, plannedEarly: plannedEarly(f.early, minorUnits), solve: "payment", payment: null },
     };
   }
-  const months = solve === "term" ? null : termToMonths(f.term, f.termUnit);
-  if (solve !== "term" && months === null) return fail(f.termUnit === "years" ? "Введите срок в годах" : "Введите срок в месяцах (от 1 до 600)");
   // Срок у ядра — число платежей: раз в квартал срок кратен трём месяцам.
-  const termMonths = months === null ? null : monthsToPayments(months, f.payEvery);
-  if (months !== null && termMonths === null) return fail("Раз в квартал: срок кратен трём месяцам");
+  const termMonths = solve === "term" ? null : termToPayments(f.term, f.termUnit, f.payEvery);
+  if (solve !== "term" && termMonths === null) {
+    if (f.termUnit === "payments") return fail("Введите число платежей");
+    if (termToMonths(f.term, f.termUnit) !== null) return fail("Раз в квартал: срок кратен трём месяцам");
+    return fail(f.termUnit === "years" ? "Введите срок в годах" : "Введите срок в месяцах (от 1 до 600)");
+  }
   return {
     error: null,
     input: {

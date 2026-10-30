@@ -6,7 +6,7 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type DebtCard, type DebtDetail, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { annualHint, earlyLines, METHODS, MODES, monthsToPayments, paymentsToMonths, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, termToMonths, type EarlyLine, type TermUnit } from "../../lib/loan";
+import { annualHint, earlyLines, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
 import { parseAmount } from "../../lib/money";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -41,8 +41,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
     ratePeriod: c.ratePeriod,
     repayment: c.repaymentType,
     payEvery: c.payEvery,
-    term: c.termMonths ? String(paymentsToMonths(c.termMonths, c.payEvery)) : "",
-    termUnit: "months" as TermUnit,
+    ...savedTerm(c.termMonths, c.payEvery),
     firstPayment: c.firstPaymentDate ?? "",
     maturity: c.repaymentType === "bullet" ? c.maturityDate : "",
     method: c.interestMethod,
@@ -53,9 +52,8 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
     const rateBp = parseRate(f.rate, f.ratePeriod);
     if (!principal || principal <= 0 || rateBp === null) return null;
     const bullet = f.repayment === "bullet";
-    const months = bullet ? null : termToMonths(f.term, f.termUnit);
     // У ядра срок — число платежей.
-    const termMonths = months === null ? null : monthsToPayments(months, f.payEvery);
+    const termMonths = bullet ? null : termToPayments(f.term, f.termUnit, f.payEvery);
     if (!bullet && termMonths === null) return null;
     if (bullet && !f.maturity) return null;
     return {
@@ -126,6 +124,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
                     <select name="termsTermUnit" aria-label="Единица срока" value={f.termUnit} onChange={(e) => set({ termUnit: e.target.value as TermUnit })}>
                       <option value="years">лет</option>
                       <option value="months">месяцев</option>
+                      {(f.payEvery !== "month" || f.termUnit === "payments") && <option value="payments">платежей</option>}
                     </select>
                   </span>
                 )}
