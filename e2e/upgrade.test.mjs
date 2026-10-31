@@ -29,7 +29,10 @@ async function figures() {
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="month-expense"]', /₽/);
   // Плашка «−3 %» (сравнение с прошлым месяцем) есть только в новых версиях — сравниваем суммы.
-  f.total = (await (await browser.$('[data-testid="total-balance"]')).getText()).replace(/[−+]?\d+ %/, "");
+  f.total = (await (await browser.$('[data-testid="total-balance"]')).getText())
+    .replace(/[−+]?\d+ %/, "")
+    // 0.27 добавила под балансом строку «Свободно до …»: в старой версии её нет.
+    .replace(/\s*(Свободно до[\s\S]*?в день|свободных денег нет)/, "");
   f.expense = await (await browser.$('[data-testid="month-expense"]')).getText();
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);

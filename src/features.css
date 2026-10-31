@@ -374,3 +374,7 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .home-cards-list { list-style: none; margin: 8px 0 12px; padding: 0; columns: 2 220px; column-gap: 24px; }
 .home-cards-list li { break-inside: avoid; padding: 2px 0; }
 .budget-table tr.focus-row td { background: var(--accent-soft); transition: background-color 1.2s var(--ease); }
+
+/* 0.27 «Свободно до дохода и резервы». */
+.free-line { display: block; margin-top: 6px; font-size: 12px; text-align: left; color: var(--text); }
+.free-line .money { font-weight: 600; }
