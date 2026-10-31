@@ -56,8 +56,15 @@ def compare(a, b):
         if nb is None: fail.append(f"пропала таблица {t}")
         elif nb < n: fail.append(f"{t}: строк было {n}, стало {nb}")
         elif hb != h: print(f"  изменилась таблица {t}: {n} → {nb} строк (запуск программы может её обновлять)")
+    # Копии неизменны всегда. Текущий файл и Excel программа перезаписывает при выходе
+    # (тогда же появляется новая копия), поэтому для них проверяется только наличие.
     for f, h in a["vault"].items():
-        if b["vault"].get(f) != h: fail.append(f"папка сохранности: нет или изменён {f}")
+        hb = b["vault"].get(f)
+        if hb is None: fail.append(f"папка сохранности: пропал {f}")
+        elif hb != h:
+            if f.startswith(("Копии", "Копии\\", "Копии/")): fail.append(f"папка сохранности: изменена копия {f}")
+            else: print(f"  обновлён при выходе программы: {f}")
+    for f in b["vault"].keys() - a["vault"].keys(): print(f"  новый файл: {f}")
     print("в папке сохранности было файлов:", len(a["vault"]), "стало:", len(b["vault"]))
     for x in fail: print(f"::error::{x}")
     sys.exit(1 if fail else 0)
