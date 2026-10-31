@@ -177,7 +177,7 @@ fn liquid_on(
 }
 
 /// Быстрые счета «в общем балансе»: из них складывается прогноз.
-fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
+pub(crate) fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
     Ok(accounts::list(conn, false)?
         .into_iter()
         .filter(|a| a.include_in_total && LIQUID_TYPES.contains(&a.kind.as_str()))
@@ -185,7 +185,7 @@ fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
 }
 
 /// Счета, выключенные из прогноза (настройка [`EXCLUDED_ACCOUNTS_KEY`]).
-fn excluded_accounts(conn: &Connection) -> Result<HashSet<String>> {
+pub(crate) fn excluded_accounts(conn: &Connection) -> Result<HashSet<String>> {
     Ok(settings::get(conn, EXCLUDED_ACCOUNTS_KEY)?
         .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
         .unwrap_or_default()
@@ -245,16 +245,24 @@ fn reminder_categories(conn: &Connection, skip: &HashSet<String>) -> Result<Hash
     Ok(out)
 }
 
-/// Обычные доходы и расходы по категориям за `[from, to]`: ключ — (тип, категория).
-fn regular_by_category(
+/// Обычные доходы и расходы по категориям за каждый из периодов (`None` —
+/// пропустить): ключ — (тип, категория). Один запрос на весь диапазон вместо
+/// запроса на месяц; строки раскладываются по периодам, суммы те же.
+fn regular_by_periods(
     conn: &Connection,
     base: &str,
-    from: &str,
-    to: &str,
+    periods: &[Option<Period>],
     excluded: &HashSet<String>,
     skip: &HashSet<String>,
     missing: &mut Vec<String>,
-) -> Result<HashMap<(String, String), i64>> {
+) -> Result<Vec<HashMap<(String, String), i64>>> {
+    let list: Vec<&Period> = periods.iter().flatten().collect();
+    let (Some(from), Some(to)) = (
+        list.iter().map(|p| p.start.as_str()).min(),
+        list.iter().map(|p| p.end.as_str()).max(),
+    ) else {
+        return Ok(Vec::new());
+    };
     let mut stmt = conn.prepare(
         "SELECT t.type, t.category_id, t.date, t.amount, a.currency_code, t.account_id FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
@@ -278,17 +286,30 @@ fn regular_by_category(
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut out: HashMap<(String, String), i64> = HashMap::new();
-    for (kind, cat, date, amount, cur, account) in rows {
-        if excluded.contains(&cat) || skip.contains(&account) {
-            continue;
-        }
-        match currencies::convert(conn, amount, &cur, base, &date)? {
-            Some(v) => *out.entry((kind, cat)).or_default() += v,
-            None => add_missing(missing, cur),
+    let mut buckets: Vec<Vec<Row>> = vec![Vec::new(); list.len()];
+    for row in rows {
+        if let Some(i) = list
+            .iter()
+            .position(|p| p.start.as_str() <= row.2.as_str() && row.2.as_str() <= p.end.as_str())
+        {
+            buckets[i].push(row);
         }
     }
-    Ok(out)
+    let mut result = Vec::with_capacity(list.len());
+    for rows in buckets {
+        let mut out: HashMap<(String, String), i64> = HashMap::new();
+        for (kind, cat, date, amount, cur, account) in rows {
+            if excluded.contains(&cat) || skip.contains(&account) {
+                continue;
+            }
+            match currencies::convert(conn, amount, &cur, base, &date)? {
+                Some(v) => *out.entry((kind, cat)).or_default() += v,
+                None => add_missing(missing, cur),
+            }
+        }
+        result.push(out);
+    }
+    Ok(result)
 }
 
 /// Первая дата учёта: самая ранняя операция дохода или расхода.
@@ -301,7 +322,7 @@ fn first_activity(conn: &Connection) -> Result<Option<String>> {
 }
 
 /// Известные по датам суммы с `today` по `last` включительно.
-fn known_items(
+pub(crate) fn known_items(
     conn: &Connection,
     base: &str,
     today: &str,
@@ -527,24 +548,25 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     } else {
         HISTORY_MONTHS
     };
-    let mut past: Vec<Option<HashMap<(String, String), i64>>> = Vec::new();
+    let mut covered_periods = Vec::new();
     for i in 1..=depth {
         let p = budgets::period(&budgets::shift_month(&current.month, -i)?, sd)?;
         let covered = first.as_deref().is_some_and(|f| p.end.as_str() >= f);
-        past.push(if covered {
-            Some(regular_by_category(
-                conn,
-                &base,
-                &p.start,
-                &p.end,
-                &excluded,
-                &skip,
-                &mut missing,
-            )?)
-        } else {
-            None
-        });
+        covered_periods.push(covered.then_some(p));
     }
+    let mut by_period = regular_by_periods(
+        conn,
+        &base,
+        &covered_periods,
+        &excluded,
+        &skip,
+        &mut missing,
+    )?
+    .into_iter();
+    let past: Vec<Option<HashMap<(String, String), i64>>> = covered_periods
+        .iter()
+        .map(|p| p.as_ref().and_then(|_| by_period.next()))
+        .collect();
     let average = |maps: &[Option<HashMap<(String, String), i64>>]| {
         let counted = maps.iter().flatten().count() as i64;
         let mut sums: HashMap<(String, String), i64> = HashMap::new();
@@ -587,15 +609,20 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     let (avg_income, avg_expense) = (avg_of("income"), avg_of("expense"));
 
     // Текущий месяц: по каждой категории осталось «ожидаемое минус уже случилось».
-    let so_far = regular_by_category(
+    let so_far = regular_by_periods(
         conn,
         &base,
-        &current.start,
-        today,
+        &[Some(Period {
+            month: current.month.clone(),
+            start: current.start.clone(),
+            end: today.to_string(),
+        })],
         &excluded,
         &skip,
         &mut missing,
-    )?;
+    )?
+    .pop()
+    .unwrap_or_default();
     // Обычные доходы или траты `kind` в месяце прогноза `i`.
     let regular = |i: usize, kind: &str, with_season: bool| -> i64 {
         avg.iter()
@@ -1665,6 +1692,7 @@ mod tests {
                     currency_code: "RUB".into(),
                     account_id: account,
                     deadline: deadline.map(Into::into),
+                    reserve: false,
                 },
             )
             .unwrap()

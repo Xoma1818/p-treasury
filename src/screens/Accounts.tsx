@@ -21,6 +21,7 @@ export function Accounts() {
   const [adjusting, setAdjusting] = useState<Account | null>(null);
   const [valuing, setValuing] = useState<string | null>(null);
   const invest = useQuery({ queryKey: ["investOverview"], queryFn: api.investOverview }).data;
+  const reserves = useQuery({ queryKey: ["accountReserves"], queryFn: api.accountReserves }).data;
   const showTransactions = useUi((s) => s.showTransactions);
   const archive = useAction(api.archiveAccount);
   const visible = accounts.filter((a) => showArchived || !a.archived);
@@ -50,6 +51,12 @@ export function Accounts() {
                 <td className="num">
                   <Money amount={a.value ?? a.balance} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
                   <InvestSub account={a} invested={invest?.accounts.find((x) => x.id === a.id)} />
+                  {(reserves?.[a.id] ?? 0) > 0 && (
+                    <div className="sub" data-testid="account-reserved">
+                      в резервах <Money amount={reserves![a.id]} symbol={a.currencySymbol} minorUnits={a.minorUnits} />, свободно{" "}
+                      <Money amount={a.balance - reserves![a.id]} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
+                    </div>
+                  )}
                   {a.available != null && (
                     <div className="sub">
                       доступно <Money amount={a.available} symbol={a.currencySymbol} minorUnits={a.minorUnits} />

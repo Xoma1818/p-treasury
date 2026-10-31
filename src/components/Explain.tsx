@@ -4,14 +4,16 @@ import { useAccounts, useCurrencies } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { Modal } from "./Modal";
 import { Money } from "./Money";
+import { formatDate, today } from "../lib/dates";
 
-export type ExplainKind = "balance" | "income" | "expense" | "saldo";
+export type ExplainKind = "balance" | "income" | "expense" | "saldo" | "free";
 
 const TITLE: Record<ExplainKind, string> = {
   balance: "Как посчитан общий баланс",
   income: "Из чего сложились доходы",
   expense: "Из чего сложились расходы",
   saldo: "Как посчитано сальдо месяца",
+  free: "Сколько свободно до дохода",
 };
 
 /** «Как посчитано»: составляющие итога Главной и что в него не вошло. */
@@ -19,7 +21,7 @@ export function ExplainDialog({ kind, on, from, to, onClose }: { kind: ExplainKi
   return (
     <Modal title={TITLE[kind]} onClose={onClose} wide>
       <div data-testid="explain" data-kind={kind}>
-        {kind === "balance" ? <BalanceParts on={on} onClose={onClose} /> : kind === "saldo" ? <Saldo from={from} to={to} onClose={onClose} /> : <PeriodParts kind={kind} from={from} to={to} onClose={onClose} />}
+        {kind === "free" ? <FreeParts /> : kind === "balance" ? <BalanceParts on={on} onClose={onClose} /> : kind === "saldo" ? <Saldo from={from} to={to} onClose={onClose} /> : <PeriodParts kind={kind} from={from} to={to} onClose={onClose} />}
       </div>
       <div className="actions">
         <span className="spacer" />
@@ -172,6 +174,76 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
           </tr>
         </tfoot>
       </table>
+    </>
+  );
+}
+
+function FreeParts() {
+  const data = useQuery({ queryKey: ["freeUntilIncome", today()], queryFn: api.freeUntilIncome }).data;
+  const base = useBaseSymbol(data?.baseCurrency);
+  if (!data) return null;
+  const until = data.income ? `до ${formatDate(data.until)} (${data.income.title})` : "до конца месяца";
+  return (
+    <>
+      <p className="muted">
+        Деньги на картах, наличных и накопительных счетах прогноза минус известные платежи {until} и минус резервы.{" "}
+        {data.income ? "Ближайший доход взят из напоминаний и запланированных операций." : "Дохода в напоминаниях и запланированных операциях на два месяца вперёд нет — считаем до конца месяца."}
+      </p>
+      <table className="table explain-table">
+        <tbody>
+          <tr data-testid="explain-row">
+            <td>Деньги сегодня</td>
+            <td className="num">
+              <Money amount={data.liquid} symbol={base} />
+            </td>
+          </tr>
+          {data.payments.map((p, i) => (
+            <tr key={`p${i}`} data-testid="explain-row" data-kind="payment">
+              <td>
+                {p.title} <span className="muted">{formatDate(p.date)}</span>
+              </td>
+              <td className="num">
+                <Money amount={-p.amount} symbol={base} />
+              </td>
+            </tr>
+          ))}
+          {data.inflowTotal > 0 && (
+            <tr data-testid="explain-row">
+              <td>Другие приходы до дохода</td>
+              <td className="num">
+                <Money amount={data.inflowTotal} symbol={base} signed />
+              </td>
+            </tr>
+          )}
+          {data.reserves.map((r) => (
+            <tr key={r.goalId} data-testid="explain-row" data-kind="reserve">
+              <td>
+                Резерв «{r.name}» <span className="muted">на «{r.account}»</span>
+              </td>
+              <td className="num">
+                <Money amount={-r.amount} symbol={base} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>Свободно</th>
+            <th className="num" data-testid="explain-total">
+              <Money amount={data.free} symbol={base} />
+            </th>
+          </tr>
+          <tr>
+            <td className="muted">
+              В день, {data.days} {data.days === 1 ? "день" : "дн."}
+            </td>
+            <td className="num">
+              <Money amount={data.perDay} symbol={base} />
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {data.missingRates.length > 0 && <p className="hint warn">Нет курса для {data.missingRates.join(", ")}: такие счета не вошли.</p>}
     </>
   );
 }

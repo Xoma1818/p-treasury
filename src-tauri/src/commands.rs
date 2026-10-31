@@ -223,7 +223,7 @@ async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .user_agent(concat!("P-Treasury/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Kazna/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
     let response = client.get(url).send().await.map_err(offline)?;
@@ -1622,6 +1622,24 @@ mod tests {
 #[tauri::command(async)]
 pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
     with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
+}
+
+/// «Свободно до дохода» на сегодня (0.27).
+#[tauri::command(async)]
+pub fn free_until_income(state: State<AppState>) -> CmdResult<budget_core::free_money::FreeMoney> {
+    with_db(&state, |db| {
+        budget_core::free_money::until_income(db.conn(), &time::today_local())
+    })
+}
+
+/// Отложено в резервы по счетам: id счёта → сумма в валюте счёта.
+#[tauri::command(async)]
+pub fn account_reserves(
+    state: State<AppState>,
+) -> CmdResult<std::collections::HashMap<String, i64>> {
+    with_db(&state, |db| {
+        Ok(goals::reserves_by_account(db.conn())?.into_iter().collect())
+    })
 }
 
 #[tauri::command(async)]

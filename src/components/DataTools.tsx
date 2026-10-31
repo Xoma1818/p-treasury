@@ -30,7 +30,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
   const [[from, to], setRange] = useState(periodOf("month", today()));
   const [done, setDone] = useState<string | null>(null);
   const run = useAction(async () => {
-    const path = await pickSave(`P-Treasury — сводка ${from} — ${to}.xlsx`, [XLSX]);
+    const path = await pickSave(`Kazna — сводка ${from} — ${to}.xlsx`, [XLSX]);
     if (!path) return;
     await api.exportSummary(from, to, path);
     setDone(path);
@@ -110,7 +110,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     if (p) await load(p, null);
   };
   const template = async () => {
-    const p = await pickSave("P-Treasury — шаблон импорта.csv", [CSV]);
+    const p = await pickSave("Kazna — шаблон импорта.csv", [CSV]);
     if (p) await api.writeImportTemplate(p).catch((e) => setError(String(e)));
   };
   const commit = async (skipErrors: boolean) => {

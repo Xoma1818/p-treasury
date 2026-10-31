@@ -26,7 +26,7 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
     let w = match app.get_webview_window(LABEL) {
         Some(w) => w,
         None => WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-            .title("Быстрый ввод — P-Treasury")
+            .title("Быстрый ввод — Kazna")
             .inner_size(640.0, 230.0)
             .resizable(false)
             .always_on_top(true)

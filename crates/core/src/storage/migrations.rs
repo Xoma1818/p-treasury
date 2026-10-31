@@ -91,6 +91,16 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "reminders_ahead",
         sql: include_str!("../../migrations/0015_reminders_ahead.sql"),
     },
+    Migration {
+        version: 16,
+        name: "free_and_reserves",
+        sql: include_str!("../../migrations/0016_free_and_reserves.sql"),
+    },
+    Migration {
+        version: 17,
+        name: "spread_and_reimport",
+        sql: include_str!("../../migrations/0017_spread_and_reimport.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

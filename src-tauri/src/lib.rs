@@ -20,7 +20,7 @@ pub struct AppState {
     pub undo: Mutex<budget_core::undo::Journal>,
     /// Переносная версия: данные в папке `data` рядом с программой.
     pub portable: bool,
-    /// Папка сохранности по умолчанию (`Документы\P-Treasury`).
+    /// Папка сохранности по умолчанию (`Документы\Kazna`).
     pub vault_default: PathBuf,
 }
 
@@ -53,7 +53,18 @@ fn data_dir_override() -> Option<PathBuf> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Одна копия программы (должен регистрироваться первым): второй запуск
+    // показывает уже открытое окно, даже если оно свёрнуто в трей.
+    #[cfg(windows)]
+    let builder = if data_dir_override().is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            background::show_main(app)
+        }))
+    } else {
+        builder
+    };
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -80,6 +91,19 @@ pub fn run() {
             };
             let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
+            // 0.26: программа стала Kazna — папка по умолчанию переезжает из «P-Treasury».
+            if let Ok(db) = &db {
+                match budget_core::vault::migrate_default(db.conn(), &state.vault_default) {
+                    Ok(true) => eprintln!(
+                        "папка сохранности переименована в {}",
+                        state.vault_default.display()
+                    ),
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!("папка сохранности не переименована, остаётся прежняя: {e}")
+                    }
+                }
+            }
             *state.lock_db() = db;
             app.manage(state);
             if let Err(e) = background::build_tray(app.handle()) {
@@ -280,6 +304,8 @@ pub fn run() {
             commands::undo,
             commands::redo,
             commands::list_goals,
+            commands::free_until_income,
+            commands::account_reserves,
             commands::forecast,
             commands::list_scenarios,
             commands::create_scenario,

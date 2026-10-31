@@ -3,6 +3,9 @@
 //!   cargo test --release -p budget-core --test volume -- --ignored --nocapture
 //! С переменной PTREASURY_VOLUME_DIR база остаётся в этой папке (для сквозного
 //! теста окна приложения на большой базе).
+//! Размер базы задаётся KAZNA_VOLUME_YEARS и KAZNA_VOLUME_PER_DAY (по умолчанию
+//! 10 лет по 27 операций в день); замеры треда 26: 1×3 ≈ 1 000, 3×9 ≈ 10 000,
+//! 5×27 ≈ 50 000 операций.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -13,7 +16,20 @@ use budget_core::transactions::{self, Filter};
 use budget_core::{budgets, calendar, export, ids, reports, settings};
 use rusqlite::params;
 
-const YEARS: i32 = 10;
+fn env_num(name: &str, default: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+fn years() -> u32 {
+    env_num("KAZNA_VOLUME_YEARS", 10)
+}
+
+fn per_day() -> usize {
+    env_num("KAZNA_VOLUME_PER_DAY", 27) as usize
+}
 
 /// Учёт идёт 10 лет и заканчивается сегодня: текущий месяц на экранах полон данных.
 fn end() -> chrono::NaiveDate {
@@ -22,10 +38,9 @@ fn end() -> chrono::NaiveDate {
 
 fn begin() -> chrono::NaiveDate {
     end()
-        .checked_sub_months(chrono::Months::new(12 * YEARS as u32))
+        .checked_sub_months(chrono::Months::new(12 * years()))
         .unwrap()
 }
-const PER_DAY: usize = 27; // ≈ 98 600 операций за 10 лет
 
 fn account(name: &str, kind: &str, currency: &str, opening: i64) -> AccountInput {
     AccountInput {
@@ -92,7 +107,7 @@ fn fill(db: &mut Storage) -> usize {
         while day < end {
             let date = day.format("%Y-%m-%d").to_string();
             let now = format!("{date}T12:00:00.000Z");
-            for i in 0..PER_DAY {
+            for i in 0..per_day() {
                 let id = ids::new_id();
                 if i == 0 && day.format("%d").to_string() == "05" {
                     // Зарплата раз в месяц.
@@ -204,7 +219,10 @@ fn ten_years_of_records_stay_fast() {
         "создано операций: {n} за {:.1} с",
         t.elapsed().as_secs_f64()
     );
-    assert!(n >= 95_000);
+    let full = years() == 10 && per_day() == 27;
+    if full {
+        assert!(n >= 95_000);
+    }
     drop(db);
 
     let sec = Duration::from_secs(1);
@@ -322,6 +340,34 @@ fn ten_years_of_records_stay_fast() {
             .unwrap()
         },
     );
+    // Экраны 0.18–0.25: прогноз, проверки, чистые активы, объяснение итогов,
+    // история импорта; восстановление из копии (с 0.26.1 — через память).
+    timed("Прогноз на 12 месяцев", sec, || {
+        budget_core::forecast::forecast(c, &today, None).unwrap()
+    });
+    timed(
+        "Главная: «проверьте» (checks)",
+        sec,
+        || budget_core::checks::list(c, &today).unwrap(),
+    );
+    timed(
+        "Отчёт: чистые активы за 12 месяцев",
+        sec,
+        || budget_core::net_worth::history(c, &today, Some(12)).unwrap(),
+    );
+    timed(
+        "Объяснение суммы расходов за год",
+        sec,
+        || budget_core::explain::period(c, &year_ago, &today, "expense").unwrap(),
+    );
+    timed(
+        "История импорта и предложения",
+        sec,
+        || {
+            budget_core::import_log::history(c, 50).unwrap();
+            budget_core::import_log::suggestions(c).unwrap()
+        },
+    );
     let xlsx = dir.join("сводка за год.xlsx");
     timed(
         "Сводка в Excel за год (6 листов)",
@@ -344,7 +390,7 @@ fn ten_years_of_records_stay_fast() {
         Duration::from_secs(5),
         || budget_core::backups::backup(c, &dir.join("копия.db")).unwrap(),
     );
-    let vault = dir.join("P-Treasury");
+    let vault = dir.join("Kazna");
     let copy = timed(
         "Папка сохранности: копия (база занята)",
         Duration::from_secs(5),
@@ -421,6 +467,16 @@ fn ten_years_of_records_stay_fast() {
         Duration::from_secs(5),
         || budget_core::csv_import::import(db.conn_mut(), &csv, true, None).unwrap(),
     );
+    let mut db = timed(
+        "Восстановление из копии (проверка + обновление)",
+        Duration::from_secs(10),
+        || {
+            let mut db = db;
+            db.restore_from(&dir.join("копия.db"), &opts).unwrap();
+            db
+        },
+    );
+    let _ = db.conn_mut();
     let size = std::fs::metadata(&path).unwrap().len()
         + std::fs::metadata(dir.join("budget.db-wal"))
             .map(|m| m.len())

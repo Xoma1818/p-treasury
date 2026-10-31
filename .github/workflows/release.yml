@@ -34,6 +34,7 @@ jobs:
                    "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; do
             [ "$v" = "$ver" ] || { echo "::error::В package.json версия $ver, а рядом $v"; exit 1; }
           done
+          scripts/check-app-name.sh
           grep -q "^## $ver\b" CHANGELOG.md || { echo "::error::В CHANGELOG.md нет раздела «## $ver»"; exit 1; }
           git fetch --tags --quiet
           ! git rev-parse -q --verify "refs/tags/v$ver" >/dev/null || { echo "::error::Версия $ver уже выпущена (тег v$ver есть)"; exit 1; }

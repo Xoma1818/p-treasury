@@ -35,6 +35,7 @@ export function Home() {
   // Месяц считается от настройки «первый день месяца», как в бюджете.
   const period = useMonthOf(date).data;
   const totals = useQuery({ queryKey: ["totals", date], queryFn: () => api.totals(date) });
+  const free = useQuery({ queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
   const month = useQuery({
     queryKey: ["summary", period?.start, period?.end],
     queryFn: () => api.periodSummary(period!.start, period!.end),
@@ -87,6 +88,17 @@ export function Home() {
               </div>
               <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-balance" onClick={() => setExplain("balance")}>{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</button>
               <Sparkline values={spark.balance} />
+              {free && (
+                <button type="button" className="link free-line" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитано">
+                  {free.free > 0 ? (
+                    <>
+                      Свободно до {free.income ? formatDate(free.until) : "конца месяца"}: <Money amount={free.free} symbol={symbol} /> · <Money amount={free.perDay} symbol={symbol} /> в день
+                    </>
+                  ) : (
+                    <>До {free.income ? formatDate(free.until) : "конца месяца"} свободных денег нет</>
+                  )}
+                </button>
+              )}
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
                 <div className={totals.data.missingRates.length > 0 ? "hint warn" : "hint"} data-testid="home-missing-rates">

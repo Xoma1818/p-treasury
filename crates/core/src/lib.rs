@@ -1,4 +1,4 @@
-//! Ядро приложения P-Treasury.
+//! Ядро приложения Kazna.
 //!
 //! UI вызывает только команды ядра и никогда не пишет SQL; модули ядра
 //! обращаются к базе только через [`storage`].
@@ -25,6 +25,7 @@ pub mod events;
 pub mod explain;
 pub mod export;
 pub mod forecast;
+pub mod free_money;
 pub mod goals;
 pub mod habits;
 pub mod ids;

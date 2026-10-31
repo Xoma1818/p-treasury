@@ -225,6 +225,21 @@ pub fn save(
     inputs: &[TxnInput],
     skipped: usize,
 ) -> Result<Saved> {
+    save_with_raw(conn, origin, file_name, bank, inputs, &[], skipped)
+}
+
+/// То же, что [`save`]; `raws[i]` — текст получателя строки `inputs[i]` в
+/// выписке до правил. Он запоминается как ключ повтора (B3): новое правило или
+/// правка записи не заставят ту же строку банка загрузиться второй раз.
+pub fn save_with_raw(
+    conn: &Connection,
+    origin: Origin,
+    file_name: &str,
+    bank: Option<&str>,
+    inputs: &[TxnInput],
+    raws: &[Option<String>],
+    skipped: usize,
+) -> Result<Saved> {
     let import_id = ids::new_id();
     let now = time::now_utc();
     conn.execute(
@@ -245,7 +260,8 @@ pub fn save(
     };
     let found = plan(conn, bank.is_some(), inputs)?;
     let mut new_ids = Vec::new();
-    for (t, (list, sure)) in inputs.iter().zip(&found) {
+    for (i, (t, (list, sure))) in inputs.iter().zip(&found).enumerate() {
+        let raw = raws.get(i).cloned().flatten().or_else(|| t.payee.clone());
         if *sure {
             link(conn, &list[0], t, &import_id, true)?;
             out.linked += 1;
@@ -255,6 +271,13 @@ pub fn save(
         conn.execute(
             "UPDATE transactions SET import_id = ?2 WHERE id = ?1",
             params![id, import_id],
+        )?;
+        // Ключ строки банка: повтор узнаётся и после правки записи (B3).
+        conn.execute(
+            "INSERT OR REPLACE INTO import_keys
+               (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
+             VALUES (?1, ?2, ?3, ?4, ?5, coalesce(?6, ''))",
+            params![id, t.account_id, t.kind, t.date, t.amount, raw],
         )?;
         out.added += 1;
         for c in list {
@@ -338,19 +361,6 @@ fn transfer_candidates(conn: &Connection, id: &str, t: &TxnInput) -> Result<Vec<
         |r| r.get(0),
     )?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
-}
-
-/// Строка выписки уже связана с записью на этом счёте.
-pub(crate) fn linked(conn: &Connection, t: &TxnInput) -> Result<bool> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM import_links WHERE account_id = ?1 AND kind = ?2 AND bank_date = ?3
-               AND bank_amount = ?4 AND bank_payee = coalesce(?5, '') LIMIT 1",
-            params![t.account_id, t.kind, t.date, t.amount, t.payee],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
 }
 
 // ---------- История ----------
@@ -736,6 +746,13 @@ pub(crate) fn carry_matches(conn: &Connection, old: &[String], new: &[String]) -
                     bank_payee, auto)
                  SELECT ?2, account_id, import_id, kind, bank_date, bank_amount, bank_payee, auto
                  FROM import_links WHERE transaction_id = ?1",
+                params![o, n],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO import_keys
+                   (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
+                 SELECT ?2, account_id, kind, bank_date, bank_amount, bank_payee
+                 FROM import_keys WHERE transaction_id = ?1",
                 params![o, n],
             )?;
         }
