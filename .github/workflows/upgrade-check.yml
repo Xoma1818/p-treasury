@@ -27,12 +27,18 @@ jobs:
         include:
           - case: обычная папка
             old_dir: ""
+            old_running: ""
           - case: своя папка /D
             old_dir: 'C:\Apps\P Treasury Old'
+            old_running: ""
+          - case: старая запущена
+            old_dir: ""
+            old_running: "1"
     env:
       GH_TOKEN: ${{ github.token }}
       PYTHONUTF8: "1"
       OLD_DIR: ${{ matrix.old_dir }}
+      OLD_RUNNING: ${{ matrix.old_running }}
     steps:
       - uses: actions/checkout@v5
         with: { sparse-checkout: .github/upgrade-check }
@@ -83,9 +89,12 @@ jobs:
           Show 'старая версия с данными'
           python $snap take $db "$docs\P-Treasury" before.json
 
+          if ($env:OLD_RUNNING) { Start-Process "$odir\p-treasury.exe"; Start-Sleep 15
+            Write-Host "Старая запущена: $((Get-Process p-treasury -ErrorAction SilentlyContinue).Count) процессов" }
           $new = (Get-ChildItem new\*.exe)[0].FullName; Write-Host "Новая: $new"
           Start-Process $new -ArgumentList '/S' -Wait
           Start-Sleep 5
+          if (Get-Process p-treasury -ErrorAction SilentlyContinue) { $fail += 'старая P-Treasury осталась запущенной после установки Kazna' }
           Show 'после установки Kazna'
           if (Test-Path "$odir\p-treasury.exe") { $fail += "осталась старая программа в $odir" }
           if (Test-Path $odir) { Write-Host "  (папка $odir осталась: $((Get-ChildItem $odir -Recurse).Name -join ', '))" }
@@ -96,7 +105,14 @@ jobs:
           if ($lnk | ? Name -match 'P-Treasury') { $fail += 'остались ярлыки P-Treasury' }
           if (-not ($lnk | ? Name -eq 'Kazna.lnk')) { $fail += 'нет ярлыка Kazna' }
 
-          RunApp "$la\Kazna\Kazna.exe"   # первый запуск: перенос Документы\P-Treasury -> Kazna
+          # Первый запуск (перенос Документы\P-Treasury -> Kazna), затем второй запуск с ярлыка: процесс должен остаться один.
+          $kz = "$la\Kazna\Kazna.exe"
+          Start-Process $kz; Start-Sleep 20
+          Start-Process $kz; Start-Sleep 10
+          $n = @(Get-Process Kazna -ErrorAction SilentlyContinue).Count
+          Write-Host "Процессов Kazna после двух запусков: $n"
+          if ($n -ne 1) { $fail += "после двух запусков процессов Kazna: $n (ожидался один)" }
+          Get-Process Kazna -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 3
           Show 'после первого запуска Kazna'
           python $snap take $db "$docs\Kazna" after.json
           python $snap compare before.json after.json
@@ -104,4 +120,4 @@ jobs:
           if ((Test-Path "$docs\P-Treasury") -and (Get-ChildItem "$docs\P-Treasury" -Recurse -File)) { $fail += 'в Документы\P-Treasury остались файлы' }
 
           if ($fail) { $fail | % { Write-Host "::error::$_" }; exit 1 }
-          Write-Host 'ВСЁ ХОРОШО: одна копия Kazna, база и копии сохранности на месте, ярлыки Kazna'
+          Write-Host 'ВСЁ ХОРОШО: одна копия Kazna, база и копии сохранности на месте, ярлыки Kazna, один процесс'
