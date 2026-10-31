@@ -674,7 +674,7 @@ pub(crate) fn to_parsed(
                 if let Some(p) = &input.payee {
                     row.payee = p.clone();
                 }
-                if is_repeat(conn, &input, &mut seen)? {
+                if is_repeat(conn, &input, Some(&op.payee), &mut seen)? {
                     row.duplicate = true;
                     None
                 } else {
@@ -686,7 +686,11 @@ pub(crate) fn to_parsed(
                 None
             }
         };
-        out.push(Parsed { row, input });
+        out.push(Parsed {
+            row,
+            input,
+            raw_payee: Some(op.payee.clone()),
+        });
     }
     Ok(out)
 }
@@ -697,27 +701,38 @@ pub(crate) fn to_parsed(
 /// разбивки повторная выписка не добавит покупку второй раз.
 #[cfg(test)]
 pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
-    Ok(existing_count(conn, t)? > 0)
+    Ok(existing_count(conn, t, None)? > 0)
 }
 
 /// Сколько таких строк банка уже записано: связи этой строки выписки с
 /// ручными записями плюс точно такие же операции, ещё не связанные с ней
 /// (связанная запись не считается дважды). Разбитый чек — одна операция.
-fn existing_count(conn: &Connection, t: &TxnInput) -> Result<usize> {
+fn existing_count(conn: &Connection, t: &TxnInput, raw: Option<&str>) -> Result<usize> {
     let n: i64 = conn.query_row(
         "WITH links AS (
             SELECT transaction_id FROM import_links WHERE account_id = ?2 AND kind = ?3
-              AND bank_date = ?1 AND bank_amount = ?4 AND bank_payee = coalesce(?5, ''))
+              AND bank_date = ?1 AND bank_amount = ?4 AND bank_payee = coalesce(?5, '')),
+         keyed AS (
+            SELECT k.transaction_id, t.split_id FROM import_keys k
+            JOIN transactions t ON t.id = k.transaction_id
+            WHERE k.account_id = ?2 AND k.kind = ?3 AND k.bank_date = ?1
+              AND k.bank_amount = ?4
+              AND k.bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, '')))
          SELECT (SELECT count(*) FROM links)
-              + (SELECT count(*) FROM transactions WHERE date = ?1 AND account_id = ?2
+              + (SELECT count(DISTINCT coalesce(split_id, transaction_id)) FROM keyed
+                   WHERE transaction_id NOT IN (SELECT transaction_id FROM links))
+              + (SELECT count(*) FROM transactions t WHERE date = ?1 AND account_id = ?2
                    AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
-                   AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links))
-              + (SELECT count(*) FROM (SELECT 1 FROM transactions WHERE date = ?1
+                   AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links)
+                   AND NOT EXISTS (SELECT 1 FROM import_keys k WHERE k.transaction_id = t.id))
+              + (SELECT count(*) FROM (SELECT 1 FROM transactions t WHERE date = ?1
                    AND account_id = ?2 AND type = ?3 AND coalesce(payee, '') = coalesce(?5, '')
                    AND split_id IS NOT NULL
                  GROUP BY split_id HAVING sum(abs(amount)) = ?4
-                   AND sum(id IN (SELECT transaction_id FROM links)) = 0))",
-        params![t.date, t.account_id, t.kind, t.amount, t.payee],
+                   AND sum(id IN (SELECT transaction_id FROM links)) = 0
+                   AND sum(EXISTS (SELECT 1 FROM import_keys k
+                                   WHERE k.transaction_id = t.id)) = 0))",
+        params![t.date, t.account_id, t.kind, t.amount, t.payee, raw],
         |r| r.get(0),
     )?;
     Ok(n as usize)
@@ -731,6 +746,7 @@ fn existing_count(conn: &Connection, t: &TxnInput) -> Result<usize> {
 pub(crate) fn is_repeat(
     conn: &Connection,
     t: &TxnInput,
+    raw: Option<&str>,
     seen: &mut HashMap<String, usize>,
 ) -> Result<bool> {
     let key = format!(
@@ -742,7 +758,7 @@ pub(crate) fn is_repeat(
         t.payee.as_deref().unwrap_or("")
     );
     let nth = seen.entry(key).or_insert(0);
-    let repeat = existing_count(conn, t)? > *nth;
+    let repeat = existing_count(conn, t, raw)? > *nth;
     *nth += 1;
     Ok(repeat)
 }

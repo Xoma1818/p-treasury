@@ -133,11 +133,16 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 }
                 // Дубли ищутся среди операций, загруженных до этого файла: две
                 // одинаковые поездки в один день в самой выписке — две операции.
-                let mut new = Vec::new();
+                let (mut new, mut raws) = (Vec::new(), Vec::new());
                 let mut seen = std::collections::HashMap::new();
                 for p in parsed {
                     match p.input {
-                        Some(input) if !is_repeat(conn, &input, &mut seen)? => new.push(input),
+                        Some(input)
+                            if !is_repeat(conn, &input, p.raw_payee.as_deref(), &mut seen)? =>
+                        {
+                            new.push(input);
+                            raws.push(p.raw_payee);
+                        }
                         _ => res.skipped += 1,
                     }
                 }
@@ -145,12 +150,13 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 let saved = if new.is_empty() {
                     None
                 } else {
-                    Some(import_log::save(
+                    Some(import_log::save_with_raw(
                         &tx,
                         import_log::Origin::Folder,
                         &res.name,
                         bank.map(|b| b.title()),
                         &new,
+                        &raws,
                         res.skipped,
                     )?)
                 };

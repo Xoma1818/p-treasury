@@ -522,7 +522,6 @@ fn overlapping_statement_keeps_second_same_purchase() {
 }
 
 #[test]
-#[ignore = "R-ошибка B3: после правки получателя у загруженной операции повторная выписка добавляет её второй раз"]
 fn reimport_after_renaming_payee_adds_nothing() {
     let mut b = bank();
     let f = statement(
@@ -556,6 +555,39 @@ fn reimport_after_renaming_payee_adds_nothing() {
         },
     )
     .unwrap();
+    assert_eq!(import(&mut b, &f).added, 0);
+    assert_eq!(count(b.db.conn()), 1);
+}
+
+/// B3: правило, добавленное после загрузки, меняет получателя строки — повтор
+/// всё равно узнаётся по исходному тексту банка.
+#[test]
+fn reimport_after_new_rule_adds_nothing() {
+    let mut b = bank();
+    let row = op(
+        "01.10.2026",
+        "1140",
+        "-350,00",
+        "Рестораны",
+        "KAFE DEDUSHKA KHO",
+    );
+    let f = statement(b.dir.path(), "a.csv", &[row]);
+    assert_eq!(import(&mut b, &f).added, 1);
+    let cafe = cat_id(b.db.conn(), "Кафе и рестораны");
+    budget_core::rules::create(
+        b.db.conn(),
+        &budget_core::rules::RuleInput {
+            pattern: "dedushka".into(),
+            category_id: cafe,
+            payee: Some("Кафе «Дедушка Хо»".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(import(&mut b, &f).added, 0);
+    // Правка суммы у загруженной записи тоже не делает строку банка новой.
+    let c = b.db.conn();
+    c.execute("UPDATE transactions SET amount = 30000", [])
+        .unwrap();
     assert_eq!(import(&mut b, &f).added, 0);
     assert_eq!(count(b.db.conn()), 1);
 }
@@ -1072,7 +1104,6 @@ fn loan_payments_are_transfer_plus_interest_and_schedule_adds_up() {
 }
 
 #[test]
-#[ignore = "R-ошибка B4: при начале месяца 29–31 трата «на N месяцев» пропускает февраль и даёт две части в март"]
 fn spread_gives_one_part_per_budget_month_with_late_start_day() {
     let mut f = fx();
     settings::set(f.db.conn(), "month_start_day", "30").unwrap();
@@ -1122,4 +1153,44 @@ fn linked_row_counts_once_when_fuller_statement_has_two() {
     let two = statement(b.dir.path(), "two.csv", &[row.clone(), row]);
     assert_eq!(import(&mut b, &two).added, 1, "вторая покупка добавилась");
     assert_eq!(import(&mut b, &two).added, 0, "повтор ничего не добавляет");
+}
+
+/// Даты частей при начале месяца 31-го: каждая часть — в своём бюджетном месяце,
+/// в том числе в коротком феврале.
+#[test]
+fn spread_part_dates_follow_budget_months() {
+    let mut f = fx();
+    settings::set(f.db.conn(), "month_start_day", "31").unwrap();
+    let (rub, food) = (f.rub.clone(), f.food.clone());
+    budget_core::transactions::create_with(
+        f.db.conn_mut(),
+        &input("expense", "2026-01-31", &rub, 400_000, &food),
+        &budget_core::transactions::TxnExtra {
+            spread_months: Some(4),
+            tags: vec![],
+        },
+    )
+    .unwrap();
+    let c = f.db.conn();
+    let dates: Vec<String> = c
+        .prepare("SELECT date FROM txn_by_month WHERE spread_months IS NOT NULL ORDER BY part")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        dates,
+        ["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]
+    );
+    for (m, d) in ["2026-02", "2026-03", "2026-04", "2026-05"]
+        .iter()
+        .zip(&dates)
+    {
+        let p = budgets::period(m, 31).unwrap();
+        assert!(
+            p.start.as_str() <= d.as_str() && d.as_str() <= p.end.as_str(),
+            "{m}: {d}"
+        );
+    }
 }

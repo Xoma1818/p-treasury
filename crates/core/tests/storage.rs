@@ -789,5 +789,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(13), "clear_and_safe");
     assert_eq!(at(14), "import_matching");
     assert_eq!(at(15), "reminders_ahead");
-    assert_eq!(LATEST_VERSION, 16);
+    assert_eq!(at(16), "free_and_reserves");
+    assert_eq!(LATEST_VERSION, 17);
 }
