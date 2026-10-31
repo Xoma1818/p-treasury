@@ -1206,7 +1206,7 @@ export interface ImportRow {
   payee: string;
   error: string | null;
   duplicate: boolean;
-  /** Свяжется с записанной вручную операцией: «19.10 · Продукты». */
+  /** Свяжется с записанной вручную операцией: «19.10 · Питание». */
   linkedTo: string | null;
   /** Возможных совпадений, которые попросят подтверждения. */
   maybe: number;
