@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Star, X } from "lucide-react";
 import { api, type ViewKind } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { ErrorText } from "./Modal";
@@ -15,7 +16,7 @@ export function parseView<P>(params: string): P | null {
 
 /**
  * Сохранённые виды над фильтрами: нажатие на ярлык применяет вид,
- * «☆ Сохранить вид» запоминает текущие настройки под именем.
+ * «<Star size={14} strokeWidth={1.75} aria-hidden="true" /> Сохранить вид» запоминает текущие настройки под именем.
  */
 export function SavedViews<P>({ kind, current, onApply }: { kind: ViewKind; current: P; onApply: (params: P) => void }) {
   const views = useQuery({ queryKey: ["views", kind], queryFn: () => api.listViews(kind) }).data ?? [];
@@ -39,7 +40,7 @@ export function SavedViews<P>({ kind, current, onApply }: { kind: ViewKind; curr
             {v.name}
           </button>
           <button className="view-del" aria-label={`Удалить вид «${v.name}»`} onClick={() => remove.run(v.id)}>
-            ×
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </span>
       ))}
@@ -61,7 +62,7 @@ export function SavedViews<P>({ kind, current, onApply }: { kind: ViewKind; curr
         </form>
       ) : (
         <button className="link" onClick={() => setNaming(true)} title="Запомнить текущие фильтры под именем">
-          ☆ Сохранить вид
+          <Star size={14} strokeWidth={1.75} aria-hidden="true" /> Сохранить вид
         </button>
       )}
       <ErrorText error={create.error ?? remove.error} />

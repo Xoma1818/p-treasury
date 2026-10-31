@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { AmountInput } from "../../components/Fields";
 import type { EarlyFrequency, RecalcMode } from "../../lib/api";
 import { emptyEarly, FREQUENCIES, MODES, type EarlyLine, type RateLine } from "../../lib/loan";
@@ -32,7 +33,7 @@ export function EarlyEditor({ lines, onChange, minorUnits, symbol, defaultDate, 
             </select>
           )}
           <button type="button" className="icon-btn line-del" aria-label="Убрать досрочку" title="Убрать" onClick={() => onChange(lines.filter((_, k) => k !== i))}>
-            ×
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
       ))}
@@ -58,7 +59,7 @@ export function RateEditor({ lines, onChange, defaultDate, unit = "%" }: { lines
             <span className="sym">{unit}</span>
           </span>
           <button type="button" className="icon-btn line-del" aria-label="Убрать ставку" title="Убрать" onClick={() => onChange(lines.filter((_, k) => k !== i))}>
-            ×
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
       ))}

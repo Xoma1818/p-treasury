@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { EyeOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { api } from "../lib/api";
 import { HOTKEYS, isTyping } from "../lib/hotkeys";
 import { useSettings } from "../lib/queries";
@@ -77,7 +78,7 @@ export function UndoBar() {
         </button>
       )}
       <button className="icon-btn" aria-label="Закрыть" onClick={() => setMsg(null)}>
-        ×
+        <X size={16} strokeWidth={1.75} aria-hidden="true" />
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useExport } from "../components/DataTools";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney as M } from "../components/Money";
@@ -197,7 +198,7 @@ function Changes({ c, kind, by, periods, total }: { c: CompareRow[]; kind: Categ
         <span className="cat-name">
           {!child && r.children.length > 0 ? (
             <button className="icon-btn small" aria-label={open.has(r.key) ? "Свернуть" : "Раскрыть"} aria-expanded={open.has(r.key)} onClick={() => toggle(r.key)}>
-              {open.has(r.key) ? "▾" : "▸"}
+              {open.has(r.key) ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
             </button>
           ) : (
             <span className="icon-gap" />

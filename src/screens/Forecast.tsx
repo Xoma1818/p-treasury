@@ -2,6 +2,7 @@
 // «что если» и поток денег за месяц или год. Всё считает ядро (forecast.rs).
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { AmountInput, Field } from "../components/Fields";
 import { Hint } from "../components/Hint";
 import { ErrorText, Modal } from "../components/Modal";
@@ -349,7 +350,7 @@ function MonthsTable({ f }: { f: ForecastData }) {
               <Fragment key={m.month}>
                 <tr className={isOpen ? "clickable open" : "clickable"} onClick={() => setOpen(isOpen ? null : m.month)} data-testid="fc-row">
                   <td>
-                    <span className="fc-caret">{isOpen ? "▾" : "▸"}</span> {monthTitle(m.month)}
+                    <span className="fc-caret">{isOpen ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}</span> {monthTitle(m.month)}
                     {i === 0 && <span className="muted"> · с {formatDate(m.start)}</span>}
                   </td>
                   <td className="num plus">
@@ -596,7 +597,7 @@ function ScenarioForm({
               </label>
             )}
             <button type="button" className="icon-btn" aria-label="Убрать изменение" onClick={() => setRows((rs) => rs.filter((_, k) => k !== i))}>
-              ×
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
             <div className="scenario-desc muted">{previewText(r)}</div>
           </div>
@@ -668,13 +669,13 @@ function FlowTab() {
             </button>
           </div>
           <button className="icon-btn" aria-label="Раньше" onClick={() => month && setMonth(shiftMonth(month, -step))}>
-            ‹
+            <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
           <span className="period-title" data-testid="flow-title">
             {title}
           </span>
           <button className="icon-btn" aria-label="Позже" onClick={() => month && setMonth(shiftMonth(month, step))}>
-            ›
+            <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { X } from "lucide-react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -145,7 +146,7 @@ export function Onboarding() {
                     </td>
                     <td>
                       <button className="icon-btn" aria-label="Убрать счёт" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
-                        ×
+                        <X size={16} strokeWidth={1.75} aria-hidden="true" />
                       </button>
                     </td>
                   </tr>

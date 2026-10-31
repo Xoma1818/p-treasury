@@ -27,7 +27,13 @@ function Logo() {
 /** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  const pick = (t: Theme) => (applyTheme(t), setTheme(t));
+  // Смена темы — мягкое перетекание цветов (View Transitions в WebView2), а не мигание.
+  const pick = (t: Theme) => {
+    const swap = () => (applyTheme(t), setTheme(t));
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+    if (doc.startViewTransition && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) doc.startViewTransition(swap);
+    else swap();
+  };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
       <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>

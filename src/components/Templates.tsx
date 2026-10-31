@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { api, type Template } from "../lib/api";
 import { today } from "../lib/dates";
 import { useUi } from "../lib/store";
@@ -21,7 +22,7 @@ export function TemplateButtons({ items, onPick, onDelete }: { items: Template[]
           </button>
           {onDelete && (
             <button type="button" className="template-del" aria-label={`Удалить шаблон «${t.name}»`} onClick={() => onDelete(t)}>
-              ×
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           )}
         </span>

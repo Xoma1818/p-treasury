@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
@@ -143,11 +144,11 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
     <>
       <div className="period-nav">
         <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Предыдущий месяц">
-          ‹
+          <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
         <h2 data-testid="cal-title">{monthTitle(month)}</h2>
         <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Следующий месяц">
-          ›
+          <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
         {month !== t.slice(0, 7) && (
           <button className="link" onClick={() => setMonth(t.slice(0, 7))}>
@@ -222,13 +223,13 @@ function WeekView({ start, selected, select }: { start: string; selected: string
     <>
       <div className="period-nav">
         <button className="icon-btn" onClick={() => setFrom(addDays(from, -7))} aria-label="Предыдущая неделя">
-          ‹
+          <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
         <h2>
           {formatDate(from)} — {formatDate(to)}
         </h2>
         <button className="icon-btn" onClick={() => setFrom(addDays(from, 7))} aria-label="Следующая неделя">
-          ›
+          <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
       {m && (
@@ -263,7 +264,7 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
       <div className="notes-head">
         <h2>{formatDate(date)}</h2>
         <button className="icon-btn" onClick={onClose} aria-label="Закрыть день">
-          ×
+          <X size={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
       <div className="btn-group">

@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { AmountInput, amountText, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
@@ -364,7 +365,7 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
               Ставка {rateLabel(r.rateBp, detail.card.ratePeriod)} с {formatDate(r.from)}
             </span>
             <button className="link danger" title="Удалить изменение ставки" aria-label="Удалить изменение ставки" onClick={() => delRate.run(r.id)}>
-              ×
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </li>
         ))}
@@ -374,7 +375,7 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
               Каникулы: {HOLIDAY[h.kind].toLowerCase()}, с платежа №{h.fromSeq} на {h.months} мес.
             </span>
             <button className="link danger" title="Удалить каникулы" aria-label="Удалить каникулы" onClick={() => delHoliday.run(h.id)}>
-              ×
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </li>
         ))}

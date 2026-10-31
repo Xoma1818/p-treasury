@@ -834,3 +834,42 @@ h2 { font-size: 16px; }
 /* Значок «?»: серый, мятный при наведении. */
 .hint-q { color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--muted); opacity: 0.6; }
 .hint-q:hover, .hint-q.open { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* 0.25: те же правила для остальных элементов (полный обход). Префикс :root — чтобы
+   перебить features.css и forecast.css, которые подключаются позже. */
+/* Значки Lucide в тексте и кнопках стоят ровно по строке. */
+.lucide { flex: none; vertical-align: -0.18em; }
+:root .icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; }
+:root .view-del, :root .template-del, :root .link.danger, :root .tag-chip button { display: inline-flex; align-items: center; }
+:root .note-bell { color: var(--accent); margin-right: 4px; }
+/* Чипы, плашки выбора и строки-кнопки: заливка вместо рамки, без теней при наведении. */
+:root .view-chip, :root .spend-chip, :root .fc-chip, :root .place, :root .qw-row, :root .qw-check, :root .template, :root .period-box { border-color: transparent; background: var(--fill); }
+:root .view-chip:hover, :root .spend-chip:hover, :root .template:hover { box-shadow: none; background: var(--fill-strong); border-color: transparent; }
+:root .place:hover, :root .qw-row:hover, :root .fc-chip:hover { border-color: transparent; background: var(--fill-strong); }
+:root .fc-chip.active, :root .period-box.p2 { border-color: transparent; background: var(--accent-soft); }
+:root .spend-chip:active, :root .fc-chip:active, :root .place:active, :root .qw-row:active { transform: scale(0.98); }
+:root .spend-chip, :root .fc-chip, :root .place, :root .qw-row { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+:root .cal-cell { border-color: transparent; background: var(--fill); }
+:root .cal-cell.empty { background: none; }
+:root .cal-cell:not(.empty):hover { border-color: transparent; background: var(--fill-strong); }
+:root .import-table { border-color: transparent; background: var(--fill); }
+/* Вложенные блоки в окнах и карточках (разбивка чека, найденные данные, сценарии, подтверждения): тоже заливка. */
+:root .demo-offer, :root .split, :root .found-row, :root .receipt-split, :root .confirm-box, :root .scenario-row, :root .loan-sub { border-color: transparent; background: var(--fill); }
+/* Всплывающее: поиск Ctrl+K, полоса выделения, подсказки тегов и «?» — та же пружина. */
+:root .palette-box { border-color: transparent; animation: palette-in 300ms var(--spring); }
+:root[data-theme="dark"] .palette-box { border-color: var(--border); }
+:root .sel-bar { border-color: transparent; animation: sel-in 320ms var(--spring); }
+:root .tag-hints { border-color: transparent; transform-origin: top; animation: pop-in 220ms var(--spring); }
+:root[data-theme="dark"] .tag-hints, :root[data-theme="dark"] .sel-bar { border-color: var(--border); }
+:root .hint-tip { transition: opacity 180ms var(--ease), transform 260ms var(--spring); }
+/* Без отскока: выключатель и «?» двигаются пружиной, но не «прыгают». */
+:root .switch::after { transition: transform 260ms var(--spring); }
+:root .hint-q { transition: opacity var(--fast), background var(--fast), color var(--fast), box-shadow var(--fast), transform 220ms var(--spring); }
+:root .hint-q:hover, :root .hint-q.open, :root .hint-q:focus-visible { transform: scale(1.06); }
+/* Окно уходит мягко (Modal.tsx). */
+.overlay.closing { animation: fade-out 160ms var(--ease) forwards; }
+.overlay.closing .modal { animation: sheet-out 160ms var(--ease) forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+/* Смена темы: цвета перетекают (Sidebar.tsx, View Transitions). */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 280ms; animation-timing-function: var(--ease); }
