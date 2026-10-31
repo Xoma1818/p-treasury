@@ -8,18 +8,16 @@ import { applyTheme, savedTheme, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 
-/** Логотип «Дверца сейфа» (src-tauri/icons/icon.svg); цвета берутся из темы. */
+/** Логотип «Дверца, тише» (src-tauri/icons/icon.svg): мятный в обеих темах, как значок в Windows. */
 function Logo() {
   return (
     <svg className="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
-      <rect className="logo-bg" x="2" y="2" width="60" height="60" rx="14" />
-      <g className="logo-fg" fill="none" strokeWidth="4.5">
-        <rect x="14" y="12" width="40" height="40" rx="7" />
-        <circle cx="34" cy="32" r="9" />
-        <path d="M34 32V25" strokeWidth="4" strokeLinecap="round" />
+      <rect className="logo-bg" x="2" y="2" width="60" height="60" rx="16" />
+      <g className="logo-fg" fill="none" strokeWidth="3.5" strokeLinecap="round">
+        <rect x="15" y="15" width="34" height="34" rx="8" />
+        <circle cx="32" cy="32" r="7" />
+        <path d="M32 32v-5.5" />
       </g>
-      <rect className="logo-hinge" x="9" y="19" width="6" height="7" rx="1.5" />
-      <rect className="logo-hinge" x="9" y="38" width="6" height="7" rx="1.5" />
     </svg>
   );
 }
