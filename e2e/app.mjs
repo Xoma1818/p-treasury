@@ -23,10 +23,30 @@ function winPids(pattern) {
   return r.stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
 }
 
-/** Дождаться, пока процессов с `pattern` не останется (Windows держит папку WebView2, пока процесс жив). */
-async function winWaitGone(pattern, timeout = 15000) {
+/** Программы прогона в Windows: всё, что может пережить сессию и помешать следующей. */
+const WIN_IMAGES = ["tauri-driver.exe", "msedgedriver.exe", APP_FILE, "msedgewebview2.exe"];
+
+/** Есть ли ещё процесс с таким именем файла (tasklist отвечает «INFO: No tasks…», если нет). */
+function winRunning(image) {
+  const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/NH", "/FO", "CSV"], { encoding: "utf8" });
+  return r.stdout.toLowerCase().includes(`"${image.toLowerCase()}"`);
+}
+
+/** Закрыть всё от прошлого запуска и дождаться, пока процессы исчезнут: живой
+ *  tauri-driver держит порт 4444 (новая сессия попала бы в него), а WebView2 —
+ *  свою папку, и тогда msedgedriver отвечает «DevToolsActivePort file doesn't exist». */
+async function winCleanup(timeout = 20000) {
   const until = Date.now() + timeout;
-  while (winPids(pattern).length && Date.now() < until) await new Promise((r) => setTimeout(r, 300));
+  for (;;) {
+    const left = WIN_IMAGES.filter(winRunning);
+    if (!left.length) return;
+    if (Date.now() > until) {
+      console.error(`# после прогона остались процессы: ${left.join(", ")}`);
+      return;
+    }
+    for (const image of left) spawnSync("taskkill", ["/IM", image, "/T", "/F"]);
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 let driver;
@@ -41,17 +61,32 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // Курсы ЦБ грузятся сами раз в день: в тестах сайт ЦБ подменён закрытым портом,
   // чтобы настоящие курсы не меняли суммы (cbr.test.mjs ставит свой сервер).
   const cbr = { PTREASURY_CBR_URL: "http://127.0.0.1:9/scripts/XML_daily.asp", NO_PROXY: "127.0.0.1,localhost" };
-  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...cbr, ...env } });
-  await new Promise((r) => setTimeout(r, 1500));
-  const browser = await remote({
-    hostname: "127.0.0.1",
-    port: 4444,
-    logLevel: "error",
-    capabilities: {
-      // `args: []` — запуск без своей папки данных (переносная версия).
-      "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
-    },
-  });
+  // WebView2 хранит профиль в одной папке на всех (по identifier): у каждой папки
+  // данных теста — своя, рядом с ней. Повторный start(dataDir) берёт ту же.
+  const wv2 = WIN ? { WEBVIEW2_USER_DATA_FOLDER: `${dataDir.replace(/[\\/]+$/, "")}.webview2` } : {};
+  const open = async () => {
+    if (WIN) await winCleanup();
+    driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...cbr, ...wv2, ...env } });
+    await new Promise((r) => setTimeout(r, 1500));
+    return remote({
+      hostname: "127.0.0.1",
+      port: 4444,
+      logLevel: "error",
+      capabilities: {
+        // `args: []` — запуск без своей папки данных (переносная версия).
+        "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
+      },
+    });
+  };
+  let browser;
+  try {
+    browser = await open();
+  } catch (e) {
+    if (!WIN) throw e;
+    // Первый запуск WebView2 на чистой машине бывает дольше таймаута msedgedriver: одна повторная попытка.
+    console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; повтор`);
+    browser = await open();
+  }
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
   // карточки, поэтому включаем их (как у пользователя, который их включил);
   // `homeDefaults: true` оставляет Главную как после установки.
@@ -80,10 +115,7 @@ export async function stop(browser) {
       // пережили бы прогон, а с 0.26 следующий запуск отдавался бы старой копии
       // (одна копия программы) — «session not created: DevToolsActivePort».
       if (driver?.pid) spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
-      for (const pid of killPattern ? winPids(killPattern) : []) spawnSync("taskkill", ["/PID", pid, "/T", "/F"]);
-      spawnSync("taskkill", ["/IM", "msedgedriver.exe", "/T", "/F"]);
-      if (killPattern) await winWaitGone(killPattern);
-      await new Promise((r) => setTimeout(r, 500));
+      await winCleanup();
       return;
     }
     driver?.kill();
