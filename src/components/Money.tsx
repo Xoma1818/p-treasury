@@ -18,40 +18,34 @@ export function Money({
   /** Показывать «+» у положительных сумм (доходы). */
   signed?: boolean;
   className?: string;
-  /** Число «набегает» от прежнего значения (крупные суммы на Главной). */
+  /** Новая сумма мягко проявляется на месте прежней (крупные суммы на Главной). */
   animate?: boolean;
 }) {
   const { data: settings } = useSettings();
   const hidden = settings?.hide_amounts === "1";
-  const shown = useCountUp(amount, !!animate && !hidden);
-  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(shown, symbol, minorUnits);
-  return <span className={className ? `money ${className}` : "money"}>{text}</span>;
+  const swap = useSwap(amount, !!animate && !hidden);
+  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(amount, symbol, minorUnits);
+  const cls = ["money", className, swap > 0 && "money-swap"].filter(Boolean).join(" ");
+  return (
+    <span key={swap} className={cls}>
+      {text}
+    </span>
+  );
 }
 
-const COUNT_MS = 650;
-
-/** Число «набегает» от нуля при первом показе (ease-out); дальше меняется сразу.
- *  Под автотестом (navigator.webdriver) и при «меньше движения» — без анимации. */
-function useCountUp(target: number, on: boolean): number {
-  const animate = on && !navigator.webdriver && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  const [value, setValue] = useState(animate ? 0 : target);
-  const running = useRef(animate);
-  const first = useRef(target);
+/** Номер смены суммы: новое значение проявляется на месте старого (класс money-swap),
+ *  цифры не «бегут». Первый показ — без анимации. Под автотестом (navigator.webdriver)
+ *  сумма меняется сразу: полупрозрачный текст WebDriver не читает. */
+function useSwap(amount: number, on: boolean): number {
+  on = on && !navigator.webdriver;
+  const [n, setN] = useState(0);
+  const prev = useRef(amount);
   useEffect(() => {
-    if (target !== first.current) running.current = false;
-    if (!running.current) return;
-    const start = performance.now();
-    let raf = 0;
-    const step = (t: number) => {
-      const k = Math.min(1, (t - start) / COUNT_MS);
-      setValue(Math.round(target * (1 - Math.pow(1 - k, 3))));
-      if (k < 1) raf = requestAnimationFrame(step);
-      else running.current = false;
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [target]);
-  return running.current ? value : target;
+    if (prev.current === amount) return;
+    prev.current = amount;
+    if (on) setN((k) => k + 1);
+  }, [amount, on]);
+  return n;
 }
 
 /** Сумма в основной валюте (все отчёты считаются в ней). */

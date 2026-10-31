@@ -53,7 +53,7 @@ test("курсовая разница: доллары куплены по 91,5, 
 });
 
 test("сохранённый вид отчёта открывает ту же вкладку одним нажатием", async () => {
-  await click(browser, "☆ Сохранить вид");
+  await click(browser, "Сохранить вид");
   await fill(browser, "viewName", "Валюта");
   await click(browser, "Сохранить");
   await click(browser, "Структура", '//*[@role="tablist"]');
@@ -71,7 +71,7 @@ test("сохранённый вид операций: «Кафе» возвра�
   await openSection(browser, "Операции");
   await choose(browser, "filterCategory", "Кафе и рестораны");
   const filtered = await waitText(browser, '[data-testid="txn-count"]', /Показано \d+ из \d+/);
-  await click(browser, "☆ Сохранить вид");
+  await click(browser, "Сохранить вид");
   await fill(browser, "viewName", "Кафе");
   await click(browser, "Сохранить");
   await click(browser, "Сбросить");

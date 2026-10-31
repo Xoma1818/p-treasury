@@ -114,6 +114,24 @@ export async function choose(browser, name, visibleText) {
   await el.selectByVisibleText(visibleText);
 }
 
+/** Почему элемент не виден WebDriver: есть ли он, где он, что сверху, у кого из предков прозрачность. */
+async function why(browser, el) {
+  return browser
+    .execute((b) => {
+      if (!b) return "нет элемента";
+      const r = b.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const faded = [];
+      for (let n = b; n && n.nodeType === 1; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (cs.opacity !== "1" || cs.visibility !== "visible" || cs.display === "none")
+          faded.push(`${n.tagName}.${n.className}: op=${cs.opacity} vis=${cs.visibility} disp=${cs.display} anim=${cs.animationName}`);
+      }
+      return `rect=${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}x${Math.round(r.height)} win=${innerWidth}x${innerHeight}; text=«${(b.textContent || "").slice(0, 80)}»; сверху=${top?.outerHTML.slice(0, 160)}; предки=${faded.join(" | ")}`;
+    }, el)
+    .catch((e) => `диагностика не удалась: ${e.message}`);
+}
+
 /** Выбрать пункт списка, текст которого содержит `text` (подкатегории идут с отступом). */
 export async function chooseLike(browser, name, text) {
   const el = await field(browser, name);
@@ -132,9 +150,20 @@ export async function chooseLike(browser, name, text) {
 
 export async function click(browser, text, scope = "") {
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
-  await el.waitForClickable({ timeout: 5000 });
-  // Кнопку внизу экрана может закрыть плашка «Отменить»: ставим её в середину окна.
-  await browser.execute((b) => b.scrollIntoView({ block: "center" }), el);
+  // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
+  // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.
+  await el.waitForExist({ timeout: 5000 });
+  await browser.execute((b) => {
+    b.scrollIntoView({ block: "center" });
+    // Внизу короткого экрана прокрутить некуда: плашку «Отменить» над кнопкой закрываем.
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const bar = top?.closest('[data-testid="undo-bar"]');
+    if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
+  }, el);
+  await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
+    throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
+  });
   await el.click().catch(async (e) => {
     // Что оказалось поверх кнопки: так проще понять «click intercepted».
     const top = await browser
@@ -170,12 +199,19 @@ export async function waitText(browser, selector, re, timeout = 5000) {
       async () => {
         const el = await browser.$(selector);
         last = (await el.isExisting()) ? await el.getText() : "";
+        // Ниже края окна WebKit отдаёт пустой текст: прокручиваем к элементу и читаем снова.
+        if (!re.test(last) && (await el.isExisting())) {
+          await browser.execute((b) => b.scrollIntoView({ block: "nearest" }), el);
+          last = await el.getText();
+        }
         return re.test(last);
       },
       { timeout },
     )
-    .catch(() => {
-      throw new Error(`Текст ${selector} не совпал с ${re}: «${last}»`);
+    .catch(async () => {
+      const el = await browser.$(selector);
+      const info = (await el.isExisting()) ? await why(browser, el) : "нет элемента";
+      throw new Error(`Текст ${selector} не совпал с ${re}: «${last}»; ${info}`);
     });
   return last;
 }

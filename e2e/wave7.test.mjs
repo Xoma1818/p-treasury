@@ -249,7 +249,7 @@ test("пачка: категория двум операциям, перевод
       rows.find((r) => !isTransfer(r) && !r.querySelector(".main")?.textContent.startsWith("Корректировка")).querySelector('[data-testid="txn-select"]').click();
     });
     // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
-    if (await browser.$('[data-testid="undo-bar"]').isExisting()) await click(browser, "×", '//*[@data-testid="undo-bar"]');
+    if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
     await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
     await pickLike("bulkCategory", "Кафе");
     await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');

@@ -2,7 +2,7 @@
 // проверка денег на счёте, правка одного платежа, напоминание у заметки и сроки «заранее» в Настройках.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -97,7 +97,7 @@ test("заметка «Продлить страховку»: напоминан
       throw new Error(`напоминание не сохранилось: ${(await alert.isExisting()) ? await alert.getText() : "диалогов " + (await browser.$$('[role="dialog"]')).length}`);
     });
   if ((await browser.$$('[role="dialog"]')).length) await click(browser, "Отмена", '//*[@role="dialog"]');
-  await waitContent(browser, '[data-testid="notes"]', /🔔/);
+  await (await browser.$('[data-testid="notes"] [aria-label="Есть напоминание"]')).waitForExist({ timeout: 5000 });
 
   await openReminders();
   await waitText(browser, '[data-testid="rem-all"]', /Продлить страховку.*за неделю.*из заметки/s);

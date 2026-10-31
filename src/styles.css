@@ -1,32 +1,32 @@
-/* Стиль A «Спокойный светлый» (design/README.md). */
+/* Стиль A «Спокойный светлый» (design/README.md); с 0.25 акцент мятный и в светлой теме. */
 :root {
   --bg: #f5f6f8;
   --card: #ffffff;
   --border: #e2e5ea;
   --text: #1c2430;
   --muted: #6b7380;
-  --accent: #2f5fd0;
-  --accent-soft: #e8eefb;
-  --accent-hover: #2853b8;
-  --accent-press: #1f449a;
+  --accent: #0e9f7a;
+  --accent-soft: rgba(14, 159, 122, 0.12);
+  --accent-hover: #0b8a6a;
+  --accent-press: #08735a;
   --border-strong: #c9ced6;
   --hover: #f0f2f5;
   --press: #e6e9ee;
   /* Кольцо фокуса с клавиатуры и тени: одни на всё приложение. */
-  --ring: 0 0 0 3px rgba(47, 95, 208, 0.35);
+  --ring: 0 0 0 3px rgba(14, 159, 122, 0.35);
   --shadow-xs: 0 1px 2px rgba(20, 28, 40, 0.06);
   --shadow-sm: 0 1px 3px rgba(20, 28, 40, 0.08), 0 1px 2px rgba(20, 28, 40, 0.04);
   --shadow-md: 0 6px 16px rgba(20, 28, 40, 0.1);
-  --sidebar: #ffffff;
+  --sidebar: #eceef2;
   --on-accent: #ffffff;
-  --accent-shadow: rgba(47, 95, 208, 0.3);
+  --accent-shadow: rgba(14, 159, 122, 0.3);
   --over-soft: #fdeee6;
   --over-border: #f6cdb7;
   --over-strong: #9a3412;
   --ok: #15803d;
   --overlay: rgba(20, 28, 40, 0.35);
   --toast: #1c2430;
-  --toast-link: #9db8ff;
+  --toast-link: #5eead4;
   --tab-hover: rgba(255, 255, 255, 0.6);
   --shadow-lg: 0 16px 48px rgba(20, 28, 40, 0.22);
   --icon-tint: 22%;
@@ -36,10 +36,10 @@
   --over: #c2410c;
   --radius: 12px;
   /* Серии графиков (проверены на различимость, в том числе при нарушениях цветового зрения). */
-  --series-income: #2f5fd0;
-  --series-expense: #1baf7a;
+  --series-income: #0e9f7a;
+  --series-expense: #ea580c;
   /* Шрифт Windows по просьбе владельца (0.9); на других системах — системный. */
-  font-family: "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
@@ -70,7 +70,6 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .brand:hover .brand-logo { transform: rotate(-8deg) scale(1.05); }
 .logo-bg { fill: var(--accent); }
 .logo-fg { stroke: var(--on-accent); }
-.logo-hinge { fill: var(--on-accent); }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .sidebar li + li { margin-top: 2px; }
 .nav-item {
@@ -95,9 +94,6 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .nav-item:hover .icon-tile { transform: scale(1.08); }
 .nav-item.active .icon-tile { background: var(--c); color: var(--bg); }
 /* Номер раздела для Ctrl+цифра: виден при наведении. */
-.nav-key { margin-left: auto; opacity: 0; font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px; transition: opacity 200ms var(--ease); }
-.nav-key::before { content: attr(data-k); }
-.nav-item:hover .nav-key { opacity: 1; }
 .nav-group { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 14px 12px 6px; }
 .nav-settings { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 /* Значок раздела в цветной плашке (цвет --c задаёт раздел). */
@@ -640,7 +636,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .hint-keys { display: flex; gap: 4px; flex-wrap: wrap; }
 .hint-tip kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
 :root[data-theme="dark"] .hint-tip { background: #232a35; border-color: #3b4352; }
-:root:not([data-theme="dark"]) .hint-example { color: #9db8ff; }
+:root:not([data-theme="dark"]) .hint-example { color: #5eead4; }
 
 /* Кто попросил систему меньше анимации, тот её не видит. */
 @media (prefers-reduced-motion: reduce) {
@@ -754,7 +750,6 @@ input[type="checkbox"]:checked { animation: none; }
 /* 0.15.2: ровные пропорции. Пункты меню в одну строку, номер клавиши не занимает место;
    кнопки «Изменить/Удалить» у категорий появляются поверх строки и не сжимают название. */
 .nav-item { white-space: nowrap; }
-.nav-key { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
 .tree li { position: relative; }
 .tree .row-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; padding-left: 16px; background: linear-gradient(90deg, transparent, var(--card) 14px); }
 
@@ -763,3 +758,133 @@ input[type="checkbox"]:checked { animation: none; }
 .lead-days .lead-own { width: 110px; }
 .occurrence .shortfall { color: var(--over-strong); }
 .occurrence .edited { color: var(--muted); font-style: italic; }
+
+/* --- 0.25 «Лаконичный»: тише, как у Apple (design/README.md) --- */
+/* Группы отделяет тон фона, а не рамка и тень. Один акцент. Крупные заголовки.
+   Отступы по сетке 8 px, два радиуса: 8 (поля, кнопки) и 14 (карточки, окна). */
+:root { --radius: 14px; --fill: rgba(20, 28, 40, 0.05); --fill-strong: rgba(20, 28, 40, 0.09); --spring: cubic-bezier(0.2, 0.9, 0.25, 1); }
+:root[data-theme="dark"] { --fill: rgba(255, 255, 255, 0.06); --fill-strong: rgba(255, 255, 255, 0.1); }
+
+h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+h2 { font-size: 16px; }
+.screen-hint { font-size: 14px; margin-top: 4px; }
+.screen > .screen-title { margin-bottom: 24px; }
+.tile-value { font-size: 24px; letter-spacing: -0.01em; }
+
+.card { border-color: transparent; box-shadow: none; padding: 16px 20px; }
+:root[data-theme="dark"] .card { border-color: transparent; }
+.tile:hover, :root[data-theme="dark"] .tile:hover { box-shadow: none; transform: none; border-color: transparent; }
+.template:hover { box-shadow: none; transform: none; }
+
+/* Меню: без рамки и полоски-указателя; открытый раздел — серая подложка и мятный значок. */
+.sidebar { border-right: 0; }
+.nav-item::before { display: none; }
+.nav-item.active { background: var(--fill-strong); }
+.nav-group { text-transform: none; letter-spacing: 0; font-size: 12px; padding: 16px 12px 4px; }
+.nav-settings { border-top: 0; }
+.sidebar-foot { border-top: 0; }
+.nav-search { border-color: transparent; background: var(--fill); }
+.nav-search:hover { border-color: transparent; background: var(--fill-strong); box-shadow: none; }
+.theme-switch { border-color: transparent; background: var(--fill); }
+
+/* Значки (Lucide): серые, без цветных плашек; у открытого раздела — акцент. */
+.icon-tile, .icon-tile.lg { width: 20px; height: 20px; border-radius: 0; background: none; color: var(--muted); }
+.icon-tile svg, .icon-tile.lg svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.nav-item.active .icon-tile, :root:not([data-theme="dark"]) .nav-item.active .icon-tile { background: none; color: var(--accent); }
+:root:not([data-theme="dark"]) .icon-tile { color: var(--muted); }
+.nav-item:hover .icon-tile { transform: none; }
+.nav-view-mark { width: 20px; height: 18px; color: var(--muted); }
+.foot-icon { stroke-width: 1.75; }
+
+/* Кнопки: заливка вместо рамки и тени; при нажатии лёгкое сжатие (вместо волны). */
+.btn { border-color: transparent; background: var(--fill); box-shadow: none; transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+.btn:hover:not(:disabled) { background: var(--fill-strong); border-color: transparent; box-shadow: none; }
+.btn:active:not(:disabled) { background: var(--fill-strong); transform: scale(0.97); }
+.btn.primary, .btn.primary:hover:not(:disabled), :root[data-theme="dark"] .btn.primary:hover:not(:disabled) { box-shadow: none; }
+.btn.primary:active:not(:disabled) { transform: scale(0.97); }
+.btn.danger:hover:not(:disabled) { border-color: transparent; }
+.chip-btn { border-color: transparent; background: var(--fill); }
+.chip-btn:hover { border-color: transparent; background: var(--fill-strong); color: var(--text); }
+.chip-btn.active { border-color: transparent; }
+.chip-btn:active, .tab:active, .template-main:active { transform: scale(0.97); }
+.chip-btn, .tab, .template-main { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+.btn::after, .chip-btn::after, .tab::after, .template-main::after { display: none; }
+
+/* Окна и плашки выезжают мягкой пружиной без отскока. */
+.overlay { animation: fade-in 200ms var(--ease); }
+.modal { border-color: transparent; animation: sheet-in 320ms var(--spring); }
+:root[data-theme="dark"] .modal { border-color: var(--border); }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(16px) scale(0.98); } }
+.undo-bar { animation: slide-up 320ms var(--spring); }
+.screen { animation: fade-in 180ms var(--ease); }
+
+/* Новая сумма проявляется на месте прежней (Money.tsx). */
+.money-swap { display: inline-block; animation: money-in 260ms var(--ease); }
+@keyframes money-in { from { opacity: 0; filter: blur(3px); } }
+
+/* Графики растут один раз за сеанс: при повторном открытии раздела — сразу (lib/motion.ts). */
+:root[data-seen] :is(.chart .bar-income, .chart .bar-expense, .bar > span, .bar-fill, .dbar, .sweep, .fade-up, .heat-cell, .loan-chart .area) { animation: none; }
+:root[data-seen] :is(.draw, .nw-line) { animation: none; stroke-dashoffset: 0; }
+
+/* Значок «?»: серый, мятный при наведении. */
+.hint-q { color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--muted); opacity: 0.6; }
+.hint-q:hover, .hint-q.open { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* 0.25: те же правила для остальных элементов (полный обход). Префикс :root — чтобы
+   перебить features.css и forecast.css, которые подключаются позже. */
+/* Значки Lucide в тексте и кнопках стоят ровно по строке. */
+.lucide { flex: none; vertical-align: -0.18em; }
+:root .icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; }
+:root .view-del, :root .template-del, :root .link.danger, :root .tag-chip button { display: inline-flex; align-items: center; }
+:root .note-bell { color: var(--accent); margin-right: 4px; }
+/* Чипы, плашки выбора и строки-кнопки: заливка вместо рамки, без теней при наведении. */
+:root .view-chip, :root .spend-chip, :root .fc-chip, :root .place, :root .qw-row, :root .qw-check, :root .template, :root .period-box { border-color: transparent; background: var(--fill); }
+:root .view-chip:hover, :root .spend-chip:hover, :root .template:hover { box-shadow: none; background: var(--fill-strong); border-color: transparent; }
+:root .place:hover, :root .qw-row:hover, :root .fc-chip:hover { border-color: transparent; background: var(--fill-strong); }
+:root .fc-chip.active, :root .period-box.p2 { border-color: transparent; background: var(--accent-soft); }
+:root .spend-chip:active, :root .fc-chip:active, :root .place:active, :root .qw-row:active { transform: scale(0.98); }
+:root .spend-chip, :root .fc-chip, :root .place, :root .qw-row { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+:root .cal-cell { border-color: transparent; background: var(--fill); }
+:root .cal-cell.empty { background: none; }
+:root .cal-cell:not(.empty):hover { border-color: transparent; background: var(--fill-strong); }
+:root .import-table { border-color: transparent; background: var(--fill); }
+/* Вложенные блоки в окнах и карточках (разбивка чека, найденные данные, сценарии, подтверждения): тоже заливка. */
+:root .demo-offer, :root .split, :root .found-row, :root .receipt-split, :root .confirm-box, :root .scenario-row, :root .loan-sub { border-color: transparent; background: var(--fill); }
+/* Всплывающее: поиск Ctrl+K, полоса выделения, подсказки тегов и «?» — та же пружина. */
+:root .palette-box { border-color: transparent; animation: palette-in 300ms var(--spring); }
+:root[data-theme="dark"] .palette-box { border-color: var(--border); }
+:root .sel-bar { border-color: transparent; animation: sel-in 320ms var(--spring); }
+:root .tag-hints { border-color: transparent; transform-origin: top; animation: pop-in 220ms var(--spring); }
+:root[data-theme="dark"] .tag-hints, :root[data-theme="dark"] .sel-bar { border-color: var(--border); }
+:root .hint-tip { transition: opacity 180ms var(--ease), transform 260ms var(--spring); }
+/* Без отскока: выключатель и «?» двигаются пружиной, но не «прыгают». */
+:root .switch::after { transition: transform 260ms var(--spring); }
+:root .hint-q { transition: opacity var(--fast), background var(--fast), color var(--fast), box-shadow var(--fast), transform 220ms var(--spring); }
+:root .hint-q:hover, :root .hint-q.open, :root .hint-q:focus-visible { transform: scale(1.06); }
+/* Окно уходит мягко (Modal.tsx). */
+.overlay.closing { animation: fade-out 160ms var(--ease) forwards; pointer-events: none; }
+.overlay.closing .modal { animation: sheet-out 160ms var(--ease) forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+/* Смена темы: цвета перетекают (Sidebar.tsx). */
+.theme-fade, .theme-fade * { transition: background-color 280ms var(--ease), color 280ms var(--ease), border-color 280ms var(--ease), fill 280ms var(--ease), stroke 280ms var(--ease) !important; }
+/* 0.25: Главная, Счета и Цели (бывшие экраны 0.24). */
+:root .tile-value, :root .tile-value.tile-explain { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+:root .goal-card { background: var(--fill); border-radius: var(--radius); transition: background-color var(--fast) var(--ease); }
+:root .goal-card .ring-track { stroke: var(--fill-strong); }
+:root .home-block.editing { border: 1.5px dashed var(--fill-strong); }
+:root .home-block-bar .grip { cursor: grab; }
+:root .qw-ok { padding: 4px; width: 24px; height: 24px; box-sizing: border-box; }
+:root .no-spend-mark { display: inline-flex; vertical-align: 1px; }
+:root .link.back { display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; }
+/* Фокус с клавиатуры виден всегда: заливки и «без тени» 0.25 его не гасят. */
+:root :is(.btn, .link, .nav-item, .tab, .chip-btn, .icon-btn, .template-main, .template-del, .clickable, button):focus-visible { box-shadow: var(--ring); }
+:root .btn.primary:focus-visible { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
+/* «Меньше движения» в Windows: тема меняется сразу. */
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-fade, :root.theme-fade * { transition: none !important; }
+}
+/* Значок «Дверца, тише» (0.25): без петель и тени, мятный как в Windows. */
+:root .brand-logo { box-shadow: none; border-radius: 0; }
+:root .logo-bg { fill: #0e9f7a; }
+:root .logo-fg { stroke: #fff; }

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useState } from "react";
+import { Bell, X } from "lucide-react";
 import { api, type Note, type NoteFilter, type NoteInput } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { loadReceiptNotes } from "../lib/receiptNotes";
@@ -68,7 +69,7 @@ export function NoteList({ notes, onOpen, showLink = true }: { notes: Note[]; on
         <li key={n.id} className="clickable" onClick={() => onOpen(n)} data-testid="note">
           <div className="note-body">{n.body}</div>
           <div className="sub">
-            {n.reminderId && <span title="Есть напоминание">🔔 </span>}
+            {n.reminderId && <Bell className="note-bell" size={13} strokeWidth={1.75} aria-label="Есть напоминание" />}
             {n.date && formatDate(n.date)}
             {showLink && n.link && <span> · {n.link}</span>}
           </div>
@@ -114,7 +115,7 @@ export function NotesBlock({
           <li key={n.id} data-testid="note">
             <div className="note-body">{n.body}</div>
             <button type="button" className="link danger" title="Удалить заметку" disabled={disabled} onClick={() => remove.run(n.id)}>
-              ×
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </li>
         ))}

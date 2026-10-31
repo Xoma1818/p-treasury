@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
+import { X } from "lucide-react";
 import { api } from "../lib/api";
 import { addTag, tagSuggestions } from "../lib/tags";
 
@@ -25,7 +26,7 @@ export function TagInput({ id, value, onChange }: { id?: string; value: string[]
         <span key={t} className="tag-chip removable">
           #{t}
           <button type="button" aria-label={`Убрать тег ${t}`} onClick={() => onChange(value.filter((x) => x !== t))}>
-            ✕
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </span>
       ))}

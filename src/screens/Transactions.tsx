@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { Hint } from "../components/Hint";
 import { SelectionBar } from "../components/SelectionBar";
 import { isTyping } from "../lib/hotkeys";
@@ -195,7 +196,7 @@ export function Transactions() {
           <span className="view-chip" data-testid="filter-tag">
             <span className="view-apply">Тег</span>
             <button className="view-del" aria-label="Убрать фильтр по тегу" onClick={() => set({ tagId: undefined })}>
-              ✕
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </span>
         )}
@@ -203,7 +204,7 @@ export function Transactions() {
           <span className="view-chip" data-testid="filter-import">
             <span className="view-apply">Один импорт</span>
             <button className="view-del" aria-label="Убрать фильтр по импорту" onClick={() => set({ importId: undefined })}>
-              ✕
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </span>
         )}
@@ -211,7 +212,7 @@ export function Transactions() {
           <span className="view-chip" data-testid="filter-event">
             <span className="view-apply">{events.find((e) => e.id === f.eventId)?.name ?? "Событие"}</span>
             <button className="view-del" aria-label="Убрать фильтр по событию" onClick={() => set({ eventId: undefined })}>
-              ✕
+              <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </span>
         )}

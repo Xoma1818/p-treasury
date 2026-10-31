@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
 import { FxGain } from "./FxGain";
@@ -128,7 +129,7 @@ export function Reports() {
             month && (
               <div className="month-switch">
                 <button className="icon-btn" aria-label="Предыдущий период" onClick={() => setAnchor(shiftMonth(month, -STEP[kind]))}>
-                  ‹
+                  <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
                 </button>
                 <div>
                   <div className="main" data-testid="report-period">
@@ -141,7 +142,7 @@ export function Reports() {
                   )}
                 </div>
                 <button className="icon-btn" aria-label="Следующий период" onClick={() => setAnchor(shiftMonth(month, STEP[kind]))}>
-                  ›
+                  <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
                 </button>
               </div>
             )
@@ -258,7 +259,7 @@ function Structure({ period }: { period: Period }) {
       <span className="cat-name">
         {!child && c.children.length > 0 ? (
           <button className="icon-btn small" aria-label={open.has(c.categoryId) ? "Свернуть" : "Раскрыть"} aria-expanded={open.has(c.categoryId)} onClick={() => toggle(c.categoryId)}>
-            {open.has(c.categoryId) ? "▾" : "▸"}
+            {open.has(c.categoryId) ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
           </button>
         ) : (
           <span className="icon-gap" />

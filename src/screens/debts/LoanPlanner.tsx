@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { AccountSelect, AmountInput, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
@@ -71,7 +72,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   return (
     <>
       <button className="link back" onClick={back}>
-        ← Все долги
+        <ChevronLeft size={16} /> Все долги
       </button>
       <div className="screen-head">
         <h1>

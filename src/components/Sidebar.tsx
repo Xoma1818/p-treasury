@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
 import { Fragment, useState } from "react";
 import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
@@ -7,41 +8,42 @@ import { applyTheme, savedTheme, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 
-/** Логотип «Дверца сейфа» (src-tauri/icons/icon.svg); цвета берутся из темы. */
+/** Логотип «Дверца, тише» (src-tauri/icons/icon.svg): мятный в обеих темах, как значок в Windows. */
 function Logo() {
   return (
     <svg className="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
-      <rect className="logo-bg" x="2" y="2" width="60" height="60" rx="14" />
-      <g className="logo-fg" fill="none" strokeWidth="4.5">
-        <rect x="14" y="12" width="40" height="40" rx="7" />
-        <circle cx="34" cy="32" r="9" />
-        <path d="M34 32V25" strokeWidth="4" strokeLinecap="round" />
+      <rect className="logo-bg" x="2" y="2" width="60" height="60" rx="16" />
+      <g className="logo-fg" fill="none" strokeWidth="3.5" strokeLinecap="round">
+        <rect x="15" y="15" width="34" height="34" rx="8" />
+        <circle cx="32" cy="32" r="7" />
+        <path d="M32 32v-5.5" />
       </g>
-      <rect className="logo-hinge" x="9" y="19" width="6" height="7" rx="1.5" />
-      <rect className="logo-hinge" x="9" y="38" width="6" height="7" rx="1.5" />
     </svg>
   );
 }
 
-const SUN = "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4";
-
 /** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  const pick = (t: Theme) => (applyTheme(t), setTheme(t));
+  // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
+  // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
+  const pick = (t: Theme) => {
+    const root = document.documentElement;
+    if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      root.classList.add("theme-fade");
+      window.setTimeout(() => root.classList.remove("theme-fade"), 300);
+    }
+    applyTheme(t);
+    setTheme(t);
+  };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
       <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>
-        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="4" />
-          <path d={SUN} />
-        </svg>
+        <Sun className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
         Светлая
       </button>
       <button aria-pressed={theme === "dark"} data-testid="theme-dark" onClick={() => pick("dark")}>
-        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-        </svg>
+        <Moon className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
         Тёмная
       </button>
     </div>
@@ -60,9 +62,7 @@ function NavViews() {
         {views.map((v) => (
           <li key={v.id}>
             <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
-              <span className="nav-view-mark" aria-hidden="true">
-                ☆
-              </span>
+              <Star className="nav-view-mark" strokeWidth={1.75} aria-hidden="true" />
               {v.name}
             </button>
           </li>
@@ -81,10 +81,7 @@ export function Sidebar() {
         P-Treasury
       </div>
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="m16 16 4 4" />
-        </svg>
+        <Search strokeWidth={1.75} aria-hidden="true" />
         <span>Поиск</span>
         <kbd>Ctrl+K</kbd>
       </button>
@@ -103,7 +100,6 @@ export function Sidebar() {
                 <SectionIcon id={s.id} />
                 {s.title}
                 {/* Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки. */}
-                {i < 9 && <span className="nav-key" data-k={i + 1} aria-hidden="true" />}
               </button>
             </li>
           </Fragment>
@@ -113,10 +109,7 @@ export function Sidebar() {
         <ThemeSwitch />
         <HideAmountsSwitch />
         <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">
-          <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="2" y="6" width="20" height="12" rx="2" />
-            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
-          </svg>
+          <Keyboard className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
           <span className="foot-label">Горячие клавиши</span>
           <kbd>F1</kbd>
         </button>

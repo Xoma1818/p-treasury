@@ -94,7 +94,7 @@ test("ошибся: удалил операцию, Ctrl+Z вернул её, Ctr
 test("Ctrl+Z в поле ввода отменяет набор текста, а не последнее действие", async () => {
   await openSection(browser, "Операции");
   // Плашку от прошлого теста закрываем, чтобы видеть только новое.
-  if (await browser.$('[data-testid="undo-bar"]').isExisting()) await click(browser, "×", '//*[@data-testid="undo-bar"]');
+  if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
   const search = await browser.$('[name="search"]');
   await search.click();
   await search.setValue("абв");

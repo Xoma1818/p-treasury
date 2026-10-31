@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Txn } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { groupReceipts, receiptTitle, rowIds, type TxnRow } from "../lib/receipt";
@@ -78,7 +79,7 @@ export function TxnTable({ items, compact, draggable, selection }: { items: Txn[
                   aria-expanded={isOpen}
                   onClick={(e) => (e.stopPropagation(), toggleOpen(r.key))}
                 >
-                  {isOpen ? "▾" : "▸"}
+                  {isOpen ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
                 </button>
                 <span data-testid="receipt-title">{receiptTitle(r.parts)}</span>
               </>

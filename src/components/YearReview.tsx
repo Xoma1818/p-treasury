@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type YearReview } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
 import { baseName, pickSave, PNG } from "../lib/files";
@@ -26,11 +27,11 @@ export function YearReviewReport() {
       <div className="screen-head">
         <div className="year-head">
           <button className="icon-btn" aria-label="Прошлый год" onClick={() => setYear(year - 1)}>
-            ‹
+            <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
           <h2 data-testid="year-title">Итоги {year} года</h2>
           <button className="icon-btn" aria-label="Следующий год" onClick={() => setYear(year + 1)} disabled={year >= now}>
-            ›
+            <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
           <Hint title="Итоги года" example="«Лучший месяц — май: осталось 42 000 ₽»">
             Год в нескольких цифрах: сколько заработали, потратили и отложили, лучший и самый дорогой месяц, крупнейшая покупка и любимый магазин. Текущий год считается по сегодня и сравнивается с тем же отрезком прошлого.

@@ -34,14 +34,16 @@ test("по умолчанию тёмная тема, переключатель 
   assert.equal(await theme(browser), "dark");
 });
 
-test("меню разбито на группы, у раздела значок и подсказка", async () => {
+test("меню разбито на группы, у пункта меню значок, у раздела подсказка", async () => {
   const { browser } = app;
   const groups = await browser.execute(() => [...document.querySelectorAll(".nav-group")].map((g) => g.textContent));
   assert.deepEqual(groups, ["Каждый день", "Планы", "Долги и займы", "Справочники"]);
   await openSection(browser, "Бюджет");
   const hint = await browser.$("main .screen-hint").getText();
   assert.equal(hint, "Сколько можно тратить в этом месяце");
-  assert.ok(await browser.$("main .screen-title .icon-tile svg").isExisting());
+  // 0.25 «Лаконичный»: крупный заголовок без значка, значок Lucide остаётся в меню.
+  assert.ok(!(await browser.$("main .screen-title .icon-tile").isExisting()));
+  assert.ok(await browser.$("nav .nav-item.active .icon-tile svg.lucide").isExisting());
   const title = await browser.$('//nav//button[normalize-space()="Бюджет"]').getAttribute("title");
   assert.equal(title, "Сколько можно тратить в этом месяце · Ctrl+4");
 });

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { api, type Template, type TxnExtra, type TxnInput, type TxnType } from "../lib/api";
 import { monthTitle, shiftMonth, today } from "../lib/dates";
 import { receiptProblem, receiptRemainder, spreadParts } from "../lib/receipt";
@@ -400,7 +401,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                             } else setParts(next);
                           }}
                         >
-                          ✕
+                          <X size={16} strokeWidth={1.75} aria-hidden="true" />
                         </button>
                       </div>
                     ))}
@@ -482,7 +483,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                           onChange={(v) => setFriends(friends.map((x, j) => (j === i ? { ...x, amount: v } : x)))}
                         />
                         <button type="button" className="link" aria-label="Убрать долю" onClick={() => setFriends(friends.length > 1 ? friends.filter((_, j) => j !== i) : null)}>
-                          ✕
+                          <X size={16} strokeWidth={1.75} aria-hidden="true" />
                         </button>
                       </div>
                     ))}

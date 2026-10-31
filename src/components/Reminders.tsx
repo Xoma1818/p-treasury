@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Bell, X } from "lucide-react";
 import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
 import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
@@ -43,7 +44,7 @@ export function LeadDaysPicker({ value, onChange, name = "leadDays" }: { value: 
       ))}
       {custom.map((d) => (
         <button key={d} type="button" className="chip-btn active" aria-pressed title="Убрать" onClick={() => toggle(d)}>
-          за {d} дн. ×
+          за {d} дн. <X size={12} strokeWidth={2} aria-hidden="true" />
         </button>
       ))}
       <input
@@ -334,7 +335,13 @@ export function ReminderButton({ reminderId, preset, label = "Напомнить
         onClick={() => (reminderId ? load.run() : setOpen(true))}
         title={reminderId ? "Изменить напоминание" : "Напомнить об этом заранее"}
       >
-        {reminderId ? "🔔 Напоминание" : label}
+        {reminderId ? (
+            <>
+              <Bell size={14} strokeWidth={1.75} aria-hidden="true" /> Напоминание
+            </>
+          ) : (
+            label
+          )}
       </button>
       <ErrorText error={load.error} />
       {open && (

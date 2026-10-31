@@ -14,6 +14,7 @@ import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
@@ -31,7 +32,7 @@ export function Budget() {
         {month && (
           <div className="month-switch">
             <button className="icon-btn" aria-label="Предыдущий месяц" onClick={() => setPicked(shiftMonth(month, -1))}>
-              ‹
+              <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
             <div>
               <div className="main" data-testid="budget-month">
@@ -44,7 +45,7 @@ export function Budget() {
               )}
             </div>
             <button className="icon-btn" aria-label="Следующий месяц" onClick={() => setPicked(shiftMonth(month, 1))}>
-              ›
+              <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
             {month !== current && (
               <button className="link" onClick={() => setPicked(null)}>
