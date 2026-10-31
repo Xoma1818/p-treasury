@@ -339,9 +339,11 @@ pub fn category_rename_preview(state: State<AppState>) -> CmdResult<Vec<categori
 /// Переименовать выбранные категории по новому списку; одним шагом отмены (Ctrl+Z).
 #[tauri::command(async)]
 pub fn category_rename_apply(state: State<AppState>, ids: Vec<String>) -> CmdResult<usize> {
-    with_undo(&state, "Переименование категорий", |c| {
-        categories::rename_apply(c, &ids)
-    })
+    with_undo(
+        &state,
+        "Переименование категорий",
+        |c| categories::rename_apply(c, &ids),
+    )
 }
 
 #[tauri::command(async)]
