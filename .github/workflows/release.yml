@@ -1,4 +1,5 @@
 # Выпуск Kazna (бывш. P-Treasury) на GitHub Releases.
+# Имена файлов берутся из productName/mainBinaryName в src-tauri/tauri.conf.json.
 # Запуск: Actions → «Выпуск» → Run workflow на main (после слияния, см. docs/releasing.md).
 # Номер версии берётся из package.json; тег vX.Y.Z ставится на main в конце, когда выпуск опубликован.
 # Делает: проверку, установщик для Windows, подпись для автообновления, latest.json,
@@ -59,13 +60,15 @@ jobs:
         shell: bash
         run: |
           tag="${{ needs.check.outputs.version }}"
+          name=$(node -p "require('./src-tauri/tauri.conf.json').productName")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
           {
             echo 'body<<NOTES_END'
             awk -v t="$tag" '/^## /{p = ($2 == t)} p && !/^## /' CHANGELOG.md
             echo
-            echo '**Как установить:** скачайте `Kazna_'"$tag"'_x64-setup.exe` ниже и запустите. Windows может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае». Данные прежней версии сохраняются.'
+            echo '**Как установить:** скачайте `'"$name"'_'"$tag"'_x64-setup.exe` ниже и запустите. Windows может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае». Данные прежней версии сохраняются.'
             echo
-            echo '**Без установки (флешка):** распакуйте `Kazna_'"$tag"'_x64-portable.zip` куда угодно и запустите `Kazna.exe`. Данные хранятся в папке `data` рядом с программой, обновления ставятся вручную: новый архив распаковывается поверх старого.'
+            echo '**Без установки (флешка):** распакуйте `'"$name"'_'"$tag"'_x64-portable.zip` куда угодно и запустите `'"$name"'.exe`. Данные хранятся в папке `data` рядом с программой, обновления ставятся вручную: новый архив распаковывается поверх старого.'
             echo 'NOTES_END'
           } >> "$GITHUB_OUTPUT"
       - name: Секреты на месте
@@ -89,7 +92,7 @@ jobs:
           repo: p-treasury-releases
           releaseCommitish: main
           tagName: v${{ needs.check.outputs.version }}
-          releaseName: Kazna v${{ needs.check.outputs.version }}
+          releaseName: ${{ steps.notes.outputs.name }} v${{ needs.check.outputs.version }}
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
@@ -102,14 +105,16 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           ver="${{ needs.check.outputs.version }}"
-          exe=target/release/Kazna.exe
+          name=$(node -p "require('./src-tauri/tauri.conf.json').productName")
+          bin=$(node -p "require('./src-tauri/tauri.conf.json').mainBinaryName")
+          exe="target/release/$bin.exe"
           [ -f "$exe" ] || { echo "::error::Нет $exe после сборки"; exit 1; }
-          dir="Kazna_${ver}_portable"
+          dir="${name}_${ver}_portable"
           mkdir "$dir"
-          cp "$exe" "$dir/Kazna.exe"
+          cp "$exe" "$dir/$name.exe"
           : > "$dir/portable"
-          7z a -tzip "Kazna_${ver}_x64-portable.zip" "$dir"
-          gh release upload "v$ver" "Kazna_${ver}_x64-portable.zip" \
+          7z a -tzip "${name}_${ver}_x64-portable.zip" "$dir"
+          gh release upload "v$ver" "${name}_${ver}_x64-portable.zip" \
             --repo "${{ github.repository_owner }}/p-treasury-releases"
 
   tag:

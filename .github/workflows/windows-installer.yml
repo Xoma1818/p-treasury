@@ -59,7 +59,9 @@ jobs:
         shell: bash
         run: |
           mkdir portable
-          cp target/release/Kazna.exe portable/Kazna.exe
+          name=$(node -p "require('./src-tauri/tauri.conf.json').productName")
+          bin=$(node -p "require('./src-tauri/tauri.conf.json').mainBinaryName")
+          cp "target/release/$bin.exe" "portable/$name.exe"
           : > portable/portable
       - uses: actions/upload-artifact@v5
         with:
