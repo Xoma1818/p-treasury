@@ -1,8 +1,8 @@
-//! Папка сохранности: одна видимая папка (по умолчанию `Документы\P-Treasury`),
+//! Папка сохранности: одна видимая папка (по умолчанию `Документы\Kazna`),
 //! которую программа сама обновляет при закрытии и раз в день.
 //!
 //! ```text
-//! P-Treasury\
+//! Kazna\
 //!   Мой бюджет.ptreasury      полная копия базы: из неё переносят на другой ПК
 //!   Копии\                    прошлые копии, хранятся последние N
 //!   Excel\                    зеркало для просмотра без программы
@@ -33,7 +33,38 @@ pub const EXT: &str = "ptreasury";
 /// Имя основного файла бюджета в папке.
 pub const MAIN_NAME: &str = "Мой бюджет";
 /// Имя папки сохранности; выбранная пользователем папка получает её внутрь.
-pub const FOLDER: &str = "P-Treasury";
+pub const FOLDER: &str = "Kazna";
+/// Имя папки до 0.26 (программа называлась P-Treasury): её узнаём при поиске
+/// данных, а папку по умолчанию переименовываем в [`FOLDER`] (см. [`migrate_default`]).
+pub const LEGACY_FOLDER: &str = "P-Treasury";
+
+fn is_vault_name(p: &Path) -> bool {
+    matches!(
+        p.file_name().and_then(|n| n.to_str()),
+        Some(FOLDER | LEGACY_FOLDER)
+    )
+}
+
+/// 0.26: «Документы\P-Treasury» → «Документы\Kazna». Только для папки по
+/// умолчанию и только если новой ещё нет; выбранную пользователем папку
+/// (настройка `vault_dir`) не трогаем. Возвращает `true`, если папка переименована.
+pub fn migrate_default(conn: &Connection, default: &Path) -> Result<bool> {
+    let chosen = settings::get(conn, "vault_dir")?.unwrap_or_default();
+    if !chosen.trim().is_empty() {
+        return Ok(false);
+    }
+    let Some(old) = default.parent().map(|p| p.join(LEGACY_FOLDER)) else {
+        return Ok(false);
+    };
+    if default.file_name().and_then(|n| n.to_str()) != Some(FOLDER)
+        || default.exists()
+        || !old.is_dir()
+    {
+        return Ok(false);
+    }
+    fs::rename(&old, default)?;
+    Ok(true)
+}
 pub const HISTORY: &str = "Копии";
 pub const EXCEL: &str = "Excel";
 pub const ALL_DATA: &str = "Все данные.xlsx";
@@ -84,10 +115,10 @@ pub fn dir(conn: &Connection, default: &Path) -> Result<Option<PathBuf>> {
     }))
 }
 
-/// Выбранная папка: если она называется не «P-Treasury», файлы ложатся в
-/// подпапку «P-Treasury», чтобы не смешаться с другими файлами на диске.
+/// Выбранная папка: если она называется не «Kazna» (или прежняя «P-Treasury»),
+/// файлы ложатся в подпапку «Kazna», чтобы не смешаться с другими файлами на диске.
 pub fn normalize(chosen: &Path) -> PathBuf {
-    if chosen.file_name().and_then(|n| n.to_str()) == Some(FOLDER) {
+    if is_vault_name(chosen) {
         chosen.to_path_buf()
     } else {
         chosen.join(FOLDER)
@@ -262,7 +293,7 @@ fn prune_history(history: &Path, name: &str, keep: usize) -> Result<()> {
 
 fn readme() -> String {
     format!(
-        "Папка сохранности P-Treasury\r\n\
+        "Папка сохранности Kazna\r\n\
          ============================\r\n\r\n\
          Программа сама обновляет эту папку при закрытии и раз в день.\r\n\r\n\
          *.{EXT}       полная копия всех данных. Из неё переносят данные на другой компьютер.\r\n\
@@ -273,7 +304,7 @@ fn readme() -> String {
          ---------------------------------\r\n\
          1. Скопируйте эту папку целиком в «Документы» нового компьютера\r\n\
          \x20  (или просто войдите в облачный диск, если папка лежит в нём).\r\n\
-         2. Установите P-Treasury и запустите.\r\n\
+         2. Установите Kazna и запустите.\r\n\
          3. На первом экране нажмите «Перенести данные»: программа найдёт папку сама\r\n\
          \x20  или попросит её показать.\r\n\r\n\
          Excel-файлы можно открывать и смотреть. Правки в них программа не подхватывает:\r\n\
@@ -375,12 +406,12 @@ pub fn write_all_data(conn: &Connection, path: &Path) -> Result<()> {
     let info = wb.add_worksheet();
     info.set_name(INFO_SHEET).map_err(xlsx_err)?;
     let about = [
-        ("Программа", format!("P-Treasury {}", env!("CARGO_PKG_VERSION"))),
+        ("Программа", format!("Kazna {}", env!("CARGO_PKG_VERSION"))),
         ("Версия данных", crate::storage::schema_version(conn)?.to_string()),
         ("Сохранено", time::now_utc()),
         (
             "Как пользоваться",
-            "Все данные по листам, для просмотра. Из этого файла P-Treasury восстанавливает данные, если копии .ptreasury нет. Не меняйте названия листов и первую строку.".into(),
+            "Все данные по листам, для просмотра. Из этого файла Kazna восстанавливает данные, если копии .ptreasury нет. Не меняйте названия листов и первую строку.".into(),
         ),
     ];
     for (r, (k, v)) in about.iter().enumerate() {
@@ -439,7 +470,7 @@ type Rows = Vec<Vec<calamine::Data>>;
 
 fn read_book(path: &Path) -> Result<BTreeMap<String, Rows>> {
     use calamine::{open_workbook_auto, Reader};
-    let not_ours = || Error::Validation("это не файл «Все данные» P-Treasury".into());
+    let not_ours = || Error::Validation("это не файл «Все данные» Kazna".into());
     let mut book = open_workbook_auto(path).map_err(|_| not_ours())?;
     let mut sheets = BTreeMap::new();
     for name in book.sheet_names() {
@@ -677,9 +708,7 @@ pub fn inspect_file(path: &Path) -> Result<Found> {
             .unwrap_or(MAIN_NAME);
         (stem.to_string(), parent)
     };
-    let in_vault = |f: &Path| {
-        f.join(README).exists() || f.file_name().and_then(|n| n.to_str()) == Some(FOLDER)
-    };
+    let in_vault = |f: &Path| f.join(README).exists() || is_vault_name(f);
     Ok(Found {
         path: path.display().to_string(),
         name,
@@ -696,12 +725,13 @@ pub fn inspect_file(path: &Path) -> Result<Found> {
 
 /// Найти данные в папках: копии `.ptreasury`, а если копии бюджета нет —
 /// «Все данные.xlsx» из его Excel-папки. Папка может быть самой папкой
-/// сохранности, её Excel-папкой или папкой, внутри которой лежит «P-Treasury».
+/// сохранности, её Excel-папкой или папкой, внутри которой лежит «Kazna»
+/// (или «P-Treasury» с компьютера, где стоит версия до 0.26).
 pub fn scan(dirs: &[PathBuf]) -> Vec<Found> {
     let mut found: Vec<Found> = Vec::new();
     let mut seen = Vec::new();
     for d in dirs {
-        let candidates = [d.clone(), d.join(FOLDER)];
+        let candidates = [d.clone(), d.join(FOLDER), d.join(LEGACY_FOLDER)];
         for dir in candidates {
             let Ok(canon) = fs::canonicalize(&dir) else {
                 continue;
@@ -849,7 +879,7 @@ mod tests {
     #[test]
     fn sync_writes_copy_history_excel_and_readme() {
         let dir = tempfile::tempdir().unwrap();
-        let vault = dir.path().join("Документы/P-Treasury");
+        let vault = dir.path().join("Документы/Kazna");
         let db = Storage::open_in_memory().unwrap();
         sample(db.conn());
         settings::set(db.conn(), "autobackup_keep", "2").unwrap();
@@ -1001,7 +1031,7 @@ mod tests {
         sync(db.conn(), &vault, "Дача").unwrap();
         // У «Дачи» осталось только Excel-зеркало.
         fs::remove_file(vault.join("Дача.ptreasury")).unwrap();
-        // Ищем по папке облака: «P-Treasury» внутри находится сама.
+        // Ищем по папке облака: «Kazna» внутри находится сама.
         let found = scan(&[cloud.clone(), vault.clone()]);
         let kinds: Vec<(String, String)> = found
             .iter()
@@ -1027,23 +1057,20 @@ mod tests {
         assert_eq!(safe_name(" .. "), MAIN_NAME);
         assert_eq!(
             normalize(Path::new("/m/YandexDisk")),
-            Path::new("/m/YandexDisk/P-Treasury")
+            Path::new("/m/YandexDisk/Kazna")
         );
-        assert_eq!(
-            normalize(Path::new("/m/P-Treasury")),
-            Path::new("/m/P-Treasury")
-        );
+        assert_eq!(normalize(Path::new("/m/Kazna")), Path::new("/m/Kazna"));
         assert_eq!(
             excel_dir(Path::new("/v"), "Дача"),
             Path::new("/v/Excel (Дача)")
         );
         let db = Storage::open_in_memory().unwrap();
-        let def = Path::new("/home/Документы/P-Treasury");
+        let def = Path::new("/home/Документы/Kazna");
         assert_eq!(dir(db.conn(), def).unwrap().as_deref(), Some(def));
-        settings::set(db.conn(), "vault_dir", "/flash/P-Treasury").unwrap();
+        settings::set(db.conn(), "vault_dir", "/flash/Kazna").unwrap();
         assert_eq!(
             dir(db.conn(), def).unwrap().unwrap(),
-            Path::new("/flash/P-Treasury")
+            Path::new("/flash/Kazna")
         );
         settings::set(db.conn(), "vault_on", "0").unwrap();
         assert_eq!(dir(db.conn(), def).unwrap(), None);
@@ -1064,5 +1091,38 @@ mod tests {
             (st.dir.as_str(), st.custom, st.on),
             ("D:/Яндекс.Диск/Копии", true, true)
         );
+    }
+
+    #[test]
+    fn default_folder_moves_from_old_name_once() {
+        let db = Storage::open_in_memory().unwrap();
+        let docs = tempfile::tempdir().unwrap();
+        let old = docs.path().join(LEGACY_FOLDER);
+        fs::create_dir_all(old.join(HISTORY)).unwrap();
+        fs::write(old.join("Мой бюджет.ptreasury"), b"x").unwrap();
+        let new = docs.path().join(FOLDER);
+        assert!(migrate_default(db.conn(), &new).unwrap());
+        assert!(
+            new.join("Мой бюджет.ptreasury").exists()
+                && new.join(HISTORY).is_dir()
+                && !old.exists()
+        );
+        // Второй раз и при уже существующей новой папке ничего не делаем.
+        fs::create_dir_all(&old).unwrap();
+        assert!(!migrate_default(db.conn(), &new).unwrap());
+        assert!(old.exists());
+    }
+
+    #[test]
+    fn chosen_folder_is_not_moved() {
+        let db = Storage::open_in_memory().unwrap();
+        let docs = tempfile::tempdir().unwrap();
+        let old = docs.path().join(LEGACY_FOLDER);
+        fs::create_dir_all(&old).unwrap();
+        settings::set(db.conn(), "vault_dir", old.to_str().unwrap()).unwrap();
+        assert!(!migrate_default(db.conn(), &docs.path().join(FOLDER)).unwrap());
+        assert!(old.exists());
+        // Старое имя узнаётся как папка сохранности: подпапка не добавляется.
+        assert_eq!(normalize(&old), old);
     }
 }

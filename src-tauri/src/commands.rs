@@ -223,7 +223,7 @@ async fn fetch_cbr(url: &str) -> CmdResult<Vec<u8>> {
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .user_agent(concat!("P-Treasury/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Kazna/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
     let response = client.get(url).send().await.map_err(offline)?;

@@ -344,7 +344,7 @@ fn ten_years_of_records_stay_fast() {
         Duration::from_secs(5),
         || budget_core::backups::backup(c, &dir.join("копия.db")).unwrap(),
     );
-    let vault = dir.join("P-Treasury");
+    let vault = dir.join("Kazna");
     let copy = timed(
         "Папка сохранности: копия (база занята)",
         Duration::from_secs(5),

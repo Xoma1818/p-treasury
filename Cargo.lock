@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "budget-app"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "budget-core",
  "chrono",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "budget-core"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "calamine",
  "chrono",

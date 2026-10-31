@@ -20,7 +20,7 @@ pub struct AppState {
     pub undo: Mutex<budget_core::undo::Journal>,
     /// Переносная версия: данные в папке `data` рядом с программой.
     pub portable: bool,
-    /// Папка сохранности по умолчанию (`Документы\P-Treasury`).
+    /// Папка сохранности по умолчанию (`Документы\Kazna`).
     pub vault_default: PathBuf,
 }
 
@@ -80,6 +80,17 @@ pub fn run() {
             };
             let db = Storage::open(&files::startup_path(&data_dir), &state.open_options())
                 .map_err(|e| e.to_string());
+            // 0.26: программа стала Kazna — папка по умолчанию переезжает из «P-Treasury».
+            if let Ok(db) = &db {
+                match budget_core::vault::migrate_default(db.conn(), &state.vault_default) {
+                    Ok(true) => eprintln!(
+                        "папка сохранности переименована в {}",
+                        state.vault_default.display()
+                    ),
+                    Ok(false) => {}
+                    Err(e) => eprintln!("папка сохранности не переименована: {e}"),
+                }
+            }
             *state.lock_db() = db;
             app.manage(state);
             if let Err(e) = background::build_tray(app.handle()) {

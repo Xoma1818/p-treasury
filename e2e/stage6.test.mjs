@@ -156,12 +156,12 @@ test("новый компьютер: восстановление из копи�
 
 test("закрытие окна: по умолчанию в трей, с настройкой — выход с обновлением папки сохранности в облаке", async () => {
   const cloud = mkdtempSync(join(tmpdir(), "p-treasury-cloud-"));
-  const vault = join(cloud, "P-Treasury");
+  const vault = join(cloud, "Kazna");
   await openSection(browser, "Настройки");
   await click(browser, "Сменить папку");
   await pick(cloud);
   await click(browser, "Другая папка или флешка…", '//*[@role="dialog"]');
-  // Выбрана папка облака: файлы ложатся в её подпапку P-Treasury, папка сразу обновляется.
+  // Выбрана папка облака: файлы ложатся в её подпапку Kazna, папка сразу обновляется.
   await waitText(browser, '[data-testid="vault-dir"]', new RegExp(vault.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   await browser.waitUntil(async () => !(await (await browser.$('[role="dialog"]')).isExisting()), { timeout: 5000 });
   await choose(browser, "autobackupKeep", "3");

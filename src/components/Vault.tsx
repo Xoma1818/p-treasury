@@ -58,7 +58,7 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
     const dir = await pickFolder();
     if (!dir) return;
     const list = await api.vaultScan([dir]);
-    if (list.length === 0) setError("В этой папке нет данных P-Treasury. Покажите папку P-Treasury или выберите файл копии.");
+    if (list.length === 0) setError("В этой папке нет данных Kazna. Покажите папку Kazna или выберите файл копии.");
     else setFound(list);
   };
   const file = async () => {
@@ -105,7 +105,7 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
   return (
     <Modal title="Данные с другого компьютера" onClose={onClose} wide>
       <p className="muted">
-        Скопируйте папку P-Treasury со старого компьютера в «Документы» (или войдите в облачный диск, если папка лежит там). Программа ищет её сама.
+        Скопируйте папку Kazna со старого компьютера в «Документы» (или войдите в облачный диск, если папка лежит там). Программа ищет её сама.
       </p>
       {found === null && !error && <p className="hint">Ищу…</p>}
       {found && found.length > 0 && (
@@ -116,7 +116,7 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
         </ul>
       )}
       {found && found.length === 0 && (
-        <p data-testid="found-none">В Документах и облачных папках данных P-Treasury не нашлось. Покажите папку или файл копии.</p>
+        <p data-testid="found-none">В Документах и облачных папках данных Kazna не нашлось. Покажите папку или файл копии.</p>
       )}
       <ErrorText error={error} />
       <div className="actions">
