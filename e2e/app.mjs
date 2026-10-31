@@ -49,6 +49,23 @@ async function winCleanup(timeout = 20000) {
   }
 }
 
+/** Windows: запускается ли программа сама по себе (без WebDriver). Проверяется один раз;
+ *  если она сразу закрывается, сессия всё равно не создастся — тесты падают сразу, а не по таймауту. */
+let winProbe;
+function winProbeApp(bin, env) {
+  if (winProbe !== undefined) return winProbe;
+  const dir = mkdtempSync(join(tmpdir(), "p-treasury-probe-"));
+  const r = spawnSync(bin, [`--data-dir=${dir}`], { encoding: "utf8", timeout: 15000, env });
+  if (r.error?.code === "ETIMEDOUT") {
+    console.error("# проверка запуска: программа работает 15 с — запускается нормально");
+    winProbe = null;
+  } else {
+    winProbe = `программа закрылась сама: код ${r.status}, сигнал ${r.signal}, ошибка ${r.error?.message ?? "нет"}; stdout: ${(r.stdout || "").slice(-2000)}; stderr: ${(r.stderr || "").slice(-4000)}`;
+    console.error(`# проверка запуска: ${winProbe}`);
+  }
+  return winProbe;
+}
+
 let driver;
 let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
@@ -78,6 +95,12 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       },
     });
   };
+  if (WIN) {
+    await winCleanup();
+    const dead = winProbeApp(bin, { ...process.env, ...cbr, ...wv2, ...env });
+    await winCleanup();
+    if (dead) throw new Error(dead);
+  }
   let browser;
   try {
     browser = await open();
