@@ -132,9 +132,11 @@ export async function chooseLike(browser, name, text) {
 
 export async function click(browser, text, scope = "") {
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
-  await el.waitForClickable({ timeout: 5000 });
-  // Кнопку внизу экрана может закрыть плашка «Отменить»: ставим её в середину окна.
+  // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
+  // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.
+  await el.waitForExist({ timeout: 5000 });
   await browser.execute((b) => b.scrollIntoView({ block: "center" }), el);
+  await el.waitForClickable({ timeout: 5000 });
   await el.click().catch(async (e) => {
     // Что оказалось поверх кнопки: так проще понять «click intercepted».
     const top = await browser
@@ -170,6 +172,11 @@ export async function waitText(browser, selector, re, timeout = 5000) {
       async () => {
         const el = await browser.$(selector);
         last = (await el.isExisting()) ? await el.getText() : "";
+        // Ниже края окна WebKit отдаёт пустой текст: прокручиваем к элементу и читаем снова.
+        if (!re.test(last) && (await el.isExisting())) {
+          await browser.execute((b) => b.scrollIntoView({ block: "nearest" }), el);
+          last = await el.getText();
+        }
         return re.test(last);
       },
       { timeout },

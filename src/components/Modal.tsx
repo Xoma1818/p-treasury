@@ -14,7 +14,12 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     if (navigator.webdriver || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return close.current();
     if (timer.current) return;
     setClosing(true);
-    timer.current = window.setTimeout(() => close.current(), CLOSE_MS);
+    timer.current = window.setTimeout(() => {
+      // Если окно не закрылось (например, спросило подтверждение), возвращаем его как было.
+      timer.current = 0;
+      setClosing(false);
+      close.current();
+    }, CLOSE_MS);
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {

@@ -867,9 +867,9 @@ h2 { font-size: 16px; }
 :root .hint-q { transition: opacity var(--fast), background var(--fast), color var(--fast), box-shadow var(--fast), transform 220ms var(--spring); }
 :root .hint-q:hover, :root .hint-q.open, :root .hint-q:focus-visible { transform: scale(1.06); }
 /* Окно уходит мягко (Modal.tsx). */
-.overlay.closing { animation: fade-out 160ms var(--ease) forwards; }
+.overlay.closing { animation: fade-out 160ms var(--ease) forwards; pointer-events: none; }
 .overlay.closing .modal { animation: sheet-out 160ms var(--ease) forwards; }
 @keyframes fade-out { to { opacity: 0; } }
 @keyframes sheet-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
-/* Смена темы: цвета перетекают (Sidebar.tsx, View Transitions). */
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 280ms; animation-timing-function: var(--ease); }
+/* Смена темы: цвета перетекают (Sidebar.tsx). */
+.theme-fade, .theme-fade * { transition: background-color 280ms var(--ease), color 280ms var(--ease), border-color 280ms var(--ease), fill 280ms var(--ease), stroke 280ms var(--ease) !important; }
