@@ -280,6 +280,8 @@ pub fn run() {
             commands::undo,
             commands::redo,
             commands::list_goals,
+            commands::free_until_income,
+            commands::account_reserves,
             commands::forecast,
             commands::list_scenarios,
             commands::create_scenario,

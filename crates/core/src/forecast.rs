@@ -177,7 +177,7 @@ fn liquid_on(
 }
 
 /// Быстрые счета «в общем балансе»: из них складывается прогноз.
-fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
+pub(crate) fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
     Ok(accounts::list(conn, false)?
         .into_iter()
         .filter(|a| a.include_in_total && LIQUID_TYPES.contains(&a.kind.as_str()))
@@ -185,7 +185,7 @@ fn liquid_accounts(conn: &Connection) -> Result<Vec<accounts::Account>> {
 }
 
 /// Счета, выключенные из прогноза (настройка [`EXCLUDED_ACCOUNTS_KEY`]).
-fn excluded_accounts(conn: &Connection) -> Result<HashSet<String>> {
+pub(crate) fn excluded_accounts(conn: &Connection) -> Result<HashSet<String>> {
     Ok(settings::get(conn, EXCLUDED_ACCOUNTS_KEY)?
         .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
         .unwrap_or_default()
@@ -301,7 +301,7 @@ fn first_activity(conn: &Connection) -> Result<Option<String>> {
 }
 
 /// Известные по датам суммы с `today` по `last` включительно.
-fn known_items(
+pub(crate) fn known_items(
     conn: &Connection,
     base: &str,
     today: &str,
@@ -1665,6 +1665,7 @@ mod tests {
                     currency_code: "RUB".into(),
                     account_id: account,
                     deadline: deadline.map(Into::into),
+                    reserve: false,
                 },
             )
             .unwrap()

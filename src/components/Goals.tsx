@@ -11,6 +11,9 @@ import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 
+/** Счета, внутри которых можно держать резерв. */
+const RESERVE_TYPES: string[] = ["cash", "debit", "savings"];
+
 /** «к марту 2027» */
 const byMonth = (date: string) => `к ${monthGenitive(date.slice(0, 7))} ${date.slice(0, 4)}`;
 
@@ -70,7 +73,14 @@ export function GoalsCard() {
                   )}
                 </div>
               )}
-              {g.accountName ? (
+              {g.reserve ? (
+                <div className="sub" data-testid="goal-reserve">
+                  Резерв на счёте «{g.accountName}»{" "}
+                  <button className="link" data-testid="goal-deposit" onClick={() => setDepositing(g)}>
+                    + Отложить
+                  </button>
+                </div>
+              ) : g.accountName ? (
                 <div className="sub">Счёт «{g.accountName}»</div>
               ) : (
                 g.status !== "reached" && (
@@ -101,9 +111,12 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
   const minor = currencies.find((c) => c.code === code)?.minorUnits ?? 2;
   const [target, setTarget] = useState(amountText(goal?.target ?? null, minor));
   const [deadline, setDeadline] = useState(goal?.deadline ?? "");
+  // Резерв — только на быстрых счетах: деньги лежат вместе с остальными.
+  const canReserve = !!account && RESERVE_TYPES.includes(account.type);
+  const [reserve, setReserve] = useState(goal?.reserve ?? false);
   const save = useAction(
     async (t: number) => {
-      const input = { name, target: t, currencyCode: code, accountId: accountId || null, deadline: deadline || null };
+      const input = { name, target: t, currencyCode: code, accountId: accountId || null, deadline: deadline || null, reserve: canReserve && reserve };
       if (goal) return api.updateGoal(goal.id, input);
       await api.createGoal(input);
     },
@@ -141,9 +154,24 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
         <Field label="К какому сроку" hint="Можно оставить пустым: тогда покажем только прогноз.">
           {(id) => <input id={id} name="goalDeadline" type="date" min={today()} value={deadline} onChange={(e) => setDeadline(e.target.value)} />}
         </Field>
-        <Field label="Где копите" hint={account ? "Накоплено = остаток этого счёта." : "Без счёта: пополнения отмечаете кнопкой «+ Пополнить»."}>
+        <Field
+          label="Где копите"
+          hint={
+            !account
+              ? "Без счёта: пополнения отмечаете кнопкой «+ Пополнить»."
+              : canReserve && reserve
+                ? "Отложенное отмечаете кнопкой «+ Отложить»; оно не считается свободным до дохода."
+                : "Накоплено = остаток этого счёта."
+          }
+        >
           {(id) => <AccountSelect id={id} name="goalAccount" accounts={accounts} value={accountId} onChange={setAccountId} placeholder="Без счёта, пополняю вручную" />}
         </Field>
+        {canReserve && (
+          <label className="check" data-testid="goal-reserve-toggle">
+            <input type="checkbox" name="goalReserve" checked={reserve} onChange={(e) => setReserve(e.target.checked)} />
+            Резерв внутри счёта: деньги лежат вместе с остальными
+          </label>
+        )}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {goal && (

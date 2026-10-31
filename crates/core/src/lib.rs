@@ -25,6 +25,7 @@ pub mod events;
 pub mod explain;
 pub mod export;
 pub mod forecast;
+pub mod free_money;
 pub mod goals;
 pub mod habits;
 pub mod ids;

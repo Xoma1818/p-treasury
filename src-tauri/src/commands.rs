@@ -1624,6 +1624,24 @@ pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
     with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
 }
 
+/// «Свободно до дохода» на сегодня (0.27).
+#[tauri::command(async)]
+pub fn free_until_income(state: State<AppState>) -> CmdResult<budget_core::free_money::FreeMoney> {
+    with_db(&state, |db| {
+        budget_core::free_money::until_income(db.conn(), &time::today_local())
+    })
+}
+
+/// Отложено в резервы по счетам: id счёта → сумма в валюте счёта.
+#[tauri::command(async)]
+pub fn account_reserves(
+    state: State<AppState>,
+) -> CmdResult<std::collections::HashMap<String, i64>> {
+    with_db(&state, |db| {
+        Ok(goals::reserves_by_account(db.conn())?.into_iter().collect())
+    })
+}
+
 #[tauri::command(async)]
 pub fn create_goal(state: State<AppState>, input: GoalInput) -> CmdResult<String> {
     with_undo(&state, "Новая цель", |c| goals::create(c, &input))
