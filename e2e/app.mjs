@@ -153,7 +153,14 @@ export async function click(browser, text, scope = "") {
   // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
   // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.
   await el.waitForExist({ timeout: 5000 });
-  await browser.execute((b) => b.scrollIntoView({ block: "center" }), el);
+  await browser.execute((b) => {
+    b.scrollIntoView({ block: "center" });
+    // Внизу короткого экрана прокрутить некуда: плашку «Отменить» над кнопкой закрываем.
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const bar = top?.closest('[data-testid="undo-bar"]');
+    if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
+  }, el);
   await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
     throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
   });

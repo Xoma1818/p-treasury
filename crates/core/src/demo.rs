@@ -476,19 +476,17 @@ fn quick_wins(conn: &mut Connection, now: NaiveDate, card: &str) -> Result<()> {
             )?,
         )?;
     }
-    // Подписка подорожала в этом месяце: 399 → 449 ₽.
+    // Подписка подорожала в этом месяце: 399 → 449 ₽. Новая цена должна попасть
+    // в 30 дней «Проверьте»: 31-го числа 1-е уже за окном, тогда платим 2-го.
     for back in (0..=HISTORY_MONTHS).rev() {
         let amount = if back == 0 { 44_900 } else { 39_900 };
+        let mut date = day(month_start(now, back), 1);
+        if back == 0 {
+            date = date.max(now - Duration::days(crate::checks::WINDOW_DAYS - 1));
+        }
         transactions::create(
             conn,
-            &mk_expense(
-                conn,
-                day(month_start(now, back), 1),
-                card,
-                amount,
-                "Подписки",
-                "Яндекс Плюс",
-            )?,
+            &mk_expense(conn, date, card, amount, "Подписки", "Яндекс Плюс")?,
         )?;
     }
     Ok(())
@@ -663,5 +661,32 @@ mod tests {
         let d = NaiveDate::from_ymd_opt(2026, 2, 14).unwrap();
         assert_eq!(month_start(d, 3).to_string(), "2025-11-01");
         assert_eq!(day(month_start(d, 0), 31).to_string(), "2026-02-28");
+    }
+}
+
+#[cfg(test)]
+mod month_end {
+    use super::*;
+    use crate::storage::Storage;
+
+    /// 31-го числа подорожание из примера тоже видно в «Проверьте».
+    #[test]
+    fn price_rise_is_seen_any_day() {
+        for today in [
+            "2026-10-01",
+            "2026-10-30",
+            "2026-10-31",
+            "2026-12-31",
+            "2027-03-31",
+        ] {
+            let mut db = Storage::open_in_memory().unwrap();
+            seed(db.conn_mut(), today).unwrap();
+            let kinds: Vec<String> = crate::checks::list(db.conn(), today)
+                .unwrap()
+                .into_iter()
+                .map(|x| x.kind)
+                .collect();
+            assert!(kinds.contains(&"price".to_string()), "{today}: {kinds:?}");
+        }
     }
 }
