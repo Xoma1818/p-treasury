@@ -34,8 +34,10 @@ export function Money({
 }
 
 /** Номер смены суммы: новое значение проявляется на месте старого (класс money-swap),
- *  цифры не «бегут». Первый показ — без анимации. */
+ *  цифры не «бегут». Первый показ — без анимации. Под автотестом (navigator.webdriver)
+ *  сумма меняется сразу: полупрозрачный текст WebDriver не читает. */
 function useSwap(amount: number, on: boolean): number {
+  on = on && !navigator.webdriver;
   const [n, setN] = useState(0);
   const prev = useRef(amount);
   useEffect(() => {
