@@ -198,7 +198,10 @@ test("обновление: при запуске приложение сооб�
         version: "9.9.9",
         notes: "Новые отчёты",
         pub_date: new Date().toISOString(),
-        platforms: { "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" } },
+        platforms: {
+          "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" },
+          "windows-x86_64": { signature: "test", url: "http://127.0.0.1/Kazna_9.9.9_x64-setup.exe" },
+        },
       }),
     );
   });

@@ -55,12 +55,14 @@ fn data_dir_override() -> Option<PathBuf> {
 /// Сквозные тесты в окне Windows: msedgedriver открывает порт отладки WebView2
 /// через WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, но wry всегда задаёт аргументы
 /// браузера сам, и переменная не действует (DevToolsActivePort не появляется).
-/// Только с тестовой папкой данных аргументы из переменной передаются окнам
-/// явно, вместе с обычными аргументами wry. У всех окон аргументы одинаковые:
-/// WebView2 с общей папкой не открывает окна с разными аргументами.
+/// Только под WebDriver (msedgedriver всегда добавляет `--test-type=webdriver`)
+/// аргументы из переменной передаются окнам явно, вместе с обычными
+/// аргументами wry. У всех окон аргументы одинаковые: WebView2 с общей папкой
+/// не открывает окна с разными аргументами.
 pub(crate) fn test_browser_args() -> Option<String> {
-    data_dir_override()?;
-    let extra = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok()?;
+    let extra = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+        .ok()
+        .filter(|a| a.contains("--test-type=webdriver"))?;
     Some(format!(
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"
     ))

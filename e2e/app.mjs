@@ -234,6 +234,10 @@ export function appPid(dataDir = currentDir) {
 /** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
 export function closeLikeUser(dataDir = currentDir) {
   const pid = appPid(dataDir);
+  if (!pid && WIN) {
+    const all = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${APP_FILE}'" | ForEach-Object { $_.CommandLine }`], { encoding: "utf8" }).stdout.trim();
+    throw new Error(`приложение не запущено: нет процесса с --data-dir=${dataDir}; запущены: ${all || "нет"}`);
+  }
   if (!pid) throw new Error("приложение не запущено");
   if (WIN) {
     // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
