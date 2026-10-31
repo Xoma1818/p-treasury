@@ -57,6 +57,8 @@ pub struct Preview {
 pub(crate) struct Parsed {
     pub(crate) row: Row,
     pub(crate) input: Option<TxnInput>,
+    /// Текст получателя из выписки банка до правил (ключ повтора, B3).
+    pub(crate) raw_payee: Option<String>,
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -323,7 +325,11 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
                 None
             }
         };
-        out.push(Parsed { row, input });
+        out.push(Parsed {
+            row,
+            input,
+            raw_payee: None,
+        });
     }
     if out.is_empty() {
         return invalid("в файле нет строк с операциями");
@@ -415,18 +421,22 @@ pub fn import(
         ));
     }
     let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
-    let inputs: Vec<TxnInput> = parsed.into_iter().filter_map(|p| p.input).collect();
+    let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
+        .into_iter()
+        .filter_map(|p| p.input.map(|i| (i, p.raw_payee)))
+        .unzip();
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let tx = conn.transaction()?;
-    let saved = import_log::save(
+    let saved = import_log::save_with_raw(
         &tx,
         import_log::Origin::Manual,
         &name,
         bank.as_ref().map(|(b, _)| b.title()),
         &inputs,
+        &raws,
         skipped,
     )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {

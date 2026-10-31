@@ -1,13 +1,73 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { remote } from "webdriverio";
 
 const ROOT = resolve(import.meta.dirname, "..");
-export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, "target/debug/budget-app");
+/** В Windows нет pkill/pgrep/xdotool: процессы ищем по командной строке через PowerShell. */
+export const WIN = process.platform === "win32";
+export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, WIN ? "target/debug/budget-app.exe" : "target/debug/budget-app");
+/** Имя файла программы для копии рядом с переносной версией (в Windows с .exe). */
+export const APP_FILE = basename(APP_BIN);
+
+/** PID процессов (Windows), в командной строке которых есть `pattern`. */
+function winPids(pattern) {
+  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($p) } | ForEach-Object { $_.ProcessId }";
+  const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+    encoding: "utf8",
+    env: { ...process.env, KAZNA_E2E_PATTERN: pattern },
+  });
+  return r.stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** Программы прогона в Windows: всё, что может пережить сессию и помешать следующей. */
+const WIN_IMAGES = ["tauri-driver.exe", "msedgedriver.exe", APP_FILE, "msedgewebview2.exe"];
+
+/** Есть ли ещё процесс с таким именем файла (tasklist отвечает «INFO: No tasks…», если нет). */
+function winRunning(image) {
+  const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/NH", "/FO", "CSV"], { encoding: "utf8" });
+  return r.stdout.toLowerCase().includes(`"${image.toLowerCase()}"`);
+}
+
+/** Закрыть всё от прошлого запуска и дождаться, пока процессы исчезнут: живой
+ *  tauri-driver держит порт 4444 (новая сессия попала бы в него), а WebView2 —
+ *  свою папку, и тогда msedgedriver отвечает «DevToolsActivePort file doesn't exist». */
+async function winCleanup(timeout = 20000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const left = WIN_IMAGES.filter(winRunning);
+    if (!left.length) return;
+    if (Date.now() > until) {
+      console.error(`# после прогона остались процессы: ${left.join(", ")}`);
+      return;
+    }
+    for (const image of left) spawnSync("taskkill", ["/IM", image, "/T", "/F"]);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/** Windows: запускается ли программа сама по себе (без WebDriver). Проверяется один раз;
+ *  если она сразу закрывается, сессия всё равно не создастся — тесты падают сразу, а не по таймауту. */
+let winProbe;
+function winProbeApp(bin, env) {
+  if (winProbe !== undefined) return winProbe;
+  const dir = mkdtempSync(join(tmpdir(), "p-treasury-probe-"));
+  const r = spawnSync(bin, [`--data-dir=${dir}`], { encoding: "utf8", timeout: 15000, env });
+  if (r.error?.code === "ETIMEDOUT") {
+    console.error("# проверка запуска: программа работает 15 с — запускается нормально");
+    winProbe = null;
+  } else {
+    winProbe = `программа закрылась сама: код ${r.status}, сигнал ${r.signal}, ошибка ${r.error?.message ?? "нет"}; stdout: ${(r.stdout || "").slice(-2000)}; stderr: ${(r.stderr || "").slice(-4000)}`;
+    console.error(`# проверка запуска: ${winProbe}`);
+  }
+  return winProbe;
+}
+
+/** Windows: первая неудачная сессия; дальше start() падает сразу, не тратя минуты на таймауты. */
+let winSessionError;
 
 let driver;
 let currentDir;
@@ -21,17 +81,52 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // Курсы ЦБ грузятся сами раз в день: в тестах сайт ЦБ подменён закрытым портом,
   // чтобы настоящие курсы не меняли суммы (cbr.test.mjs ставит свой сервер).
   const cbr = { PTREASURY_CBR_URL: "http://127.0.0.1:9/scripts/XML_daily.asp", NO_PROXY: "127.0.0.1,localhost" };
-  driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...cbr, ...env } });
-  await new Promise((r) => setTimeout(r, 1500));
-  const browser = await remote({
-    hostname: "127.0.0.1",
-    port: 4444,
-    logLevel: "error",
-    capabilities: {
-      // `args: []` — запуск без своей папки данных (переносная версия).
-      "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
-    },
-  });
+  const wv2 = {};
+  // Windows: msedgedriver напрямую (как его вызывает tauri-driver), с подробным журналом —
+  // если сессия не создаётся, его хвост объясняет почему.
+  const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
+  const appArgs = args ?? [`--data-dir=${dataDir}`];
+  const open = async () => {
+    if (WIN) await winCleanup();
+    const childEnv = { ...process.env, ...cbr, ...wv2, ...env };
+    driver = WIN
+      ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
+      : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
+    await new Promise((r) => setTimeout(r, 1500));
+    return remote({
+      hostname: "127.0.0.1",
+      port: 4444,
+      logLevel: "error",
+      capabilities: WIN
+        ? { browserName: "webview2", "ms:edgeOptions": { binary: bin, args: appArgs } }
+        : // `args: []` — запуск без своей папки данных (переносная версия).
+          { "tauri:options": { application: bin, args: appArgs } },
+    });
+  };
+  const edgeTail = () => {
+    try {
+      return readFileSync(edgeLog, "utf8").split(/\r?\n/).slice(-80).join("\n");
+    } catch (e) {
+      return `журнала нет: ${e.message}`;
+    }
+  };
+  if (WIN && winSessionError) throw new Error(`сессия WebDriver в Windows не создаётся: ${winSessionError}`);
+  if (WIN) {
+    await winCleanup();
+    const dead = winProbeApp(bin, { ...process.env, ...cbr, ...wv2, ...env });
+    await winCleanup();
+    if (dead) throw new Error(dead);
+  }
+  let browser;
+  try {
+    browser = await open();
+  } catch (e) {
+    if (!WIN) throw e;
+    // Первый запуск WebView2 на чистой машине бывает дольше таймаута msedgedriver: одна повторная попытка.
+    console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; журнал msedgedriver:\n${edgeTail()}`);
+    winSessionError = e.message;
+    throw e;
+  }
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
   // карточки, поэтому включаем их (как у пользователя, который их включил);
   // `homeDefaults: true` оставляет Главную как после установки.
@@ -55,6 +150,14 @@ export async function stop(browser) {
   try {
     await browser?.deleteSession();
   } finally {
+    if (WIN) {
+      // kill() в Windows не трогает дочерние процессы: msedgedriver и приложение
+      // пережили бы прогон, а с 0.26 следующий запуск отдавался бы старой копии
+      // (одна копия программы) — «session not created: DevToolsActivePort».
+      if (driver?.pid) spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+      await winCleanup();
+      return;
+    }
     driver?.kill();
     // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
     if (killPattern) spawnSync("pkill", ["-f", "--", killPattern]);
@@ -66,6 +169,7 @@ export async function stop(browser) {
 
 /** PID приложения этого прогона (или null, если оно завершилось). */
 export function appPid(dataDir = currentDir) {
+  if (WIN) return winPids(`--data-dir=${dataDir}`)[0] ?? null;
   const r = spawnSync("pgrep", ["-f", "--", `--data-dir=${dataDir}`], { encoding: "utf8" });
   return r.stdout.trim().split("\n").filter(Boolean)[0] ?? null;
 }
@@ -74,6 +178,12 @@ export function appPid(dataDir = currentDir) {
 export function closeLikeUser(dataDir = currentDir) {
   const pid = appPid(dataDir);
   if (!pid) throw new Error("приложение не запущено");
+  if (WIN) {
+    // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
+    const r = spawnSync("taskkill", ["/PID", pid], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr || r.stdout}`);
+    return;
+  }
   const wins = spawnSync("xdotool", ["search", "--pid", pid], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
   const r = spawnSync("python3", [join(ROOT, "e2e/wm_close.py"), ...wins], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr}`);
