@@ -888,3 +888,16 @@ h2 { font-size: 16px; }
 :root .brand-logo { box-shadow: none; border-radius: 0; }
 :root .logo-bg { fill: #0e9f7a; }
 :root .logo-fg { stroke: #fff; }
+
+/* 0.28 «Меню и шапки»: нижний ряд меню одной строкой из значков. */
+.sidebar-foot { flex-direction: row; align-items: center; gap: 4px; padding: 10px 4px 2px; }
+.sidebar-foot .theme-switch { display: inline-flex; margin: 0; padding: 2px; gap: 2px; }
+.sidebar-foot .theme-switch button { width: 34px; height: 30px; padding: 0; }
+.foot-spacer { flex: 1; }
+.foot-btn { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.foot-btn:hover { background: var(--hover); color: var(--text); }
+.foot-btn[aria-checked="true"] { color: var(--accent); background: var(--accent-soft); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Вкладки по ширине текста, а не на весь экран (Календарь, Взгляд вперёд). */
+.tabs.fit { width: fit-content; max-width: 100%; }
+.tabs.fit .tab { flex: none; padding: 6px 18px; white-space: nowrap; }

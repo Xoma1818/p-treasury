@@ -37,7 +37,7 @@ test("по умолчанию тёмная тема, переключатель 
 test("меню разбито на группы, у пункта меню значок, у раздела подсказка", async () => {
   const { browser } = app;
   const groups = await browser.execute(() => [...document.querySelectorAll(".nav-group")].map((g) => g.textContent));
-  assert.deepEqual(groups, ["Каждый день", "Планы", "Долги и займы", "Справочники"]);
+  assert.deepEqual(groups, ["Каждый день", "Планы", "Деньги", "Справочники"]);
   await openSection(browser, "Бюджет");
   const hint = await browser.$("main .screen-hint").getText();
   assert.equal(hint, "Сколько можно тратить в этом месяце");

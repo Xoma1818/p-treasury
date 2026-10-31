@@ -23,7 +23,7 @@ export function Forecast() {
   return (
     <section className="screen forecast-screen">
       <ScreenTitle id="forecast" />
-      <div className="tabs" role="tablist">
+      <div className="tabs fit forecast-tabs" role="tablist">
         <button role="tab" aria-selected={tab === "forecast"} className={tab === "forecast" ? "tab active" : "tab"} onClick={() => setTab("forecast")} data-testid="tab-forecast">
           Прогноз и «что если»
         </button>
