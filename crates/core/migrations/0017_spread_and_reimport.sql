@@ -64,7 +64,8 @@ CREATE INDEX idx_import_keys_bank ON import_keys(account_id, bank_date, bank_amo
 
 -- Уже загруженные операции: ключ — их нынешние данные (как было бы и без
 -- ключа). Неизменённые после загрузки совпадают со строкой банка точно.
+-- Части чеков, разбитых до 0017, ключа не получают: их узнаёт сумма частей.
 INSERT INTO import_keys (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
 SELECT id, account_id, type, date, abs(amount), coalesce(payee, '')
 FROM transactions
-WHERE import_id IS NOT NULL AND type IN ('expense', 'income');
+WHERE import_id IS NOT NULL AND split_id IS NULL AND type IN ('expense', 'income');
