@@ -68,26 +68,29 @@ pub fn on_date(conn: &Connection, on: &str, missing: &mut Vec<String>) -> Result
         date: on.to_string(),
         ..Default::default()
     };
-    for a in accounts::list(conn, true)?
-        .into_iter()
-        .filter(|a| a.include_in_total)
-    {
-        if a.opening_date.as_str() > on {
-            continue;
-        }
-        let investment = a.kind == "investment";
+    // Счета в итоге (как `accounts::list(conn, true)` с include_in_total), но без
+    // подсчёта текущих балансов и оценок: здесь нужен только баланс на дату.
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, type, currency_code FROM accounts
+         WHERE type <> 'debt' AND include_in_total = 1 AND opening_date <= ?1",
+    )?;
+    let accounts: Vec<(String, String, String)> = stmt
+        .query_map([on], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, kind, currency_code) in accounts {
+        let investment = kind == "investment";
         let value = if investment {
-            invest::value_on(conn, &a.id, on)?.0
+            invest::value_on(conn, &id, on)?.0
         } else {
-            accounts::balance(conn, &a.id, Some(on))?
+            accounts::balance(conn, &id, Some(on))?
         };
         if value == 0 {
             continue;
         }
-        match currencies::convert(conn, value, &a.currency_code, &base, on)? {
+        match currencies::convert(conn, value, &currency_code, &base, on)? {
             Some(v) if investment => p.investments += v,
             Some(v) => p.cash += v,
-            None => miss(missing, &a.currency_code),
+            None => miss(missing, &currency_code),
         }
     }
     let (assets_value, assets_missing) = assets::total(conn, on)?;
