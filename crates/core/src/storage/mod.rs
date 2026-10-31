@@ -142,8 +142,28 @@ impl Storage {
     /// Восстановить данные из копии `src` в открытую базу. Текущие данные
     /// перед этим сохраняются в `backup_dir` (`before-restore-*.db`); копия
     /// из старой версии проходит миграции. Возвращает путь к этой страховке.
+    ///
+    /// Копия сначала проверяется на целостность и обновляется до текущей
+    /// схемы в памяти; рабочая база заменяется только готовым результатом
+    /// одним шагом. Повреждённая копия или сбой миграции оставляют рабочие
+    /// данные как были. Настройки папки сохранности ([`LOCAL_SETTINGS`])
+    /// относятся к этому компьютеру и после восстановления остаются прежними.
     pub fn restore_from(&mut self, src: &Path, opts: &OpenOptions) -> Result<PathBuf> {
         crate::backups::inspect(src)?;
+        crate::backups::check_integrity(src)?;
+        let mut prepared = Self::rehearse_restore(src).map_err(|e| {
+            Error::Validation(format!(
+                "копию не удалось обновить до текущей версии, данные не изменены: {e}"
+            ))
+        })?;
+        {
+            let local = local_settings(&self.conn)?;
+            let tx = prepared.conn.transaction()?;
+            for (key, value) in &local {
+                crate::settings::set(&tx, key, value)?;
+            }
+            tx.commit()?;
+        }
         fs::create_dir_all(&opts.backup_dir)?;
         let safety = opts
             .backup_dir
@@ -151,10 +171,17 @@ impl Storage {
         backup_to(&self.conn, &safety)?;
         prune_backups(&opts.backup_dir, "before-restore", opts.keep_backups)?;
         {
-            let source =
-                Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-            let backup = rusqlite::backup::Backup::new(&source, &mut self.conn)?;
-            backup.run_to_completion(256, std::time::Duration::from_millis(10), None)?;
+            // Все страницы переносятся под одной блокировкой записи и
+            // фиксируются в конце: при ошибке рабочая база не меняется.
+            let backup = rusqlite::backup::Backup::new(&prepared.conn, &mut self.conn)?;
+            match backup.step(-1)? {
+                rusqlite::backup::StepResult::Done => {}
+                _ => {
+                    return Err(Error::Validation(
+                        "рабочая база занята, данные не изменены; повторите восстановление".into(),
+                    ))
+                }
+            }
         }
         configure(&self.conn)?;
         migrate(&mut self.conn, MIGRATIONS)?;
@@ -165,6 +192,21 @@ impl Storage {
     pub fn pre_migration_backup(&self) -> Option<&Path> {
         self.pre_migration_backup.as_deref()
     }
+}
+
+/// Настройки этого компьютера: папка сохранности и её состояние. Копия с
+/// другого компьютера или старая копия не должна выключить копирование или
+/// указать на чужую папку (флешку, которой нет).
+pub const LOCAL_SETTINGS: &[&str] = &["vault_on", "vault_dir", "vault_synced_at", "vault_error"];
+
+fn local_settings(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for key in LOCAL_SETTINGS {
+        if let Some(v) = crate::settings::get(conn, key)? {
+            out.push((key.to_string(), v));
+        }
+    }
+    Ok(out)
 }
 
 fn configure(conn: &Connection) -> Result<()> {
