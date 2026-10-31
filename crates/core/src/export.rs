@@ -292,7 +292,7 @@ fn summary_sheet(conn: &Connection, from: &str, to: &str, today: &str) -> Result
     let mut sh = Sheet::new("Сводка", &[]);
     let row = |label: &str, value: Cell| vec![Cell::text(label), value];
     sh.rows.push(vec![
-        Cell::text("Сводка P-Treasury"),
+        Cell::text("Сводка Kazna"),
         Cell::Date(from.into()),
         Cell::Date(to.into()),
     ]);

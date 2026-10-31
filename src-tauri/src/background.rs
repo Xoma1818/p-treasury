@@ -90,7 +90,7 @@ const PAY_ACTIONS: &str = "pt-payment";
 
 /// Уведомление; у своего напоминания — кнопки «Оплачено» и «Завтра».
 fn show(app: &AppHandle, body: String, o: Option<&Occurrence>) {
-    let mut b = app.notification().builder().title("P-Treasury").body(body);
+    let mut b = app.notification().builder().title("Kazna").body(body);
     if let Some(o) = o.filter(|o| o.key.source == "reminder") {
         b = b.action_type_id(PAY_ACTIONS).extra("key", &o.key);
     }
@@ -197,7 +197,7 @@ fn weekly(app: &AppHandle) {
     let _ = app
         .notification()
         .builder()
-        .title("P-Treasury")
+        .title("Kazna")
         .body(habits::weekly_text(&summary))
         .show();
 }
@@ -219,7 +219,7 @@ fn budget_limits(app: &AppHandle) {
         let _ = app
             .notification()
             .builder()
-            .title("P-Treasury")
+            .title("Kazna")
             .body(budget_alerts::notify_text(a))
             .show();
     }
@@ -241,7 +241,7 @@ fn upcoming_payments(app: &AppHandle) {
     let _ = app
         .notification()
         .builder()
-        .title("P-Treasury")
+        .title("Kazna")
         .body(body)
         .show();
 }
@@ -304,7 +304,7 @@ fn scan_folder(app: &AppHandle) {
     let _ = app
         .notification()
         .builder()
-        .title("P-Treasury")
+        .title("Kazna")
         .body(body)
         .show();
     let _ = app.emit("auto-import", &result);
@@ -325,7 +325,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &add, &quick, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("P-Treasury")
+        .tooltip("Kazna")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {

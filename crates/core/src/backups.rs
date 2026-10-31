@@ -30,13 +30,7 @@ pub struct Verified {
 /// операций после восстановления совпадает с копией. Рабочие данные не трогает.
 pub fn verify(path: &Path) -> Result<Verified> {
     let info = inspect(path)?;
-    {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-        if integrity != "ok" {
-            return invalid(format!("копия повреждена: {integrity}"));
-        }
-    }
+    check_integrity(path)?;
     let restored = crate::storage::Storage::rehearse_restore(path)
         .map_err(|e| Error::Validation(format!("пробное восстановление не удалось: {e}")))?;
     let c = restored.conn();
@@ -63,6 +57,20 @@ pub fn verify(path: &Path) -> Result<Verified> {
         transactions,
         last_date: info.last_date,
     })
+}
+
+/// Проверка целостности файла копии средствами SQLite (только чтение).
+pub fn check_integrity(path: &Path) -> Result<()> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let integrity: String = conn
+        .query_row("PRAGMA integrity_check(1)", [], |r| r.get(0))
+        .unwrap_or_else(|e| e.to_string());
+    if integrity != "ok" {
+        return invalid(format!(
+            "копия повреждена, данные не изменены ({integrity})"
+        ));
+    }
+    Ok(())
 }
 
 /// Запомнить итог проверки: успешная обновляет дату последней проверенной
@@ -131,9 +139,9 @@ pub struct BackupInfo {
     pub last_date: Option<String>,
 }
 
-/// Проверить, что файл — копия P-Treasury, которую эта версия может открыть.
+/// Проверить, что файл — копия Kazna, которую эта версия может открыть.
 pub fn inspect(path: &Path) -> Result<BackupInfo> {
-    let not_ours = || Error::Validation("это не файл данных P-Treasury".into());
+    let not_ours = || Error::Validation("это не файл данных Kazna".into());
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| not_ours())?;
     let version: i64 = conn

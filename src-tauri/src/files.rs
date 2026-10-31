@@ -1,7 +1,7 @@
 //! Несколько файлов бюджета («Семья», «Дача», «Бизнес мамы») и переносная версия.
 //!
 //! Список файлов и текущий файл хранятся в `files.json` в папке данных. Новый
-//! файл создаётся в `files/` рядом с основным; любой другой файл P-Treasury
+//! файл создаётся в `files/` рядом с основным; любой другой файл Kazna
 //! можно открыть с диска. Переключение закрывает текущую базу и открывает
 //! другую, журнал отмены очищается.
 
@@ -142,7 +142,7 @@ pub fn create(state: &AppState, name: &str) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
-/// Открыть файл P-Treasury с диска и добавить в список.
+/// Открыть файл Kazna с диска и добавить в список.
 pub fn open_existing(state: &AppState, path: &Path) -> Result<(), String> {
     backups::inspect(path).map_err(|e| e.to_string())?;
     let main = main_path(&state.data_dir);

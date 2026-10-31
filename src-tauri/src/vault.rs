@@ -15,7 +15,7 @@ use crate::AppState;
 
 type CmdResult<T> = Result<T, String>;
 
-/// Папка по умолчанию: `Документы\P-Treasury`; в переносной версии — рядом с
+/// Папка по умолчанию: `Документы\Kazna`; в переносной версии — рядом с
 /// программой; в тестах (своя папка данных) — внутри папки данных.
 pub fn default_dir(app: &AppHandle, data_dir: &Path, test_dir: bool, portable: bool) -> PathBuf {
     if let Some(dir) = std::env::var_os("PTREASURY_VAULT_DIR") {

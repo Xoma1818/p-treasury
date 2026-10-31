@@ -111,7 +111,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   g.textBaseline = "alphabetic";
   g.fillStyle = C.muted;
   g.font = `600 28px ${FONT}`;
-  g.fillText("P-Treasury", pad + 84, 108);
+  g.fillText("Kazna", pad + 84, 108);
   g.fillStyle = C.text;
   g.font = `700 76px ${FONT}`;
   g.fillText(`Мой ${r.year} год`, pad, 236);
@@ -212,7 +212,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   // Подвал.
   g.fillStyle = C.muted;
   g.font = `400 22px ${FONT}`;
-  g.fillText("Личный бюджет в P-Treasury", pad, CARD_H - 52);
+  g.fillText("Личный бюджет в Kazna", pad, CARD_H - 52);
   g.textAlign = "right";
   g.fillText(r.year === new Date().getFullYear() ? "год ещё идёт" : `${r.year}`, CARD_W - pad, CARD_H - 52);
   g.textAlign = "left";

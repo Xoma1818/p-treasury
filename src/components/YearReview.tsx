@@ -136,7 +136,7 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   }, [r, base, hide]);
   const save = async () => {
     setError(null);
-    const path = await pickSave(`P-Treasury — итоги ${r.year} года.png`, [PNG]);
+    const path = await pickSave(`Kazna — итоги ${r.year} года.png`, [PNG]);
     if (!path) return;
     try {
       const blob = await cardPng(canvas.current!);

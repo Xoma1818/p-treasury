@@ -596,6 +596,7 @@ pub(crate) fn to_parsed(
         .or_else(|| saved.get(bank.key()).and_then(|id| by_id(id)));
 
     let mut out = Vec::new();
+    let mut seen = HashMap::new();
     for op in ops {
         let kind = if op.income { "income" } else { "expense" };
         // Карта в названии счёта («Т-Банк *1140») или запомненная для неё.
@@ -673,7 +674,7 @@ pub(crate) fn to_parsed(
                 if let Some(p) = &input.payee {
                     row.payee = p.clone();
                 }
-                if exists(conn, &input)? {
+                if is_repeat(conn, &input, &mut seen)? {
                     row.duplicate = true;
                     None
                 } else {
@@ -694,24 +695,56 @@ pub(crate) fn to_parsed(
 /// или эта строка выписки уже связана с записанной вручную операцией.
 /// Разбитый чек считается одной операцией на сумму всех его частей: после
 /// разбивки повторная выписка не добавит покупку второй раз.
+#[cfg(test)]
 pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
-    if crate::import_log::linked(conn, t)? {
-        return Ok(true);
-    }
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
-               AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '') AND split_id IS NULL
-             UNION ALL
-             SELECT 1 FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
-               AND coalesce(payee, '') = coalesce(?5, '') AND split_id IS NOT NULL
-             GROUP BY split_id HAVING sum(abs(amount)) = ?4
-             LIMIT 1",
-            params![t.date, t.account_id, t.kind, t.amount, t.payee],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    Ok(existing_count(conn, t)? > 0)
+}
+
+/// Сколько таких строк банка уже записано: связи этой строки выписки с
+/// ручными записями плюс точно такие же операции, ещё не связанные с ней
+/// (связанная запись не считается дважды). Разбитый чек — одна операция.
+fn existing_count(conn: &Connection, t: &TxnInput) -> Result<usize> {
+    let n: i64 = conn.query_row(
+        "WITH links AS (
+            SELECT transaction_id FROM import_links WHERE account_id = ?2 AND kind = ?3
+              AND bank_date = ?1 AND bank_amount = ?4 AND bank_payee = coalesce(?5, ''))
+         SELECT (SELECT count(*) FROM links)
+              + (SELECT count(*) FROM transactions WHERE date = ?1 AND account_id = ?2
+                   AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
+                   AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links))
+              + (SELECT count(*) FROM (SELECT 1 FROM transactions WHERE date = ?1
+                   AND account_id = ?2 AND type = ?3 AND coalesce(payee, '') = coalesce(?5, '')
+                   AND split_id IS NOT NULL
+                 GROUP BY split_id HAVING sum(abs(amount)) = ?4
+                   AND sum(id IN (SELECT transaction_id FROM links)) = 0))",
+        params![t.date, t.account_id, t.kind, t.amount, t.payee],
+        |r| r.get(0),
+    )?;
+    Ok(n as usize)
+}
+
+/// Строка выписки — повтор уже записанного. Одинаковые строки одного файла
+/// (две одинаковые покупки за день) считаются по порядку: N-я такая строка —
+/// повтор, только если таких операций уже записано не меньше N. Так более
+/// полная выписка добавит недостающую вторую покупку, а повтор файла — ничего.
+/// `seen` — сколько таких строк уже встретилось в этом файле.
+pub(crate) fn is_repeat(
+    conn: &Connection,
+    t: &TxnInput,
+    seen: &mut HashMap<String, usize>,
+) -> Result<bool> {
+    let key = format!(
+        "{}|{}|{}|{}|{}",
+        t.date,
+        t.account_id,
+        t.kind,
+        t.amount,
+        t.payee.as_deref().unwrap_or("")
+    );
+    let nth = seen.entry(key).or_insert(0);
+    let repeat = existing_count(conn, t)? > *nth;
+    *nth += 1;
+    Ok(repeat)
 }
 
 #[cfg(test)]

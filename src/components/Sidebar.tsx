@@ -78,7 +78,7 @@ export function Sidebar() {
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
         <Logo />
-        P-Treasury
+        Kazna
       </div>
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
         <Search strokeWidth={1.75} aria-hidden="true" />

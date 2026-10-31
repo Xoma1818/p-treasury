@@ -58,7 +58,7 @@ export function Onboarding() {
   return (
     <div className="wizard">
       <div className="card wizard-card">
-        <div className="brand big">P-Treasury</div>
+        <div className="brand big">Kazna</div>
         <div className="steps">Шаг {step} из 3</div>
 
         {step === 1 && (
@@ -69,7 +69,7 @@ export function Onboarding() {
                 <div className="hint">
                   {found.length
                     ? `Нашлась папка сохранности: ${found[0].name}, операций ${found[0].transactions.toLocaleString("ru-RU")}. Перенесите её, и всё будет как на старом компьютере.`
-                    : "Скопируйте папку P-Treasury со старого компьютера в «Документы» или покажите её, и всё будет на месте."}
+                    : "Скопируйте папку Kazna со старого компьютера в «Документы» или покажите её, и всё будет на месте."}
                 </div>
               </div>
               <button className={found.length ? "btn primary" : "btn"} onClick={() => setTransfer(true)}>
