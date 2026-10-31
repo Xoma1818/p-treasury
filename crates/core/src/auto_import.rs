@@ -12,7 +12,7 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::bank_import::{self, exists};
+use crate::bank_import::{self, is_repeat};
 use crate::{csv_import, import_log, time, Result};
 
 /// Выписка банка, для которого ещё не выбран счёт. Такой файл берётся снова,
@@ -134,9 +134,10 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 // Дубли ищутся среди операций, загруженных до этого файла: две
                 // одинаковые поездки в один день в самой выписке — две операции.
                 let mut new = Vec::new();
+                let mut seen = std::collections::HashMap::new();
                 for p in parsed {
                     match p.input {
-                        Some(input) if !exists(conn, &input)? => new.push(input),
+                        Some(input) if !is_repeat(conn, &input, &mut seen)? => new.push(input),
                         _ => res.skipped += 1,
                     }
                 }

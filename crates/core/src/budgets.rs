@@ -205,7 +205,13 @@ fn actuals(
 }
 
 /// Расходы периода, отнесённые к поездкам и событиям, в валюте `currency`.
-fn event_expense(conn: &Connection, p: &Period, currency: &str) -> Result<i64> {
+/// Валюты без курса добавляются в `missing`: такие траты не вошли.
+fn event_expense(
+    conn: &Connection,
+    p: &Period,
+    currency: &str,
+    missing: &mut Vec<String>,
+) -> Result<i64> {
     let mut stmt = conn.prepare(
         "SELECT t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
@@ -222,7 +228,11 @@ fn event_expense(conn: &Connection, p: &Period, currency: &str) -> Result<i64> {
     let mut total = 0;
     for row in rows {
         let (date, amount, cur) = row?;
-        total += currencies::convert(conn, amount, &cur, currency, &date)?.unwrap_or(0);
+        match currencies::convert(conn, amount, &cur, currency, &date)? {
+            Some(v) => total += v,
+            None if !missing.contains(&cur) => missing.push(cur),
+            None => {}
+        }
     }
     Ok(total)
 }
@@ -237,7 +247,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         None => currencies::base_currency(conn)?,
     };
     let symbol = currencies::get(conn, &currency)?.symbol;
-    let (by_cat, missing_rates) = actuals(conn, &p, &currency)?;
+    let (by_cat, mut missing_rates) = actuals(conn, &p, &currency)?;
 
     let cats = categories::list(conn, true)?;
     let parent_of: HashMap<&str, Option<&str>> = cats
@@ -375,7 +385,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         } else {
             (None, None)
         };
-    let events_spent = event_expense(conn, &p, &currency)?;
+    let events_spent = event_expense(conn, &p, &currency, &mut missing_rates)?;
 
     Ok(Budget {
         id: row.as_ref().map(|r| r.0.clone()),
