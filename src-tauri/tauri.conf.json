@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "P-Treasury",
-  "mainBinaryName": "p-treasury",
-  "version": "0.27.0",
+  "productName": "Kazna",
+  "mainBinaryName": "Kazna",
+  "version": "0.27.1",
   "identifier": "app.kazna.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "P-Treasury",
+        "title": "Kazna",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
@@ -40,7 +40,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "updater": {
