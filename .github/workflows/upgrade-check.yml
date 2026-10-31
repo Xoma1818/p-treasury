@@ -87,10 +87,11 @@ jobs:
           python $snap seed $db
           RunApp "$odir\p-treasury.exe"   # старая программа открывает базу с меткой и делает свои копии
           Show 'старая версия с данными'
+          # Старая программа при запуске сама обновляет копии в Документах, поэтому снимок — уже после её старта.
+          if ($env:OLD_RUNNING) { Start-Process "$odir\p-treasury.exe"; Start-Sleep 20
+            Write-Host "Старая запущена: $((Get-Process p-treasury -ErrorAction SilentlyContinue).Count) процессов" }
           python $snap take $db "$docs\P-Treasury" before.json
 
-          if ($env:OLD_RUNNING) { Start-Process "$odir\p-treasury.exe"; Start-Sleep 15
-            Write-Host "Старая запущена: $((Get-Process p-treasury -ErrorAction SilentlyContinue).Count) процессов" }
           $new = (Get-ChildItem new\*.exe)[0].FullName; Write-Host "Новая: $new"
           Start-Process $new -ArgumentList '/S' -Wait
           Start-Sleep 5
