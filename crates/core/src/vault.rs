@@ -48,7 +48,19 @@ fn is_vault_name(p: &Path) -> bool {
 /// 0.26: «Документы\P-Treasury» → «Документы\Kazna». Только для папки по
 /// умолчанию и только если новой ещё нет; выбранную пользователем папку
 /// (настройка `vault_dir`) не трогаем. Возвращает `true`, если папка переименована.
+///
+/// Если Windows не даёт переименовать (папку держит проводник или облако), программа
+/// остаётся на старой папке: её путь записывается в `vault_dir`, и копии с историей
+/// продолжают копиться в одном месте, а не расходятся по двум папкам.
 pub fn migrate_default(conn: &Connection, default: &Path) -> Result<bool> {
+    migrate_default_with(conn, default, |from, to| fs::rename(from, to))
+}
+
+fn migrate_default_with(
+    conn: &Connection,
+    default: &Path,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<bool> {
     let chosen = settings::get(conn, "vault_dir")?.unwrap_or_default();
     if !chosen.trim().is_empty() {
         return Ok(false);
@@ -62,7 +74,10 @@ pub fn migrate_default(conn: &Connection, default: &Path) -> Result<bool> {
     {
         return Ok(false);
     }
-    fs::rename(&old, default)?;
+    if let Err(e) = rename(&old, default) {
+        settings::set(conn, "vault_dir", &old.to_string_lossy())?;
+        return Err(e.into());
+    }
     Ok(true)
 }
 pub const HISTORY: &str = "Копии";
@@ -1111,6 +1126,24 @@ mod tests {
         fs::create_dir_all(&old).unwrap();
         assert!(!migrate_default(db.conn(), &new).unwrap());
         assert!(old.exists());
+    }
+
+    #[test]
+    fn blocked_rename_keeps_the_old_folder() {
+        let db = Storage::open_in_memory().unwrap();
+        let docs = tempfile::tempdir().unwrap();
+        let old = docs.path().join(LEGACY_FOLDER);
+        fs::create_dir_all(old.join(HISTORY)).unwrap();
+        let new = docs.path().join(FOLDER);
+        let busy = || Err(std::io::Error::other("папка занята"));
+        assert!(migrate_default_with(db.conn(), &new, |_, _| busy()).is_err());
+        // Программа остаётся на старой папке, и история копий не раздваивается.
+        let st = status(db.conn(), &new).unwrap();
+        assert_eq!(PathBuf::from(&st.dir), old);
+        assert!(!new.exists());
+        // При следующем запуске перенос больше не пробуем: папка теперь выбранная.
+        assert!(!migrate_default(db.conn(), &new).unwrap());
+        assert!(old.join(HISTORY).is_dir());
     }
 
     #[test]

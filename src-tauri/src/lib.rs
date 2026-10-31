@@ -88,7 +88,9 @@ pub fn run() {
                         state.vault_default.display()
                     ),
                     Ok(false) => {}
-                    Err(e) => eprintln!("папка сохранности не переименована: {e}"),
+                    Err(e) => {
+                        eprintln!("папка сохранности не переименована, остаётся прежняя: {e}")
+                    }
                 }
             }
             *state.lock_db() = db;
