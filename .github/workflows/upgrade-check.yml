@@ -1,5 +1,5 @@
 # Пробная проверка обновления P-Treasury 0.25.0 -> Kazna 0.26 на Windows. Только для ветки треда 9, в main не идёт.
-# Старая версия — выпуск v0.25.0. Новая — сборка windows-installer ровно на текущем head PR #50 (иначе ошибка).
+# Старая версия — выпуск v0.25.0 (в обычную папку и в свою через /D). Новая — сборка windows-installer ровно на текущем head PR #50 (иначе ошибка).
 # Данные: настоящая база, созданная старой программой, плюс счёт-метка; сверка снимков до и после (snap.py).
 name: Проверка обновления до Kazna
 
@@ -19,9 +19,20 @@ env:
 
 jobs:
   upgrade:
+    name: upgrade (${{ matrix.case }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: обычная папка
+            old_dir: ""
+          - case: своя папка /D
+            old_dir: 'C:\Apps\P Treasury Old'
     env:
       GH_TOKEN: ${{ github.token }}
+      PYTHONUTF8: "1"
+      OLD_DIR: ${{ matrix.old_dir }}
     steps:
       - uses: actions/checkout@v5
         with: { sparse-checkout: .github/upgrade-check }
@@ -50,20 +61,22 @@ jobs:
           $desk = [Environment]::GetFolderPath('Desktop')
           $snap = '.github\upgrade-check\snap.py'
           function Show($t) { Write-Host "== $t"
-            Get-ChildItem $la -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  папка $($_.FullName): $((Get-ChildItem $_.FullName).Name -join ', ')" }
+            Get-ChildItem $la, 'C:\Apps' -Directory -ErrorAction SilentlyContinue | ? Name -match 'Kazna|P.Treasury' | % { Write-Host "  папка $($_.FullName): $((Get-ChildItem $_.FullName).Name -join ', ')" }
             Get-ChildItem $uk | ? PSChildName -match 'Kazna|P-Treasury' | % { Write-Host "  реестр $($_.PSChildName)" }
             Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  ярлык $($_.FullName)" }
             Get-ChildItem $docs -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  документы $($_.FullName): $((Get-ChildItem $_.FullName -Recurse -File).Count) файлов" } }
           function RunApp($exe) { $p = Start-Process $exe -PassThru; Start-Sleep 25
             Get-Process | ? { $_.Path -eq $exe } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep 3 }
 
-          $old = (Get-ChildItem old\*.exe)[0].FullName; Write-Host "Старая: $old"
-          Start-Process $old -ArgumentList '/S' -Wait
-          if (-not (Test-Path "$la\P-Treasury\p-treasury.exe")) { throw 'старая версия не установилась' }
-          RunApp "$la\P-Treasury\p-treasury.exe"
+          $odir = if ($env:OLD_DIR) { $env:OLD_DIR } else { "$la\P-Treasury" }
+          $old = (Get-ChildItem old\*.exe)[0].FullName; Write-Host "Старая: $old в $odir"
+          $iargs = if ($env:OLD_DIR) { "/S /D=$($env:OLD_DIR)" } else { '/S' }
+          Start-Process $old -ArgumentList $iargs -Wait
+          if (-not (Test-Path "$odir\p-treasury.exe")) { throw "старая версия не установилась в $odir" }
+          RunApp "$odir\p-treasury.exe"
           if (-not (Test-Path $db)) { throw "старая программа не создала $db" }
           python $snap seed $db
-          RunApp "$la\P-Treasury\p-treasury.exe"   # старая программа открывает базу с меткой и делает свои копии
+          RunApp "$odir\p-treasury.exe"   # старая программа открывает базу с меткой и делает свои копии
           Show 'старая версия с данными'
           python $snap take $db "$docs\P-Treasury" before.json
 
@@ -71,7 +84,8 @@ jobs:
           Start-Process $new -ArgumentList '/S' -Wait
           Start-Sleep 5
           Show 'после установки Kazna'
-          if (Test-Path "$la\P-Treasury") { $fail += "осталась папка $la\P-Treasury" }
+          if (Test-Path "$odir\p-treasury.exe") { $fail += "осталась старая программа в $odir" }
+          if (Test-Path $odir) { Write-Host "  (папка $odir осталась: $((Get-ChildItem $odir -Recurse).Name -join ', '))" }
           if (-not (Test-Path "$la\Kazna\Kazna.exe")) { $fail += 'нет Kazna.exe' }
           if (Test-Path "$uk\P-Treasury") { $fail += 'остался пункт P-Treasury в «Установке и удалении программ»' }
           if (-not (Test-Path "$uk\Kazna")) { $fail += 'нет пункта Kazna в «Установке и удалении программ»' }
