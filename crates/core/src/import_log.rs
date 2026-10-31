@@ -340,19 +340,6 @@ fn transfer_candidates(conn: &Connection, id: &str, t: &TxnInput) -> Result<Vec<
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
-/// Строка выписки уже связана с записью на этом счёте.
-pub(crate) fn linked(conn: &Connection, t: &TxnInput) -> Result<bool> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM import_links WHERE account_id = ?1 AND kind = ?2 AND bank_date = ?3
-               AND bank_amount = ?4 AND bank_payee = coalesce(?5, '') LIMIT 1",
-            params![t.account_id, t.kind, t.date, t.amount, t.payee],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
-}
-
 // ---------- История ----------
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
