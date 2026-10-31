@@ -3,11 +3,31 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { remote } from "webdriverio";
 
 const ROOT = resolve(import.meta.dirname, "..");
-export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, "target/debug/budget-app");
+/** В Windows нет pkill/pgrep/xdotool: процессы ищем по командной строке через PowerShell. */
+export const WIN = process.platform === "win32";
+export const APP_BIN = process.env.PTREASURY_BIN ?? join(ROOT, WIN ? "target/debug/budget-app.exe" : "target/debug/budget-app");
+/** Имя файла программы для копии рядом с переносной версией (в Windows с .exe). */
+export const APP_FILE = basename(APP_BIN);
+
+/** PID процессов (Windows), в командной строке которых есть `pattern`. */
+function winPids(pattern) {
+  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($p) } | ForEach-Object { $_.ProcessId }";
+  const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+    encoding: "utf8",
+    env: { ...process.env, KAZNA_E2E_PATTERN: pattern },
+  });
+  return r.stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** Дождаться, пока процессов с `pattern` не останется (Windows держит папку WebView2, пока процесс жив). */
+async function winWaitGone(pattern, timeout = 15000) {
+  const until = Date.now() + timeout;
+  while (winPids(pattern).length && Date.now() < until) await new Promise((r) => setTimeout(r, 300));
+}
 
 let driver;
 let currentDir;
@@ -55,6 +75,17 @@ export async function stop(browser) {
   try {
     await browser?.deleteSession();
   } finally {
+    if (WIN) {
+      // kill() в Windows не трогает дочерние процессы: msedgedriver и приложение
+      // пережили бы прогон, а с 0.26 следующий запуск отдавался бы старой копии
+      // (одна копия программы) — «session not created: DevToolsActivePort».
+      if (driver?.pid) spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+      for (const pid of killPattern ? winPids(killPattern) : []) spawnSync("taskkill", ["/PID", pid, "/T", "/F"]);
+      spawnSync("taskkill", ["/IM", "msedgedriver.exe", "/T", "/F"]);
+      if (killPattern) await winWaitGone(killPattern);
+      await new Promise((r) => setTimeout(r, 500));
+      return;
+    }
     driver?.kill();
     // Приложение сворачивается в трей при закрытии окна: добиваем процесс этого прогона.
     if (killPattern) spawnSync("pkill", ["-f", "--", killPattern]);
@@ -66,6 +97,7 @@ export async function stop(browser) {
 
 /** PID приложения этого прогона (или null, если оно завершилось). */
 export function appPid(dataDir = currentDir) {
+  if (WIN) return winPids(`--data-dir=${dataDir}`)[0] ?? null;
   const r = spawnSync("pgrep", ["-f", "--", `--data-dir=${dataDir}`], { encoding: "utf8" });
   return r.stdout.trim().split("\n").filter(Boolean)[0] ?? null;
 }
@@ -74,6 +106,12 @@ export function appPid(dataDir = currentDir) {
 export function closeLikeUser(dataDir = currentDir) {
   const pid = appPid(dataDir);
   if (!pid) throw new Error("приложение не запущено");
+  if (WIN) {
+    // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
+    const r = spawnSync("taskkill", ["/PID", pid], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr || r.stdout}`);
+    return;
+  }
   const wins = spawnSync("xdotool", ["search", "--pid", pid], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
   const r = spawnSync("python3", [join(ROOT, "e2e/wm_close.py"), ...wins], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr}`);
