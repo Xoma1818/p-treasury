@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
-use budget_core::reminders::{self, Occurrence};
+use budget_core::reminders::{self, Key, Occurrence, Paid};
 use budget_core::{auto_import, budget_alerts, habits, money, settings, subscriptions, time};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -56,6 +56,7 @@ fn tick(app: &AppHandle) {
         // Папка сохранности раз в день (первый раз — через 20 с после запуска).
         crate::vault::sync(&app.state::<AppState>(), true);
     }
+    notices(app);
     let state = app.state::<AppState>();
     let due = {
         let mut guard = state.lock_db();
@@ -72,25 +73,114 @@ fn tick(app: &AppHandle) {
         }
         due
     };
-    let show = |body: String| {
-        // Без службы уведомлений (например, в тестах) просто ничего не показываем.
-        let _ = app
-            .notification()
-            .builder()
-            .title("P-Treasury")
-            .body(body)
-            .show();
-    };
     if due.len() <= MAX_SEPARATE {
-        due.iter().for_each(|o| show(text(o)));
+        due.iter().for_each(|o| show(app, text(o), Some(o)));
     } else {
-        show(format!(
-            "Напоминаний: {}. {} и другие",
-            due.len(),
-            text(&due[0])
-        ));
+        show(
+            app,
+            format!("Напоминаний: {}. {} и другие", due.len(), text(&due[0])),
+            None,
+        );
     }
     let _ = app.emit("reminders-due", due.len());
+}
+
+/// Набор кнопок уведомления о платеже.
+const PAY_ACTIONS: &str = "pt-payment";
+
+/// Уведомление; у своего напоминания — кнопки «Оплачено» и «Завтра».
+fn show(app: &AppHandle, body: String, o: Option<&Occurrence>) {
+    let mut b = app.notification().builder().title("P-Treasury").body(body);
+    if let Some(o) = o.filter(|o| o.key.source == "reminder") {
+        b = b.action_type_id(PAY_ACTIONS).extra("key", &o.key);
+    }
+    // Без службы уведомлений (например, в тестах) просто ничего не показываем.
+    let _ = b.show();
+}
+
+/// Предупреждения заранее: «через 3 дня», «завтра», «не хватит денег».
+fn notices(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let list = {
+        let mut guard = state.lock_db();
+        let Ok(db) = guard.as_mut() else { return };
+        let Ok(list) = reminders::due_notices(db.conn(), time::now_local()) else {
+            return;
+        };
+        if list.is_empty() || reminders::mark_notices(db.conn(), &list, &time::now_utc()).is_err() {
+            return;
+        }
+        list
+    };
+    if list.len() <= MAX_SEPARATE {
+        for n in &list {
+            show(app, n.text.clone(), Some(&n.occurrence));
+        }
+    } else {
+        show(
+            app,
+            format!("Скоро платежей: {}. {} и другие", list.len(), list[0].text),
+            None,
+        );
+    }
+    let _ = app.emit("reminders-due", list.len());
+}
+
+/// Кнопки в уведомлениях: «Оплачено» создаёт операцию (или открывает форму,
+/// если не хватает счёта или категории), «Завтра» откладывает до 9:00
+/// завтрашнего дня, щелчок по самому уведомлению открывает программу.
+pub fn register_actions(app: &AppHandle) {
+    let types = serde_json::json!([{
+        "id": PAY_ACTIONS,
+        "actions": [
+            { "id": "paid", "title": "Оплачено" },
+            { "id": "tomorrow", "title": "Завтра" }
+        ]
+    }]);
+    let Ok(types) = serde_json::from_value(types) else {
+        return;
+    };
+    let n = app.notification();
+    let _ = n.register_action_types(types);
+    let handle = app.clone();
+    let _ = n.on_action(move |a| {
+        let key: Option<Key> = a
+            .notification()
+            .and_then(|n| n.extra().get("key").cloned())
+            .and_then(|v| serde_json::from_value(v).ok());
+        let open = |key: Option<&Key>| {
+            show_main(&handle);
+            let _ = handle.emit("reminder-open", key);
+        };
+        let Some(key) = key else {
+            return open(None);
+        };
+        let state = handle.state::<AppState>();
+        let result = {
+            let mut guard = state.lock_db();
+            let Ok(db) = guard.as_mut() else { return };
+            match a.action_id() {
+                "paid" => reminders::pay(db.conn(), &key, &time::today_local()).ok(),
+                "tomorrow" => {
+                    let until = format!(
+                        "{}T09:00",
+                        time::now_local().date() + chrono::Duration::days(1)
+                    );
+                    reminders::snooze(db.conn(), &key, &until)
+                        .ok()
+                        .map(|_| Paid::Marked)
+                }
+                _ => Some(Paid::NeedsForm),
+            }
+        };
+        match result {
+            Some(Paid::NeedsForm) | None => open(Some(&key)),
+            Some(_) => {
+                let _ = handle.emit("reminders-due", 0);
+                let _ = handle.emit("data-changed", ());
+            }
+        }
+    });
 }
 
 /// Итог прошлой недели — одним уведомлением в понедельник (или при первом запуске после).

@@ -788,5 +788,6 @@ fn migration_files_match_their_numbers() {
     let at = |v: i64| MIGRATIONS.iter().find(|m| m.version == v).unwrap().name;
     assert_eq!(at(13), "clear_and_safe");
     assert_eq!(at(14), "import_matching");
-    assert_eq!(LATEST_VERSION, 14);
+    assert_eq!(at(15), "reminders_ahead");
+    assert_eq!(LATEST_VERSION, 15);
 }

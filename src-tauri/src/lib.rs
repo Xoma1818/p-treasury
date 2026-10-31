@@ -85,6 +85,7 @@ pub fn run() {
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");
             }
+            background::register_actions(app.handle());
             background::start_scheduler(app.handle().clone());
             let hotkey = quick_window::saved_hotkey(app.handle());
             if let Err(e) = quick_window::register(app.handle(), &hotkey) {
@@ -239,6 +240,10 @@ pub fn run() {
             commands::snooze_reminder,
             commands::dismiss_reminder,
             commands::reopen_reminder,
+            commands::get_reminder,
+            commands::edit_reminder_occurrence,
+            commands::split_reminder,
+            commands::pay_reminder,
             commands::list_notes,
             commands::create_note,
             commands::update_note,

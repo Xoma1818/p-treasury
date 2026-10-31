@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
-import { OccurrenceItem, ReminderForm } from "../components/Reminders";
+import { leadText, OccurrenceItem, parseLead, ReminderForm } from "../components/Reminders";
 import { TXN_DRAG, TxnTable } from "../components/TxnTable";
 import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
@@ -342,6 +342,8 @@ function RemindersView() {
                   {" "}
                   · {REPEATS[r.repeat].toLowerCase()}
                   {r.nextAt ? `, следующее ${formatDateTime(r.nextAt)}` : r.active ? ", больше не повторится" : ", выключено"}
+                  {r.leadDays != null && `, ${leadText(parseLead(r.leadDays))}`}
+                  {(r.noteId || r.eventId) && (r.noteId ? ", из заметки" : ", у события")}
                 </span>
               </span>
               <span>

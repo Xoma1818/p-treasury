@@ -38,6 +38,8 @@ pub struct Event {
     /// `upcoming`, `current` или `past`.
     pub state: String,
     pub missing_rates: Vec<String>,
+    /// Напоминание у события (0.23).
+    pub reminder_id: Option<String>,
 }
 
 fn check(input: &EventInput) -> Result<(String, Option<String>)> {
@@ -139,8 +141,9 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Event>> {
     let base = currencies::base_currency(conn)?;
     let bc = currencies::get(conn, &base)?;
     let mut stmt = conn.prepare(
-        "SELECT id, name, start_date, end_date, budget, note FROM events
-         ORDER BY start_date DESC, name",
+        "SELECT e.id, e.name, e.start_date, e.end_date, e.budget, e.note,
+                (SELECT r.id FROM reminders r WHERE r.event_id = e.id ORDER BY r.created_at LIMIT 1)
+         FROM events e ORDER BY e.start_date DESC, e.name",
     )?;
     let events: Vec<Event> = stmt
         .query_map([], |r| {
@@ -158,6 +161,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Event>> {
                 base_minor_units: bc.minor_units,
                 state: String::new(),
                 missing_rates: Vec::new(),
+                reminder_id: r.get(6)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;

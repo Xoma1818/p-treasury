@@ -967,6 +967,7 @@ export interface BudgetEvent {
   baseMinorUnits: number;
   state: "upcoming" | "current" | "past";
   missingRates: string[];
+  reminderId: string | null;
 }
 
 export interface SplitInput {
@@ -1043,6 +1044,16 @@ export interface Occurrence {
   notifiedAt: string | null;
   completedAt: string | null;
   transactionId: string | null;
+  /** День и время самого платежа (с учётом переноса). */
+  payAt: string;
+  /** Сумма или дата этого платежа изменены отдельно от серии. */
+  edited: boolean;
+  /** Последний платёж серии с концом. */
+  last: boolean;
+  /** Сроки «заранее», дней. */
+  leadDays: number[];
+  /** Сколько не хватит на счёте к платежу. */
+  shortfall: number | null;
 }
 
 export interface ReminderInput {
@@ -1057,6 +1068,14 @@ export interface ReminderInput {
   accountId: string | null;
   categoryId: string | null;
   note: string | null;
+  /** Сроки «заранее» в днях через запятую: null — как в Настройках, "" — не предупреждать. */
+  leadDays?: string | null;
+  /** «Повторить N раз» вместо даты конца. */
+  count?: number | null;
+  /** Последний платёж серии другой суммы. */
+  lastAmount?: number | null;
+  noteId?: string | null;
+  eventId?: string | null;
 }
 
 export interface Reminder extends ReminderInput {
@@ -1064,6 +1083,9 @@ export interface Reminder extends ReminderInput {
   active: boolean;
   nextAt: string | null;
 }
+
+/** Итог «Оплачено» из напоминания. */
+export type Paid = { kind: "transaction"; id: string } | { kind: "marked" } | { kind: "needsForm" };
 
 export interface RemindersOverview {
   overdue: Occurrence[];
@@ -1084,6 +1106,7 @@ export interface NoteInput {
 export interface Note extends NoteInput {
   id: string;
   link: string | null;
+  reminderId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1762,6 +1785,11 @@ export const api = {
   snoozeReminder: (key: ReminderKey, until: string) => invoke<void>("snooze_reminder", { key, until }),
   dismissReminder: (key: ReminderKey) => invoke<void>("dismiss_reminder", { key }),
   reopenReminder: (key: ReminderKey) => invoke<void>("reopen_reminder", { key }),
+  getReminder: (id: string) => invoke<Reminder>("get_reminder", { id }),
+  editReminderOccurrence: (key: ReminderKey, amount: number | null, movedTo: string | null) =>
+    invoke<void>("edit_reminder_occurrence", { key, amount, movedTo }),
+  splitReminder: (key: ReminderKey, input: ReminderInput) => invoke<string>("split_reminder", { key, input }),
+  payReminder: (key: ReminderKey) => invoke<Paid>("pay_reminder", { key }),
   listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
   createNote: (input: NoteInput) => invoke<string>("create_note", { input }),
   updateNote: (id: string, input: NoteInput) => invoke<void>("update_note", { id, input }),

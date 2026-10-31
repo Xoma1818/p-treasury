@@ -338,7 +338,7 @@ fn known_items(
             continue;
         }
         let date = match o.status.as_str() {
-            "pending" => o.key.scheduled_at[..10].to_string(),
+            "pending" => o.pay_at[..10].to_string(),
             "snoozed" => o.due_at[..10].to_string(),
             _ => continue,
         };

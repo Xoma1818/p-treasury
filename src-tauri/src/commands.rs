@@ -1305,6 +1305,43 @@ pub fn reopen_reminder(state: State<AppState>, key: Key) -> CmdResult<()> {
 }
 
 #[tauri::command(async)]
+pub fn get_reminder(state: State<AppState>, id: String) -> CmdResult<reminders::Reminder> {
+    with_db(&state, |db| {
+        reminders::get(db.conn(), &id, time::now_local())
+    })
+}
+
+/// Один платёж серии: своя сумма и (или) перенос.
+#[tauri::command(async)]
+pub fn edit_reminder_occurrence(
+    state: State<AppState>,
+    key: Key,
+    amount: Option<i64>,
+    moved_to: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Изменение платежа", |c| {
+        reminders::edit_occurrence(c, &key, amount, moved_to.as_deref())
+    })
+}
+
+/// «Этот и все следующие»: с платежа `key` серия идёт по `input`.
+#[tauri::command(async)]
+pub fn split_reminder(state: State<AppState>, key: Key, input: ReminderInput) -> CmdResult<String> {
+    with_undo(
+        &state,
+        "Изменение следующих платежей",
+        |c| reminders::split_from(c, &key, &input),
+    )
+}
+
+#[tauri::command(async)]
+pub fn pay_reminder(state: State<AppState>, key: Key) -> CmdResult<reminders::Paid> {
+    with_undo(&state, "Оплачено", |c| {
+        reminders::pay(c, &key, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
 pub fn list_notes(state: State<AppState>, filter: NoteFilter) -> CmdResult<Vec<Note>> {
     with_db(&state, |db| notes::list(db.conn(), &filter))
 }

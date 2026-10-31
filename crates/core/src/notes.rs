@@ -32,6 +32,8 @@ pub struct Note {
     pub budget_id: Option<String>,
     /// К чему привязана, для списка: «Счёт: Карта», «Долг: Банк».
     pub link: Option<String>,
+    /// Напоминание у заметки (0.23).
+    pub reminder_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -145,7 +147,8 @@ const SELECT: &str = "SELECT n.id, n.body, n.date, n.transaction_id, n.account_i
           WHEN n.debt_id IS NOT NULL THEN 'Долг: ' || d.counterparty
           WHEN n.budget_id IS NOT NULL THEN 'Бюджет с ' || b.period_start
         END,
-        n.created_at, n.updated_at
+        n.created_at, n.updated_at,
+        (SELECT r.id FROM reminders r WHERE r.note_id = n.id ORDER BY r.created_at LIMIT 1)
      FROM notes n
      LEFT JOIN transactions t ON t.id = n.transaction_id
      LEFT JOIN accounts a ON a.id = n.account_id
@@ -164,6 +167,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Note> {
         link: r.get(7)?,
         created_at: r.get(8)?,
         updated_at: r.get(9)?,
+        reminder_id: r.get(10)?,
     })
 }
 
