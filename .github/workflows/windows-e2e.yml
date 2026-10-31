@@ -10,7 +10,7 @@ on:
         required: false
   push:
     branches: [claude/project-thread-qfjnd1]
-    paths: [".github/workflows/windows-e2e.yml"]
+    paths: [".github/workflows/windows-e2e.yml", "e2e/**"]
 
 permissions:
   contents: read
