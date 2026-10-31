@@ -1,32 +1,32 @@
-/* Стиль A «Спокойный светлый» (design/README.md). */
+/* Стиль A «Спокойный светлый» (design/README.md); с 0.25 акцент мятный и в светлой теме. */
 :root {
   --bg: #f5f6f8;
   --card: #ffffff;
   --border: #e2e5ea;
   --text: #1c2430;
   --muted: #6b7380;
-  --accent: #2f5fd0;
-  --accent-soft: #e8eefb;
-  --accent-hover: #2853b8;
-  --accent-press: #1f449a;
+  --accent: #0e9f7a;
+  --accent-soft: rgba(14, 159, 122, 0.12);
+  --accent-hover: #0b8a6a;
+  --accent-press: #08735a;
   --border-strong: #c9ced6;
   --hover: #f0f2f5;
   --press: #e6e9ee;
   /* Кольцо фокуса с клавиатуры и тени: одни на всё приложение. */
-  --ring: 0 0 0 3px rgba(47, 95, 208, 0.35);
+  --ring: 0 0 0 3px rgba(14, 159, 122, 0.35);
   --shadow-xs: 0 1px 2px rgba(20, 28, 40, 0.06);
   --shadow-sm: 0 1px 3px rgba(20, 28, 40, 0.08), 0 1px 2px rgba(20, 28, 40, 0.04);
   --shadow-md: 0 6px 16px rgba(20, 28, 40, 0.1);
-  --sidebar: #ffffff;
+  --sidebar: #eceef2;
   --on-accent: #ffffff;
-  --accent-shadow: rgba(47, 95, 208, 0.3);
+  --accent-shadow: rgba(14, 159, 122, 0.3);
   --over-soft: #fdeee6;
   --over-border: #f6cdb7;
   --over-strong: #9a3412;
   --ok: #15803d;
   --overlay: rgba(20, 28, 40, 0.35);
   --toast: #1c2430;
-  --toast-link: #9db8ff;
+  --toast-link: #5eead4;
   --tab-hover: rgba(255, 255, 255, 0.6);
   --shadow-lg: 0 16px 48px rgba(20, 28, 40, 0.22);
   --icon-tint: 22%;
@@ -36,10 +36,10 @@
   --over: #c2410c;
   --radius: 12px;
   /* Серии графиков (проверены на различимость, в том числе при нарушениях цветового зрения). */
-  --series-income: #2f5fd0;
-  --series-expense: #1baf7a;
+  --series-income: #0e9f7a;
+  --series-expense: #ea580c;
   /* Шрифт Windows по просьбе владельца (0.9); на других системах — системный. */
-  font-family: "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
@@ -640,7 +640,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .hint-keys { display: flex; gap: 4px; flex-wrap: wrap; }
 .hint-tip kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
 :root[data-theme="dark"] .hint-tip { background: #232a35; border-color: #3b4352; }
-:root:not([data-theme="dark"]) .hint-example { color: #9db8ff; }
+:root:not([data-theme="dark"]) .hint-example { color: #5eead4; }
 
 /* Кто попросил систему меньше анимации, тот её не видит. */
 @media (prefers-reduced-motion: reduce) {
@@ -763,3 +763,73 @@ input[type="checkbox"]:checked { animation: none; }
 .lead-days .lead-own { width: 110px; }
 .occurrence .shortfall { color: var(--over-strong); }
 .occurrence .edited { color: var(--muted); font-style: italic; }
+
+/* --- 0.25 «Лаконичный»: тише, как у Apple (design/README.md) --- */
+/* Группы отделяет тон фона, а не рамка и тень. Один акцент. Крупные заголовки.
+   Отступы по сетке 8 px, два радиуса: 8 (поля, кнопки) и 14 (карточки, окна). */
+:root { --radius: 14px; --fill: rgba(20, 28, 40, 0.05); --fill-strong: rgba(20, 28, 40, 0.09); --spring: cubic-bezier(0.2, 0.9, 0.25, 1); }
+:root[data-theme="dark"] { --fill: rgba(255, 255, 255, 0.06); --fill-strong: rgba(255, 255, 255, 0.1); }
+
+h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+h2 { font-size: 16px; }
+.screen-hint { font-size: 14px; margin-top: 4px; }
+.screen > .screen-title { margin-bottom: 24px; }
+.tile-value { font-size: 24px; letter-spacing: -0.01em; }
+
+.card { border-color: transparent; box-shadow: none; padding: 16px 20px; }
+:root[data-theme="dark"] .card { border-color: transparent; }
+.tile:hover, :root[data-theme="dark"] .tile:hover { box-shadow: none; transform: none; border-color: transparent; }
+.template:hover { box-shadow: none; transform: none; }
+
+/* Меню: без рамки и полоски-указателя; открытый раздел — серая подложка и мятный значок. */
+.sidebar { border-right: 0; }
+.nav-item::before { display: none; }
+.nav-item.active { background: var(--fill-strong); }
+.nav-group { text-transform: none; letter-spacing: 0; font-size: 12px; padding: 16px 12px 4px; }
+.nav-settings { border-top: 0; }
+.sidebar-foot { border-top: 0; }
+.nav-search { border-color: transparent; background: var(--fill); }
+.nav-search:hover { border-color: transparent; background: var(--fill-strong); box-shadow: none; }
+.theme-switch { border-color: transparent; background: var(--fill); }
+
+/* Значки (Lucide): серые, без цветных плашек; у открытого раздела — акцент. */
+.icon-tile, .icon-tile.lg { width: 20px; height: 20px; border-radius: 0; background: none; color: var(--muted); }
+.icon-tile svg, .icon-tile.lg svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.nav-item.active .icon-tile, :root:not([data-theme="dark"]) .nav-item.active .icon-tile { background: none; color: var(--accent); }
+:root:not([data-theme="dark"]) .icon-tile { color: var(--muted); }
+.nav-item:hover .icon-tile { transform: none; }
+.nav-view-mark { width: 20px; height: 18px; color: var(--muted); }
+.foot-icon { stroke-width: 1.75; }
+
+/* Кнопки: заливка вместо рамки и тени; при нажатии лёгкое сжатие (вместо волны). */
+.btn { border-color: transparent; background: var(--fill); box-shadow: none; transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+.btn:hover:not(:disabled) { background: var(--fill-strong); border-color: transparent; box-shadow: none; }
+.btn:active:not(:disabled) { background: var(--fill-strong); transform: scale(0.97); }
+.btn.primary, .btn.primary:hover:not(:disabled), :root[data-theme="dark"] .btn.primary:hover:not(:disabled) { box-shadow: none; }
+.btn.primary:active:not(:disabled) { transform: scale(0.97); }
+.btn.danger:hover:not(:disabled) { border-color: transparent; }
+.chip-btn { border-color: transparent; background: var(--fill); }
+.chip-btn:hover { border-color: transparent; background: var(--fill-strong); color: var(--text); }
+.chip-btn.active { border-color: transparent; }
+.chip-btn:active, .tab:active, .template-main:active { transform: scale(0.97); }
+.chip-btn, .tab, .template-main { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
+.btn::after, .chip-btn::after, .tab::after, .template-main::after { display: none; }
+
+/* Окна и плашки выезжают мягкой пружиной без отскока. */
+.overlay { animation: fade-in 200ms var(--ease); }
+.modal { border-color: transparent; animation: sheet-in 320ms var(--spring); }
+:root[data-theme="dark"] .modal { border-color: var(--border); }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(16px) scale(0.98); } }
+.undo-bar { animation: slide-up 320ms var(--spring); }
+.screen { animation: fade-in 180ms var(--ease); }
+
+/* Новая сумма проявляется на месте прежней (Money.tsx). */
+.money-swap { display: inline-block; animation: money-in 260ms var(--ease); }
+@keyframes money-in { from { opacity: 0; filter: blur(3px); } }
+
+/* Графики растут один раз за сеанс: при повторном открытии раздела — сразу (lib/motion.ts). */
+:root[data-seen] :is(.chart .bar-income, .chart .bar-expense, .bar > span, .bar-fill, .dbar, .sweep, .fade-up, .heat-cell, .loan-chart .area) { animation: none; }
+:root[data-seen] :is(.draw, .nw-line) { animation: none; stroke-dashoffset: 0; }
+
+/* Значок «?»: серый, мятный при наведении. */
+.hint-q { color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--muted); opacity: 0.6; }

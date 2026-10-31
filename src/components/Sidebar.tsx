@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
 import { Fragment, useState } from "react";
 import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
@@ -23,8 +24,6 @@ function Logo() {
   );
 }
 
-const SUN = "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4";
-
 /** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
@@ -32,16 +31,11 @@ function ThemeSwitch() {
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
       <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>
-        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="4" />
-          <path d={SUN} />
-        </svg>
+        <Sun className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
         Светлая
       </button>
       <button aria-pressed={theme === "dark"} data-testid="theme-dark" onClick={() => pick("dark")}>
-        <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-        </svg>
+        <Moon className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
         Тёмная
       </button>
     </div>
@@ -60,9 +54,7 @@ function NavViews() {
         {views.map((v) => (
           <li key={v.id}>
             <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
-              <span className="nav-view-mark" aria-hidden="true">
-                ☆
-              </span>
+              <Star className="nav-view-mark" strokeWidth={1.75} aria-hidden="true" />
               {v.name}
             </button>
           </li>
@@ -81,10 +73,7 @@ export function Sidebar() {
         P-Treasury
       </div>
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="m16 16 4 4" />
-        </svg>
+        <Search strokeWidth={1.75} aria-hidden="true" />
         <span>Поиск</span>
         <kbd>Ctrl+K</kbd>
       </button>
@@ -113,10 +102,7 @@ export function Sidebar() {
         <ThemeSwitch />
         <HideAmountsSwitch />
         <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">
-          <svg className="foot-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="2" y="6" width="20" height="12" rx="2" />
-            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
-          </svg>
+          <Keyboard className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
           <span className="foot-label">Горячие клавиши</span>
           <kbd>F1</kbd>
         </button>
