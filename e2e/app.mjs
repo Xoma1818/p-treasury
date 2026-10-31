@@ -1,7 +1,7 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { remote } from "webdriverio";
@@ -66,8 +66,55 @@ function winProbeApp(bin, env) {
   return winProbe;
 }
 
-/** Windows: первая неудачная сессия; дальше start() падает сразу, не тратя минуты на таймауты. */
-let winSessionError;
+/**
+ * Windows: открывает ли WebView2 программы порт отладки по переменной
+ * WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS — так его открывает msedgedriver. Если нет,
+ * DevToolsActivePort не появляется и сессия не создаётся. Один раз за прогон.
+ */
+let winDevtools;
+async function winProbeDevtools(bin, env) {
+  if (winDevtools !== undefined) return winDevtools;
+  const dir = mkdtempSync(join(tmpdir(), "p-treasury-devtools-"));
+  const udf = mkdtempSync(join(tmpdir(), "p-treasury-wv2-"));
+  const port = 9333;
+  const child = spawn(bin, [`--data-dir=${dir}`, "--remote-debugging-port=0", "--test-type=webdriver"], {
+    env: { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`, WEBVIEW2_USER_DATA_FOLDER: udf },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (d) => (out += d));
+  child.stderr.on("data", (d) => (out += d));
+  let exit = null;
+  child.on("exit", (code) => (exit = code));
+  let version = null;
+  for (let i = 0; i < 40 && exit === null && !version; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/json/version`);
+      if (r.ok) version = (await r.json()).Browser ?? "есть";
+    } catch {
+      // порт ещё не открыт
+    }
+  }
+  const list = (d) => {
+    try {
+      return readdirSync(d, { recursive: true }).filter((f) => /DevToolsActivePort|EBWebView$/.test(f)).join(", ") || "нет";
+    } catch (e) {
+      return e.message;
+    }
+  };
+  winDevtools = `порт отладки ${version ? `открыт (${version})` : "не открылся за 20 с"}; программа ${exit === null ? "работает" : `закрылась, код ${exit}`}; DevToolsActivePort в папке WEBVIEW2_USER_DATA_FOLDER: ${list(udf)}; в папке данных: ${list(dir)}; в LOCALAPPDATA: ${list(join(process.env.LOCALAPPDATA ?? dir, "app.kazna.desktop"))}; вывод: ${out.slice(-1500)}`;
+  console.error(`# проверка WebView2: ${winDevtools}`);
+  if (exit === null) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"]);
+  return winDevtools;
+}
+
+/**
+ * Windows: после первой неудачной сессии start() падает сразу, не тратя минуты
+ * на таймауты, — и в других файлах тестов того же прогона (метка у общего родителя).
+ */
+const WIN_FAIL_MARK = join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}.txt`);
+let winSessionError = WIN && existsSync(WIN_FAIL_MARK) ? readFileSync(WIN_FAIL_MARK, "utf8") : undefined;
 
 let driver;
 let currentDir;
@@ -124,7 +171,15 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     if (!WIN) throw e;
     // Первый запуск WebView2 на чистой машине бывает дольше таймаута msedgedriver: одна повторная попытка.
     console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; журнал msedgedriver:\n${edgeTail()}`);
+    await winCleanup();
+    await winProbeDevtools(bin, { ...process.env, ...cbr, ...wv2, ...env });
+    await winCleanup();
     winSessionError = e.message;
+    try {
+      writeFileSync(WIN_FAIL_MARK, e.message);
+    } catch {
+      // метка не обязательна
+    }
     throw e;
   }
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
