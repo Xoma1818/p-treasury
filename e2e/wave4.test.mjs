@@ -58,7 +58,7 @@ test("после перезапуска открывается последни�
   writeFileSync(foreign, "это не база");
   await browser.execute((p) => (window.__ptPick = [p]), foreign);
   await click(browser, "Открыть файл…");
-  await waitText(browser, '[data-testid="budget-files"]', /это не файл данных P-Treasury/);
+  await waitText(browser, '[data-testid="budget-files"]', /это не файл данных Kazna/);
   // Открытый файл убрать из списка нельзя, другой — можно (сам файл остаётся).
   await browser.$(`${row("Основной")}//button[normalize-space()="Открыть"]`).click();
   await home();

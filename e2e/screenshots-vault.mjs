@@ -30,7 +30,7 @@ try {
 
 // Новый компьютер: папку скопировали в «Документы».
 const fresh = mkdtempSync(join(tmpdir(), "p-treasury-shot-"));
-cpSync(join(dataDir, "P-Treasury"), join(fresh, "P-Treasury"), { recursive: true });
+cpSync(join(dataDir, "Kazna"), join(fresh, "Kazna"), { recursive: true });
 ({ browser } = await start(fresh));
 try {
   await browser.setWindowSize(1280, 900);

@@ -131,9 +131,9 @@ pub struct BackupInfo {
     pub last_date: Option<String>,
 }
 
-/// Проверить, что файл — копия P-Treasury, которую эта версия может открыть.
+/// Проверить, что файл — копия Kazna, которую эта версия может открыть.
 pub fn inspect(path: &Path) -> Result<BackupInfo> {
-    let not_ours = || Error::Validation("это не файл данных P-Treasury".into());
+    let not_ours = || Error::Validation("это не файл данных Kazna".into());
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| not_ours())?;
     let version: i64 = conn

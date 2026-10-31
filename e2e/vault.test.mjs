@@ -1,6 +1,6 @@
 // Папка сохранности (0.13): программа сама ведёт папку с копией и Excel,
 // а на новом компьютере первый экран предлагает перенести данные из неё.
-// В тестах папка по умолчанию лежит внутри папки данных: <data>/P-Treasury.
+// В тестах папка по умолчанию лежит внутри папки данных: <data>/Kazna.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
@@ -22,7 +22,7 @@ test("старый компьютер: «Сохранить сейчас» кл�
     { name: "Карта", balance: "123456,78" },
   ]);
   await openSection(browser, "Настройки");
-  vault = join(dataDir, "P-Treasury");
+  vault = join(dataDir, "Kazna");
   await waitText(browser, '[data-testid="vault-dir"]', new RegExp(vault.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   await click(browser, "Сохранить сейчас");
   await waitText(browser, '[data-testid="vault-synced"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);
@@ -39,7 +39,7 @@ test("старый компьютер: «Сохранить сейчас» кл�
 
 test("новый компьютер: папку скопировали в Документы, первый экран находит её и переносит всё", async () => {
   const fresh = mkdtempSync(join(tmpdir(), "p-treasury-newpc-"));
-  cpSync(vault, join(fresh, "P-Treasury"), { recursive: true });
+  cpSync(vault, join(fresh, "Kazna"), { recursive: true });
   ({ browser } = await start(fresh));
   await waitText(browser, '[data-testid="transfer-offer"]', /Нашлась папка сохранности: Мой бюджет/, 15000);
   await click(browser, "Перенести данные");
@@ -58,9 +58,9 @@ test("новый компьютер: папку скопировали в Док
 
 test("копии нет, остался только Excel: данные восстанавливаются из «Все данные.xlsx»", async () => {
   const fresh = mkdtempSync(join(tmpdir(), "p-treasury-excel-"));
-  cpSync(vault, join(fresh, "P-Treasury"), { recursive: true });
-  rmSync(join(fresh, "P-Treasury", "Мой бюджет.ptreasury"));
-  rmSync(join(fresh, "P-Treasury", "Копии"), { recursive: true });
+  cpSync(vault, join(fresh, "Kazna"), { recursive: true });
+  rmSync(join(fresh, "Kazna", "Мой бюджет.ptreasury"));
+  rmSync(join(fresh, "Kazna", "Копии"), { recursive: true });
   ({ browser } = await start(fresh));
   await waitText(browser, '[data-testid="transfer-offer"]', /Нашлась папка сохранности/, 15000);
   await click(browser, "Перенести данные");
@@ -75,5 +75,5 @@ test("копии нет, остался только Excel: данные вос�
   // После переноса в папке снова есть полная копия.
   await openSection(browser, "Настройки");
   await waitText(browser, '[data-testid="vault-synced"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);
-  assert.ok(existsSync(join(fresh, "P-Treasury", "Мой бюджет.ptreasury")));
+  assert.ok(existsSync(join(fresh, "Kazna", "Мой бюджет.ptreasury")));
 });

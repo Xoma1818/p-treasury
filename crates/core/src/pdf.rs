@@ -323,7 +323,7 @@ impl Pdf {
         });
         let info_id = doc.add_object(dictionary! {
             "Title" => Object::String(utf16(&self.title), StringFormat::Hexadecimal),
-            "Producer" => Object::string_literal("P-Treasury"),
+            "Producer" => Object::string_literal("Kazna"),
         });
         doc.trailer.set("Root", catalog_id);
         doc.trailer.set("Info", info_id);

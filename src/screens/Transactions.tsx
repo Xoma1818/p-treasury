@@ -61,7 +61,7 @@ export function Transactions() {
 
   const query = { ...f, limit };
   const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
-  const exp = useExport(`P-Treasury — операции ${today()}`, (path) => api.exportTransactions(f, path));
+  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path));
   const set = (patch: Partial<TxnFilter>) => {
     setLimit(PAGE);
     setF({ ...f, ...patch });
