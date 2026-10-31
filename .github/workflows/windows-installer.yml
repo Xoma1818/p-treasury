@@ -1,4 +1,4 @@
-# Пробный установщик P-Treasury для Windows: собирается на машине GitHub с Windows.
+# Пробный установщик Kazna для Windows: собирается на машине GitHub с Windows.
 # Запуск: на каждый запрос на слияние или вкладка Actions → «Установщик для Windows» → Run workflow.
 # Готовый .exe и переносная версия — в Artifacts запуска. Выпуски собирает release.yml (docs/releasing.md).
 # Ключ подписи обновлений хранится в секрете TAURI_SIGNING_PRIVATE_KEY (не в репозитории).
@@ -51,7 +51,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v5
         with:
-          name: p-treasury-windows-installer
+          name: kazna-windows-installer
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/nsis/*.sig
@@ -59,9 +59,11 @@ jobs:
         shell: bash
         run: |
           mkdir portable
-          cp target/release/p-treasury.exe portable/P-Treasury.exe
+          name=$(node -p "require('./src-tauri/tauri.conf.json').productName")
+          bin=$(node -p "require('./src-tauri/tauri.conf.json').mainBinaryName")
+          cp "target/release/$bin.exe" "portable/$name.exe"
           : > portable/portable
       - uses: actions/upload-artifact@v5
         with:
-          name: p-treasury-windows-portable
+          name: kazna-windows-portable
           path: portable/
