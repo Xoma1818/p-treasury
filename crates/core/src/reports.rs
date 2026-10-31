@@ -233,16 +233,59 @@ pub struct MonthsReport {
 /// Доходы, расходы и сальдо по месяцам от `from_month` до `to_month` включительно.
 pub fn by_month(conn: &Connection, from_month: &str, to_month: &str) -> Result<MonthsReport> {
     let day = budgets::start_day(conn)?;
-    let mut months = Vec::new();
-    let mut missing_rates: Vec<String> = Vec::new();
+    let mut periods = Vec::new();
     let mut month = from_month.to_string();
     budgets::period(to_month, day)?;
     while month.as_str() <= to_month {
-        if months.len() >= 120 {
+        if periods.len() >= 120 {
             return invalid("отчёт по месяцам строится не больше чем за 10 лет");
         }
-        let p = budgets::period(&month, day)?;
-        let s = period_summary(conn, &p.start, &p.end)?;
+        periods.push(budgets::period(&month, day)?);
+        month = budgets::shift_month(&month, 1)?;
+    }
+    // Один проход по операциям всего диапазона вместо запроса на каждый месяц
+    // (на 50 000 операций — в разы быстрее); суммы те же, что у period_summary.
+    let mut sums = vec![PeriodSummary::default(); periods.len()];
+    if let (Some(first), Some(last)) = (periods.first(), periods.last()) {
+        let base = currencies::base_currency(conn)?;
+        let mut stmt = conn.prepare(
+            "SELECT t.type, t.date, t.amount, a.currency_code FROM txn_by_month t
+             JOIN accounts a ON a.id = t.account_id
+             WHERE t.status = 'cleared' AND t.type IN ('income', 'expense', 'adjustment')
+               AND t.date BETWEEN ?1 AND ?2",
+        )?;
+        let rows = stmt.query_map(params![first.start, last.end], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (kind, date, amount, currency) = row?;
+            // Периоды идут подряд: последний, начавшийся не позже даты.
+            let i = periods.partition_point(|p| p.start.as_str() <= date.as_str());
+            let Some(i) = i.checked_sub(1).filter(|&i| date <= periods[i].end) else {
+                continue;
+            };
+            let out = &mut sums[i];
+            let Some(v) = currencies::convert(conn, amount, &currency, &base, &date)? else {
+                if !out.missing_rates.contains(&currency) {
+                    out.missing_rates.push(currency);
+                }
+                continue;
+            };
+            match kind.as_str() {
+                "income" => out.income += v,
+                "expense" => out.expense += v,
+                _ => out.adjustments += v,
+            }
+        }
+    }
+    let mut months = Vec::new();
+    let mut missing_rates: Vec<String> = Vec::new();
+    for (p, s) in periods.into_iter().zip(sums) {
         for c in s.missing_rates {
             if !missing_rates.contains(&c) {
                 missing_rates.push(c);
@@ -255,7 +298,6 @@ pub fn by_month(conn: &Connection, from_month: &str, to_month: &str) -> Result<M
             balance: s.income - s.expense,
             savings_rate: savings_rate(s.income, s.expense),
         });
-        month = budgets::shift_month(&month, 1)?;
     }
     let income = months.iter().map(|m| m.income).sum();
     let expense = months.iter().map(|m| m.expense).sum();
