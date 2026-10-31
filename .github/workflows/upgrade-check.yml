@@ -1,0 +1,77 @@
+# Пробная проверка обновления P-Treasury -> Kazna (0.26) на Windows. Только для ветки треда 9, в main не идёт.
+# Берёт установщик Kazna из последней успешной сборки ветки 0.26 и последний выпуск P-Treasury.
+name: Проверка обновления до Kazna
+
+on:
+  push:
+    branches: [claude/project-thread-qfjnd1]
+    paths: [".github/workflows/upgrade-check.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  upgrade:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Скачать установщики
+        shell: bash
+        run: |
+          run=$(gh run list -R "$GITHUB_REPOSITORY" -w windows-installer.yml -b claude/project-thread-6t2eqz \
+                -s success -L 1 --json databaseId,headSha -q '.[0] | "\(.databaseId) \(.headSha)"')
+          echo "Сборка Kazna: $run"
+          gh run download ${run%% *} -R "$GITHUB_REPOSITORY" -n kazna-windows-installer -D new
+          gh release download -R "${{ github.repository_owner }}/p-treasury-releases" -p 'P-Treasury_*_x64-setup.exe' -D old
+          ls -la new old
+      - name: Установить старую версию, обновить до Kazna, проверить
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fail = @()
+          $la = $env:LOCALAPPDATA; $ad = $env:APPDATA
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          $uk = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          $sm = "$ad\Microsoft\Windows\Start Menu\Programs"
+          $desk = [Environment]::GetFolderPath('Desktop')
+          function Show($t) { Write-Host "== $t"; Get-ChildItem "$la" -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  папка $($_.FullName)"; Get-ChildItem $_.FullName | % { Write-Host "    $($_.Name)" } }
+            Get-ChildItem $uk | ? PSChildName -match 'Kazna|P-Treasury' | % { Write-Host "  реестр $($_.PSChildName)" }
+            Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  ярлык $($_.FullName)" } }
+
+          $old = (Get-ChildItem old\*.exe)[0].FullName; Write-Host "Старая: $old"
+          Start-Process $old -ArgumentList '/S' -Wait
+          Show 'после установки старой'
+          if (-not (Test-Path "$la\P-Treasury\p-treasury.exe")) { $fail += 'старая версия не установилась' }
+
+          New-Item -Force -ItemType Directory "$ad\app.kazna.desktop", "$docs\P-Treasury" | Out-Null
+          'база' | Set-Content "$ad\app.kazna.desktop\marker.txt"
+          'документы' | Set-Content "$docs\P-Treasury\marker.txt"
+
+          $new = (Get-ChildItem new\*.exe)[0].FullName; Write-Host "Новая: $new"
+          Start-Process $new -ArgumentList '/S' -Wait
+          Start-Sleep 5
+          Show 'после обновления до Kazna'
+
+          if (Test-Path "$la\P-Treasury") { $fail += "осталась папка $la\P-Treasury" }
+          if (-not (Test-Path "$la\Kazna\Kazna.exe")) { $fail += 'нет Kazna.exe' }
+          if (Test-Path "$uk\P-Treasury") { $fail += 'остался пункт P-Treasury в «Установке и удалении программ»' }
+          if (-not (Test-Path "$uk\Kazna")) { $fail += 'нет пункта Kazna в «Установке и удалении программ»' }
+          if (-not (Test-Path "$ad\app.kazna.desktop\marker.txt")) { $fail += 'пропала папка данных app.kazna.desktop' }
+          if (-not (Test-Path "$docs\P-Treasury\marker.txt")) { $fail += 'установщик тронул Документы\P-Treasury' }
+          $lnk = Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue
+          if ($lnk | ? Name -match 'P-Treasury') { $fail += 'остались ярлыки P-Treasury' }
+          if (-not ($lnk | ? Name -eq 'Kazna.lnk')) { $fail += 'нет ярлыка Kazna' }
+
+          # Первый запуск Kazna сам переносит Документы\P-Treasury -> Документы\Kazna (тред 25).
+          $app = Start-Process "$la\Kazna\Kazna.exe" -PassThru
+          Start-Sleep 20
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          Get-Process Kazna -ErrorAction SilentlyContinue | Stop-Process -Force
+          Write-Host "== Документы после первого запуска"
+          Get-ChildItem $docs -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  $($_.FullName)"; Get-ChildItem $_.FullName | % { Write-Host "    $($_.Name)" } }
+          if (-not (Test-Path "$docs\Kazna\marker.txt")) { $fail += 'после первого запуска метка не в Документы\Kazna' }
+
+          if ($fail) { $fail | % { Write-Host "::error::$_" }; exit 1 }
+          Write-Host 'ВСЁ ХОРОШО: одна копия Kazna, данные на месте, ярлыки Kazna, Документы перенесены'
