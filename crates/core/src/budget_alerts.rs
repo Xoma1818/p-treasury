@@ -325,7 +325,7 @@ mod tests {
         let cafe: String = db
             .conn()
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Кафе и рестораны'",
+                "SELECT id FROM categories WHERE name = 'Общепит'",
                 [],
                 |r| r.get(0),
             )
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(a[0].level, 80);
         assert_eq!(
             a[0].text,
-            "Кафе и рестораны: потрачено 82 % бюджета (8\u{a0}200 из 10\u{a0}000 ₽)"
+            "Общепит: потрачено 82 % бюджета (8\u{a0}200 из 10\u{a0}000 ₽)"
         );
         assert!(
             pending(c, today).unwrap().is_empty(),
@@ -372,10 +372,7 @@ mod tests {
         spend(c, &card, &cafe, "2026-10-18", 300_000);
         let a = pending(c, today).unwrap();
         assert_eq!(a[0].level, 100);
-        assert_eq!(
-            a[0].text,
-            "Кафе и рестораны: бюджет превышен на 1\u{a0}200 ₽"
-        );
+        assert_eq!(a[0].text, "Общепит: бюджет превышен на 1\u{a0}200 ₽");
         assert!(pending(c, today).unwrap().is_empty());
 
         // Отметки в базе: после «перезапуска» (новый вызов) порог не повторяется,
@@ -410,10 +407,7 @@ mod tests {
             )
             .unwrap()
         };
-        let (cafe, food) = (
-            id(db.conn(), "Кафе и рестораны"),
-            id(db.conn(), "Супермаркет"),
-        );
+        let (cafe, food) = (id(db.conn(), "Общепит"), id(db.conn(), "Магазины"));
         let budget = budgets::create(db.conn_mut(), "2026-10", false).unwrap();
         let c = db.conn();
         budgets::set_limit(c, &budget, &cafe, Some(1_000_000)).unwrap();
@@ -438,7 +432,7 @@ mod tests {
             a.iter()
                 .map(|x| (x.category_name.as_str(), x.level))
                 .collect::<Vec<_>>(),
-            [("Супермаркет", 100)]
+            [("Магазины", 100)]
         );
     }
 
@@ -450,7 +444,7 @@ mod tests {
         let cafe: String = db
             .conn()
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Кафе и рестораны'",
+                "SELECT id FROM categories WHERE name = 'Общепит'",
                 [],
                 |r| r.get(0),
             )

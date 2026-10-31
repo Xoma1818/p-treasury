@@ -277,8 +277,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let data = receipt(&card, &[(&food, 100_000), (&drug, 50_000)], 150_000);
         let split = create(db.conn_mut(), &data).unwrap();
         let old_part = visible_part(db.conn(), &split);
@@ -310,8 +310,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let trip = event(db.conn(), "Поездка");
         let mut data = receipt(&card, &[(&food, 100_000), (&drug, 50_000)], 150_000);
         data.event_id = Some("нет такого события".into());
@@ -358,8 +358,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let clothes = cat(db.conn(), "Одежда");
         let trip = event(db.conn(), "Поездка");
         let other_trip = event(db.conn(), "Другая поездка");
@@ -503,9 +503,9 @@ mod tests {
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
         let (food, kids, drug) = (
-            cat(db.conn(), "Супермаркет"),
+            cat(db.conn(), "Магазины"),
             cat(db.conn(), "Одежда"),
-            cat(db.conn(), "Аптека"),
+            cat(db.conn(), "Лекарства"),
         );
         let c = db.conn_mut();
         assert!(create(c, &receipt(&card, &[(&food, 300_000)], 300_000)).is_err());

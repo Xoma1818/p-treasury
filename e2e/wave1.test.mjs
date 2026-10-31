@@ -69,7 +69,7 @@ test("сохранённый вид отчёта открывает ту же в
 
 test("сохранённый вид операций: «Кафе» возвращает фильтр после сброса", async () => {
   await openSection(browser, "Операции");
-  await choose(browser, "filterCategory", "Кафе и рестораны");
+  await choose(browser, "filterCategory", "Общепит");
   const filtered = await waitText(browser, '[data-testid="txn-count"]', /Показано \d+ из \d+/);
   await click(browser, "Сохранить вид");
   await fill(browser, "viewName", "Кафе");

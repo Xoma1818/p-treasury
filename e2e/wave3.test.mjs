@@ -102,7 +102,7 @@ test("общая трата за троих: своя доля — расход,
   const expense = await browser.$('[data-testid="month-expense"]').getText();
   await click(browser, "+ Расход");
   await fill(browser, "amount", "3000");
-  await chooseLike(browser, "category", "Кафе и рестораны");
+  await chooseLike(browser, "category", "Общепит");
   await fill(browser, "payee", "Пиццерия");
   await click(browser, "Разделить с друзьями");
   await fill(browser, "friend0", "Аня");
@@ -132,7 +132,7 @@ test("календарь: дни без трат отмечены, итог не
     await dragTo('[data-testid="day-panel"] tr.draggable', `[data-testid="cal-day"][data-date="${target}"]`);
     await browser.waitUntil(async () => (await rows()) === n - 1, { timeout: 5000, timeoutMsg: "операция не ушла с этого дня" });
     await browser.$(`[data-testid="cal-day"][data-date="${target}"]`).click();
-    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Кафе/);
+    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Общепит/);
   }
   await browser.$('[name="weeklySummary"]').click();
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });
@@ -183,9 +183,9 @@ test("счёт, перетащенный на категорию «Куда тр
   assert.equal(await picked("category"), "Такси");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ timeout: 5000, reverse: true });
-  await dragTo('[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Кафе и рестораны"]');
+  await dragTo('[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Общепит"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
-  assert.equal(await picked("category"), "Кафе и рестораны");
+  assert.equal(await picked("category"), "Общепит");
   assert.match(await picked("account"), /^Наличные/);
   await browser.keys("Escape");
 });

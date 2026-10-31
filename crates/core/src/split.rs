@@ -154,7 +154,7 @@ mod tests {
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
         let cat: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Кафе и рестораны'",
+                "SELECT id FROM categories WHERE name = 'Общепит'",
                 [],
                 |r| r.get(0),
             )
@@ -232,7 +232,7 @@ mod tests {
         // Ошибка в своей доле (категория доходов) — долги тоже не записаны.
         let salary: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Зарплата'",
+                "SELECT id FROM categories WHERE name = 'Заработная плата'",
                 [],
                 |r| r.get(0),
             )

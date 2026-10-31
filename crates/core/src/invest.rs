@@ -594,7 +594,7 @@ mod tests {
         let salary = crate::categories::list(c, false)
             .unwrap()
             .into_iter()
-            .find(|x| x.name == "Зарплата")
+            .find(|x| x.name == "Заработная плата")
             .unwrap()
             .id;
         transactions::create(
@@ -701,7 +701,7 @@ mod tests {
         // Набор уже был — категория добавляется.
         let mut c = Connection::open_in_memory().unwrap();
         migrate(&mut c, &MIGRATIONS[..4]).unwrap();
-        add(&c, "Зарплата");
+        add(&c, "Заработная плата");
         migrate(&mut c, MIGRATIONS).unwrap();
         assert_eq!(count(&c), 1);
         // Своя такая же категория — не дублируется.

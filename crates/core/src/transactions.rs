@@ -703,10 +703,10 @@ mod tests {
             card: accounts::create(c, &acc("Карта", "debit", "RUB", 10_000_000)).unwrap(),
             cash: accounts::create(c, &acc("Наличные", "cash", "RUB", 0)).unwrap(),
             usd: accounts::create(c, &acc("Вклад USD", "savings", "USD", 0)).unwrap(),
-            food: cat(c, "Продукты"),
-            cafe: cat(c, "Кафе и рестораны"),
+            food: cat(c, "Питание"),
+            cafe: cat(c, "Общепит"),
             lunch: cat(c, "Обеды"),
-            salary: cat(c, "Зарплата"),
+            salary: cat(c, "Заработная плата"),
             db,
         }
     }
@@ -867,7 +867,7 @@ mod tests {
         assert!(page
             .items
             .iter()
-            .any(|t| t.category_name.as_deref() == Some("Кафе и рестораны → Обеды")));
+            .any(|t| t.category_name.as_deref() == Some("Общепит → Обеды")));
 
         let by_text = |q: &str| {
             list(

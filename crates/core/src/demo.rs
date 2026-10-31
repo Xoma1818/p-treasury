@@ -96,22 +96,34 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
 
     // Траты месяца: (день, сумма в копейках, категория, получатель, счёт).
     let plan: &[(u32, i64, &str, &str, bool)] = &[
-        (2, 720_000, "Супермаркет", "Пятёрочка", true),
-        (4, 600_000, "Кружки", "Школа плавания", true),
-        (3, 35_000, "Кафе и рестораны", "Кофейня", false),
+        (2, 720_000, "Магазины", "Пятёрочка", true),
+        (
+            4,
+            600_000,
+            "Дополнительное образование",
+            "Школа плавания",
+            true,
+        ),
+        (3, 35_000, "Общепит", "Кофейня", false),
         (6, 61_000, "Такси", "Яндекс Go", true),
-        (8, 912_000, "Супермаркет", "Перекрёсток", true),
-        (10, 650_000, "ЖКХ", "Управляющая компания", true),
-        (12, 70_000, "Интернет и связь", "Ростелеком", true),
-        (14, 180_000, "Кафе и рестораны", "Шоколадница", true),
+        (8, 912_000, "Магазины", "Перекрёсток", true),
+        (
+            10,
+            650_000,
+            "Коммунальные платежи",
+            "Управляющая компания",
+            true,
+        ),
+        (12, 70_000, "Связь", "Ростелеком", true),
+        (14, 180_000, "Общепит", "Шоколадница", true),
         (15, 39_900, "Подписки", "Кинопоиск", true),
         (16, 450_000, "Одежда и обувь", "Lamoda", true),
-        (17, 655_000, "Супермаркет", "Лента", true),
-        (19, 120_000, "Аптека", "Аптека Ригла", false),
+        (17, 655_000, "Магазины", "Лента", true),
+        (19, 120_000, "Лекарства", "Аптека Ригла", false),
         (21, 250_000, "Топливо", "Лукойл", true),
-        (24, 810_000, "Супермаркет", "Пятёрочка", true),
-        (26, 290_000, "Кино и театр", "Кинотеатр", true),
-        (28, 95_000, "Кафе и рестораны", "Обеды", true),
+        (24, 810_000, "Магазины", "Пятёрочка", true),
+        (26, 290_000, "Культура", "Кинотеатр", true),
+        (28, 95_000, "Общепит", "Обеды", true),
     ];
     let mk = |kind: &str,
               date: NaiveDate,
@@ -142,7 +154,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
                     salary,
                     &card,
                     8_500_000,
-                    "Зарплата",
+                    "Заработная плата",
                     "ООО «Ромашка»",
                 ),
             )?;
@@ -160,13 +172,14 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
                 continue;
             }
             let acc = if on_card { &card } else { &cash };
-            let amount =
-                if category == "ЖКХ" || category == "Подписки" || category == "Интернет и связь"
-                {
-                    amount
-                } else {
-                    amount * k / 100
-                };
+            let amount = if category == "Коммунальные платежи"
+                || category == "Подписки"
+                || category == "Связь"
+            {
+                amount
+            } else {
+                amount * k / 100
+            };
             transactions::create(&tx, &mk("expense", date, acc, amount, category, payee))?;
         }
     }
@@ -209,7 +222,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             amount: Some(25_000),
             account_id: Some(card.clone()),
             to_account_id: None,
-            category_id: Some(cat(&tx, "Кафе и рестораны", "expense")?),
+            category_id: Some(cat(&tx, "Общепит", "expense")?),
             payee: Some("Кофейня".into()),
             note: None,
         },
@@ -235,7 +248,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             amount: Some(650_000),
             txn_type: Some("expense".into()),
             account_id: Some(card.clone()),
-            category_id: Some(cat(&tx, "ЖКХ", "expense")?),
+            category_id: Some(cat(&tx, "Коммунальные платежи", "expense")?),
             ..Default::default()
         },
     )?;
@@ -374,7 +387,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
     let mut spent = Vec::new();
     for (offset, amount, category, payee) in [
         (0, 1_240_000, "Путешествия", "РЖД"),
-        (1, 380_000, "Кафе и рестораны", "Чак-чак"),
+        (1, 380_000, "Общепит", "Чак-чак"),
         (2, 165_000, "Такси", "Яндекс Go"),
         (3, 520_000, "Путешествия", "Гостиница"),
     ] {
@@ -406,8 +419,8 @@ fn quick_wins(conn: &mut Connection, now: NaiveDate, card: &str) -> Result<()> {
         note: None,
         total: 500_000,
         parts: [
-            ("Супермаркет", 320_000),
-            ("Аптека", 45_000),
+            ("Магазины", 320_000),
+            ("Лекарства", 45_000),
             ("Одежда", 135_000),
         ]
         .into_iter()
@@ -471,7 +484,7 @@ fn quick_wins(conn: &mut Connection, now: NaiveDate, card: &str) -> Result<()> {
                 now - Duration::days(back),
                 card,
                 154_000,
-                "Супермаркет",
+                "Магазины",
                 "Самокат",
             )?,
         )?;

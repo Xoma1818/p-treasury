@@ -161,6 +161,8 @@ pub fn run() {
             commands::list_categories,
             commands::create_category,
             commands::update_category,
+            commands::category_rename_preview,
+            commands::category_rename_apply,
             commands::archive_category,
             commands::delete_category,
             commands::list_transactions,

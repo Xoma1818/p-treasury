@@ -827,7 +827,7 @@ mod tests {
         .unwrap();
         let cat: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Продукты'",
+                "SELECT id FROM categories WHERE name = 'Питание'",
                 [],
                 |r| r.get(0),
             )

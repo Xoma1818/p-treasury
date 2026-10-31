@@ -195,7 +195,7 @@ mod tests {
         invest::set_value(c, &iis, "2026-08-31", 5_500_000).unwrap();
         let food: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Супермаркет'",
+                "SELECT id FROM categories WHERE name = 'Магазины'",
                 [],
                 |r| r.get(0),
             )
