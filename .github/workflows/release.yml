@@ -34,15 +34,7 @@ jobs:
                    "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; do
             [ "$v" = "$ver" ] || { echo "::error::В package.json версия $ver, а рядом $v"; exit 1; }
           done
-          # Имя программы не должно откатиться при слиянии (так случилось в 0.27.0).
-          # При намеренном переименовании поменять APP_NAME здесь же.
-          APP_NAME=Kazna
-          for f in productName mainBinaryName; do
-            v="$(jq -r ".$f" src-tauri/tauri.conf.json)"
-            [ "$v" = "$APP_NAME" ] || { echo "::error::В tauri.conf.json $f = $v, ожидается $APP_NAME"; exit 1; }
-          done
-          [ "$(jq -r '.bundle.windows.nsis.installerHooks // empty' src-tauri/tauri.conf.json)" = windows/hooks.nsh ] \
-            || { echo "::error::В tauri.conf.json нет bundle.windows.nsis.installerHooks (удаление старой P-Treasury)"; exit 1; }
+          scripts/check-app-name.sh
           grep -q "^## $ver\b" CHANGELOG.md || { echo "::error::В CHANGELOG.md нет раздела «## $ver»"; exit 1; }
           git fetch --tags --quiet
           ! git rev-parse -q --verify "refs/tags/v$ver" >/dev/null || { echo "::error::Версия $ver уже выпущена (тег v$ver есть)"; exit 1; }
