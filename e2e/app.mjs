@@ -145,7 +145,9 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       port: 4444,
       logLevel: "error",
       capabilities: WIN
-        ? { browserName: "webview2", "ms:edgeOptions": { binary: bin, args: appArgs } }
+        ? // Классический WebDriver, как с tauri-driver в Linux: через BiDi скрипт
+          // видел window.__TAURI_INTERNALS__ без invoke.
+          { browserName: "webview2", "wdio:enforceWebDriverClassic": true, "ms:edgeOptions": { binary: bin, args: appArgs } }
         : // `args: []` — запуск без своей папки данных (переносная версия).
           { "tauri:options": { application: bin, args: appArgs } },
     });
@@ -191,7 +193,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
 export async function showAllHomeCards(browser) {
-  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && !!window.__TAURI_INTERNALS__), { timeout: 15000 });
+  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && typeof window.__TAURI_INTERNALS__?.invoke === "function"), { timeout: 15000 });
   const ok = await browser.executeAsync((done) => {
     window.__TAURI_INTERNALS__
       .invoke("set_setting", { key: "home_layout", value: JSON.stringify({ order: [], hidden: [] }) })
