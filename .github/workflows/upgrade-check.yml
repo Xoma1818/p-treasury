@@ -1,6 +1,6 @@
 # Пробная проверка обновления P-Treasury 0.25.0 -> Kazna 0.26 на Windows. Только для ветки треда 9, в main не идёт.
 # Старая версия — выпуск v0.25.0 (в обычную папку и в свою через /D). Новая — сборка windows-installer ровно на текущем head PR #50 (иначе ошибка).
-# Данные: настоящая база, созданная старой программой, плюс счёт-метка; сверка снимков до и после (snap.py).
+# Данные: база примера схемы 0.25 (тред 26, upgrade-0.25.db), открытая старой программой, плюс счёт-метка; сверка снимков до и после (snap.py).
 name: Проверка обновления до Kazna
 
 on:
@@ -75,6 +75,9 @@ jobs:
           if (-not (Test-Path "$odir\p-treasury.exe")) { throw "старая версия не установилась в $odir" }
           RunApp "$odir\p-treasury.exe"
           if (-not (Test-Path $db)) { throw "старая программа не создала $db" }
+          # Подменяем пустую базу на базу с данными примера (тред 26: 8 счетов, 90 операций, займы, бюджет).
+          Remove-Item "$db-wal", "$db-shm" -ErrorAction SilentlyContinue
+          Copy-Item .github\upgrade-check\upgrade-0.25.db $db -Force
           python $snap seed $db
           RunApp "$odir\p-treasury.exe"   # старая программа открывает базу с меткой и делает свои копии
           Show 'старая версия с данными'
