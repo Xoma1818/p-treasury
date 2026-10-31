@@ -166,7 +166,7 @@ test("объединение: удаление категории с перен�
   await choose(browser, "moveTo", "Прочие расходы");
   await save(browser, "Удалить");
   const text = await mainText(browser);
-  assert.ok(!/Супермаркет/.test(text), "подкатегории удалены вместе с категорией");
+  assert.ok(!/Магазины/.test(text), "подкатегории удалены вместе с категорией");
   await openSection(browser, "Операции");
   await choose(browser, "filterCategory", "Прочие расходы");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);

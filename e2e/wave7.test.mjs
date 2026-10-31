@@ -150,12 +150,12 @@ test("Операции: разбитый чек одной строкой с р�
   const receipt = '//tr[@data-testid="txn-row" and @data-receipt="3"]';
   await waitText(browser, receipt, /Ашан, 3 категории/);
   await waitText(browser, receipt, money("−5 000 ₽"));
-  await waitText(browser, receipt, /Супермаркет, [^,]*Аптека, [^,]*Одежда|Одежда, [^,]*Аптека, [^,]*Супермаркет/);
+  await waitText(browser, receipt, /Магазины, [^,]*Лекарства, [^,]*Одежда|Одежда, [^,]*Лекарства, [^,]*Магазины/);
   await (await browser.$(`${receipt}//button[@aria-label="Раскрыть чек"]`)).click();
   await waitCount(browser, '[data-testid="receipt-part"]', 3);
   const parts = await browser.execute(() => [...document.querySelectorAll('[data-testid="receipt-part"]')].map((r) => r.textContent));
-  // Части идут по названию категории: «Дети → Одежда», «Здоровье → Аптека», «Продукты → Супермаркет».
-  for (const re of [/Супермаркет\D*3\s200\s₽/, /Аптека\D*450\s₽/, /Одежда\D*1\s350\s₽/]) assert.ok(parts.some((p) => re.test(p)), `${re} в ${parts.join(" | ")}`);
+  // Части идут по названию категории: «Дети → Одежда», «Медицина → Лекарства», «Питание → Магазины».
+  for (const re of [/Магазины\D*3\s200\s₽/, /Лекарства\D*450\s₽/, /Одежда\D*1\s350\s₽/]) assert.ok(parts.some((p) => re.test(p)), `${re} в ${parts.join(" | ")}`);
   await (await browser.$(`${receipt}//button[@aria-label="Свернуть чек"]`)).click();
   await waitCount(browser, '[data-testid="receipt-part"]', 0);
   // Ремонт с тегом «дача» и страховка «÷ 12 мес.».
@@ -222,18 +222,18 @@ test("пачка: категория двум операциям, перевод
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
   await waitText(browser, '[data-testid="sel-sum"]', /Выбрано 2/);
   await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
-  await pickLike("bulkCategory", "Кафе");
+  await pickLike("bulkCategory", "Общепит");
   await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
   await waitText(browser, '[data-testid="bulk-message"]', /Категория поставлена: 2 операции\. Отменить — Ctrl\+Z\./);
-  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Кафе[^|]*\|[^|]*Кафе/), {
+  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Общепит[^|]*\|[^|]*Общепит/), {
     timeout: 5000,
-    timeoutMsg: "обе операции получили «Кафе»",
+    timeoutMsg: "обе операции получили «Общепит»",
   });
   await blur();
   await keys("Control", "z");
-  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Супермаркет[^|]*\|[^|]*Супермаркет/), {
+  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Магазины[^|]*\|[^|]*Магазины/), {
     timeout: 5000,
-    timeoutMsg: "одним Ctrl+Z обе вернулись в «Супермаркет»",
+    timeoutMsg: "одним Ctrl+Z обе вернулись в «Магазины»",
   });
 
   // Переводы категорию не получают: программа говорит, сколько пропущено.
@@ -251,7 +251,7 @@ test("пачка: категория двум операциям, перевод
     // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
     if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
     await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
-    await pickLike("bulkCategory", "Кафе");
+    await pickLike("bulkCategory", "Общепит");
     await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
     await waitText(browser, '[data-testid="bulk-message"]', /пропущено 1: переводы/);
     await blur();

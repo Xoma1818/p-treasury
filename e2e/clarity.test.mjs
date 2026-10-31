@@ -92,7 +92,7 @@ test("«Как посчитано»: расходы месяца расклад�
   await tile.click();
   // Сумма разбора совпадает с суммой на плитке.
   await waitText(browser, '[data-testid="explain-total"]', money(shown));
-  await waitText(browser, '[data-testid="explain"]', /Продукты/);
+  await waitText(browser, '[data-testid="explain"]', /Питание/);
   await browser.keys("Escape");
 
   await (await browser.$('[data-testid="explain-balance"]')).click();

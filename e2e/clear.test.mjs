@@ -56,7 +56,7 @@ test("предупреждение бюджета объясняет причи�
   }
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
-  await waitText(browser, '[data-testid="warning-row"]', /Кафе и рестораны: потрачено 95 % бюджета/);
+  await waitText(browser, '[data-testid="warning-row"]', /Общепит: потрачено 95 % бюджета/);
   await waitText(browser, '[data-testid="warning-reason"]', /Месяц прошёл на \d+ %, а лимит потрачен на 95 %[\s\S]*«Шоколадница»: 2 из 2/);
   await browser.$('[data-testid="warning-ops"]').click();
   await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });

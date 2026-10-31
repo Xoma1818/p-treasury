@@ -112,7 +112,7 @@ test("выгрузка операций по фильтру в CSV: русски
   assert.ok(text.startsWith("\uFEFFДата;Тип;Счёт"), "BOM и разделитель «;»");
   const lines = text.trim().split(/\r?\n/);
   assert.equal(lines.length, 3, text);
-  assert.match(text, /Кафе и рестораны/);
+  assert.match(text, /Общепит/);
   assert.match(text, /-450,00|-450/);
 });
 

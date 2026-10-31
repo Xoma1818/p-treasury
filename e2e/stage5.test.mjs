@@ -47,12 +47,12 @@ async function newReminder({ title, date, time = "09:00", repeat, amount, catego
 
 test("коммуналка: «ЖКХ» ежемесячно, «Создать операцию» с суммой 6 230 ₽", async () => {
   await openReminders();
-  await newReminder({ title: "Коммунальные платежи", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
+  await newReminder({ title: "ЖКХ", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
   await waitText(browser, '[data-testid="rem-all"]', /ЖКХ · ежемесячно, следующее/);
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
-  await click(browser, "Создать операцию", occ("rem-overdue", "Коммунальные платежи"));
+  await click(browser, "Создать операцию", occ("rem-overdue", "ЖКХ"));
   assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "6000");
-  assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "Коммунальные платежи");
+  assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "ЖКХ");
   assert.match(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), /.+/);
   await fill(browser, "amount", "6230");
   await save(browser);

@@ -117,7 +117,7 @@ test("«Можно тратить сегодня»: остаток лимито�
   await waitText(browser, '[data-testid="safe-to-spend"]', money(expected));
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="home-safe-to-spend"]', money(expected));
-  await waitText(browser, '[data-testid="home-budget"]', /Кафе и рестораны\s*105 %/);
+  await waitText(browser, '[data-testid="home-budget"]', /Общепит\s*105 %/);
 });
 
 test("клик по факту открывает операции категории за месяц", async () => {
