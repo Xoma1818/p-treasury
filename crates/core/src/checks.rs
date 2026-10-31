@@ -425,8 +425,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let c = db.conn_mut();
         let first = spend(c, &card, &food, "2026-10-19", 100_000, "Ашан");
         let receipt = || ReceiptInput {
@@ -490,8 +490,8 @@ mod tests {
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
         let cash = accounts::create(db.conn(), &input("Наличные", "cash", "RUB", 0)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let receipt = |date: &str, account: &str, food_amount: i64| ReceiptInput {
             date: date.into(),
             account_id: account.into(),
@@ -577,8 +577,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 0)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let c = db.conn_mut();
         // Чек разбит вручную, затем та же покупка пришла одной операцией.
         let split = receipts::create(
@@ -622,7 +622,7 @@ mod tests {
         let c = db.conn();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
         let cash = accounts::create(c, &input("Наличные", "cash", "RUB", 0)).unwrap();
-        let food = cat(c, "Супермаркет");
+        let food = cat(c, "Магазины");
         assert!(list(c, TODAY).unwrap().is_empty(), "Всё спокойно");
         let first = spend(c, &card, &food, "2026-10-14", 125_000, "Пятёрочка");
         let second = spend(c, &card, &food, "2026-10-15", 125_000, "ПЯТЁРОЧКА");
@@ -680,7 +680,7 @@ mod tests {
         crate::categories::seed_defaults(c).unwrap();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
         let tech = cat(c, "Прочие расходы");
-        let cafe = cat(c, "Кафе и рестораны");
+        let cafe = cat(c, "Общепит");
         for (d, a) in [
             ("2026-06-10", 150_000),
             ("2026-07-10", 200_000),

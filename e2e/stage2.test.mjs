@@ -55,23 +55,23 @@ test("план месяца: пустой бюджет и лимиты по ка
   await waitText(browser, '[data-testid="budget-month"]', new RegExp(title(now)));
   await waitText(browser, "main", /пока нет/);
   await click(browser, "Создать пустой");
-  await addLimit("Кафе и рестораны", "10000");
-  await addLimit("Продукты", "20000");
+  await addLimit("Общепит", "10000");
+  await addLimit("Питание", "20000");
   await waitText(browser, '[data-testid="budget-planned"]', money("30 000 ₽"));
 });
 
 test("контроль: «Кафе 90 %» без отметки, перерасход отмечен оранжевым", async () => {
-  await expense("9000", "Кафе и рестораны");
+  await expense("9000", "Общепит");
   await openSection(browser, "Бюджет");
-  await waitText(browser, `${line("Кафе и рестораны")}//*[@data-testid="percent"]`, /^90 %$/);
-  assert.doesNotMatch((await browser.$(line("Кафе и рестораны")).getAttribute("class")) ?? "", /over-row/);
+  await waitText(browser, `${line("Общепит")}//*[@data-testid="percent"]`, /^90 %$/);
+  assert.doesNotMatch((await browser.$(line("Общепит")).getAttribute("class")) ?? "", /over-row/);
 
-  await expense("1500", "Кафе и рестораны");
+  await expense("1500", "Общепит");
   await openSection(browser, "Бюджет");
-  await waitText(browser, `${line("Кафе и рестораны")}//*[@data-testid="percent"]`, /^105 %$/);
-  assert.match(await browser.$(line("Кафе и рестораны")).getAttribute("class"), /over-row/);
-  await waitText(browser, line("Кафе и рестораны"), money("−500 ₽"));
-  const color = await browser.$(`${line("Кафе и рестораны")}/td[4]`).getCSSProperty("color");
+  await waitText(browser, `${line("Общепит")}//*[@data-testid="percent"]`, /^105 %$/);
+  assert.match(await browser.$(line("Общепит")).getAttribute("class"), /over-row/);
+  await waitText(browser, line("Общепит"), money("−500 ₽"));
+  const color = await browser.$(`${line("Общепит")}/td[4]`).getCSSProperty("color");
   // Оранжевый цвета перерасхода из темы: #fb923c в тёмной, #c2410c в светлой.
   const over = await browser.execute(() => getComputedStyle(document.documentElement).getPropertyValue("--over").trim());
   assert.ok(["#fb923c", "#c2410c"].includes(over), over);
@@ -91,9 +91,9 @@ test("расход 45 € входит в рублёвый бюджет по к�
   await click(browser, "Добавить");
   await waitText(browser, '[data-testid="rates"]', /1 EUR = 100,5 ₽/);
 
-  await expense("45", "Продукты", "Карта EUR (€)");
+  await expense("45", "Питание", "Карта EUR (€)");
   await openSection(browser, "Бюджет");
-  await waitText(browser, line("Продукты"), money("4 522,50 ₽"));
+  await waitText(browser, line("Питание"), money("4 522,50 ₽"));
 });
 
 test("корректировка баланса не входит в факт бюджета", async () => {
@@ -122,7 +122,7 @@ test("«Можно тратить сегодня»: остаток лимито�
 
 test("клик по факту открывает операции категории за месяц", async () => {
   await openSection(browser, "Бюджет");
-  await (await browser.$(`${line("Кафе и рестораны")}//button[contains(@class, "fact")]`)).click();
+  await (await browser.$(`${line("Общепит")}//button[contains(@class, "fact")]`)).click();
   await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
 });
@@ -133,11 +133,11 @@ test("планирование: бюджет копируется в следу�
   await waitText(browser, '[data-testid="budget-month"]', new RegExp(title(nextMonth)));
   // Кнопка называет месяц, из которого копируем.
   await click(browser, `Скопировать из ${MONTHS_GEN[now.getMonth()]}`);
-  await waitText(browser, line("Кафе и рестораны"), money("0 ₽"));
+  await waitText(browser, line("Общепит"), money("0 ₽"));
   await waitText(browser, '[data-testid="budget-planned"]', money("30 000 ₽"));
   await waitText(browser, '[data-testid="safe-to-spend"]', /только для текущего месяца/);
   // Лимит правится на месте: 12 000 вместо 10 000.
-  const input = await browser.$(`${line("Кафе и рестораны")}//input[@name="limit"]`);
+  const input = await browser.$(`${line("Общепит")}//input[@name="limit"]`);
   await input.clearValue();
   await input.setValue("12000");
   await browser.keys("Enter");

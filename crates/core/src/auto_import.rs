@@ -203,7 +203,7 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         let c = db.conn_mut();
         c.execute(
-            "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES ('food', 'Продукты', 'expense', '', '')",
+            "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES ('food', 'Питание', 'expense', '', '')",
             [],
         )
         .unwrap();

@@ -136,6 +136,28 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
             .and_modify(|v| *v = None)
             .or_insert(Some(id));
     }
+    // Файлы, выгруженные до 0.28, называют категории по-старому («Продукты», «Жильё → ЖКХ»):
+    // прежнее имя ведёт к категории с новым, если своей категории с прежним именем нет.
+    for (kind, parent, old, new) in crate::categories::RENAMES {
+        let target = categories
+            .get(&(kind.to_string(), new.to_lowercase()))
+            .cloned();
+        if let Some(Some(id)) = target {
+            categories
+                .entry((kind.to_string(), old.to_lowercase()))
+                .or_insert(Some(id.clone()));
+            if let Some(p) = parent {
+                for sep in [" → ", " / "] {
+                    categories
+                        .entry((
+                            kind.to_string(),
+                            format!("{}{sep}{}", p.to_lowercase(), old.to_lowercase()),
+                        ))
+                        .or_insert(Some(id.clone()));
+                }
+            }
+        }
+    }
     Ok(Lookup {
         accounts,
         categories,
@@ -427,7 +449,7 @@ pub fn write_template(path: &Path) -> Result<()> {
         Date("2026-10-05".into()),
         t("Расход"),
         t("Карта"),
-        t("Продукты"),
+        t("Питание"),
         t("Пятёрочка"),
         Empty,
         Money(-234_050, 2),
@@ -440,7 +462,7 @@ pub fn write_template(path: &Path) -> Result<()> {
         Date("2026-10-10".into()),
         t("Доход"),
         t("Карта"),
-        t("Зарплата"),
+        t("Заработная плата"),
         Empty,
         Empty,
         Money(8_500_000, 2),
@@ -554,7 +576,7 @@ mod tests {
         let food: String = db
             .conn()
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Продукты'",
+                "SELECT id FROM categories WHERE name = 'Питание'",
                 [],
                 |r| r.get(0),
             )
@@ -588,7 +610,7 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!((cat.as_str(), payee.as_str()), ("Продукты", "Пятёрочка"));
+        assert_eq!((cat.as_str(), payee.as_str()), ("Питание", "Пятёрочка"));
     }
 
     #[test]

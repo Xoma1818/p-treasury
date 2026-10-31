@@ -155,20 +155,16 @@ mod tests {
             category_id: cat(c, category),
             payee: payee.map(Into::into),
         };
-        create(c, &rule("PYATEROCHKA", "Продукты", Some("Пятёрочка"))).unwrap();
+        create(c, &rule("PYATEROCHKA", "Питание", Some("Пятёрочка"))).unwrap();
         create(c, &rule("yandex", "Такси", None)).unwrap();
-        create(
-            c,
-            &rule("yandex eda", "Кафе и рестораны", Some("Яндекс Еда")),
-        )
-        .unwrap();
+        create(c, &rule("yandex eda", "Общепит", Some("Яндекс Еда"))).unwrap();
         assert!(create(c, &rule(" a ", "Такси", None)).is_err());
 
         let m = find(c, "Покупка 1250р Pyaterochka 1234", "expense")
             .unwrap()
             .unwrap();
         assert_eq!(m.payee.as_deref(), Some("Пятёрочка"));
-        assert_eq!(m.category_name, "Продукты");
+        assert_eq!(m.category_name, "Питание");
         assert_eq!(
             find(c, "YANDEX  EDA MOSCOW", "expense")
                 .unwrap()
@@ -192,7 +188,7 @@ mod tests {
         assert!(find(c, "ozon", "expense").unwrap().is_none());
 
         // Тот же текст заменяет правило, а не дублирует его.
-        create(c, &rule("pyaterochka", "Супермаркет", None)).unwrap();
+        create(c, &rule("pyaterochka", "Магазины", None)).unwrap();
         assert_eq!(list(c).unwrap().len(), 3);
         let id = find(c, "PYATEROCHKA", "expense").unwrap().unwrap().id;
         delete(c, &id).unwrap();

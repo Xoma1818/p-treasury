@@ -901,3 +901,6 @@ h2 { font-size: 16px; }
 /* Вкладки по ширине текста, а не на весь экран (Календарь, Взгляд вперёд). */
 .tabs.fit { width: fit-content; max-width: 100%; }
 .tabs.fit .tab { flex: none; padding: 6px 18px; white-space: nowrap; }
+/* Переименование категорий по новому списку (0.28). */
+.rename-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow: auto; }
+.rename-list .check { display: flex; align-items: baseline; gap: 6px; }

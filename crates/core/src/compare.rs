@@ -258,25 +258,13 @@ mod tests {
         }
         fn september_and_october(&self) {
             // Сентябрь: продукты 10 000, кафе 4 000, такси 2 000.
-            self.op("2026-09-05", 1_000_000, "Продукты", "Пятёрочка", &self.card);
-            self.op(
-                "2026-09-10",
-                400_000,
-                "Кафе и рестораны",
-                "Шоколадница",
-                &self.card,
-            );
+            self.op("2026-09-05", 1_000_000, "Питание", "Пятёрочка", &self.card);
+            self.op("2026-09-10", 400_000, "Общепит", "Шоколадница", &self.card);
             self.op("2026-09-12", 200_000, "Такси", "Яндекс Go", &self.cash);
             // Октябрь: продукты 12 500 (+25 %), кафе 3 000 (−25 %), такси нет, аптека новая 1 500.
-            self.op("2026-10-05", 1_250_000, "Продукты", "Пятёрочка", &self.card);
-            self.op(
-                "2026-10-10",
-                300_000,
-                "Кафе и рестораны",
-                "Шоколадница",
-                &self.cash,
-            );
-            self.op("2026-10-15", 150_000, "Аптека", "", &self.card);
+            self.op("2026-10-05", 1_250_000, "Питание", "Пятёрочка", &self.card);
+            self.op("2026-10-10", 300_000, "Общепит", "Шоколадница", &self.cash);
+            self.op("2026-10-15", 150_000, "Лекарства", "", &self.card);
         }
     }
 
@@ -305,12 +293,12 @@ mod tests {
             (1_600_000, 1_700_000, 100_000)
         );
         assert_eq!(c.percent, Some(6)); // 100 / 1 600 = 6,25 %
-        let food = find(&c.rows, "Продукты");
+        let food = find(&c.rows, "Питание");
         assert_eq!(
             (food.a, food.b, food.diff, food.percent, food.presence),
             (1_000_000, 1_250_000, 250_000, Some(25), "both")
         );
-        let cafe = find(&c.rows, "Кафе и рестораны");
+        let cafe = find(&c.rows, "Общепит");
         assert_eq!((cafe.diff, cafe.percent), (-100_000, Some(-25)));
         // Такси — подкатегория «Транспорта»: в октябре её нет.
         let transport = find(&c.rows, "Транспорт");
@@ -325,7 +313,7 @@ mod tests {
         // Порядок: сначала то, что выросло сильнее, в конце — что сильнее уменьшилось.
         let diffs: Vec<i64> = c.rows.iter().map(|r| r.diff).collect();
         assert!(diffs.windows(2).all(|w| w[0] >= w[1]), "{diffs:?}");
-        assert_eq!(c.rows[0].name, "Продукты");
+        assert_eq!(c.rows[0].name, "Питание");
         assert_eq!(c.rows.last().unwrap().name, "Транспорт");
         assert_eq!(
             (c.summary_a.expense, c.summary_b.expense),

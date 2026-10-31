@@ -283,9 +283,9 @@ test("форма расхода: разбить чек на две катего�
   await fill(browser, "payee", "Перекрёсток");
   await click(browser, "Разбить по категориям", dialog);
   await waitText(browser, '[data-testid="receipt-split"]', /По категориям/);
-  await pickLike("partCategory0", "Супермаркет");
+  await pickLike("partCategory0", "Магазины");
   await fill(browser, "partAmount0", "2000");
-  await pickLike("partCategory1", "Аптека");
+  await pickLike("partCategory1", "Лекарства");
   await fill(browser, "partAmount1", "500");
   await waitText(browser, '[data-testid="receipt-left"]', /Остаток: 500/);
   await click(browser, "Сохранить", dialog);
@@ -463,9 +463,9 @@ test("событие разбитого чека: создание, смена �
   await fill(browser, "amount", "1200");
   await fill(browser, "payee", payee);
   await click(browser, "Разбить по категориям", dialog);
-  await pickLike("partCategory0", "Супермаркет");
+  await pickLike("partCategory0", "Магазины");
   await fill(browser, "partAmount0", "800");
-  await pickLike("partCategory1", "Аптека");
+  await pickLike("partCategory1", "Лекарства");
   await fill(browser, "partAmount1", "400");
   await browser.$(`[role="dialog"] select[name="event"] option[value="${eventIds[0]}"]`).waitForExist({ timeout: 5000 });
   await choose(browser, "event", eventNames[0]);

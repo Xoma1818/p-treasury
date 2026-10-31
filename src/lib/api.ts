@@ -102,6 +102,15 @@ export interface Category {
   transactionCount: number;
 }
 
+/** Строка «было → стало» для переименования по новому списку категорий (0.28). */
+export interface CategoryRename {
+  id: string;
+  kind: CategoryKind;
+  parent: string | null;
+  from: string;
+  to: string;
+}
+
 export type TxnType = "expense" | "income" | "transfer" | "adjustment";
 
 export interface TxnInput {
@@ -1703,6 +1712,8 @@ export const api = {
     invoke<string>("create_category", { input }),
   updateCategory: (id: string, name: string, parentId: string | null) =>
     invoke<void>("update_category", { id, name, parentId }),
+  categoryRenamePreview: () => invoke<CategoryRename[]>("category_rename_preview"),
+  categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),

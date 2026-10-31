@@ -477,7 +477,7 @@ mod tests {
         )
         .unwrap();
         c.execute(
-            "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES ('inc', 'Зарплата', 'income', '', '')",
+            "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES ('inc', 'Заработная плата', 'income', '', '')",
             [],
         )
         .unwrap();

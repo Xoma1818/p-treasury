@@ -18,9 +18,9 @@ try {
   await click(browser, "+ Доход");
   await fill(browser, "amount", "85000");
   await choose(browser, "account", "Карта Сбер (₽)");
-  await choose(browser, "category", "Зарплата");
+  await choose(browser, "category", "Заработная плата");
   await save(browser);
-  for (const [amount, category, payee] of [["2340", "Продукты", "Пятёрочка"], ["1890", "Кафе и рестораны", "Шоколадница"], ["850", "Транспорт", "Яндекс Go"]]) {
+  for (const [amount, category, payee] of [["2340", "Питание", "Пятёрочка"], ["1890", "Общепит", "Шоколадница"], ["850", "Транспорт", "Яндекс Go"]]) {
     await click(browser, "+ Расход");
     await fill(browser, "amount", amount);
     await choose(browser, "account", "Карта Сбер (₽)");

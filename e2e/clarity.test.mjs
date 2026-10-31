@@ -33,10 +33,10 @@ before(async () => {
       eventId: null,
     });
   // Выписка tbank.csv: «Пятерочка» 1 053,77 за 20.10, Steam 1 200 за 18.10.
-  await add("2026-10-19", 105_377, "Продукты", "Продукты", "на неделю");
+  await add("2026-10-19", 105_377, "Питание", "Питание", "на неделю");
   // Две записи по 1 200 рядом с Steam: какая из них — неясно, спросим.
-  await add("2026-10-17", 120_000, "Развлечения", "Игра");
-  await add("2026-10-19", 120_000, "Развлечения", "Игра другу");
+  await add("2026-10-17", 120_000, "Досуг", "Игра");
+  await add("2026-10-19", 120_000, "Досуг", "Игра другу");
 });
 after(async () => {
   await stop(browser);
@@ -81,7 +81,7 @@ test("история импорта: счётчики и отмена импор
 
 test("«Как посчитано»: расходы месяца раскладываются по категориям ровно в итог плитки", async () => {
   await invoke("create_transaction", {
-    input: { type: "expense", date: new Date().toISOString().slice(0, 10), accountId: card, amount: 50_000, categoryId: (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Продукты").id, toAccountId: null, toAmount: null, payee: "Рынок", note: null },
+    input: { type: "expense", date: new Date().toISOString().slice(0, 10), accountId: card, amount: 50_000, categoryId: (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Питание").id, toAccountId: null, toAmount: null, payee: "Рынки", note: null },
     eventId: null,
   });
   await openSection(browser, "Главная");

@@ -285,8 +285,8 @@ fn fx() -> Fx {
     budget_core::categories::seed_defaults(c).unwrap();
     let rub = account(c, "Карта", "RUB", 10_000_000);
     let usd = account(c, "Доллары", "USD", 100_000);
-    let food = cat_id(c, "Продукты");
-    let salary = cat_id(c, "Зарплата");
+    let food = cat_id(c, "Питание");
+    let salary = cat_id(c, "Заработная плата");
     Fx {
         db,
         rub,
@@ -563,7 +563,7 @@ fn reimport_after_renaming_payee_adds_nothing() {
 #[test]
 fn undo_import_returns_totals_and_keeps_manual() {
     let mut b = bank();
-    let food = cat_id(b.db.conn(), "Продукты");
+    let food = cat_id(b.db.conn(), "Питание");
     // Ручная запись, которую выписка узнает и свяжет.
     let manual = txn(
         b.db.conn(),
@@ -609,7 +609,7 @@ fn undo_import_returns_totals_and_keeps_manual() {
 fn receipt_matched_by_statement_survives_undo() {
     let mut b = bank();
     let c = b.db.conn();
-    let food = cat_id(c, "Продукты");
+    let food = cat_id(c, "Питание");
     let home = cat_id(c, "Подарки");
     let split = budget_core::receipts::create(
         b.db.conn_mut(),
@@ -1100,7 +1100,7 @@ fn spread_gives_one_part_per_budget_month_with_late_start_day() {
 #[test]
 fn linked_row_counts_once_when_fuller_statement_has_two() {
     let mut b = bank();
-    let food = cat_id(b.db.conn(), "Продукты");
+    let food = cat_id(b.db.conn(), "Питание");
     txn(
         b.db.conn(),
         "expense",

@@ -31,18 +31,18 @@ function rub(kop) {
 
 // Месяц операций (в копейках). Карта и наличные; зарплата, аванс, расходы, перевод.
 const rows = [
-  [day(1), "Доход", "Карта", "Зарплата", "Работа", "", 9000000],
+  [day(1), "Доход", "Карта", "Заработная плата", "Работа", "", 9000000],
   [day(2), "Расход", "Карта", "Жильё", "Мосэнергосбыт", "", 623000],
-  [day(3), "Расход", "Карта", "Продукты", "Пятёрочка", "", 234050],
+  [day(3), "Расход", "Карта", "Питание", "Пятёрочка", "", 234050],
   [day(4), "Расход", "Наличные", "Транспорт", "Метро", "", 50000],
   [day(5), "Перевод", "Карта", "", "", "в кошелёк", 1000000, "Наличные"],
-  [day(6), "Расход", "Карта", "Кафе и рестораны", "Шоколадница", "", 189000],
-  [day(8), "Расход", "Наличные", "Продукты", "Рынок", "", 120000],
+  [day(6), "Расход", "Карта", "Общепит", "Шоколадница", "", 189000],
+  [day(8), "Расход", "Наличные", "Питание", "Рынки", "", 120000],
   [day(10), "Расход", "Карта", "Жильё → Интернет и связь", "МТС", "", 65000],
-  [day(12), "Расход", "Карта", "Здоровье", "Аптека", "", 43090],
-  [day(15), "Доход", "Карта", "Зарплата", "Работа", "аванс", 4000000],
-  [day(18), "Расход", "Карта", "Продукты", "Перекрёсток", "", 312045],
-  [day(20), "Расход", "Наличные", "Кафе и рестораны", "Столовая", "", 45000],
+  [day(12), "Расход", "Карта", "Медицина", "Лекарства", "", 43090],
+  [day(15), "Доход", "Карта", "Заработная плата", "Работа", "аванс", 4000000],
+  [day(18), "Расход", "Карта", "Питание", "Перекрёсток", "", 312045],
+  [day(20), "Расход", "Наличные", "Общепит", "Столовая", "", 45000],
 ];
 const amountText = (k) => (k / 100).toFixed(2).replace(".", ",");
 const csv =
@@ -132,12 +132,12 @@ test("месяц жизни: от первого запуска до сводк�
   await click(browser, "+ Расход");
   await fill(browser, "amount", "1890+455");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Продукты");
+  await choose(browser, "category", "Питание");
   await save(browser);
   await click(browser, "+ Расход");
   await fill(browser, "amount", "250");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Кафе и рестораны");
+  await choose(browser, "category", "Общепит");
   await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
   await fill(browser, "templateName", "Кофе");
   await click(browser, "Сохранить шаблон", '//*[@role="dialog"]');
@@ -148,12 +148,12 @@ test("месяц жизни: от первого запуска до сводк�
   // 3. Бюджет месяца.
   await openSection(browser, "Бюджет");
   await click(browser, "Создать пустой");
-  for (const [cat, limit] of [["Продукты", "15000"], ["Кафе и рестораны", "3000"]]) {
+  for (const [cat, limit] of [["Питание", "15000"], ["Общепит", "3000"]]) {
     await choose(browser, "add-expense", cat);
     await fill(browser, "add-expense-limit", limit);
     await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');
   }
-  await browser.$('//tr[@data-testid="budget-line" and @data-category="Кафе и рестораны"]').waitForExist({ timeout: 5000 });
+  await browser.$('//tr[@data-testid="budget-line" and @data-category="Общепит"]').waitForExist({ timeout: 5000 });
 
   // 4. Кредит 100 000 ₽ и первый платёж.
   await newDebt(browser, { counterparty: "Банк", principal: "100000", rate: "12", term: "12", account: "Карта (₽)" });
@@ -168,7 +168,7 @@ test("месяц жизни: от первого запуска до сводк�
   await openSection(browser, "Календарь");
   await click(browser, "Напоминания");
   await click(browser, "+ Напоминание");
-  await fill(browser, "reminderTitle", "ЖКХ");
+  await fill(browser, "reminderTitle", "Коммунальные платежи");
   await setDate(browser, "reminderDate", iso(new Date(now.getFullYear(), now.getMonth() + 1, 2)));
   await choose(browser, "repeat", "Ежемесячно");
   await fill(browser, "reminderAmount", "6230");

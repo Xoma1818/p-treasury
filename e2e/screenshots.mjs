@@ -26,10 +26,10 @@ try {
   await click(browser, "+ Доход");
   await fill(browser, "amount", "85000");
   await choose(browser, "account", "Карта Сбер (₽)");
-  await choose(browser, "category", "Зарплата");
+  await choose(browser, "category", "Заработная плата");
   await save(browser);
-  await expense("2340", "Продукты", "Пятёрочка");
-  await expense("1890", "Кафе и рестораны", "Шоколадница");
+  await expense("2340", "Питание", "Пятёрочка");
+  await expense("1890", "Общепит", "Шоколадница");
   await expense("6230", "Жильё", "Мосэнергосбыт");
   await expense("850", "Транспорт", "Яндекс Go");
   await openSection(browser, "Настройки");
@@ -37,13 +37,13 @@ try {
   await click(browser, "Добавить");
   await openSection(browser, "Бюджет");
   await click(browser, "Создать пустой");
-  for (const [category, limit] of [["Продукты", "25000"], ["Кафе и рестораны", "2000"], ["Жильё", "6000"], ["Транспорт", "5000"], ["Развлечения", "4000"]]) {
+  for (const [category, limit] of [["Питание", "25000"], ["Общепит", "2000"], ["Жильё", "6000"], ["Транспорт", "5000"], ["Досуг", "4000"]]) {
     await choose(browser, "add-expense", category);
     await fill(browser, "add-expense-limit", limit);
     await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');
     await browser.$(`//tr[@data-category="${category}"]`).waitForExist({ timeout: 5000 });
   }
-  await choose(browser, "add-income", "Зарплата");
+  await choose(browser, "add-income", "Заработная плата");
   await fill(browser, "add-income-limit", "85000");
   await click(browser, "Добавить", '//*[@data-testid="budget-income"]');
   await fill(browser, "budgetNote", "В ноябре день рождения мамы: отложить 5 000 на подарок");
@@ -84,9 +84,9 @@ try {
     await save(browser);
   };
   await openSection(browser, "Календарь");
-  await reminder("ЖКХ", ymd(d), "00:00", "Ежемесячно", "6000", "ЖКХ");
+  await reminder("Коммунальные платежи", ymd(d), "00:00", "Ежемесячно", "6000", "Коммунальные платежи");
   await reminder("Подарок маме", `${ymd(d).slice(0, 7)}-28`, "10:00", "Ежегодно", "5000", "Подарки");
-  await reminder("Интернет", ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 5)), "09:00", "Ежемесячно", "700", "Интернет и связь");
+  await reminder("Интернет", ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 5)), "09:00", "Ежемесячно", "700", "Связь");
   await (await browser.$(`[data-testid="cal-day"][data-date="${ymd(d)}"] .cal-num`)).click();
   await fill(browser, "newNote", "Счётчики воды: передать до 25-го");
   await click(browser, "Добавить", '//*[@data-testid="day-panel"]');
@@ -108,7 +108,7 @@ try {
     await click(browser, "+ Расход");
     await fill(browser, "amount", amount);
     await choose(browser, "account", "Карта Сбер (₽)");
-    await choose(browser, "category", "Кафе и рестораны");
+    await choose(browser, "category", "Общепит");
     await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
     await fill(browser, "templateName", name);
     await click(browser, "Сохранить шаблон", '//*[@role="dialog"]');

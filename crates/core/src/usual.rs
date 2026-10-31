@@ -229,10 +229,10 @@ mod tests {
         categories::seed_defaults(c).unwrap();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
         let (cafe, lunch, taxi, food) = (
-            cat(c, "Кафе и рестораны"),
+            cat(c, "Общепит"),
             cat(c, "Обеды"),
             cat(c, "Такси"),
-            cat(c, "Супермаркет"),
+            cat(c, "Магазины"),
         );
         assert!(compare(c, "2026-10", "2026-10-15")
             .unwrap()
@@ -264,14 +264,14 @@ mod tests {
         let food_row = row(&food);
         assert_eq!((food_row.percent, food_row.notable), (Some(-40), true));
         let home: Vec<&str> = r.home.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(home, ["Продукты", "Кафе и рестораны"]);
+        assert_eq!(home, ["Питание", "Общепит"]);
         assert_eq!(
             text(cafe_row, "₽", 2),
-            "Кафе и рестораны: 8\u{a0}400 ₽, на 40 % больше обычного"
+            "Общепит: 8\u{a0}400 ₽, на 40 % больше обычного"
         );
         assert_eq!(
             text(food_row, "₽", 2),
-            "Супермаркет: 12\u{a0}000 ₽, на 40 % меньше обычного"
+            "Магазины: 12\u{a0}000 ₽, на 40 % меньше обычного"
         );
     }
 
@@ -281,7 +281,7 @@ mod tests {
         let c = db.conn();
         categories::seed_defaults(c).unwrap();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
-        let cafe = cat(c, "Кафе и рестораны");
+        let cafe = cat(c, "Общепит");
         spend(c, &card, &cafe, "2026-09-03", 500_000);
         spend(c, &card, &cafe, "2026-10-03", 1_000_000);
         let r = compare(c, "2026-10", "2026-10-10").unwrap();

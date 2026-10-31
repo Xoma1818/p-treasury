@@ -31,7 +31,7 @@ test("чек из двух частей: «1890+455» даёт 2 345 ₽", async
   await fill(browser, "amount", "1890+455");
   await waitText(browser, '[data-testid="amount-calc"]', money("= 2 345"));
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Продукты");
+  await choose(browser, "category", "Питание");
   await save(browser);
   await cardBalance("7 655 ₽");
 });
@@ -41,7 +41,7 @@ test("утренний кофе: шаблон «Кофе 250 ₽» записы�
   await click(browser, "+ Расход");
   await fill(browser, "amount", "250");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Кафе и рестораны");
+  await choose(browser, "category", "Общепит");
   await fill(browser, "payee", "Кофейня");
   await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
   await fill(browser, "templateName", "Кофе");

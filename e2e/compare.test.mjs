@@ -24,12 +24,12 @@ before(async () => {
   // Прошлый месяц: продукты 10 000, кафе 4 000, транспорт 2 000.
   // Этот месяц: продукты 12 500 (+25 %), кафе 3 000 (−25 %), транспорта нет, здоровье 1 500 (новое).
   for (const [date, amount, category, payee] of [
-    [prev(10), "10000", "Продукты", "Пятёрочка"],
-    [prev(11), "4000", "Кафе и рестораны", "Шоколадница"],
+    [prev(10), "10000", "Питание", "Пятёрочка"],
+    [prev(11), "4000", "Общепит", "Шоколадница"],
     [prev(12), "2000", "Транспорт", ""],
-    [cur, "12500", "Продукты", "Пятёрочка"],
-    [cur, "3000", "Кафе и рестораны", "Шоколадница"],
-    [cur, "1500", "Здоровье", ""],
+    [cur, "12500", "Питание", "Пятёрочка"],
+    [cur, "3000", "Общепит", "Шоколадница"],
+    [cur, "1500", "Медицина", ""],
   ]) {
     await click(browser, "+ Расход");
     await fill(browser, "amount", amount);
@@ -61,21 +61,21 @@ test("месяц к прошлому: продукты +2 500 ₽ (+25 %), ка�
   await openCompare();
   await waitText(browser, '[data-testid="cmp-expense"]', money("17 000 ₽"));
   await waitText(browser, '[data-testid="cmp-expense-diff"]', /\+1[\s ]000[\s ]₽ \(\+6 %\)/);
-  await waitText(browser, `${row("Продукты", "cmp-up")}//*[@data-testid="cmp-diff"]`, money("+2 500 ₽"));
-  assert.equal(await browser.$(`${row("Продукты")}//*[@data-testid="cmp-percent"]`).getText(), "+25 %");
-  assert.match(await browser.$(`${row("Продукты")}//*[@data-testid="cmp-a"]`).getText(), money("10 000 ₽"));
-  assert.match(await browser.$(`${row("Продукты")}//*[@data-testid="cmp-b"]`).getText(), money("12 500 ₽"));
-  assert.equal(await browser.$(`${row("Кафе и рестораны", "cmp-down")}//*[@data-testid="cmp-percent"]`).getText(), "−25 %");
+  await waitText(browser, `${row("Питание", "cmp-up")}//*[@data-testid="cmp-diff"]`, money("+2 500 ₽"));
+  assert.equal(await browser.$(`${row("Питание")}//*[@data-testid="cmp-percent"]`).getText(), "+25 %");
+  assert.match(await browser.$(`${row("Питание")}//*[@data-testid="cmp-a"]`).getText(), money("10 000 ₽"));
+  assert.match(await browser.$(`${row("Питание")}//*[@data-testid="cmp-b"]`).getText(), money("12 500 ₽"));
+  assert.equal(await browser.$(`${row("Общепит", "cmp-down")}//*[@data-testid="cmp-percent"]`).getText(), "−25 %");
   // Порядок по силе изменения: больше — сверху самое выросшее, меньше — самое упавшее.
-  assert.deepEqual(await names("cmp-up"), ["Продукты", "Здоровье"]);
-  assert.deepEqual(await names("cmp-down"), ["Транспорт", "Кафе и рестораны"]);
-  assert.match(await browser.$(row("Здоровье")).getText(), /новое/);
+  assert.deepEqual(await names("cmp-up"), ["Питание", "Медицина"]);
+  assert.deepEqual(await names("cmp-down"), ["Транспорт", "Общепит"]);
+  assert.match(await browser.$(row("Медицина")).getText(), /новое/);
   assert.match(await browser.$(row("Транспорт")).getText(), /нет в периоде 2/);
   assert.equal(await browser.$(`${row("Транспорт")}//*[@data-testid="cmp-percent"]`).getText(), "−100 %");
   await waitText(browser, '[data-testid="cmp-presence"]', /Новых позиций: 1, пропало: 1/);
   // Полоски: рост расходов — «хуже», снижение — «лучше».
-  assert.match(await browser.$(`${row("Продукты")}//*[contains(@class,"dbar")]`).getAttribute("class"), /up worse/);
-  assert.match(await browser.$(`${row("Кафе и рестораны")}//*[contains(@class,"dbar")]`).getAttribute("class"), /down better/);
+  assert.match(await browser.$(`${row("Питание")}//*[contains(@class,"dbar")]`).getAttribute("class"), /up worse/);
+  assert.match(await browser.$(`${row("Общепит")}//*[contains(@class,"dbar")]`).getAttribute("class"), /down better/);
 });
 
 test("по получателям и по счетам", async () => {
@@ -92,24 +92,24 @@ test("любые периоды: первая половина прошлого 
   await setDate(browser, "cmp1From", prev(1));
   await setDate(browser, "cmp1To", prev(10));
   // В первом периоде только продукты 10 000: кафе стало «новым».
-  await waitText(browser, `${row("Кафе и рестораны")}//*[@data-testid="cmp-percent"]`, /^новое$/);
+  await waitText(browser, `${row("Общепит")}//*[@data-testid="cmp-percent"]`, /^новое$/);
   await waitText(browser, '[data-testid="cmp-total"]', /Итого: 10[\s ]000[\s ]₽ → 17[\s ]000[\s ]₽/);
   // Готовая пара возвращает «месяц к прошлому».
   await click(browser, "Месяц к прошлому");
-  await waitText(browser, `${row("Кафе и рестораны")}//*[@data-testid="cmp-percent"]`, /^−25 %$/);
+  await waitText(browser, `${row("Общепит")}//*[@data-testid="cmp-percent"]`, /^−25 %$/);
 });
 
 test("клик по позиции открывает её операции за период 2", async () => {
   await openCompare();
-  await browser.$(row("Продукты")).waitForExist({ timeout: 5000 });
-  await (await browser.$(`${row("Продукты")}//button[contains(@class,"cat-link")]`)).click();
+  await browser.$(row("Питание")).waitForExist({ timeout: 5000 });
+  await (await browser.$(`${row("Питание")}//button[contains(@class,"cat-link")]`)).click();
   await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
 });
 
 test("сравнение выгружается в Excel: лист «Сравнение расходов» с суммами числами", async () => {
   await openCompare();
-  await browser.$(row("Продукты")).waitForExist({ timeout: 5000 });
+  await browser.$(row("Питание")).waitForExist({ timeout: 5000 });
   const path = join(files, "сравнение.xlsx");
   await browser.execute((p) => (window.__ptPick = p), [path]);
   await click(browser, "Выгрузить", '//*[@data-testid="compare"]');

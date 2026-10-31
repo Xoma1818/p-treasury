@@ -880,9 +880,9 @@ mod tests {
         let c = db.conn();
         crate::categories::seed_defaults(c).unwrap();
         let card = account(c, "Карта");
-        let food = cat(c, "Продукты");
+        let food = cat(c, "Питание");
         let other = cat(c, "Прочие расходы");
-        let mut manual = op("expense", "2026-10-19", &card, 125_000, &food, "Продукты");
+        let mut manual = op("expense", "2026-10-19", &card, 125_000, &food, "Питание");
         manual.note = Some("на неделю".into());
         let mine = transactions::create(c, &manual).unwrap();
 
@@ -896,7 +896,7 @@ mod tests {
         );
         assert_eq!(
             marks(c, true, std::slice::from_ref(&bank)).unwrap(),
-            [Mark::Link("19.10 · Продукты".into())]
+            [Mark::Link("19.10 · Питание".into())]
         );
         let r = save(
             c,
@@ -929,7 +929,7 @@ mod tests {
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = account(db.conn(), "Карта");
         let save_acc = account(db.conn(), "Накопительный");
-        let food = cat(db.conn(), "Продукты");
+        let food = cat(db.conn(), "Питание");
         let other = cat(db.conn(), "Прочие расходы");
         crate::receipts::create(
             db.conn_mut(),
@@ -999,7 +999,7 @@ mod tests {
         let c = db.conn();
         crate::categories::seed_defaults(c).unwrap();
         let card = account(c, "Карта");
-        let cafe = cat(c, "Кафе и рестораны");
+        let cafe = cat(c, "Общепит");
         let other = cat(c, "Прочие расходы");
         let coffee = op("expense", "2026-10-02", &card, 25_000, &cafe, "Кофе");
         let mine = transactions::create(c, &coffee).unwrap();
@@ -1335,7 +1335,7 @@ mod tests {
         let c = db.conn();
         crate::categories::seed_defaults(c).unwrap();
         let card = account(c, "Карта");
-        let fun = cat(c, "Развлечения");
+        let fun = cat(c, "Досуг");
         let mine = |d: &str| {
             transactions::create(c, &op("expense", d, &card, 120_000, &fun, "Игра")).unwrap()
         };
@@ -1383,7 +1383,7 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = account(db.conn(), "Карта");
-        let food = cat(db.conn(), "Продукты");
+        let food = cat(db.conn(), "Питание");
         let other = cat(db.conn(), "Прочие расходы");
         let receipt = |a: i64, b: i64| crate::receipts::ReceiptInput {
             date: "2026-10-05".into(),
@@ -1443,7 +1443,7 @@ mod tests {
         let c = db.conn();
         crate::categories::seed_defaults(c).unwrap();
         let card = account(c, "Карта");
-        let food = cat(c, "Продукты");
+        let food = cat(c, "Питание");
         let mine = transactions::create(
             c,
             &op("expense", "2026-10-01", &card, 10_000, &food, "Хлеб"),
@@ -1477,7 +1477,7 @@ mod tests {
         let c = db.conn();
         crate::categories::seed_defaults(c).unwrap();
         let card = account(c, "Карта");
-        let food = cat(c, "Продукты");
+        let food = cat(c, "Питание");
         transactions::create(
             c,
             &op("expense", "2026-10-01", &card, 10_000, &food, "Хлеб"),

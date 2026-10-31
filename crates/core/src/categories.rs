@@ -30,45 +30,174 @@ pub struct CategoryInput {
 /// Набор категорий по умолчанию (architecture.md: в том числе «Кешбэк и бонусы»
 /// и обе категории процентов для долгов).
 const DEFAULTS: &[(&str, &str, &[&str])] = &[
-    ("expense", "Продукты", &["Супермаркет", "Рынок"]),
-    ("expense", "Кафе и рестораны", &["Обеды", "Доставка"]),
+    ("expense", "Питание", &["Магазины", "Рынки"]),
+    ("expense", "Общепит", &["Обеды", "Доставка"]),
     (
         "expense",
         "Транспорт",
-        &[
-            "Общественный транспорт",
-            "Такси",
-            "Топливо",
-            "Обслуживание авто",
-        ],
+        &["Общественный", "Такси", "Топливо", "Содержание авто"],
     ),
     (
         "expense",
         "Жильё",
-        &["Аренда", "ЖКХ", "Интернет и связь", "Ремонт"],
+        &["Аренда", "Коммунальные платежи", "Связь", "Ремонт"],
     ),
-    ("expense", "Здоровье", &["Аптека", "Врачи"]),
+    ("expense", "Медицина", &["Лекарства", "Медуслуги"]),
     ("expense", "Одежда и обувь", &[]),
-    ("expense", "Дети", &["Школа", "Кружки", "Одежда"]),
     (
         "expense",
-        "Развлечения",
-        &["Кино и театр", "Подписки", "Хобби"],
+        "Дети",
+        &["Школа", "Дополнительное образование", "Одежда"],
     ),
+    ("expense", "Досуг", &["Культура", "Подписки", "Увлечения"]),
     ("expense", "Подарки", &[]),
     ("expense", "Путешествия", &[]),
     ("expense", "Образование", &[]),
     ("expense", "Проценты по кредитам", &[]),
     ("expense", "Прочие расходы", &[]),
-    ("income", "Зарплата", &[]),
-    ("income", "Подработка", &[]),
+    ("income", "Заработная плата", &[]),
+    ("income", "Дополнительный доход", &[]),
     ("income", "Кешбэк и бонусы", &[]),
     ("income", "Проценты по вкладам", &[]),
-    ("income", "Проценты по займам", &[]),
+    ("income", "Проценты по выданным займам", &[]),
     ("income", "Дивиденды и купоны", &[]),
-    ("income", "Подарки", &[]),
+    ("income", "Полученные подарки", &[]),
     ("income", "Прочие доходы", &[]),
 ];
+
+/// Прежние названия набора по умолчанию (до 0.28) → новые «деловые короткие».
+/// (вид, прежнее название родителя или `None` для верхнего уровня, было, стало).
+/// Нужны, чтобы предложить переименование старым базам и находить категории по любому имени.
+pub const RENAMES: &[(&str, Option<&str>, &str, &str)] = &[
+    ("expense", None, "Продукты", "Питание"),
+    ("expense", Some("Продукты"), "Супермаркет", "Магазины"),
+    ("expense", Some("Продукты"), "Рынок", "Рынки"),
+    ("expense", None, "Кафе и рестораны", "Общепит"),
+    (
+        "expense",
+        Some("Транспорт"),
+        "Общественный транспорт",
+        "Общественный",
+    ),
+    (
+        "expense",
+        Some("Транспорт"),
+        "Обслуживание авто",
+        "Содержание авто",
+    ),
+    ("expense", Some("Жильё"), "ЖКХ", "Коммунальные платежи"),
+    ("expense", Some("Жильё"), "Интернет и связь", "Связь"),
+    ("expense", None, "Здоровье", "Медицина"),
+    ("expense", Some("Здоровье"), "Аптека", "Лекарства"),
+    ("expense", Some("Здоровье"), "Врачи", "Медуслуги"),
+    (
+        "expense",
+        Some("Дети"),
+        "Кружки",
+        "Дополнительное образование",
+    ),
+    ("expense", None, "Развлечения", "Досуг"),
+    ("expense", Some("Развлечения"), "Кино и театр", "Культура"),
+    ("expense", Some("Развлечения"), "Хобби", "Увлечения"),
+    ("income", None, "Зарплата", "Заработная плата"),
+    ("income", None, "Подработка", "Дополнительный доход"),
+    (
+        "income",
+        None,
+        "Проценты по займам",
+        "Проценты по выданным займам",
+    ),
+    ("income", None, "Подарки", "Полученные подарки"),
+];
+
+/// Новое название для прежнего имени набора по умолчанию (любой уровень).
+pub fn renamed(kind: &str, old: &str) -> Option<&'static str> {
+    RENAMES
+        .iter()
+        .find(|r| r.0 == kind && r.2 == old)
+        .map(|r| r.3)
+}
+
+/// Строка предпросмотра «было → стало».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameItem {
+    pub id: String,
+    pub kind: String,
+    pub parent: Option<String>,
+    pub from: String,
+    pub to: String,
+}
+
+/// Какие категории старой базы можно переименовать по новому списку. Берутся только
+/// категории с прежним названием на своём месте (верхний уровень или под прежним/новым
+/// родителем) и только если рядом нет категории с новым названием.
+pub fn rename_preview(conn: &Connection) -> Result<Vec<RenameItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT c.id, c.kind, c.name, p.name FROM categories c
+         LEFT JOIN categories p ON p.id = c.parent_id
+         ORDER BY COALESCE(p.sort_order, c.sort_order), c.parent_id IS NOT NULL, c.sort_order",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::new();
+    for (id, kind, name, parent) in &rows {
+        let Some(r) = RENAMES
+            .iter()
+            .find(|r| r.1.is_some() == parent.is_some() && r.0 == kind && r.2 == name)
+        else {
+            continue;
+        };
+        if let (Some(want), Some(have)) = (r.1, parent.as_deref()) {
+            let new_parent = renamed(kind, want).unwrap_or(want);
+            if have != want && have != new_parent {
+                continue;
+            }
+        }
+        let clash = rows.iter().any(|(oid, okind, oname, oparent)| {
+            oid != id
+                && okind == kind
+                && oname == r.3
+                && oparent.is_some() == parent.is_some()
+                && (parent.is_none() || oparent == parent)
+        });
+        if clash {
+            continue;
+        }
+        out.push(RenameItem {
+            id: id.clone(),
+            kind: kind.clone(),
+            parent: parent.clone(),
+            from: name.clone(),
+            to: r.3.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// Переименовать выбранные строки предпросмотра. Каждая строка проверяется заново,
+/// чтобы не переименовать то, что успели изменить. Возвращает число переименованных.
+pub fn rename_apply(conn: &Connection, ids: &[String]) -> Result<usize> {
+    let now = time::now_utc();
+    let mut n = 0;
+    for item in rename_preview(conn)? {
+        if ids.iter().any(|i| i == &item.id) {
+            n += conn.execute(
+                "UPDATE categories SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![item.to, now, item.id],
+            )?;
+        }
+    }
+    Ok(n)
+}
 
 /// Создать набор по умолчанию, если категорий ещё нет. Возвращает, создан ли он.
 pub fn seed_defaults(conn: &Connection) -> Result<bool> {
@@ -315,13 +444,128 @@ mod tests {
         .unwrap()
     }
 
+    /// База до 0.28: набор с прежними названиями.
+    fn legacy_db() -> Storage {
+        let db = Storage::open_in_memory().unwrap();
+        seed_defaults(db.conn()).unwrap();
+        for (kind, _, old, new) in RENAMES {
+            db.conn()
+                .execute(
+                    "UPDATE categories SET name = ?1 WHERE name = ?2 AND kind = ?3",
+                    params![old, new, kind],
+                )
+                .unwrap();
+        }
+        db
+    }
+
+    #[test]
+    fn old_names_are_offered_new_ones_and_renamed_selectively() {
+        let db = legacy_db();
+        let c = db.conn();
+        // Свою категорию пользователь уже переименовал — её не трогаем.
+        c.execute(
+            "UPDATE categories SET name = 'Еда' WHERE name = 'Продукты'",
+            [],
+        )
+        .unwrap();
+        // Рядом с «Хобби» уже есть «Увлечения» — переименование дало бы два одинаковых имени.
+        let fun: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Развлечения'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        create(
+            c,
+            &CategoryInput {
+                name: "Увлечения".into(),
+                kind: "expense".into(),
+                parent_id: Some(fun),
+            },
+        )
+        .unwrap();
+
+        let items = rename_preview(c).unwrap();
+        let pairs: Vec<(&str, &str)> = items
+            .iter()
+            .map(|i| (i.from.as_str(), i.to.as_str()))
+            .collect();
+        assert!(!pairs.iter().any(|p| p.0 == "Продукты" || p.0 == "Еда"));
+        assert!(
+            !pairs.iter().any(|p| p.0 == "Хобби"),
+            "есть «Увлечения» рядом"
+        );
+        // Подкатегории «Продуктов» узнаются и под переименованным пользователем родителем? Нет:
+        // родитель «Еда» — не прежнее и не новое имя, поэтому «Супермаркет» не предлагается.
+        assert!(!pairs.iter().any(|p| p.0 == "Супермаркет"));
+        assert!(pairs.contains(&("Зарплата", "Заработная плата")));
+        assert!(pairs.contains(&("ЖКХ", "Коммунальные платежи")));
+        assert!(pairs.contains(&("Подарки", "Полученные подарки")));
+        assert!(items
+            .iter()
+            .any(|i| i.from == "Подарки" && i.kind == "income"));
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.from == "Подарки" && i.kind == "expense"),
+            "расходные «Подарки» не меняются"
+        );
+
+        // Переименовываем только выбранные.
+        let pick: Vec<String> = items
+            .iter()
+            .filter(|i| i.from == "Зарплата" || i.from == "ЖКХ")
+            .map(|i| i.id.clone())
+            .collect();
+        assert_eq!(rename_apply(c, &pick).unwrap(), 2);
+        let names: Vec<String> = list(c, true).unwrap().into_iter().map(|c| c.name).collect();
+        assert!(names.contains(&"Заработная плата".to_string()));
+        assert!(names.contains(&"Коммунальные платежи".to_string()));
+        assert!(
+            names.contains(&"Здоровье".to_string()),
+            "не выбрана — осталась"
+        );
+        // Повторно уже переименованные не предлагаются.
+        assert!(!rename_preview(c)
+            .unwrap()
+            .iter()
+            .any(|i| i.from == "Зарплата"));
+    }
+
+    #[test]
+    fn children_follow_renamed_parent() {
+        let db = legacy_db();
+        let c = db.conn();
+        let all: Vec<String> = rename_preview(c)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        rename_apply(c, &all).unwrap();
+        let names: Vec<String> = list(c, true).unwrap().into_iter().map(|c| c.name).collect();
+        for (_, _, _, new) in RENAMES {
+            assert!(names.iter().any(|n| n == new), "{new}");
+        }
+        assert!(rename_preview(c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn fresh_database_has_nothing_to_rename() {
+        let db = Storage::open_in_memory().unwrap();
+        seed_defaults(db.conn()).unwrap();
+        assert!(rename_preview(db.conn()).unwrap().is_empty());
+    }
+
     #[test]
     fn defaults_seeded_once() {
         let db = Storage::open_in_memory().unwrap();
         assert!(seed_defaults(db.conn()).unwrap());
         assert!(!seed_defaults(db.conn()).unwrap());
         let all = list(db.conn(), false).unwrap();
-        for name in ["Кешбэк и бонусы", "Проценты по займам"] {
+        for name in ["Кешбэк и бонусы", "Проценты по выданным займам"]
+        {
             assert!(
                 all.iter().any(|c| c.name == name && c.kind == "income"),
                 "{name}"
@@ -331,8 +575,8 @@ mod tests {
             .iter()
             .any(|c| c.name == "Проценты по кредитам" && c.kind == "expense"));
         // Подкатегория идёт сразу за родителем.
-        let i = all.iter().position(|c| c.name == "Продукты").unwrap();
-        assert_eq!(all[i + 1].name, "Супермаркет");
+        let i = all.iter().position(|c| c.name == "Питание").unwrap();
+        assert_eq!(all[i + 1].name, "Магазины");
         assert_eq!(all[i + 1].parent_id.as_deref(), Some(all[i].id.as_str()));
     }
 
@@ -405,10 +649,10 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         seed_defaults(db.conn()).unwrap();
         let c = db.conn();
-        let cafe = by_name(c, "Кафе и рестораны", "expense");
+        let cafe = by_name(c, "Общепит", "expense");
         let lunch = by_name(c, "Обеды", "expense");
-        let food = by_name(c, "Продукты", "expense");
-        let salary = by_name(c, "Зарплата", "income");
+        let food = by_name(c, "Питание", "expense");
+        let salary = by_name(c, "Заработная плата", "income");
         let now = time::now_utc();
         c.execute(
             "INSERT INTO accounts (id, name, type, currency_code, opening_date, created_at, updated_at)
@@ -462,15 +706,15 @@ mod tests {
         let db = Storage::open_in_memory().unwrap();
         seed_defaults(db.conn()).unwrap();
         let c = db.conn();
-        let food = by_name(c, "Продукты", "expense");
+        let food = by_name(c, "Питание", "expense");
         set_archived(c, &food, true).unwrap();
         let visible = list(c, false).unwrap();
         assert!(!visible
             .iter()
-            .any(|x| x.name == "Продукты" || x.name == "Супермаркет"));
+            .any(|x| x.name == "Питание" || x.name == "Магазины"));
         assert!(list(c, true)
             .unwrap()
             .iter()
-            .any(|x| x.name == "Супермаркет" && x.archived));
+            .any(|x| x.name == "Магазины" && x.archived));
     }
 }

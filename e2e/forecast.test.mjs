@@ -59,7 +59,7 @@ test("поток денег за месяц: продукты справа, не
   await click(browser, "+ Расход");
   await fill(browser, "amount", "5000");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Продукты");
+  await choose(browser, "category", "Питание");
   await save(browser);
   await openSection(browser, "Взгляд вперёд");
   await waitText(browser, '[data-testid="fc-now"]', money("95 000 ₽"));
