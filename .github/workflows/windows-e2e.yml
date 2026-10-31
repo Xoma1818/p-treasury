@@ -1,0 +1,70 @@
+name: Сквозные тесты на Windows
+
+# Те же e2e/*.test.mjs, что и в e2e.yml, но в настоящем окне Windows (WebView2 + msedgedriver).
+# Дорого (30–40 Windows-минут), поэтому только по кнопке и перед выпуском (решение OTTO 31.10).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ветка, тег или коммит для проверки (по умолчанию — выбранная ветка)
+        required: false
+  push:
+    branches: [claude/project-thread-qfjnd1]
+    paths: [".github/workflows/windows-e2e.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-e2e-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Сквозные тесты в окне Windows
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Проверяемый коммит
+        shell: bash
+        run: git log -1 --format='%H %s'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-e2e
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: msedgedriver под версию WebView2
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $ver = (Get-ItemProperty $key -ErrorAction SilentlyContinue).pv
+          if (-not $ver) { $ver = (Get-Item "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion }
+          Write-Host "WebView2 $ver"
+          $dir = "$env:RUNNER_TEMP\msedgedriver"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $ok = $false
+          foreach ($h in 'https://msedgedriver.microsoft.com', 'https://msedgedriver.azureedge.net') {
+            try { Invoke-WebRequest "$h/$ver/edgedriver_win64.zip" -OutFile "$dir\d.zip"; $ok = $true; break } catch { Write-Host "нет на $h" }
+          }
+          if (-not $ok) { throw "не скачался msedgedriver $ver" }
+          Expand-Archive "$dir\d.zip" -DestinationPath $dir -Force
+          & "$dir\msedgedriver.exe" --version
+          Add-Content $env:GITHUB_PATH $dir
+      - run: npm ci
+      - name: Интерфейс
+        run: npm run build
+      - name: Приложение со встроенным интерфейсом
+        run: cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Сквозные тесты
+        shell: bash
+        env:
+          PTREASURY_BIN: ${{ github.workspace }}\target\debug\budget-app.exe
+        run: node --test --test-concurrency=1 e2e/*.test.mjs
