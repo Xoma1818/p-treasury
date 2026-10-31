@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
@@ -197,7 +197,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
                   {Number(d.date.slice(8))}
                   {d.noSpend && (
                     <span className="no-spend-mark" title="День без трат" data-testid="no-spend">
-                      ✓
+                      <Check size={11} strokeWidth={2.5} aria-hidden />
                     </span>
                   )}
                 </div>

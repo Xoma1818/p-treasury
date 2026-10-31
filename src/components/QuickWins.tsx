@@ -1,6 +1,7 @@
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Check as CheckIcon } from "lucide-react";
 import { api, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
@@ -141,9 +142,7 @@ export function ChecksCard() {
       )}
       {checks && checks.length === 0 && warnings.length === 0 && (
         <p className="qw-calm" data-testid="checks-calm">
-          <span className="qw-ok" aria-hidden>
-            ✓
-          </span>
+          <CheckIcon className="qw-ok" size={16} aria-hidden />
           Всё спокойно: странных списаний за 30 дней нет.
         </p>
       )}

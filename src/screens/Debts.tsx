@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import { Field } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
@@ -187,7 +187,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
   return (
     <>
       <button className="link back" onClick={back}>
-        ← Все долги
+        <ChevronLeft size={16} /> Все долги
       </button>
       <div className="screen-head">
         <h1>

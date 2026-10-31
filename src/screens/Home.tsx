@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
@@ -335,16 +336,14 @@ export function Home() {
               }}
             >
               <div className="home-block-bar">
-                <span className="grip" aria-hidden>
-                  ⠿
-                </span>
+                <GripVertical className="grip" size={16} aria-hidden />
                 <b>{HOME_BLOCKS[b]}</b>
                 <span className="spacer" />
                 <button className="icon-btn" aria-label={`Выше: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, -1))}>
-                  ↑
+                  <ChevronUp size={16} />
                 </button>
                 <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, 1))}>
-                  ↓
+                  <ChevronDown size={16} />
                 </button>
                 <button className="link" onClick={() => saveLayout(toggleBlock(layout, b))}>
                   {layout.hidden.includes(b) ? "Показать" : "Скрыть"}

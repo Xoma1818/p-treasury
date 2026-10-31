@@ -873,3 +873,12 @@ h2 { font-size: 16px; }
 @keyframes sheet-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
 /* Смена темы: цвета перетекают (Sidebar.tsx). */
 .theme-fade, .theme-fade * { transition: background-color 280ms var(--ease), color 280ms var(--ease), border-color 280ms var(--ease), fill 280ms var(--ease), stroke 280ms var(--ease) !important; }
+/* 0.25: Главная, Счета и Цели (бывшие экраны 0.24). */
+:root .tile-value, :root .tile-value.tile-explain { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+:root .goal-card { background: var(--fill); border-radius: var(--radius); transition: background-color var(--fast) var(--ease); }
+:root .goal-card .ring-track { stroke: var(--fill-strong); }
+:root .home-block.editing { border: 1.5px dashed var(--fill-strong); }
+:root .home-block-bar .grip { cursor: grab; }
+:root .qw-ok { padding: 4px; width: 24px; height: 24px; box-sizing: border-box; }
+:root .no-spend-mark { display: inline-flex; vertical-align: 1px; }
+:root .link.back { display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; }
