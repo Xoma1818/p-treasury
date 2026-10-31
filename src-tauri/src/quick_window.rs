@@ -25,14 +25,20 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 pub fn open(app: &AppHandle) -> tauri::Result<()> {
     let w = match app.get_webview_window(LABEL) {
         Some(w) => w,
-        None => WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-            .title("Быстрый ввод — Kazna")
-            .inner_size(640.0, 230.0)
-            .resizable(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .center()
-            .build()?,
+        None => {
+            let b = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
+                .title("Быстрый ввод — Kazna")
+                .inner_size(640.0, 230.0)
+                .resizable(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .center();
+            match crate::test_browser_args() {
+                Some(args) => b.additional_browser_args(&args),
+                None => b,
+            }
+            .build()?
+        }
     };
     w.unminimize()?;
     w.show()?;

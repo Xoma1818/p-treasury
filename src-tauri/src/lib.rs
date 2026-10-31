@@ -52,6 +52,20 @@ fn data_dir_override() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("PTREASURY_DATA_DIR").map(PathBuf::from))
 }
 
+/// Сквозные тесты в окне Windows: msedgedriver открывает порт отладки WebView2
+/// через WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, но wry всегда задаёт аргументы
+/// браузера сам, и переменная не действует (DevToolsActivePort не появляется).
+/// Только с тестовой папкой данных аргументы из переменной передаются окнам
+/// явно, вместе с обычными аргументами wry. У всех окон аргументы одинаковые:
+/// WebView2 с общей папкой не открывает окна с разными аргументами.
+pub(crate) fn test_browser_args() -> Option<String> {
+    data_dir_override()?;
+    let extra = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok()?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"
+    ))
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
     // Одна копия программы (должен регистрироваться первым): второй запуск
@@ -106,6 +120,15 @@ pub fn run() {
             }
             *state.lock_db() = db;
             app.manage(state);
+            // Главное окно создаётся здесь, а не по tauri.conf.json ("create": false):
+            // так тестам можно передать аргументы WebView2 (см. test_browser_args).
+            if let Some(cfg) = app.config().app.windows.iter().find(|w| w.label == "main") {
+                let mut main = tauri::WebviewWindowBuilder::from_config(app.handle(), cfg)?;
+                if let Some(args) = test_browser_args() {
+                    main = main.additional_browser_args(&args);
+                }
+                main.build()?;
+            }
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");
             }
