@@ -15,7 +15,7 @@ export const APP_FILE = basename(APP_BIN);
 
 /** PID процессов (Windows), в командной строке которых есть `pattern`. */
 function winPids(pattern) {
-  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($p) } | ForEach-Object { $_.ProcessId }";
+  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Replace([string][char]34, '').Contains($p) } | ForEach-Object { $_.ProcessId }";
   const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
     encoding: "utf8",
     env: { ...process.env, KAZNA_E2E_PATTERN: pattern },
@@ -332,6 +332,9 @@ export async function click(browser, text, scope = "") {
     const bar = top?.closest('[data-testid="undo-bar"]');
     if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
   }, el);
+  // Мышь к кнопке, как у пользователя: кнопки строки видны под мышкой, а прокрутка
+  // выше могла увести строку из-под неё.
+  await el.moveTo().catch(() => {});
   await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
     throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
   });
