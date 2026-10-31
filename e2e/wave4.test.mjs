@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync, linkSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, click, waitText, APP_BIN } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, click, waitText, APP_BIN, APP_FILE } from "./app.mjs";
 
 let browser;
 const dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-"));
@@ -77,7 +77,7 @@ test("переносная версия: файл portable рядом с про�
   await stop(browser);
   const dir = mkdtempSync(join(tmpdir(), "p-treasury-portable-"));
   // Жёсткая ссылка: программа «лежит» в этой папке, места на диске не занимает.
-  const bin = join(dir, "budget-app");
+  const bin = join(dir, APP_FILE);
   linkSync(APP_BIN, bin);
   writeFileSync(join(dir, "portable"), "");
   ({ browser } = await start(dir, { bin, args: [] }));
