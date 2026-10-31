@@ -1,15 +1,21 @@
-# Пробная проверка обновления P-Treasury -> Kazna (0.26) на Windows. Только для ветки треда 9, в main не идёт.
-# Берёт установщик Kazna из последней успешной сборки ветки 0.26 и последний выпуск P-Treasury.
+# Пробная проверка обновления P-Treasury 0.25.0 -> Kazna 0.26 на Windows. Только для ветки треда 9, в main не идёт.
+# Старая версия — выпуск v0.25.0. Новая — сборка windows-installer ровно на текущем head PR #50 (иначе ошибка).
+# Данные: настоящая база, созданная старой программой, плюс счёт-метка; сверка снимков до и после (snap.py).
 name: Проверка обновления до Kazna
 
 on:
   push:
     branches: [claude/project-thread-qfjnd1]
-    paths: [".github/workflows/upgrade-check.yml"]
+    paths: [".github/workflows/upgrade-check.yml", ".github/upgrade-check/**"]
 
 permissions:
   actions: read
   contents: read
+  pull-requests: read
+
+env:
+  PR: "50"
+  OLD_TAG: v0.25.0
 
 jobs:
   upgrade:
@@ -17,61 +23,68 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Скачать установщики
+      - uses: actions/checkout@v5
+        with: { sparse-checkout: .github/upgrade-check }
+      - name: Скачать установщики (новый — строго с head PR)
         shell: bash
         run: |
-          run=$(gh run list -R "$GITHUB_REPOSITORY" -w windows-installer.yml -b claude/project-thread-6t2eqz \
-                -s success -L 1 --json databaseId,headSha -q '.[0] | "\(.databaseId) \(.headSha)"')
-          echo "Сборка Kazna: $run"
-          gh run download ${run%% *} -R "$GITHUB_REPOSITORY" -n kazna-windows-installer -D new
-          gh release download -R "${{ github.repository_owner }}/p-treasury-releases" -p 'P-Treasury_*_x64-setup.exe' -D old
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .head.sha)
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .head.ref)
+          run=$(gh run list -R "$GITHUB_REPOSITORY" -w windows-installer.yml -b "$ref" -s success -L 20 \
+                --json databaseId,headSha -q "map(select(.headSha == \"$sha\")) | .[0].databaseId // empty")
+          [ -n "$run" ] || { echo "::error::Нет успешной сборки windows-installer на head PR #$PR ($sha)"; exit 1; }
+          echo "PR #$PR head $sha, сборка $run"
+          gh run download "$run" -R "$GITHUB_REPOSITORY" -n kazna-windows-installer -D new
+          gh release download "$OLD_TAG" -R "${{ github.repository_owner }}/p-treasury-releases" -p 'P-Treasury_*_x64-setup.exe' -D old
           ls -la new old
-      - name: Установить старую версию, обновить до Kazna, проверить
+      - name: Установить 0.25, завести данные, обновить до Kazna, сверить
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $fail = @()
           $la = $env:LOCALAPPDATA; $ad = $env:APPDATA
+          $data = "$ad\app.kazna.desktop"; $db = "$data\budget.db"
           $docs = [Environment]::GetFolderPath('MyDocuments')
           $uk = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
           $sm = "$ad\Microsoft\Windows\Start Menu\Programs"
           $desk = [Environment]::GetFolderPath('Desktop')
-          function Show($t) { Write-Host "== $t"; Get-ChildItem "$la" -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  папка $($_.FullName)"; Get-ChildItem $_.FullName | % { Write-Host "    $($_.Name)" } }
+          $snap = '.github\upgrade-check\snap.py'
+          function Show($t) { Write-Host "== $t"
+            Get-ChildItem $la -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  папка $($_.FullName): $((Get-ChildItem $_.FullName).Name -join ', ')" }
             Get-ChildItem $uk | ? PSChildName -match 'Kazna|P-Treasury' | % { Write-Host "  реестр $($_.PSChildName)" }
-            Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  ярлык $($_.FullName)" } }
+            Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  ярлык $($_.FullName)" }
+            Get-ChildItem $docs -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  документы $($_.FullName): $((Get-ChildItem $_.FullName -Recurse -File).Count) файлов" } }
+          function RunApp($exe) { $p = Start-Process $exe -PassThru; Start-Sleep 25
+            Get-Process | ? { $_.Path -eq $exe } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep 3 }
 
           $old = (Get-ChildItem old\*.exe)[0].FullName; Write-Host "Старая: $old"
           Start-Process $old -ArgumentList '/S' -Wait
-          Show 'после установки старой'
-          if (-not (Test-Path "$la\P-Treasury\p-treasury.exe")) { $fail += 'старая версия не установилась' }
-
-          New-Item -Force -ItemType Directory "$ad\app.kazna.desktop", "$docs\P-Treasury" | Out-Null
-          'база' | Set-Content "$ad\app.kazna.desktop\marker.txt"
-          'документы' | Set-Content "$docs\P-Treasury\marker.txt"
+          if (-not (Test-Path "$la\P-Treasury\p-treasury.exe")) { throw 'старая версия не установилась' }
+          RunApp "$la\P-Treasury\p-treasury.exe"
+          if (-not (Test-Path $db)) { throw "старая программа не создала $db" }
+          python $snap seed $db
+          RunApp "$la\P-Treasury\p-treasury.exe"   # старая программа открывает базу с меткой и делает свои копии
+          Show 'старая версия с данными'
+          python $snap take $db "$docs\P-Treasury" before.json
 
           $new = (Get-ChildItem new\*.exe)[0].FullName; Write-Host "Новая: $new"
           Start-Process $new -ArgumentList '/S' -Wait
           Start-Sleep 5
-          Show 'после обновления до Kazna'
-
+          Show 'после установки Kazna'
           if (Test-Path "$la\P-Treasury") { $fail += "осталась папка $la\P-Treasury" }
           if (-not (Test-Path "$la\Kazna\Kazna.exe")) { $fail += 'нет Kazna.exe' }
           if (Test-Path "$uk\P-Treasury") { $fail += 'остался пункт P-Treasury в «Установке и удалении программ»' }
           if (-not (Test-Path "$uk\Kazna")) { $fail += 'нет пункта Kazna в «Установке и удалении программ»' }
-          if (-not (Test-Path "$ad\app.kazna.desktop\marker.txt")) { $fail += 'пропала папка данных app.kazna.desktop' }
-          if (-not (Test-Path "$docs\P-Treasury\marker.txt")) { $fail += 'установщик тронул Документы\P-Treasury' }
           $lnk = Get-ChildItem $sm, $desk -Filter *.lnk -Recurse -ErrorAction SilentlyContinue
           if ($lnk | ? Name -match 'P-Treasury') { $fail += 'остались ярлыки P-Treasury' }
           if (-not ($lnk | ? Name -eq 'Kazna.lnk')) { $fail += 'нет ярлыка Kazna' }
 
-          # Первый запуск Kazna сам переносит Документы\P-Treasury -> Документы\Kazna (тред 25).
-          $app = Start-Process "$la\Kazna\Kazna.exe" -PassThru
-          Start-Sleep 20
-          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
-          Get-Process Kazna -ErrorAction SilentlyContinue | Stop-Process -Force
-          Write-Host "== Документы после первого запуска"
-          Get-ChildItem $docs -Directory | ? Name -match 'Kazna|P-Treasury' | % { Write-Host "  $($_.FullName)"; Get-ChildItem $_.FullName | % { Write-Host "    $($_.Name)" } }
-          if (-not (Test-Path "$docs\Kazna\marker.txt")) { $fail += 'после первого запуска метка не в Документы\Kazna' }
+          RunApp "$la\Kazna\Kazna.exe"   # первый запуск: перенос Документы\P-Treasury -> Kazna
+          Show 'после первого запуска Kazna'
+          python $snap take $db "$docs\Kazna" after.json
+          python $snap compare before.json after.json
+          if ($LASTEXITCODE -ne 0) { $fail += 'данные после обновления не совпали со старыми (см. выше)' }
+          if ((Test-Path "$docs\P-Treasury") -and (Get-ChildItem "$docs\P-Treasury" -Recurse -File)) { $fail += 'в Документы\P-Treasury остались файлы' }
 
           if ($fail) { $fail | % { Write-Host "::error::$_" }; exit 1 }
-          Write-Host 'ВСЁ ХОРОШО: одна копия Kazna, данные на месте, ярлыки Kazna, Документы перенесены'
+          Write-Host 'ВСЁ ХОРОШО: одна копия Kazna, база и копии сохранности на месте, ярлыки Kazna'
