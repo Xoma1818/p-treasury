@@ -344,3 +344,18 @@ fn restore_keeps_this_computers_vault_settings() {
     // Остальные настройки бюджета — из копии.
     assert_eq!(get("base_currency"), "EUR");
 }
+
+/// Тестовая база с данными примера на текущей схеме — для проверки
+/// обновления установщиком (upgrade-check.yml, тред 9). Запуск вручную:
+/// `KAZNA_FIXTURE=/путь/upgrade.db cargo test -p budget-core --test restore -- --ignored`.
+#[test]
+#[ignore = "создаёт тестовую базу по запросу"]
+fn make_upgrade_fixture() {
+    let Ok(out) = std::env::var("KAZNA_FIXTURE") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let src = demo(dir.path());
+    let c = Connection::open(&src).unwrap();
+    budget_core::storage::backup_to(&c, Path::new(&out)).unwrap();
+}
