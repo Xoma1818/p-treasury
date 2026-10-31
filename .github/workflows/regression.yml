@@ -12,6 +12,8 @@ on:
       - "package-lock.json"
       - "tsconfig.json"
       - "vite.config.ts"
+      - "src-tauri/tauri.conf.json"
+      - "scripts/check-app-name.sh"
       - ".github/workflows/regression.yml"
 
 permissions:
@@ -22,6 +24,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  app-name:
+    name: Имя программы
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/check-app-name.sh
+
   core:
     name: Ядро и миграции
     runs-on: ubuntu-24.04

@@ -710,6 +710,35 @@ export interface ForecastItem {
   amount: number;
 }
 
+/** Резерв внутри счёта в «Свободно до дохода», в основной валюте. */
+export interface ReservePart {
+  goalId: string;
+  name: string;
+  account: string;
+  amount: number;
+}
+
+/** «Свободно до дохода» (0.27). */
+export interface FreeMoney {
+  baseCurrency: string;
+  today: string;
+  /** До какого дня (не включая его). */
+  until: string;
+  /** Ближайший известный доход; null — считаем до конца месяца. */
+  income: ForecastItem | null;
+  days: number;
+  liquid: number;
+  /** Платежи до дохода, суммы положительные. */
+  payments: ForecastItem[];
+  paymentsTotal: number;
+  inflowTotal: number;
+  reserves: ReservePart[];
+  reservedTotal: number;
+  free: number;
+  perDay: number;
+  missingRates: string[];
+}
+
 /** Цель со сроком внутри прогноза: `free` < 0 — к сроку не хватит. */
 export interface GoalMark {
   id: string;
@@ -1288,6 +1317,8 @@ export interface GoalInput {
   currencyCode: string;
   accountId: string | null;
   deadline: string | null;
+  /** Резерв: деньги лежат на обычном счёте вместе с остальными. */
+  reserve?: boolean;
 }
 
 export type GoalStatus = "reached" | "on_track" | "behind" | "no_pace";
@@ -1302,6 +1333,8 @@ export interface Goal {
   accountId: string | null;
   accountName: string | null;
   deadline: string | null;
+  /** Резерв внутри счёта `accountId`: отложенное отмечается вручную. */
+  reserve: boolean;
   saved: number;
   percent: number;
   remaining: number;
@@ -1836,6 +1869,8 @@ export const api = {
   undoState: () => invoke<UndoState>("undo_state"),
   undo: () => invoke<string | null>("undo"),
   listGoals: () => invoke<Goal[]>("list_goals"),
+  freeUntilIncome: () => invoke<FreeMoney>("free_until_income"),
+  accountReserves: () => invoke<Record<string, number>>("account_reserves"),
   createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
   updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),

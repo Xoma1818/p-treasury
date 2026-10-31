@@ -27,6 +27,10 @@ pub struct GoalInput {
     pub account_id: Option<String>,
     /// К какой дате, `YYYY-MM-DD`.
     pub deadline: Option<String>,
+    /// Резерв: деньги лежат на обычном счёте `account_id` вместе с остальными,
+    /// отложенное отмечается вручную и не считается свободным.
+    #[serde(default)]
+    pub reserve: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,6 +45,8 @@ pub struct Goal {
     pub account_id: Option<String>,
     pub account_name: Option<String>,
     pub deadline: Option<String>,
+    /// Резерв внутри счёта `account_id`.
+    pub reserve: bool,
     /// Накоплено сейчас (в валюте цели).
     pub saved: i64,
     /// 0–100.
@@ -77,6 +83,19 @@ fn check(conn: &Connection, input: &GoalInput) -> Result<(String, Option<String>
     if let Some(a) = &account {
         accounts::head(conn, a)?;
     }
+    if input.reserve {
+        let Some(a) = &account else {
+            return invalid("выберите счёт, на котором лежат деньги резерва");
+        };
+        let cur: String = conn.query_row(
+            "SELECT currency_code FROM accounts WHERE id = ?1",
+            [a],
+            |r| r.get(0),
+        )?;
+        if cur != input.currency_code {
+            return invalid("резерв ведётся в валюте своего счёта");
+        }
+    }
     let deadline = input
         .deadline
         .as_deref()
@@ -93,19 +112,52 @@ pub fn create(conn: &Connection, input: &GoalInput) -> Result<String> {
     let id = ids::new_id();
     let now = time::now_utc();
     conn.execute(
-        "INSERT INTO goals (id, name, target, currency_code, account_id, deadline, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        params![id, name, input.target, input.currency_code, account, deadline, now],
+        "INSERT INTO goals (id, name, target, currency_code, account_id, deadline, reserve, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![id, name, input.target, input.currency_code, account, deadline, input.reserve, now],
     )?;
     Ok(id)
 }
 
 pub fn update(conn: &Connection, id: &str, input: &GoalInput) -> Result<()> {
     let (name, account, deadline) = check(conn, input)?;
+    let old: Option<(Option<String>, bool)> = conn
+        .query_row(
+            "SELECT account_id, reserve FROM goals WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((old_account, old_reserve)) = old else {
+        return Err(Error::NotFound("цель"));
+    };
+    // Резерв без счёта (счёт удалили) считается обычной целью с отметками.
+    let old_reserve = old_reserve && old_account.is_some();
+    if old_reserve != input.reserve || (input.reserve && old_account != account) {
+        let saved = deposits_sum(conn, id)?;
+        if saved != 0 {
+            if old_reserve && !input.reserve && account.is_some() {
+                return invalid(
+                    "сначала возьмите отложенное из резерва: у цели со счётом отметок не бывает",
+                );
+            }
+            if let (true, Some(acc)) = (input.reserve, &account) {
+                // reserved_on не содержит эту цель: она ещё не резерв на этом счёте.
+                let free = accounts::balance(conn, acc, Some(&time::today_local()))?
+                    - reserved_on(conn, acc)?;
+                if saved > free {
+                    return invalid(
+                        "на счёте не осталось столько свободных денег для этого резерва",
+                    );
+                }
+            }
+        }
+    }
     let n = conn.execute(
-        "UPDATE goals SET name = ?2, target = ?3, currency_code = ?4, account_id = ?5, deadline = ?6, updated_at = ?7
+        "UPDATE goals SET name = ?2, target = ?3, currency_code = ?4, account_id = ?5, deadline = ?6,
+                reserve = ?7, updated_at = ?8
          WHERE id = ?1",
-        params![id, name, input.target, input.currency_code, account, deadline, time::now_utc()],
+        params![id, name, input.target, input.currency_code, account, deadline, input.reserve, time::now_utc()],
     )?;
     if n == 0 {
         return Err(Error::NotFound("цель"));
@@ -126,17 +178,29 @@ pub fn deposit(conn: &Connection, goal_id: &str, date: &str, amount: i64) -> Res
     if amount == 0 {
         return invalid("введите сумму пополнения");
     }
-    let account: Option<Option<String>> = conn
+    let row: Option<(Option<String>, bool)> = conn
         .query_row(
-            "SELECT account_id FROM goals WHERE id = ?1",
+            "SELECT account_id, reserve FROM goals WHERE id = ?1",
             [goal_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    match account {
+    match row {
         None => return Err(Error::NotFound("цель")),
-        Some(Some(_)) => return invalid("цель привязана к счёту: пополняйте сам счёт переводом"),
-        Some(None) => {}
+        Some((Some(acc), true)) => {
+            // Отложить можно не больше, чем свободно на счёте, и не меньше нуля.
+            if deposits_sum(conn, goal_id)? + amount < 0 {
+                return invalid("в резерве меньше, чем вы хотите взять");
+            }
+            let free = accounts::balance(conn, &acc, Some(date))? - reserved_on(conn, &acc)?;
+            if amount > free {
+                return invalid("на счёте не осталось столько свободных денег");
+            }
+        }
+        Some((Some(_), false)) => {
+            return invalid("цель привязана к счёту: пополняйте сам счёт переводом")
+        }
+        Some((None, _)) => {}
     }
     conn.execute(
         "INSERT INTO goal_deposits (id, goal_id, date, amount, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -145,13 +209,43 @@ pub fn deposit(conn: &Connection, goal_id: &str, date: &str, amount: i64) -> Res
     Ok(())
 }
 
+fn deposits_sum(conn: &Connection, goal_id: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(sum(amount), 0) FROM goal_deposits WHERE goal_id = ?1",
+        [goal_id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Сколько отложено в резервы на счёте (в валюте счёта).
+pub fn reserved_on(conn: &Connection, account_id: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(sum(d.amount), 0) FROM goal_deposits d JOIN goals g ON g.id = d.goal_id
+         WHERE g.reserve = 1 AND g.archived = 0 AND g.account_id = ?1",
+        [account_id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Резервы по счетам: id счёта → отложено (в валюте счёта).
+pub fn reserves_by_account(conn: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT g.account_id, COALESCE(sum(d.amount), 0) FROM goals g
+         LEFT JOIN goal_deposits d ON d.goal_id = g.id
+         WHERE g.reserve = 1 AND g.archived = 0 AND g.account_id IS NOT NULL
+         GROUP BY g.account_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// Все цели с прогрессом и прогнозом на `today`.
 pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
     let today_d = time::parse_date(today)?;
     let since = (today_d - Duration::days(PACE_DAYS)).to_string();
     let mut stmt = conn.prepare(
         "SELECT g.id, g.name, g.target, g.currency_code, c.symbol, c.minor_units, g.account_id, a.name,
-                a.currency_code, g.deadline, substr(g.created_at, 1, 10)
+                a.currency_code, g.deadline, substr(g.created_at, 1, 10), g.reserve
          FROM goals g JOIN currencies c ON c.code = g.currency_code
          LEFT JOIN accounts a ON a.id = g.account_id
          WHERE g.archived = 0 ORDER BY g.deadline IS NULL, g.deadline, g.created_at",
@@ -168,6 +262,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
         Option<String>,
         Option<String>,
         String,
+        bool,
     );
     let rows: Vec<Row> = stmt
         .query_map([], |r| {
@@ -183,6 +278,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
                 r.get(8)?,
                 r.get(9)?,
                 r.get(10)?,
+                r.get(11)?,
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -199,11 +295,13 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
         account_cur,
         deadline,
         created,
+        reserve,
     ) in rows
     {
+        let reserve = reserve && account_id.is_some();
         let mut missing_rate = false;
         let (saved, gained, window) = match (&account_id, &account_cur) {
-            (Some(acc), Some(cur)) => {
+            (Some(acc), Some(cur)) if !reserve => {
                 let now = accounts::balance(conn, acc, Some(today))?;
                 let before = accounts::balance(conn, acc, Some(&since))?;
                 let conv = |v: i64| currencies::convert(conn, v, cur, &currency, today);
@@ -283,6 +381,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             account_id,
             account_name,
             deadline,
+            reserve,
             saved,
             percent,
             remaining,
@@ -311,6 +410,7 @@ mod tests {
             currency_code: "RUB".into(),
             account_id: account,
             deadline: deadline.map(str::to_string),
+            reserve: false,
         }
     }
 
