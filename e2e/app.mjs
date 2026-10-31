@@ -1,7 +1,7 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { remote } from "webdriverio";
@@ -66,6 +66,9 @@ function winProbeApp(bin, env) {
   return winProbe;
 }
 
+/** Windows: первая неудачная сессия; дальше start() падает сразу, не тратя минуты на таймауты. */
+let winSessionError;
+
 let driver;
 let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
@@ -78,23 +81,36 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // Курсы ЦБ грузятся сами раз в день: в тестах сайт ЦБ подменён закрытым портом,
   // чтобы настоящие курсы не меняли суммы (cbr.test.mjs ставит свой сервер).
   const cbr = { PTREASURY_CBR_URL: "http://127.0.0.1:9/scripts/XML_daily.asp", NO_PROXY: "127.0.0.1,localhost" };
-  // WebView2 хранит профиль в одной папке на всех (по identifier): у каждой папки
-  // данных теста — своя, рядом с ней. Повторный start(dataDir) берёт ту же.
-  const wv2 = WIN ? { WEBVIEW2_USER_DATA_FOLDER: `${dataDir.replace(/[\\/]+$/, "")}.webview2` } : {};
+  const wv2 = {};
+  // Windows: msedgedriver напрямую (как его вызывает tauri-driver), с подробным журналом —
+  // если сессия не создаётся, его хвост объясняет почему.
+  const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
+  const appArgs = args ?? [`--data-dir=${dataDir}`];
   const open = async () => {
     if (WIN) await winCleanup();
-    driver = spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, ...cbr, ...wv2, ...env } });
+    const childEnv = { ...process.env, ...cbr, ...wv2, ...env };
+    driver = WIN
+      ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
+      : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
     await new Promise((r) => setTimeout(r, 1500));
     return remote({
       hostname: "127.0.0.1",
       port: 4444,
       logLevel: "error",
-      capabilities: {
-        // `args: []` — запуск без своей папки данных (переносная версия).
-        "tauri:options": { application: bin, args: args ?? [`--data-dir=${dataDir}`] },
-      },
+      capabilities: WIN
+        ? { browserName: "webview2", "ms:edgeOptions": { binary: bin, args: appArgs } }
+        : // `args: []` — запуск без своей папки данных (переносная версия).
+          { "tauri:options": { application: bin, args: appArgs } },
     });
   };
+  const edgeTail = () => {
+    try {
+      return readFileSync(edgeLog, "utf8").split(/\r?\n/).slice(-80).join("\n");
+    } catch (e) {
+      return `журнала нет: ${e.message}`;
+    }
+  };
+  if (WIN && winSessionError) throw new Error(`сессия WebDriver в Windows не создаётся: ${winSessionError}`);
   if (WIN) {
     await winCleanup();
     const dead = winProbeApp(bin, { ...process.env, ...cbr, ...wv2, ...env });
@@ -107,8 +123,9 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   } catch (e) {
     if (!WIN) throw e;
     // Первый запуск WebView2 на чистой машине бывает дольше таймаута msedgedriver: одна повторная попытка.
-    console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; повтор`);
-    browser = await open();
+    console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; журнал msedgedriver:\n${edgeTail()}`);
+    winSessionError = e.message;
+    throw e;
   }
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
   // карточки, поэтому включаем их (как у пользователя, который их включил);
