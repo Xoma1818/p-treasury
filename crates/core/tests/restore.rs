@@ -359,3 +359,61 @@ fn make_upgrade_fixture() {
     let c = Connection::open(&src).unwrap();
     budget_core::storage::backup_to(&c, Path::new(&out)).unwrap();
 }
+
+/// Настроек папки сохранности на этом ПК нет, а в копии есть: чужие не берутся.
+#[test]
+fn restore_drops_vault_settings_missing_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = old_copy(dir.path(), MIGRATIONS.len());
+    {
+        let c = Connection::open(&copy).unwrap();
+        budget_core::settings::set(&c, "vault_dir", r"E:\Флешка\Kazna").unwrap();
+    }
+    let mut db = live(dir.path());
+    db.conn()
+        .execute("DELETE FROM settings WHERE key = 'vault_dir'", [])
+        .unwrap();
+    db.restore_from(&copy, &opts(dir.path())).unwrap();
+    assert_eq!(
+        budget_core::settings::get(db.conn(), "vault_dir").unwrap(),
+        None
+    );
+}
+
+/// Копия с другим размером страницы (8 КБ) восстанавливается в рабочую
+/// базу WAL с 4 КБ: данные на месте, база снова в режиме WAL.
+#[test]
+fn copy_with_other_page_size_restores() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = old_copy(dir.path(), MIGRATIONS.len());
+    let big = dir.path().join("page8k.db");
+    {
+        let c = Connection::open(&copy).unwrap();
+        c.execute("VACUUM INTO ?1", [big.to_str().unwrap()])
+            .unwrap();
+    }
+    {
+        let c = Connection::open(&big).unwrap();
+        c.pragma_update(None, "page_size", 8192).unwrap();
+        c.execute_batch("VACUUM").unwrap();
+        let p: i64 = c
+            .pragma_query_value(None, "page_size", |r| r.get(0))
+            .unwrap();
+        assert_eq!(p, 8192);
+    }
+    let expected = count(
+        &Connection::open(&big).unwrap(),
+        "SELECT count(*) FROM transactions",
+    );
+    let mut db = live(dir.path());
+    db.restore_from(&big, &opts(dir.path())).unwrap();
+    assert_eq!(
+        count(db.conn(), "SELECT count(*) FROM transactions"),
+        expected
+    );
+    let mode: String = db
+        .conn()
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal", "рабочая база снова в режиме WAL");
+}

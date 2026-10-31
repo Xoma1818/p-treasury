@@ -700,19 +700,23 @@ pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
     Ok(existing_count(conn, t)? > 0)
 }
 
-/// Сколько таких операций уже записано (связанная строка — «сколько угодно»).
+/// Сколько таких строк банка уже записано: связи этой строки выписки с
+/// ручными записями плюс точно такие же операции, ещё не связанные с ней
+/// (связанная запись не считается дважды). Разбитый чек — одна операция.
 fn existing_count(conn: &Connection, t: &TxnInput) -> Result<usize> {
-    if crate::import_log::linked(conn, t)? {
-        return Ok(usize::MAX);
-    }
     let n: i64 = conn.query_row(
-        "SELECT (SELECT count(*) FROM transactions WHERE date = ?1 AND account_id = ?2
+        "WITH links AS (
+            SELECT transaction_id FROM import_links WHERE account_id = ?2 AND kind = ?3
+              AND bank_date = ?1 AND bank_amount = ?4 AND bank_payee = coalesce(?5, ''))
+         SELECT (SELECT count(*) FROM links)
+              + (SELECT count(*) FROM transactions WHERE date = ?1 AND account_id = ?2
                    AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
-                   AND split_id IS NULL)
+                   AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links))
               + (SELECT count(*) FROM (SELECT 1 FROM transactions WHERE date = ?1
                    AND account_id = ?2 AND type = ?3 AND coalesce(payee, '') = coalesce(?5, '')
                    AND split_id IS NOT NULL
-                 GROUP BY split_id HAVING sum(abs(amount)) = ?4))",
+                 GROUP BY split_id HAVING sum(abs(amount)) = ?4
+                   AND sum(id IN (SELECT transaction_id FROM links)) = 0))",
         params![t.date, t.account_id, t.kind, t.amount, t.payee],
         |r| r.get(0),
     )?;

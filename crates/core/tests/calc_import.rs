@@ -1094,3 +1094,32 @@ fn spread_gives_one_part_per_budget_month_with_late_start_day() {
         .collect();
     assert_eq!(by, vec![100_000, 100_000, 100_000]);
 }
+
+/// Ручная запись связана со строкой выписки; более полная выписка с двумя
+/// такими же покупками добавляет вторую, а не считает обе повтором.
+#[test]
+fn linked_row_counts_once_when_fuller_statement_has_two() {
+    let mut b = bank();
+    let food = cat_id(b.db.conn(), "Продукты");
+    txn(
+        b.db.conn(),
+        "expense",
+        "2026-10-01",
+        &b.card,
+        105_377,
+        Some(&food),
+    );
+    let row = op(
+        "02.10.2026",
+        "1140",
+        "-1053,77",
+        "Супермаркеты",
+        "Пятерочка",
+    );
+    let one = statement(b.dir.path(), "one.csv", std::slice::from_ref(&row));
+    let first = import(&mut b, &one);
+    assert_eq!((first.added, first.linked), (0, 1));
+    let two = statement(b.dir.path(), "two.csv", &[row.clone(), row]);
+    assert_eq!(import(&mut b, &two).added, 1, "вторая покупка добавилась");
+    assert_eq!(import(&mut b, &two).added, 0, "повтор ничего не добавляет");
+}

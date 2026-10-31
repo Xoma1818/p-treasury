@@ -159,17 +159,38 @@ impl Storage {
         {
             let local = local_settings(&self.conn)?;
             let tx = prepared.conn.transaction()?;
-            for (key, value) in &local {
-                crate::settings::set(&tx, key, value)?;
+            for key in LOCAL_SETTINGS {
+                match local.iter().find(|(k, _)| k == key) {
+                    Some((_, value)) => crate::settings::set(&tx, key, value)?,
+                    // Здесь такой настройки нет — не берём её и из копии.
+                    None => {
+                        tx.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+                    }
+                }
             }
             tx.commit()?;
         }
+        // Рабочая база в режиме WAL принимает копию только с тем же размером
+        // страницы; у копии старой версии или другого ПК он может быть другим.
+        // Тогда на время замены база переходит в обычный журнал (замена так же
+        // идёт одной транзакцией), а `configure` ниже возвращает WAL.
+        let page: i64 = self
+            .conn
+            .pragma_query_value(None, "page_size", |r| r.get(0))?;
+        let theirs: i64 = prepared
+            .conn
+            .pragma_query_value(None, "page_size", |r| r.get(0))?;
+        let other_page = page != theirs;
         fs::create_dir_all(&opts.backup_dir)?;
         let safety = opts
             .backup_dir
             .join(format!("before-restore-{}.db", time::file_stamp()));
         backup_to(&self.conn, &safety)?;
         prune_backups(&opts.backup_dir, "before-restore", opts.keep_backups)?;
+        if other_page {
+            self.conn
+                .pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))?;
+        }
         {
             // Все страницы переносятся под одной блокировкой записи и
             // фиксируются в конце: при ошибке рабочая база не меняется.
