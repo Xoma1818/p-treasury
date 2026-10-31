@@ -121,6 +121,38 @@ pub fn create(conn: &Connection, input: &GoalInput) -> Result<String> {
 
 pub fn update(conn: &Connection, id: &str, input: &GoalInput) -> Result<()> {
     let (name, account, deadline) = check(conn, input)?;
+    let old: Option<(Option<String>, bool)> = conn
+        .query_row(
+            "SELECT account_id, reserve FROM goals WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((old_account, old_reserve)) = old else {
+        return Err(Error::NotFound("цель"));
+    };
+    // Резерв без счёта (счёт удалили) считается обычной целью с отметками.
+    let old_reserve = old_reserve && old_account.is_some();
+    if old_reserve != input.reserve || (input.reserve && old_account != account) {
+        let saved = deposits_sum(conn, id)?;
+        if saved != 0 {
+            if old_reserve && !input.reserve && account.is_some() {
+                return invalid(
+                    "сначала возьмите отложенное из резерва: у цели со счётом отметок не бывает",
+                );
+            }
+            if let (true, Some(acc)) = (input.reserve, &account) {
+                // reserved_on не содержит эту цель: она ещё не резерв на этом счёте.
+                let free = accounts::balance(conn, acc, Some(&time::today_local()))?
+                    - reserved_on(conn, acc)?;
+                if saved > free {
+                    return invalid(
+                        "на счёте не осталось столько свободных денег для этого резерва",
+                    );
+                }
+            }
+        }
+    }
     let n = conn.execute(
         "UPDATE goals SET name = ?2, target = ?3, currency_code = ?4, account_id = ?5, deadline = ?6,
                 reserve = ?7, updated_at = ?8
@@ -157,15 +189,10 @@ pub fn deposit(conn: &Connection, goal_id: &str, date: &str, amount: i64) -> Res
         None => return Err(Error::NotFound("цель")),
         Some((Some(acc), true)) => {
             // Отложить можно не больше, чем свободно на счёте, и не меньше нуля.
-            let saved: i64 = conn.query_row(
-                "SELECT COALESCE(sum(amount), 0) FROM goal_deposits WHERE goal_id = ?1",
-                [goal_id],
-                |r| r.get(0),
-            )?;
-            if saved + amount < 0 {
+            if deposits_sum(conn, goal_id)? + amount < 0 {
                 return invalid("в резерве меньше, чем вы хотите взять");
             }
-            let free = accounts::balance(conn, &acc, None)? - reserved_on(conn, &acc)?;
+            let free = accounts::balance(conn, &acc, Some(date))? - reserved_on(conn, &acc)?;
             if amount > free {
                 return invalid("на счёте не осталось столько свободных денег");
             }
@@ -180,6 +207,14 @@ pub fn deposit(conn: &Connection, goal_id: &str, date: &str, amount: i64) -> Res
         params![ids::new_id(), goal_id, date, amount, time::now_utc()],
     )?;
     Ok(())
+}
+
+fn deposits_sum(conn: &Connection, goal_id: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(sum(amount), 0) FROM goal_deposits WHERE goal_id = ?1",
+        [goal_id],
+        |r| r.get(0),
+    )?)
 }
 
 /// Сколько отложено в резервы на счёте (в валюте счёта).
@@ -263,6 +298,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
         reserve,
     ) in rows
     {
+        let reserve = reserve && account_id.is_some();
         let mut missing_rate = false;
         let (saved, gained, window) = match (&account_id, &account_cur) {
             (Some(acc), Some(cur)) if !reserve => {

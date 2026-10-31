@@ -274,4 +274,45 @@ mod tests {
         assert!(bad(Some(card.clone()), "USD").is_err());
         assert!(bad(Some(card), "RUB").is_ok());
     }
+
+    #[test]
+    fn changing_a_goal_keeps_reserves_honest() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = acc(c, "Карта", "debit", 1_000_000);
+        let small = acc(c, "Копилка", "savings", 100_000);
+        let input = |account: Option<&String>, reserve: bool| GoalInput {
+            name: "Ремонт".into(),
+            target: 2_000_000,
+            currency_code: "RUB".into(),
+            account_id: account.cloned(),
+            deadline: None,
+            reserve,
+        };
+        let held = goals::create(c, &input(Some(&card), true)).unwrap();
+        goals::deposit(c, &held, "2026-10-31", 500_000).unwrap();
+        let manual = goals::create(c, &input(None, false)).unwrap();
+        goals::deposit(c, &manual, "2026-10-31", 600_000).unwrap();
+
+        // а) обычная цель с отметками → резерв: не больше свободного на счёте.
+        assert!(goals::update(c, &manual, &input(Some(&card), true)).is_err());
+        goals::deposit(c, &manual, "2026-10-31", -200_000).unwrap();
+        goals::update(c, &manual, &input(Some(&card), true)).unwrap();
+        // в) перенос резерва на счёт, где столько нет.
+        assert!(goals::update(c, &manual, &input(Some(&small), true)).is_err());
+        // б) резерв → цель со счётом: отметки не пропадают молча.
+        assert!(goals::update(c, &manual, &input(Some(&card), false)).is_err());
+        goals::update(c, &manual, &input(None, false)).unwrap();
+        let g = goals::list(c, "2026-10-31").unwrap();
+        let m = g.iter().find(|g| g.id == manual).unwrap();
+        assert_eq!((m.saved, m.reserve), (400_000, false));
+
+        // Счёт резерва удалён: цель становится обычной и редактируется.
+        c.execute("UPDATE goals SET account_id = NULL WHERE id = ?1", [&held])
+            .unwrap();
+        let g = goals::list(c, "2026-10-31").unwrap();
+        let h = g.iter().find(|g| g.id == held).unwrap();
+        assert_eq!((h.saved, h.reserve), (500_000, false));
+        goals::update(c, &held, &input(None, false)).unwrap();
+    }
 }
