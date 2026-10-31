@@ -2,7 +2,7 @@
 // Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, linkSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { start, stop, openSection, onboard, fill, click, waitText, APP_BIN, APP_FILE } from "./app.mjs";
@@ -77,8 +77,14 @@ test("переносная версия: файл portable рядом с про�
   await stop(browser);
   const dir = mkdtempSync(join(tmpdir(), "p-treasury-portable-"));
   // Жёсткая ссылка: программа «лежит» в этой папке, места на диске не занимает.
+  // Временная папка на другом диске (Windows на GitHub: D: и C:) — копия.
   const bin = join(dir, APP_FILE);
-  linkSync(APP_BIN, bin);
+  try {
+    linkSync(APP_BIN, bin);
+  } catch (e) {
+    if (e.code !== "EXDEV") throw e;
+    copyFileSync(APP_BIN, bin);
+  }
   writeFileSync(join(dir, "portable"), "");
   ({ browser } = await start(dir, { bin, args: [] }));
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });

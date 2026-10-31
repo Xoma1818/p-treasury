@@ -620,7 +620,8 @@ pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
     })
 }
 
-#[tauri::command]
+// async: окно, созданное из синхронной команды, в Windows подвешивает программу.
+#[tauri::command(async)]
 pub fn open_quick(app: AppHandle) -> CmdResult<()> {
     crate::quick_window::open(&app).map_err(|e| e.to_string())
 }

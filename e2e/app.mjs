@@ -1,7 +1,7 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { remote } from "webdriverio";
@@ -15,7 +15,7 @@ export const APP_FILE = basename(APP_BIN);
 
 /** PID процессов (Windows), в командной строке которых есть `pattern`. */
 function winPids(pattern) {
-  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($p) } | ForEach-Object { $_.ProcessId }";
+  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Replace([string][char]34, '').Contains($p) } | ForEach-Object { $_.ProcessId }";
   const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
     encoding: "utf8",
     env: { ...process.env, KAZNA_E2E_PATTERN: pattern },
@@ -66,8 +66,55 @@ function winProbeApp(bin, env) {
   return winProbe;
 }
 
-/** Windows: первая неудачная сессия; дальше start() падает сразу, не тратя минуты на таймауты. */
-let winSessionError;
+/**
+ * Windows: открывает ли WebView2 программы порт отладки по переменной
+ * WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS — так его открывает msedgedriver. Если нет,
+ * DevToolsActivePort не появляется и сессия не создаётся. Один раз за прогон.
+ */
+let winDevtools;
+async function winProbeDevtools(bin, env) {
+  if (winDevtools !== undefined) return winDevtools;
+  const dir = mkdtempSync(join(tmpdir(), "p-treasury-devtools-"));
+  const udf = mkdtempSync(join(tmpdir(), "p-treasury-wv2-"));
+  const port = 9333;
+  const child = spawn(bin, [`--data-dir=${dir}`, "--remote-debugging-port=0", "--test-type=webdriver"], {
+    env: { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`, WEBVIEW2_USER_DATA_FOLDER: udf },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (d) => (out += d));
+  child.stderr.on("data", (d) => (out += d));
+  let exit = null;
+  child.on("exit", (code) => (exit = code));
+  let version = null;
+  for (let i = 0; i < 40 && exit === null && !version; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/json/version`);
+      if (r.ok) version = (await r.json()).Browser ?? "есть";
+    } catch {
+      // порт ещё не открыт
+    }
+  }
+  const list = (d) => {
+    try {
+      return readdirSync(d, { recursive: true }).filter((f) => /DevToolsActivePort|EBWebView$/.test(f)).join(", ") || "нет";
+    } catch (e) {
+      return e.message;
+    }
+  };
+  winDevtools = `порт отладки ${version ? `открыт (${version})` : "не открылся за 20 с"}; программа ${exit === null ? "работает" : `закрылась, код ${exit}`}; DevToolsActivePort в папке WEBVIEW2_USER_DATA_FOLDER: ${list(udf)}; в папке данных: ${list(dir)}; в LOCALAPPDATA: ${list(join(process.env.LOCALAPPDATA ?? dir, "app.kazna.desktop"))}; вывод: ${out.slice(-1500)}`;
+  console.error(`# проверка WebView2: ${winDevtools}`);
+  if (exit === null) spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"]);
+  return winDevtools;
+}
+
+/**
+ * Windows: после первой неудачной сессии start() падает сразу, не тратя минуты
+ * на таймауты, — и в других файлах тестов того же прогона (метка у общего родителя).
+ */
+const WIN_FAIL_MARK = join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}.txt`);
+let winSessionError = WIN && existsSync(WIN_FAIL_MARK) ? readFileSync(WIN_FAIL_MARK, "utf8") : undefined;
 
 let driver;
 let currentDir;
@@ -98,7 +145,9 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       port: 4444,
       logLevel: "error",
       capabilities: WIN
-        ? { browserName: "webview2", "ms:edgeOptions": { binary: bin, args: appArgs } }
+        ? // Классический WebDriver, как с tauri-driver в Linux: через BiDi скрипт
+          // видел window.__TAURI_INTERNALS__ без invoke.
+          { browserName: "webview2", "wdio:enforceWebDriverClassic": true, "ms:edgeOptions": { binary: bin, args: appArgs } }
         : // `args: []` — запуск без своей папки данных (переносная версия).
           { "tauri:options": { application: bin, args: appArgs } },
     });
@@ -124,7 +173,15 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     if (!WIN) throw e;
     // Первый запуск WebView2 на чистой машине бывает дольше таймаута msedgedriver: одна повторная попытка.
     console.error(`# сессия не создана (${e.message}); процессы: ${WIN_IMAGES.filter(winRunning).join(", ") || "нет"}; журнал msedgedriver:\n${edgeTail()}`);
+    await winCleanup();
+    await winProbeDevtools(bin, { ...process.env, ...cbr, ...wv2, ...env });
+    await winCleanup();
     winSessionError = e.message;
+    try {
+      writeFileSync(WIN_FAIL_MARK, e.message);
+    } catch {
+      // метка не обязательна
+    }
     throw e;
   }
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
@@ -136,7 +193,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
 export async function showAllHomeCards(browser) {
-  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && !!window.__TAURI_INTERNALS__), { timeout: 15000 });
+  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && typeof window.__TAURI_INTERNALS__?.invoke === "function"), { timeout: 15000 });
   const ok = await browser.executeAsync((done) => {
     window.__TAURI_INTERNALS__
       .invoke("set_setting", { key: "home_layout", value: JSON.stringify({ order: [], hidden: [] }) })
@@ -177,6 +234,10 @@ export function appPid(dataDir = currentDir) {
 /** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
 export function closeLikeUser(dataDir = currentDir) {
   const pid = appPid(dataDir);
+  if (!pid && WIN) {
+    const all = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${APP_FILE}'" | ForEach-Object { $_.CommandLine }`], { encoding: "utf8" }).stdout.trim();
+    throw new Error(`приложение не запущено: нет процесса с --data-dir=${dataDir}; запущены: ${all || "нет"}`);
+  }
   if (!pid) throw new Error("приложение не запущено");
   if (WIN) {
     // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
@@ -271,6 +332,9 @@ export async function click(browser, text, scope = "") {
     const bar = top?.closest('[data-testid="undo-bar"]');
     if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
   }, el);
+  // Мышь к кнопке, как у пользователя: кнопки строки видны под мышкой, а прокрутка
+  // выше могла увести строку из-под неё.
+  await el.moveTo().catch(() => {});
   await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
     throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
   });
