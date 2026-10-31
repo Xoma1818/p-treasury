@@ -132,7 +132,7 @@ test("календарь: дни без трат отмечены, итог не
     await dragTo('[data-testid="day-panel"] tr.draggable', `[data-testid="cal-day"][data-date="${target}"]`);
     await browser.waitUntil(async () => (await rows()) === n - 1, { timeout: 5000, timeoutMsg: "операция не ушла с этого дня" });
     await browser.$(`[data-testid="cal-day"][data-date="${target}"]`).click();
-    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Кафе/);
+    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Общепит/);
   }
   await browser.$('[name="weeklySummary"]').click();
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });

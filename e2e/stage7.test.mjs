@@ -109,7 +109,7 @@ test("Ctrl+Z в поле ввода отменяет набор текста, а
 
 test("при гостях: «Скрыть суммы» прячет все суммы, Ctrl+H возвращает", async () => {
   await openSection(browser, "Главная");
-  await click(browser, "Скрыть суммы", "//nav");
+  await (await browser.$('[data-testid="hide-amounts"]')).click();
   await waitText(browser, '[data-testid="total-balance"]', /•••/);
   await openSection(browser, "Календарь");
   const text = await browser.$("main").getText();
