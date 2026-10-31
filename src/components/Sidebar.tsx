@@ -28,11 +28,13 @@ function Logo() {
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
   // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
-  // Тема ставится сразу: анимация только у цветов.
+  // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
   const pick = (t: Theme) => {
     const root = document.documentElement;
-    root.classList.add("theme-fade");
-    window.setTimeout(() => root.classList.remove("theme-fade"), 300);
+    if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      root.classList.add("theme-fade");
+      window.setTimeout(() => root.classList.remove("theme-fade"), 300);
+    }
     applyTheme(t);
     setTheme(t);
   };
@@ -100,7 +102,6 @@ export function Sidebar() {
                 <SectionIcon id={s.id} />
                 {s.title}
                 {/* Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки. */}
-                {i < 9 && <span className="nav-key" data-k={i + 1} aria-hidden="true" />}
               </button>
             </li>
           </Fragment>

@@ -95,9 +95,6 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .nav-item:hover .icon-tile { transform: scale(1.08); }
 .nav-item.active .icon-tile { background: var(--c); color: var(--bg); }
 /* Номер раздела для Ctrl+цифра: виден при наведении. */
-.nav-key { margin-left: auto; opacity: 0; font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px; transition: opacity 200ms var(--ease); }
-.nav-key::before { content: attr(data-k); }
-.nav-item:hover .nav-key { opacity: 1; }
 .nav-group { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 14px 12px 6px; }
 .nav-settings { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 /* Значок раздела в цветной плашке (цвет --c задаёт раздел). */
@@ -754,7 +751,6 @@ input[type="checkbox"]:checked { animation: none; }
 /* 0.15.2: ровные пропорции. Пункты меню в одну строку, номер клавиши не занимает место;
    кнопки «Изменить/Удалить» у категорий появляются поверх строки и не сжимают название. */
 .nav-item { white-space: nowrap; }
-.nav-key { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
 .tree li { position: relative; }
 .tree .row-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; padding-left: 16px; background: linear-gradient(90deg, transparent, var(--card) 14px); }
 
@@ -882,3 +878,10 @@ h2 { font-size: 16px; }
 :root .qw-ok { padding: 4px; width: 24px; height: 24px; box-sizing: border-box; }
 :root .no-spend-mark { display: inline-flex; vertical-align: 1px; }
 :root .link.back { display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; }
+/* Фокус с клавиатуры виден всегда: заливки и «без тени» 0.25 его не гасят. */
+:root :is(.btn, .link, .nav-item, .tab, .chip-btn, .icon-btn, .template-main, .template-del, .clickable, button):focus-visible { box-shadow: var(--ring); }
+:root .btn.primary:focus-visible { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
+/* «Меньше движения» в Windows: тема меняется сразу. */
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-fade, :root.theme-fade * { transition: none !important; }
+}
