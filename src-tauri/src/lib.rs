@@ -53,7 +53,18 @@ fn data_dir_override() -> Option<PathBuf> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Одна копия программы (должен регистрироваться первым): второй запуск
+    // показывает уже открытое окно, даже если оно свёрнуто в трей.
+    #[cfg(windows)]
+    let builder = if data_dir_override().is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            background::show_main(app)
+        }))
+    } else {
+        builder
+    };
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

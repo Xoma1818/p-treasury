@@ -26,6 +26,12 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tauri-plugin-global-shortcut = "2"
 
+# Одна копия программы: повторный запуск с ярлыка открывает уже запущенное окно,
+# а не добавляет ещё один значок в трей. Только Windows: в сквозных тестах (Linux)
+# программа запускается много раз подряд.
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
+
 [features]
 # Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.
 custom-protocol = ["tauri/custom-protocol"]
