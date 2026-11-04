@@ -321,6 +321,30 @@ test("кредит: каникулы и смена ставки записыва
   await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "название долга не поменялось" });
 });
 
+test("операция долга: вместо молчащего «Удалить» — пояснение и «Открыть долг»", async () => {
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Сбер");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await (await browser.$('[data-testid="txn-row"] td.date')).click();
+  await waitText(browser, '[data-testid="txn-debt-hint"]', /удалить или изменить его можно в карточке долга/);
+  assert.equal(await browser.$('//*[@role="dialog" or contains(@class,"panel")]//button[normalize-space()="Удалить"]').isExisting(), false);
+  await (await browser.$('[data-testid="txn-open-debt"]')).click();
+  await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "«Открыть долг» не открыл карточку" });
+});
+
+test("тема хранится в базе: после восстановления копии берётся тема из неё", async () => {
+  const theme = () => browser.execute(() => document.documentElement.dataset.theme);
+  await (await browser.$('[data-testid="theme-light"]')).click();
+  assert.equal(await theme(), "light");
+  const inDb = () => browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("get_settings").then((s) => done(s.theme ?? null)));
+  await browser.waitUntil(async () => (await inDb()) === "light", { timeout: 5000, timeoutMsg: "выбор темы не записан в базу" });
+  // Как после восстановления копии с тёмной темой: в базе «dark», в окне — «light».
+  await browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("set_setting", { key: "theme", value: "dark" }).then(done));
+  await browser.refresh();
+  await browser.waitUntil(async () => (await theme()) === "dark", { timeout: 10000, timeoutMsg: "тема из базы не применилась" });
+  assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-pressed"), "true");
+});
+
 test("сценарий «что если»: правка сохраняется", async () => {
   await openSection(browser, "Взгляд вперёд");
   await click(browser, "+ Сценарий");

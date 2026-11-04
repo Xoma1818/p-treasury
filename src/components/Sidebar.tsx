@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
+import { useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
@@ -25,6 +26,16 @@ function Logo() {
 /** Тема: два значка «Светлая» / «Тёмная», выбранная подсвечена. Подписи — в подсказке и для экранного диктора. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
+  // Тема из базы главнее памяти окна: после восстановления копии или переноса на
+  // другой компьютер приходит выбранная там тема. Пока в базе темы нет (данные до
+  // 0.30), ничего не записываем — остаётся тема этого окна.
+  const stored = useSettings().data?.theme;
+  useEffect(() => {
+    if ((stored === "dark" || stored === "light") && stored !== savedTheme()) {
+      applyTheme(stored);
+      setTheme(stored);
+    }
+  }, [stored]);
   // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
   // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
   const pick = (t: Theme) => {
@@ -35,6 +46,9 @@ function ThemeSwitch() {
     }
     applyTheme(t);
     setTheme(t);
+    api.setSetting("theme", t).catch(() => {
+      // Не записалось в базу — тема всё равно применена и сохранена в окне.
+    });
   };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">

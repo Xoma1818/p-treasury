@@ -21,10 +21,23 @@ pub fn all(conn: &Connection) -> Result<BTreeMap<String, String>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Настройки, которых может не быть в базе до первой записи.
+const OPTIONAL: [&str; 1] = ["theme"];
+
 /// Изменить существующую настройку. Неизвестный ключ — ошибка, чтобы опечатка
 /// в UI не создавала мусорных записей.
 pub fn set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     validate(key, value)?;
+    // Ключи без строки в миграциях: появляются при первой записи. Так не нужна новая
+    // миграция, а копия с ними открывается и прежними версиями (лишний ключ им не мешает).
+    if OPTIONAL.contains(&key) {
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        return Ok(());
+    }
     let changed = conn.execute(
         "UPDATE settings SET value = ?2 WHERE key = ?1",
         params![key, value],
@@ -55,6 +68,8 @@ fn validate(key: &str, value: &str) -> Result<()> {
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
+        // Тема хранится и в базе: переезжает с копией на другой компьютер.
+        "theme" => matches!(value, "dark" | "light"),
         "subscriptions_hidden" | "forecast_excluded_accounts" => {
             serde_json::from_str::<Vec<String>>(value).is_ok()
         }
@@ -109,5 +124,18 @@ mod tests {
             get(db.conn(), "month_start_day").unwrap().as_deref(),
             Some("25")
         );
+    }
+
+    #[test]
+    fn theme_appears_on_first_write_and_is_validated() {
+        let db = Storage::open_in_memory().unwrap();
+        assert_eq!(get(db.conn(), "theme").unwrap(), None);
+        set(db.conn(), "theme", "light").unwrap();
+        set(db.conn(), "theme", "dark").unwrap();
+        assert_eq!(get(db.conn(), "theme").unwrap().as_deref(), Some("dark"));
+        assert!(matches!(
+            set(db.conn(), "theme", "pink"),
+            Err(Error::Validation(_))
+        ));
     }
 }

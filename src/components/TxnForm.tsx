@@ -40,6 +40,7 @@ export function TxnForm() {
 
 function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | { mode: "refund" }>; onClose: () => void }) {
   const openTxnForm = useUi((s) => s.openTxnForm);
+  const openDebt = useUi((s) => s.openDebt);
   const editing = state.mode === "edit" ? state.txn : null;
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const accounts = useAccounts(true).data ?? [];
@@ -651,10 +652,20 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />
         <ErrorText error={save.error ?? remove.error} />
+        {editing?.debtId && (
+          <p className="hint" data-testid="txn-debt-hint">
+            Это платёж по долгу: удалить или изменить его можно в карточке долга, там же пересчитается график.
+          </p>
+        )}
         <div className="actions">
-          {editing && (
+          {editing && !editing.debtId && (
             <button type="button" className="btn danger" onClick={() => remove.run()} disabled={remove.busy}>
               {splitId ? "Удалить чек" : "Удалить"}
+            </button>
+          )}
+          {editing?.debtId && (
+            <button type="button" className="btn" data-testid="txn-open-debt" onClick={() => (onClose(), openDebt(editing.debtId!))}>
+              Открыть долг
             </button>
           )}
           {editing && editing.type === "expense" && !editing.debtId && !editing.spreadMonths && (
