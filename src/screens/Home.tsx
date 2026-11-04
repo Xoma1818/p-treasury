@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
@@ -31,6 +32,7 @@ import { AddMenu } from "../components/AddMenu";
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
 export function Home() {
+  const modules = useModules();
   const date = today();
   const [cbrUsed, setCbrUsed] = useState(false);
   // Месяц считается от настройки «первый день месяца», как в бюджете.
@@ -225,7 +227,7 @@ export function Home() {
               )}
             </div>
           )}
-          {debts && debts.upcoming.length === 0 ? (
+          {!modules.on("debts") ? null : debts && debts.upcoming.length === 0 ? (
             <button type="button" className="card empty-line" data-testid="home-upcoming" onClick={() => go("debts")}>
               Платежей по долгам нет <span className="go">Займы и долги →</span>
             </button>
@@ -329,7 +331,7 @@ export function Home() {
         </p>
       )}
       {layout.order
-        .filter((b) => editing || !layout.hidden.includes(b))
+        .filter((b) => modules.blockOn(b) && (editing || !layout.hidden.includes(b)))
         .map((b) =>
           editing ? (
             <div

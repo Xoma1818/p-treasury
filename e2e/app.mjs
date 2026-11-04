@@ -325,11 +325,13 @@ export async function chooseLike(browser, name, text) {
 }
 
 export async function click(browser, text, scope = "") {
-  // С 0.30 «+ Доход» и «Перевод» на Главной лежат в меню «+ Расход ▾»: открываем его.
-  if (!scope && (text === "+ Доход" || text === "Перевод")) {
-    const shown = await browser.$(`//button[normalize-space()="${text}"]`).isExisting();
-    const toggle = await browser.$('[data-testid="add-menu-toggle"]');
-    if (!shown && (await toggle.isExisting())) await toggle.click();
+  // С 0.30 часть кнопок лежит в меню: «+ Доход» и «Перевод» — в «+ Расход ▾» на Главной,
+  // редкие отчёты — в «Ещё ▾». Если кнопки не видно, открываем подходящее меню.
+  const menus = { "+ Доход": "add-menu-toggle", "Перевод": "add-menu-toggle" };
+  for (const t of ["Курсовая разница", "Подписки", "Итоги года", "По тегу", "Чистые активы"]) menus[t] = "more-tabs-toggle";
+  if (menus[text] && !(await browser.$(`${scope}//button[normalize-space()="${text}"]`).isExisting())) {
+    const toggle = await browser.$(`[data-testid="${menus[text]}"]`);
+    if ((await toggle.isExisting()) && (await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
   }
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
   // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
@@ -366,10 +368,14 @@ export async function save(browser, button = "Сохранить") {
   await click(browser, button, '//*[@role="dialog"]');
   // Каждый раз ищем заново: сохранённая ссылка на закрывшийся диалог устаревает.
   const open = () => browser.$('[role="dialog"]').isExisting();
-  await browser.waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), {
-    timeout: 5000,
-  });
-  if (await open()) throw new Error(`Диалог не закрылся: ${await browser.$('[role="alert"]').getText()}`);
+  await browser
+    .waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), { timeout: 5000 })
+    .catch(() => {});
+  if (await open()) {
+    const alert = await browser.$('[role="alert"]');
+    const why = (await alert.isExisting()) ? await alert.getText() : `нет ошибки; в окне: ${(await browser.$('[role="dialog"]').getText()).slice(0, 400)}`;
+    throw new Error(`Диалог не закрылся: ${why}`);
+  }
 }
 
 export async function mainText(browser) {

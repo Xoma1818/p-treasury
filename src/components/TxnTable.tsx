@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { Txn } from "../lib/api";
+import { api, type Txn } from "../lib/api";
+import { useAction } from "../lib/useAction";
+import { openContextMenu, type CtxItem } from "./ContextMenu";
 import { formatDate } from "../lib/dates";
 import { groupReceipts, receiptTitle, rowIds, type TxnRow } from "../lib/receipt";
 import { isRowSelected, type SelState } from "../lib/selection";
@@ -20,7 +22,27 @@ export interface TableSelection {
  *  Части разбитого чека показаны одной строкой «Ашан, 3 категории» с раскрытием. */
 export function TxnTable({ items, compact, draggable, selection }: { items: Txn[]; compact?: boolean; draggable?: boolean; selection?: TableSelection }) {
   const open = useUi((s) => s.openTxnForm);
+  const showTransactions = useUi((s) => s.showTransactions);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
+  // Г2: правая кнопка — все действия с операцией в одном меню.
+  const menuFor = (t: Txn): CtxItem[] => {
+    const items: CtxItem[] = [{ text: "Открыть", onClick: () => open({ mode: "edit", txn: t }) }];
+    if (t.type !== "adjustment" && !t.refund && !t.splitId)
+      items.push({
+        text: "Повторить сегодня",
+        onClick: () =>
+          open({
+            mode: "new",
+            type: t.type,
+            prefill: { amount: t.amount, accountId: t.accountId, toAccountId: t.toAccountId, categoryId: t.categoryId, payee: t.payee, note: t.note, tags: t.tags },
+          }),
+      });
+    if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
+    if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
+    if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => remove.run(t) });
+    return items;
+  };
   if (items.length === 0) return <p className="muted">Операций нет.</p>;
   const rows = groupReceipts(items);
   const toggleOpen = (key: string) =>
@@ -45,6 +67,7 @@ export function TxnTable({ items, compact, draggable, selection }: { items: Txn[
           open({ mode: "edit", txn: t });
         }}
         onMouseDown={(e) => selection && e.shiftKey && e.preventDefault()}
+        onContextMenu={(e) => openContextMenu(e, menuFor(t))}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
         data-receipt={r.kind === "receipt" ? r.parts.length : undefined}

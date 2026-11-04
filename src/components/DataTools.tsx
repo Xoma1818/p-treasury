@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ImportPreview, type ImportSaved, type UpdateInfo } from "../lib/api";
 import { ImportHistoryDialog, MatchesDialog } from "./ImportHistory";
 import { formatDate, monthBounds, today } from "../lib/dates";
-import { baseName, CSV, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
+import { baseName, CSV, OFX, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
 import { useAccounts, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, Field } from "./Fields";
@@ -29,8 +29,8 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<Kind>("month");
   const [[from, to], setRange] = useState(periodOf("month", today()));
   const [done, setDone] = useState<string | null>(null);
-  const run = useAction(async () => {
-    const path = await pickSave(`Kazna — сводка ${from} — ${to}.xlsx`, [XLSX]);
+  const run = useAction(async (format: "xlsx" | "csv") => {
+    const path = await pickSave(`Kazna — сводка ${from} — ${to}.${format}`, [format === "csv" ? CSV : XLSX]);
     if (!path) return;
     await api.exportSummary(from, to, path);
     setDone(path);
@@ -40,7 +40,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
     if (k !== "custom") setRange(periodOf(k, today()));
   };
   return (
-    <Modal title="Сводка в Excel" onClose={onClose}>
+    <Modal title="Сводка в Excel или CSV" onClose={onClose}>
       <div className="form">
         <div className="tabs small" role="tablist">
           {(
@@ -60,7 +60,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
           <Field label="С">{(id) => <input id={id} name="summaryFrom" type="date" value={from} onChange={(e) => (setKind("custom"), setRange([e.target.value, to]))} />}</Field>
           <Field label="По">{(id) => <input id={id} name="summaryTo" type="date" value={to} onChange={(e) => (setKind("custom"), setRange([from, e.target.value]))} />}</Field>
         </div>
-        <p className="hint">Листы: Сводка, По категориям, Бюджет, По месяцам, Долги, Операции. Суммы записываются числами: работают формулы и сводные таблицы.</p>
+        <p className="hint">Листы: Сводка, По категориям, Бюджет, По месяцам, Долги, Операции. В Excel суммы записываются числами: работают формулы и сводные таблицы. В CSV все листы идут друг за другом в одном файле.</p>
         {done && (
           <p className="ok" data-testid="export-done">
             Сохранено: {baseName(done)}
@@ -72,8 +72,11 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={onClose}>
             Закрыть
           </button>
-          <button type="button" className="btn primary" aria-busy={run.busy} data-done={run.done || undefined} disabled={run.busy || !from || !to} onClick={() => run.run()}>
-            Скачать
+          <button type="button" className="btn" disabled={run.busy || !from || !to} onClick={() => run.run("csv")}>
+            Скачать в CSV
+          </button>
+          <button type="button" className="btn primary" aria-busy={run.busy} data-done={run.done || undefined} disabled={run.busy || !from || !to} onClick={() => run.run("xlsx")}>
+            Скачать в Excel
           </button>
         </div>
       </div>
@@ -82,7 +85,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Импорт: выписка Сбера или Т-Банка либо CSV по шаблону → предпросмотр с ошибками и повторами → загрузка. */
-export function ImportDialog({ onClose }: { onClose: () => void }) {
+export function ImportDialog({ onClose, initialPath }: { onClose: () => void; initialPath?: string }) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -106,6 +109,10 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       setError(String(e));
     }
   };
+  // Файл, брошенный в окно: сразу предпросмотр.
+  useEffect(() => {
+    if (initialPath) void load(initialPath, null);
+  }, [initialPath]);
   const choose = async () => {
     const p = await pickOpen([STATEMENT, CSV]);
     if (p) await load(p, null);
@@ -136,7 +143,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Импорт выписки или CSV" onClose={onClose} wide>
       <p className="muted">
-        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или CSV по шаблону приложения. Категории подберутся по правилам и по категориям банка, уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
+        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или таблица по шаблону приложения (CSV или Excel, подойдёт и выгрузка «Операций»). Категории подберутся по правилам и по категориям банка. Если в файле есть категория, которой нет в программе, возьмётся похожая, а если похожей нет, создастся новая: в таблице ниже она помечена «(новая)», поправить можно потом в «Категориях». Уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
       </p>
       <div className="btn-group">
         <button className="btn primary" onClick={choose}>
@@ -332,14 +339,75 @@ export function UpdatesCard() {
   );
 }
 
-/** Выгрузка списка или отчёта: выбрать файл .xlsx или .csv и сохранить. */
-export function useExport(name: string, run: (path: string) => Promise<void>) {
+export type ExportFormat = "csv" | "xlsx" | "ofx";
+const FORMATS: Record<ExportFormat, { label: string; filter: typeof XLSX }> = {
+  csv: { label: "Скачать в CSV", filter: CSV },
+  xlsx: { label: "Скачать в Excel", filter: XLSX },
+  ofx: { label: "Скачать в OFX", filter: OFX },
+};
+
+/** Выгрузка списка или отчёта: формат выбирается в меню кнопки, затем — куда сохранить. */
+export function useExport(name: string, run: (path: string) => Promise<void>, formats: ExportFormat[] = ["csv", "xlsx"]) {
   const [done, setDone] = useState<string | null>(null);
-  const action = useAction(async () => {
-    const path = await pickSave(`${name}.xlsx`, [XLSX, CSV]);
+  const action = useAction(async (format: ExportFormat) => {
+    const path = await pickSave(`${name}.${format}`, [FORMATS[format].filter]);
     if (!path) return;
     await run(path);
     setDone(baseName(path));
   });
-  return { run: () => action.run(), done, error: action.error, busy: action.busy };
+  return { run: (format: ExportFormat) => action.run(format), formats, done, error: action.error, busy: action.busy };
+}
+
+/** Кнопка «Выгрузить» с меню форматов: «Скачать в CSV», «Скачать в Excel», «Скачать в OFX». */
+export function ExportButton({ exp, disabled, title }: { exp: ReturnType<typeof useExport>; disabled?: boolean; title?: string }) {
+  return <FormatMenu label="Выгрузить" formats={exp.formats} onPick={exp.run} busy={exp.busy} done={!!exp.done} disabled={disabled} title={title} />;
+}
+
+/** Кнопка с меню форматов файла; выбор пункта вызывает `onPick`. */
+export function FormatMenu({ label, formats, onPick, busy, done, disabled, title, className = "btn" }: { label: string; formats: ExportFormat[]; onPick: (f: ExportFormat) => void; busy?: boolean; done?: boolean; disabled?: boolean; title?: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc, true);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc, true);
+    };
+  }, [open]);
+  return (
+    <div className="export-menu" ref={ref}>
+      <button type="button" className={className} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} aria-busy={busy} data-done={done || undefined} disabled={disabled || busy} title={title}>
+        {label}
+      </button>
+      {open && (
+        <div className="export-pop" role="menu" data-testid="export-menu">
+          {formats.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="menuitem"
+              data-format={f}
+              onClick={() => {
+                setOpen(false);
+                onPick(f);
+              }}
+            >
+              {FORMATS[f].label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

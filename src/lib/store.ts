@@ -67,6 +67,15 @@ interface UiState {
   /** Справка по горячим клавишам (F1). */
   help: boolean;
   setHelp: (open: boolean) => void;
+  /** Г1: переход к разделу Настроек (и полю) из Ctrl+K; `dialog` — сразу открыть окно раздела «Данные». */
+  settingsJump: SettingsJump | null;
+  openSettings: (j: SettingsJump) => void;
+}
+
+export interface SettingsJump {
+  section: string;
+  field?: string;
+  dialog?: "summary" | "import" | "history";
 }
 
 export const useUi = create<UiState>((set) => ({
@@ -89,4 +98,6 @@ export const useUi = create<UiState>((set) => ({
   setPalette: (palette) => set({ palette }),
   help: false,
   setHelp: (help) => set({ help }),
+  settingsJump: null,
+  openSettings: (settingsJump) => set((s) => ({ settingsJump, section: "settings", visit: s.visit + 1 })),
 }));

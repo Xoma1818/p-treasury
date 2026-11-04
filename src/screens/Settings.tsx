@@ -1,6 +1,6 @@
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
 import { ImportHistoryDialog } from "../components/ImportHistory";
@@ -11,6 +11,8 @@ import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
 import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
+import { useUi } from "../lib/store";
+import { ModulesCard } from "../components/ModulesCard";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
@@ -30,11 +32,27 @@ export function Settings() {
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
+  // Г1: из Ctrl+K — прокрутить к разделу, поставить курсор в поле, открыть окно «Данных».
+  const jump = useUi((s) => s.settingsJump);
+  useEffect(() => {
+    if (!jump) return;
+    useUi.setState({ settingsJump: null });
+    if (jump.dialog) setDialog(jump.dialog);
+    requestAnimationFrame(() => {
+      document.getElementById(`set-${jump.section}`)?.scrollIntoView({ block: "start" });
+      const f = jump.field ? document.querySelector<HTMLElement>(`[name="${jump.field}"]`) : null;
+      f?.focus({ preventScroll: true });
+    });
+  }, [jump]);
 
   return (
     <section className="screen">
       <ScreenTitle id="settings" />
 
+      <div className="settings-layout">
+      <SettingsNav />
+      <div className="settings-body">
+      <div className="settings-section" id="set-general">
       <div className="card">
         <h2>Общие</h2>
         <div className="settings-list">
@@ -208,17 +226,27 @@ export function Settings() {
         </div>
         <ErrorText error={setSetting.error ?? setHotkey.error} />
       </div>
+      </div>
 
+      <div className="settings-section" id="set-home">
       <HomeCardsCard />
+      </div>
 
+      <div className="settings-section" id="set-modules">
+      <ModulesCard />
+      </div>
+
+      <div className="settings-section" id="set-rates">
       <Rates base={base} />
+      </div>
 
+      <div className="settings-section" id="set-data">
       <div className="card" data-testid="data-card">
         <h2>
           Данные
           <Hint of="data" />
         </h2>
-        <p className="muted">Сводка за период в Excel, загрузка операций из CSV. Список операций и отчёты выгружаются кнопкой «Выгрузить» на своих экранах.</p>
+        <p className="muted">Сводка за период в Excel или CSV, загрузка операций из выписки, CSV или Excel. Список операций и отчёты выгружаются кнопкой «Выгрузить» на своих экранах.</p>
         <div className="btn-group">
           <button className="btn primary" onClick={() => setDialog("summary")}>
             Сводка в Excel
@@ -232,14 +260,20 @@ export function Settings() {
         </div>
       </div>
       <AutoImportCard />
+      </div>
       {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
       {dialog === "history" && <ImportHistoryDialog onClose={() => setDialog(null)} />}
 
+      <div className="settings-section" id="set-vault">
       <VaultCard />
       <BudgetFilesCard />
+      </div>
+      <div className="settings-section" id="set-updates">
       <UpdatesCard />
+      </div>
 
+      <div className="settings-section" id="set-about">
       <div className="card">
         <h2>О программе</h2>
         {info.error && <p className="error">{String(info.error)}</p>}
@@ -262,7 +296,62 @@ export function Settings() {
           </dl>
         )}
       </div>
+      </div>
+      </div>
+      </div>
     </section>
+  );
+}
+
+/** П. 14: разделы Настроек слева. Все карточки остаются на одной странице,
+ *  нажатие прокручивает к разделу, при прокрутке подсвечивается текущий. */
+const SETTINGS_SECTIONS: [string, string][] = [
+  ["general", "Общие"],
+  ["home", "Главная"],
+  ["modules", "Возможности"],
+  ["rates", "Курсы"],
+  ["data", "Данные"],
+  ["vault", "Сохранность"],
+  ["updates", "Обновления"],
+  ["about", "О программе"],
+];
+
+function SettingsNav() {
+  const [current, setCurrent] = useState("general");
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const seen = new Map<string, boolean>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) seen.set(e.target.id.slice(4), e.isIntersecting);
+        const first = SETTINGS_SECTIONS.find(([id]) => seen.get(id));
+        if (first) setCurrent(first[0]);
+      },
+      { rootMargin: "-10% 0px -60% 0px" },
+    );
+    for (const [id] of SETTINGS_SECTIONS) {
+      const el = document.getElementById(`set-${id}`);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, []);
+  return (
+    <aside className="settings-nav" aria-label="Разделы настроек">
+      {SETTINGS_SECTIONS.map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          className={current === id ? "settings-nav-item active" : "settings-nav-item"}
+          aria-current={current === id ? "true" : undefined}
+          onClick={() => {
+            setCurrent(id);
+            document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </aside>
   );
 }
 
@@ -359,7 +448,7 @@ function Rates({ base }: { base: string }) {
   );
 }
 
-/** Импорт из папки: новые CSV по шаблону забираются сами, раз в 5 минут. */
+/** Импорт из папки: новые выписки и таблицы по шаблону забираются сами, раз в 5 минут. */
 function AutoImportCard() {
   const settings = useSettings().data;
   const on = settings?.auto_import === "1";
@@ -376,7 +465,7 @@ function AutoImportCard() {
       <h2>
         Импорт из папки
         <Hint title="Импорт из папки" example="скачали выписку Т-Банка в Загрузки — через пару минут операции в приложении">
-          Раз в 5 минут приложение смотрит в папку и забирает новые выписки Сбера и Т-Банка и CSV по шаблону. Счёт для выписки банка берётся тот, что выбран при первом импорте через «Импорт выписки или CSV». Каждый файл — один раз, уже записанные операции пропускаются, другие файлы не трогаются.
+          Раз в 5 минут приложение смотрит в папку и забирает новые выписки Сбера и Т-Банка и таблицы по шаблону (CSV или Excel, в том числе выгрузку «Операций»). Счёт для выписки банка берётся тот, что выбран при первом импорте через «Импорт выписки или CSV». Каждый файл — один раз, уже записанные операции пропускаются, другие файлы не трогаются.
         </Hint>
       </h2>
       <label className="check">

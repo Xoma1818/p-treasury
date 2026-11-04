@@ -336,10 +336,11 @@ test("тема хранится в базе: после восстановлен
   const theme = () => browser.execute(() => document.documentElement.dataset.theme);
   await (await browser.$('[data-testid="theme-light"]')).click();
   assert.equal(await theme(), "light");
-  const inDb = () => browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("get_settings").then((s) => done(s.theme ?? null)));
-  await browser.waitUntil(async () => (await inDb()) === "light", { timeout: 5000, timeoutMsg: "выбор темы не записан в базу" });
+  const prefs = () => browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("get_settings").then((s) => done(JSON.parse(s.ui_prefs || "{}"))));
+  await browser.waitUntil(async () => (await prefs())["p-treasury-theme"] === "light", { timeout: 5000, timeoutMsg: "выбор темы не записан в базу" });
   // Как после восстановления копии с тёмной темой: в базе «dark», в окне — «light».
-  await browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("set_setting", { key: "theme", value: "dark" }).then(done));
+  const dark = JSON.stringify({ ...(await prefs()), "p-treasury-theme": "dark" });
+  await browser.executeAsync((v, done) => window.__TAURI_INTERNALS__.invoke("set_setting", { key: "ui_prefs", value: v }).then(done), dark);
   await browser.refresh();
   await browser.waitUntil(async () => (await theme()) === "dark", { timeout: 10000, timeoutMsg: "тема из базы не применилась" });
   assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-pressed"), "true");

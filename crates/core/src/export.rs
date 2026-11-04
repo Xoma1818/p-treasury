@@ -155,8 +155,11 @@ pub fn csv_value(cell: &Cell) -> String {
 
 /// Записать лист в CSV (UTF-8 с BOM, разделитель `;`).
 pub fn write_csv(path: &Path, sheet: &Sheet) -> Result<()> {
+    // Строки бывают разной длины (лист «Сводка»): `flexible`, иначе csv
+    // отказывается писать.
     let mut w = csv::WriterBuilder::new()
         .delimiter(b';')
+        .flexible(true)
         .from_writer(vec![0xEF, 0xBB, 0xBF]);
     let csv_err = |e: csv::Error| Error::Validation(format!("не удалось записать CSV: {e}"));
     if !sheet.headers.is_empty() {
@@ -172,6 +175,39 @@ pub fn write_csv(path: &Path, sheet: &Sheet) -> Result<()> {
     fs::write(&tmp, bytes)?;
     fs::rename(&tmp, path)?;
     Ok(())
+}
+
+/// Несколько листов в одном CSV: перед каждым — строка с названием листа,
+/// между листами пустая строка.
+pub fn write_csv_book(path: &Path, sheets: &[Sheet]) -> Result<()> {
+    let mut all = Sheet::new(sheets.first().map_or("", |s| s.name.as_str()), &[]);
+    for (i, sh) in sheets.iter().enumerate() {
+        if i > 0 {
+            all.rows.push(vec![]);
+        }
+        if sheets.len() > 1 {
+            all.rows.push(vec![Cell::text(&sh.name)]);
+        }
+        if !sh.headers.is_empty() {
+            all.rows.push(sh.headers.iter().map(Cell::text).collect());
+        }
+        all.rows.extend(sh.rows.iter().cloned());
+    }
+    write_csv(path, &all)
+}
+
+/// Записать книгу в формате по расширению файла (`.xlsx` или `.csv`).
+pub fn write_book(path: &Path, sheets: &[Sheet]) -> Result<()> {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_lowercase)
+        .as_deref()
+    {
+        Some("xlsx") => write_xlsx(path, sheets),
+        Some("csv") => write_csv_book(path, sheets),
+        _ => invalid("файл должен быть .xlsx или .csv"),
+    }
 }
 
 /// Записать один лист в формате по расширению файла (`.xlsx` или `.csv`).
@@ -190,7 +226,7 @@ pub fn write_one(path: &Path, sheet: &Sheet) -> Result<()> {
 
 // --- Листы ---
 
-pub const TXN_HEADERS: [&str; 11] = [
+pub const TXN_HEADERS: [&str; 12] = [
     "Дата",
     "Тип",
     "Счёт",
@@ -202,6 +238,8 @@ pub const TXN_HEADERS: [&str; 11] = [
     "Сумма в основной валюте",
     "Счёт зачисления",
     "Сумма зачисления",
+    // Только у возврата, учтённого в месяце покупки: дата покупки.
+    "Дата для бюджета",
 ];
 
 pub fn txn_type_name(kind: &str) -> &'static str {
@@ -241,7 +279,11 @@ fn txn_row(
     };
     Ok(vec![
         Cell::Date(t.date.clone()),
-        Cell::text(txn_type_name(&t.kind)),
+        Cell::text(if t.refund {
+            "Возврат"
+        } else {
+            txn_type_name(&t.kind)
+        }),
         Cell::text(&t.account_name),
         Cell::opt(&t.category_name),
         Cell::opt(&t.payee),
@@ -252,6 +294,10 @@ fn txn_row(
         Cell::opt(&t.to_account_name),
         match (t.to_amount, t.to_minor_units) {
             (Some(a), Some(mu)) => Cell::Money(a, mu),
+            _ => Cell::Empty,
+        },
+        match (&t.count_date, t.refund) {
+            (Some(d), true) => Cell::Date(d.clone()),
             _ => Cell::Empty,
         },
     ])
@@ -793,7 +839,7 @@ mod tests {
         assert!(lines[0].starts_with("Дата;Тип;Счёт;Категория"));
         assert!(
             lines.contains(
-                &"05.10.2026;Расход;Карта;Питание;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;"
+                &"05.10.2026;Расход;Карта;Питание;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;;"
             ),
             "{text}"
         );
@@ -870,6 +916,83 @@ mod tests {
                 Data::Float(-7570.5)
             ]
         );
+    }
+
+    /// Каждая выгрузка со всеми вариантами сохраняется и в Excel, и в CSV, а
+    /// CSV читается обратно с тем же числом строк и столбцов.
+    #[test]
+    fn every_export_writes_both_formats() {
+        let db = setup();
+        let c = db.conn();
+        let (from, to) = ("2026-10-01", "2026-11-30");
+        let mut sheets = vec![
+            transactions_sheet(c, &Filter::default()).unwrap(),
+            report_sheet(c, "categories", from, to).unwrap(),
+            report_sheet(c, "months", from, to).unwrap(),
+        ];
+        for kind in ["expense", "income"] {
+            for by in ["category", "payee", "account"] {
+                sheets.push(
+                    comparison_sheet(c, kind, by, "2026-10-01", "2026-10-31", "2026-11-01", to)
+                        .unwrap(),
+                );
+            }
+        }
+        sheets.extend(summary_workbook(c, from, to, "2026-11-04").unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        for (i, sh) in sheets.iter().enumerate() {
+            let x = dir.path().join(format!("{i} {}.xlsx", sh.name));
+            write_one(&x, sh).unwrap_or_else(|e| panic!("{}: Excel: {e}", sh.name));
+            let mut wb: Xlsx<_> = open_workbook(&x).unwrap();
+            let range = wb.worksheet_range(&sh.name).unwrap();
+            let head = usize::from(!sh.headers.is_empty());
+            assert_eq!(
+                range.height(),
+                sh.rows.len() + head,
+                "{}: строки в Excel",
+                sh.name
+            );
+
+            let p = dir.path().join(format!("{i} {}.csv", sh.name));
+            write_one(&p, sh).unwrap_or_else(|e| panic!("{}: CSV: {e}", sh.name));
+            let bytes = fs::read(&p).unwrap();
+            assert!(
+                bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
+                "{}: BOM для русского Excel",
+                sh.name
+            );
+            let mut rd = csv::ReaderBuilder::new()
+                .delimiter(b';')
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(&bytes[3..]);
+            let recs: Vec<_> = rd.records().map(|r| r.unwrap()).collect();
+            assert_eq!(
+                recs.len(),
+                sh.rows.len() + head,
+                "{}: строки в CSV",
+                sh.name
+            );
+            for (rec, row) in recs[head..].iter().zip(&sh.rows) {
+                assert_eq!(rec.len(), row.len().max(1), "{}: столбцы в CSV", sh.name);
+            }
+        }
+    }
+
+    #[test]
+    fn summary_in_one_csv_keeps_every_sheet() {
+        let db = setup();
+        let sheets = summary_workbook(db.conn(), "2026-10-01", "2026-11-30", "2026-11-04").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("сводка.csv");
+        write_book(&p, &sheets).unwrap();
+        let text = String::from_utf8(fs::read(&p).unwrap()[3..].to_vec()).unwrap();
+        for sh in &sheets {
+            assert!(text.lines().any(|l| l == sh.name), "лист {} в CSV", sh.name);
+        }
+        assert!(text.contains("Пятёрочка"));
+        write_book(&dir.path().join("сводка.xlsx"), &sheets).unwrap();
+        assert!(write_book(&dir.path().join("сводка.pdf"), &sheets).is_err());
     }
 
     #[test]

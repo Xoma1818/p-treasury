@@ -113,6 +113,7 @@ test("сравнение выгружается в Excel: лист «Сравн�
   const path = join(files, "сравнение.xlsx");
   await browser.execute((p) => (window.__ptPick = p), [path]);
   await click(browser, "Выгрузить", '//*[@data-testid="compare"]');
+  await click(browser, "Скачать в Excel", '//*[@data-testid="compare"]');
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: сравнение\.xlsx/);
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
   assert.deepEqual([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ["Сравнение расходов"]);

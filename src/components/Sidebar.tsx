@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { useModules } from "../lib/modules";
 import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, Fragment, useState } from "react";
 import { api } from "../lib/api";
 import { SECTIONS } from "../lib/sections";
-import { useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
-import { applyTheme, savedTheme, type Theme } from "../lib/theme";
+import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 
@@ -26,16 +26,11 @@ function Logo() {
 /** Тема: два значка «Светлая» / «Тёмная», выбранная подсвечена. Подписи — в подсказке и для экранного диктора. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  // Тема из базы главнее памяти окна: после восстановления копии или переноса на
-  // другой компьютер приходит выбранная там тема. Пока в базе темы нет (данные до
-  // 0.30), ничего не записываем — остаётся тема этого окна.
-  const stored = useSettings().data?.theme;
   useEffect(() => {
-    if ((stored === "dark" || stored === "light") && stored !== savedTheme()) {
-      applyTheme(stored);
-      setTheme(stored);
-    }
-  }, [stored]);
+    const on = (e: Event) => setTheme((e as CustomEvent<Theme>).detail);
+    window.addEventListener(THEME_EVENT, on);
+    return () => window.removeEventListener(THEME_EVENT, on);
+  }, []);
   // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
   // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
   const pick = (t: Theme) => {
@@ -46,9 +41,6 @@ function ThemeSwitch() {
     }
     applyTheme(t);
     setTheme(t);
-    api.setSetting("theme", t).catch(() => {
-      // Не записалось в базу — тема всё равно применена и сохранена в окне.
-    });
   };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
@@ -88,6 +80,7 @@ function NavViews() {
 
 export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
+  const { sectionOn } = useModules();
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
@@ -100,11 +93,11 @@ export function Sidebar() {
         <kbd>Ctrl+K</kbd>
       </button>
       <ul>
-        {SECTIONS.map((s, i) => (
+        {SECTIONS.map((s, i) => [s, i] as const).filter(([s]) => sectionOn(s.id)).map(([s, i], k, shown) => (
           <Fragment key={s.id}>
             {s.id === "settings" && <NavViews />}
             <li className={s.id === "settings" ? "nav-settings" : undefined}>
-              {s.group && SECTIONS[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
+              {s.group && shown[k - 1]?.[0].group !== s.group && <div className="nav-group">{s.group}</div>}
               <button
                 className={s.id === section ? "nav-item active" : "nav-item"}
                 aria-current={s.id === section ? "page" : undefined}

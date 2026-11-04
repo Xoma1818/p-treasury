@@ -1,4 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { loadPrefs } from "./lib/uiPrefs";
+import { applyTheme, savedTheme } from "./lib/theme";
+import { applyScale, savedScale } from "./lib/scale";
+import { useModules } from "./lib/modules";
+import { ContextMenuHost } from "./components/ContextMenu";
 import { AutoRates } from "./components/AutoRates";
 import { DemoBanner } from "./components/DemoBanner";
 import { MissedReminders } from "./components/MissedReminders";
@@ -56,6 +61,22 @@ export function App() {
   const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
   const hidden = useSettings().data?.hide_amounts === "1";
   const setSetting = useAction(api.setSetting);
+  // Г13: настройки вида — копия в базе; после восстановления копии берём их оттуда.
+  const settingsData = useSettings().data;
+  const prefsLoaded = useRef(false);
+  useEffect(() => {
+    if (!settingsData || prefsLoaded.current) return;
+    prefsLoaded.current = true;
+    const restored = loadPrefs(settingsData.ui_prefs);
+    if (restored.includes("p-treasury-theme")) applyTheme(savedTheme());
+    if (restored.includes("p-treasury-scale")) applyScale(savedScale());
+  }, [settingsData]);
+  // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
+  const { sectionOn } = useModules();
+  const sectionHidden = !sectionOn(section);
+  useEffect(() => {
+    if (sectionHidden) go("home");
+  }, [sectionHidden, go]);
 
   // Ctrl+1…9: разделы меню; Ctrl+N: новая операция; Ctrl+T: перевод; Ctrl+F: поиск;
   // Ctrl+K: поиск по всему; Ctrl+H: скрыть суммы; F1: справка. Полный список — lib/hotkeys.ts.
@@ -68,7 +89,7 @@ export function App() {
       }
       if (!e.ctrlKey || e.altKey || e.shiftKey) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= 9 && SECTIONS[n - 1]) {
+      if (n >= 1 && n <= 9 && SECTIONS[n - 1] && sectionOn(SECTIONS[n - 1].id)) {
         e.preventDefault();
         go(SECTIONS[n - 1].id);
       } else if (e.code === "KeyN") {
@@ -123,6 +144,7 @@ export function App() {
       {help && <HotkeysHelp onClose={() => setHelp(false)} />}
       {palette && <Palette />}
       <TxnForm />
+      <ContextMenuHost />
     </div>
   );
 }
