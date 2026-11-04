@@ -136,6 +136,7 @@ try {
       await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
       await setValue('[role="dialog"] [name="amount"]', "12000");
       await setValue('[role="dialog"] [name="payee"]', "Ингосстрах");
+      await js(() => document.querySelector('[role="dialog"] [data-testid="txn-more"]')?.click());
       await js(() => document.querySelector('[role="dialog"] [name="spreadOn"]').click());
       await pause(200);
       // Поле тегов перерисовывается после каждого тега: ищем его заново.
