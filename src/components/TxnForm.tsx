@@ -314,7 +314,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const filledMore = note.trim() !== "" || tags.length > 0 || spread !== "" || !!friends;
   const showMore = more || filledMore;
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} guardUnsaved>
       <form
         className="form"
         onSubmit={(e) => {
