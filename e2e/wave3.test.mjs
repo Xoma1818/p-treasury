@@ -212,21 +212,21 @@ test("Отчёты «Ещё ▾», «⋯» у счёта и разделы На�
   await openSection(browser, "Отчёты");
   // Четыре главных отчёта видны, остальные — в «Ещё ▾»; выбранный встаёт на место кнопки.
   assert.equal(await browser.$('//*[@role="tablist"]//button[normalize-space()="Итоги года"]').isExisting(), false);
-  await browser.$('[data-testid="more-tabs-toggle"]').click();
-  await browser.$('//*[@role="menu"]//button[normalize-space()="Итоги года"]').click();
+  await tap('[data-testid="more-tabs-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Итоги года"]');
   await waitText(browser, '[data-testid="more-tabs-toggle"]', /Итоги года/);
   await click(browser, "Структура", '//*[@role="tablist"]');
   await waitText(browser, '[data-testid="more-tabs-toggle"]', /Ещё/);
   // Счета: «Изменить» и «Закрыть счёт» — в меню «⋯».
   await openSection(browser, "Счета");
-  await browser.$('[data-testid="account-row"] [data-testid="row-menu"]').click();
-  await browser.$('//*[@role="menu"]//button[normalize-space()="Изменить"]').click();
+  await tap('[data-testid="account-row"] [data-testid="row-menu"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Изменить"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // Настройки: раздел слева прокручивает к своей карточке.
   await openSection(browser, "Настройки");
-  await (await browser.$('//aside[@aria-label="Разделы настроек"]//button[normalize-space()="О программе"]')).click();
+  await tap('//aside[@aria-label="Разделы настроек"]//button[normalize-space()="О программе"]');
   await browser.waitUntil(
     async () => browser.execute(() => {
       const r = document.getElementById("set-about").getBoundingClientRect();
