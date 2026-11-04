@@ -150,3 +150,79 @@ test("напоминание: переименовать, выключить, в
   await save(browser, "Удалить");
   await browser.waitUntil(async () => !(await browser.$(remRow("Вода и свет")).isExisting()), { timeout: 5000, timeoutMsg: "напоминание не удалилось" });
 });
+
+test("бюджет: заметка к месяцу сохраняется, «Удалить бюджет месяца» удаляет", async () => {
+  await openSection(browser, "Бюджет");
+  await click(browser, "Создать пустой");
+  await fill(browser, "budgetNote", "в ноябре отпуск");
+  await (await browser.$('//main//h2[normalize-space()="Бюджет"]')).click(); // уход из поля сохраняет
+  await browser.pause(500);
+  await openSection(browser, "Главная");
+  await openSection(browser, "Бюджет");
+  assert.equal(await (await browser.$('[name="budgetNote"]')).getValue(), "в ноябре отпуск");
+  await click(browser, "Удалить бюджет месяца");
+  await click(browser, "Да, удалить бюджет");
+  await browser.$('//button[normalize-space()="Создать пустой"]').waitForExist({ timeout: 5000, timeoutMsg: "бюджет не удалился" });
+});
+
+test("итоги месяца: прошлый месяц «Месяц завершён» и «Открыть снова»", async () => {
+  await openSection(browser, "Бюджет");
+  await (await browser.$('button[aria-label="Предыдущий месяц"]')).click();
+  await click(browser, "Итоги месяца");
+  await fill(browser, "reviewNote", "спокойный месяц");
+  await click(browser, "Месяц завершён", '//*[@role="dialog"]');
+  await waitText(browser, '[role="dialog"]', /Заметка: спокойный месяц/);
+  await click(browser, "Открыть снова", '//*[@role="dialog"]');
+  await browser.$('[data-testid="review-close"]').waitForExist({ timeout: 5000, timeoutMsg: "месяц не открылся снова" });
+  await click(browser, "Закрыть", '//*[@role="dialog"]');
+});
+
+async function expense(amount, payee) {
+  await openSection(browser, "Главная");
+  await click(browser, "+ Расход");
+  await fill(browser, "amount", amount);
+  await choose(browser, "account", "Кошелёк (₽)");
+  await fill(browser, "payee", payee);
+  await choose(browser, "category", "Путешествия");
+  await save(browser);
+}
+
+test("пачка операций: перенести на другой счёт, поставить тег и получателя", async () => {
+  await expense("300", "Ларёк");
+  await expense("200", "Ларёк");
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Ларёк");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  const selectAll = async () => {
+    // Поиск применяется с задержкой и снимает выделение: сначала дать ему примениться.
+    await browser.pause(800);
+    // Каждый раз ищем заново: после щелчка строка перерисовывается.
+    for (let i = 0; i < 2; i++) await (await browser.$$('[data-testid="txn-select"]'))[i].click();
+    await waitText(browser, '[data-testid="sel-sum"]', /Выбрано 2/);
+  };
+  await selectAll();
+  await click(browser, "Счёт", '//*[@data-testid="sel-bar"]');
+  await choose(browser, "bulkAccount", "Карта (₽)");
+  await click(browser, "Перенести", '//*[@data-testid="sel-bar"]');
+  await waitText(browser, '[data-testid="bulk-message"]', /2 операци/);
+  await openSection(browser, "Счета");
+  await waitText(browser, accountRow("Карта"), money("99 500 ₽"));
+
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Ларёк");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  await selectAll();
+  await click(browser, "Тег", '//*[@data-testid="sel-bar"]');
+  await fill(browser, "bulkTag", "дача");
+  await click(browser, "Добавить", '//*[@data-testid="sel-bar"]');
+  await waitText(browser, '[data-testid="bulk-message"]', /2 операци/);
+  await browser.waitUntil(async () => (await browser.$$('[data-testid="txn-tag"]')).length === 2, { timeout: 5000, timeoutMsg: "тег не появился у обеих операций" });
+
+  await selectAll();
+  await click(browser, "Получатель", '//*[@data-testid="sel-bar"]');
+  await fill(browser, "bulkPayee", "Ларёк у дома");
+  await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
+  await waitText(browser, '[data-testid="bulk-message"]', /2 операци/);
+  await fill(browser, "search", "Ларёк у дома");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+});
