@@ -74,3 +74,23 @@ test("«Итоги месяца» в Бюджете: доходы, расход�
   assert.equal(await (await browser.$('[data-testid="review-close"]')).isExisting(), false);
   await browser.keys("Escape");
 });
+
+test("чек с возвратом: правка чека сохраняет возврат и его лимит; календарь не уносит возврат раньше покупки", async () => {
+  const card = (await invoke("list_accounts", { includeArchived: false })).find((a) => a.name === "Карта").id;
+  const cats = (await invoke("list_categories", { includeArchived: false })).filter((c) => c.kind === "expense" && !c.parentId);
+  const receipt = (a, b) => ({ date: day(-2), accountId: card, payee: "Ашан", note: null, total: a + b, parts: [{ categoryId: cats[0].id, amount: a, note: null }, { categoryId: cats[1].id, amount: b, note: null }], tags: [], eventId: null });
+  const split = await invoke("create_receipt", { input: receipt(300_000, 200_000) });
+  const part = async () => (await invoke("get_receipt", { splitId: split })).parts.find((p) => p.categoryId === cats[0].id).id;
+  const refund = await invoke("create_refund", { input: { of: await part(), date: day(-1), accountId: null, amount: 250_000, inPurchaseMonth: true, note: null } });
+
+  // Правка чека в окне программы (те же команды, что у формы чека).
+  await invoke("update_receipt", { splitId: split, input: receipt(310_000, 190_000) });
+  const info = await invoke("refund_info", { of: await part(), except: null });
+  assert.equal(info.refunded, 250_000, "возврат остался привязан к части чека");
+  const more = await browser.executeAsync((input, done) => window.__TAURI_INTERNALS__.invoke("create_refund", { input }).then(() => done("ok"), (e) => done(String(e))), { of: await part(), date: day(0), accountId: null, amount: 100_000, inPurchaseMonth: true, note: null });
+  assert.match(more, /больше, чем стоила покупка/, "лимит возврата работает после правки чека");
+
+  // Перетаскивание в календаре вызывает move_transaction: раньше покупки нельзя.
+  const moved = await browser.executeAsync((id, date, done) => window.__TAURI_INTERNALS__.invoke("move_transaction", { id, date }).then(() => done("ok"), (e) => done(String(e))), refund, day(-3));
+  assert.match(moved, /раньше покупки/);
+});
