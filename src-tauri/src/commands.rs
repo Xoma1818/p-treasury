@@ -35,11 +35,13 @@ use budget_core::import_log::{self, Batch, Suggestion};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::loan_export;
+use budget_core::month_review::{self, MonthReview};
 use budget_core::net_worth::{self, History as NwHistory};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
 use budget_core::quick::{self, Draft};
 use budget_core::receipts::{self, Receipt, ReceiptInput};
+use budget_core::refunds::{self, RefundInfo, RefundInput};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::rules::{self, Rule, RuleInput};
@@ -518,7 +520,12 @@ pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()>
 #[tauri::command(async)]
 pub fn forecast(state: State<AppState>, scenario_id: Option<String>) -> CmdResult<Forecast> {
     with_db(&state, |db| {
-        forecast::forecast(db.conn(), &time::today_local(), scenario_id.as_deref())
+        let today = time::today_local();
+        // 0.29: прогноз месяца запоминается для «Итогов месяца» (прогноз против факта).
+        if let Err(e) = month_review::remember_forecast(db.conn(), &today) {
+            eprintln!("прогноз месяца не запомнен: {e}");
+        }
+        forecast::forecast(db.conn(), &today, scenario_id.as_deref())
     })
 }
 
@@ -2021,5 +2028,62 @@ pub fn import_accept(state: State<AppState>, id: String) -> CmdResult<String> {
 pub fn import_reject(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Это разные операции", |c| {
         import_log::reject(c, &id)
+    })
+}
+
+// 0.29 «Возвраты и итоги месяца».
+
+#[tauri::command(async)]
+pub fn refund_info(
+    state: State<AppState>,
+    of: String,
+    except: Option<String>,
+) -> CmdResult<RefundInfo> {
+    with_db(&state, |db| {
+        refunds::info(db.conn(), &of, except.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn create_refund(state: State<AppState>, input: RefundInput) -> CmdResult<String> {
+    with_undo(&state, "Возврат", |c| refunds::create(c, &input))
+}
+
+#[tauri::command(async)]
+pub fn update_refund(state: State<AppState>, id: String, input: RefundInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение возврата", |c| {
+        refunds::update(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn month_review(state: State<AppState>, month: String) -> CmdResult<MonthReview> {
+    with_db(&state, |db| {
+        let today = time::today_local();
+        if let Err(e) = month_review::remember_forecast(db.conn(), &today) {
+            eprintln!("прогноз месяца не запомнен: {e}");
+        }
+        month_review::get(db.conn(), &month, &today)
+    })
+}
+
+#[tauri::command(async)]
+pub fn suggested_month_review(state: State<AppState>) -> CmdResult<Option<String>> {
+    with_db(&state, |db| {
+        month_review::suggested(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
+pub fn close_month(state: State<AppState>, month: String, note: Option<String>) -> CmdResult<()> {
+    with_undo(&state, "Месяц завершён", |c| {
+        month_review::close(c, &month, &time::today_local(), note.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn reopen_month(state: State<AppState>, month: String) -> CmdResult<()> {
+    with_undo(&state, "Месяц снова открыт", |c| {
+        month_review::reopen(c, &month)
     })
 }

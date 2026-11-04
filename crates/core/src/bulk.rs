@@ -96,10 +96,15 @@ pub fn set_category(
             res.skipped += 1;
             continue;
         }
-        tx.execute(
-            "UPDATE transactions SET category_id = ?2, updated_at = ?3 WHERE id = ?1",
+        // Возврат (0.29) остаётся в категории своей покупки.
+        if tx.execute(
+            "UPDATE transactions SET category_id = ?2, updated_at = ?3 WHERE id = ?1 AND refund = 0",
             params![r.id, category_id, now],
-        )?;
+        )? == 0
+        {
+            res.skipped += 1;
+            continue;
+        }
         res.changed += 1;
     }
     tx.commit()?;
