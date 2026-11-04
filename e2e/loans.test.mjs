@@ -74,12 +74,22 @@ test("форма расчёта: проценты по дням, досрочк�
   await waitText(browser, '[data-testid="loan-payment"]', money("14 122,04 ₽"));
 });
 
-test("из формы: «Скачать Excel» и «PDF для подписи» с ФИО", async () => {
+test("из формы: «Скачать график» в Excel и CSV и «PDF для подписи» с ФИО", async () => {
   const xlsx = join(out, "расчёт.xlsx");
   await pick(xlsx);
-  await click(browser, "Скачать Excel");
+  await click(browser, "Скачать график");
+  await click(browser, "Скачать в Excel");
   await waitText(browser, '[data-testid="export-status"]', /Сохранено: расчёт\.xlsx/);
   assertFile(xlsx, "PK");
+
+  const csv = join(out, "расчёт.csv");
+  await pick(csv);
+  await click(browser, "Скачать график");
+  await click(browser, "Скачать в CSV");
+  await waitText(browser, '[data-testid="export-status"]', /Сохранено: расчёт\.csv/);
+  const csvText = readFileSync(csv, "utf8");
+  assert.ok(csvText.startsWith("\uFEFFГрафик"), "BOM и первым — лист «График»");
+  assert.match(csvText, /\nУсловия\r?\n/, "и лист «Условия»");
 
   const pdf = join(out, "расчёт.pdf");
   await click(browser, "PDF для подписи");

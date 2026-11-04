@@ -1402,15 +1402,27 @@ pub fn export_summary(
 ) -> CmdResult<()> {
     with_db(&state, |db| {
         let sheets = export::summary_workbook(db.conn(), &from, &to, &time::today_local())?;
-        export::write_xlsx(Path::new(&path), &sheets)
+        export::write_book(Path::new(&path), &sheets)
     })
 }
 
 #[tauri::command(async)]
 pub fn export_transactions(state: State<AppState>, filter: Filter, path: String) -> CmdResult<()> {
     with_db(&state, |db| {
+        let path = Path::new(&path);
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("ofx"))
+        {
+            return budget_core::ofx::write_transactions(
+                db.conn(),
+                &filter,
+                path,
+                &time::today_local(),
+            );
+        }
         let sheet = export::transactions_sheet(db.conn(), &filter)?;
-        export::write_one(Path::new(&path), &sheet)
+        export::write_one(path, &sheet)
     })
 }
 

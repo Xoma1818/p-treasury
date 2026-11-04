@@ -3,12 +3,12 @@ import { Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
 import { api, type CalcInput, type DebtCard, type ScheduleDoc } from "../../lib/api";
-import { baseName, PDF, pickSave, XLSX } from "../../lib/files";
+import { baseName, CSV, PDF, pickSave, XLSX } from "../../lib/files";
 import { useSettings } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
 
 export type ExportSource = { kind: "calc"; input: CalcInput; currency: string } | { kind: "debt"; card: DebtCard };
-export type ExportFormat = "pdf" | "xlsx";
+export type ExportFormat = "pdf" | "xlsx" | "csv";
 
 /** Ваша сторона в документе: займодавец, если вы дали в долг (или считаете расчёт), иначе заёмщик. */
 const meIsLender = (s: ExportSource) => s.kind === "calc" || s.card.direction === "lent";
@@ -21,7 +21,7 @@ function loadDoc(s: ExportSource, withForecast: boolean): Promise<ScheduleDoc> {
 /** Выбрать путь и записать график в Excel или PDF. `null` — пользователь передумал. */
 export async function exportSchedule(s: ExportSource, format: ExportFormat, opts: { lender?: string; borrower?: string; withSignatures?: boolean; withForecast?: boolean } = {}): Promise<string | null> {
   const name = s.kind === "calc" ? "График платежей (расчёт)" : `График платежей — ${s.card.counterparty.replace(/[\\/:*?"<>|]/g, " ")}`;
-  const path = await pickSave(`${name}.${format}`, [format === "pdf" ? PDF : XLSX]);
+  const path = await pickSave(`${name}.${format}`, [{ pdf: PDF, xlsx: XLSX, csv: CSV }[format]]);
   if (!path) return null;
   const doc = await loadDoc(s, !!opts.withForecast);
   const patched: ScheduleDoc = {
@@ -30,6 +30,7 @@ export async function exportSchedule(s: ExportSource, format: ExportFormat, opts
     borrowerName: opts.borrower ?? doc.borrowerName,
     withSignatures: opts.withSignatures ?? doc.withSignatures,
   };
+  // Excel и CSV пишет одна команда ядра: формат по расширению файла.
   await (format === "pdf" ? api.exportSchedulePdf(path, patched) : api.exportScheduleXlsx(path, patched));
   return path;
 }
@@ -59,7 +60,7 @@ export function ExportDialog({ source, format: initial, onClose, onSaved }: { so
   const hasPlanned = source.kind === "debt";
 
   return (
-    <Modal title={format === "pdf" ? "График в PDF" : "График в Excel"} onClose={onClose}>
+    <Modal title={{ pdf: "График в PDF", xlsx: "График в Excel", csv: "График в CSV" }[format]} onClose={onClose}>
       <form className="form" data-testid="export-dialog" onSubmit={(e) => (e.preventDefault(), save.run())}>
         {source.kind === "debt" && (
           <div className="tabs small" role="tablist" aria-label="Формат">
@@ -67,6 +68,7 @@ export function ExportDialog({ source, format: initial, onClose, onSaved }: { so
               [
                 ["pdf", "PDF для подписи"],
                 ["xlsx", "Excel"],
+                ["csv", "CSV"],
               ] as [ExportFormat, string][]
             ).map(([f, label]) => (
               <button key={f} type="button" role="tab" aria-selected={format === f} className={format === f ? "tab active" : "tab"} onClick={() => setFormat(f)}>

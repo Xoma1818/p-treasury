@@ -7,7 +7,8 @@ import { isTyping } from "../lib/hotkeys";
 import { groupReceipts, rowIds } from "../lib/receipt";
 import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { loadAllTransactionIds } from "../lib/transactionSelection";
-import { useExport } from "../components/DataTools";
+import { ExportButton, ImportDialog, useExport } from "../components/DataTools";
+import { onFileDrop, statementOf } from "../lib/fileDrop";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
@@ -61,7 +62,26 @@ export function Transactions() {
 
   const query = { ...f, limit };
   const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
-  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path));
+  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path), ["csv", "xlsx", "ofx"]);
+  // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
+  const [importFile, setImportFile] = useState<string | null | undefined>(undefined);
+  const [importKey, setImportKey] = useState(0);
+  const [dropping, setDropping] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
+  useEffect(
+    () =>
+      onFileDrop((s) => {
+        if (s === "over") return setDropping(true);
+        setDropping(false);
+        if (s === "leave") return;
+        const file = statementOf(s.paths);
+        if (!file) return setDropError("Этот файл не выписка: подойдёт Excel (.xlsx, .xls), CSV или PDF");
+        setDropError(null);
+        setImportKey((k) => k + 1);
+        setImportFile(file);
+      }),
+    [],
+  );
   const set = (patch: Partial<TxnFilter>) => {
     setLimit(PAGE);
     setF({ ...f, ...patch });
@@ -188,9 +208,10 @@ export function Transactions() {
       <div className="screen-head">
         <ScreenTitle id="transactions" />
         <span className="spacer" />
-        <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
-          Выгрузить
+        <button className="btn" data-testid="txn-import" onClick={() => setImportFile(null)} title="Выписка банка (Excel, CSV, PDF) или таблица по шаблону. Файл можно просто перетащить в окно">
+          Загрузить выписку
         </button>
+        <ExportButton exp={exp} title="Операции по текущему фильтру в CSV, Excel или OFX" />
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
           + Операция
         </button>
@@ -201,6 +222,13 @@ export function Transactions() {
         </p>
       )}
       <ErrorText error={exp.error} />
+      <ErrorText error={dropError} />
+      {dropping && (
+        <p className="hint drop-hint" role="status" data-testid="drop-hint">
+          Отпустите файл, чтобы загрузить выписку
+        </p>
+      )}
+      {importFile !== undefined && <ImportDialog key={importKey} initialPath={importFile ?? undefined} onClose={() => setImportFile(undefined)} />}
       <ErrorText error={selectionError} />
       {selectingAll && <p className="hint" role="status" data-testid="select-all-loading">Выделяем все найденные операции…</p>}
       <SavedViews

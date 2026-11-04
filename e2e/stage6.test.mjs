@@ -67,6 +67,31 @@ test("импорт CSV: три строки с ошибкой в дате вид
   await waitText(browser, card("Наличные"), money("5 550 ₽"));
 });
 
+/** Файл из проводника, брошенный в окно: так Tauri сообщает о нём странице. */
+const dropFiles = (paths) =>
+  browser.execute(
+    (p) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "tauri://drag-drop", payload: { paths: p, position: { x: 400, y: 300 } } }),
+    paths,
+  );
+
+test("Операции: выписку можно загрузить кнопкой или перетащить файл в окно", async () => {
+  await openSection(browser, "Операции");
+  await click(browser, "Загрузить выписку");
+  await (await browser.$('//*[@role="dialog"]//button[normalize-space()="Выбрать файл"]')).waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+
+  // Чужой файл — понятная ошибка, а не тишина.
+  await dropFiles([join(files, "заметки.docx")]);
+  await waitText(browser, '//p[@role="alert"]', /не выписка/);
+
+  // Файл выписки — сразу предпросмотр.
+  const path = join(files, "перетащили.csv");
+  writeFileSync(path, csv([[ru(daysAgo(5)), "Расход", "Карта", "Такси", "", "", "300", ""]]));
+  await dropFiles(["/нет/такого.png", path]);
+  await waitText(browser, '[data-testid="import-summary"]', /перетащили\.csv: строк 1, без ошибок 1/);
+  await browser.keys("Escape");
+});
+
 test("напоминание о копии: операции старше месяца, а копий не было", async () => {
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="backup-reminder"]', /Резервной копии не было больше месяца/);
@@ -91,7 +116,7 @@ test("сводка в Excel: файл .xlsx с шестью листами", asy
   await click(browser, "Сводка в Excel");
   await click(browser, "Год", '//*[@role="dialog"]');
   await pick(path);
-  await click(browser, "Скачать", '//*[@role="dialog"]');
+  await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.xlsx/);
   await browser.keys("Escape");
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
@@ -108,6 +133,7 @@ test("выгрузка операций по фильтру в CSV: русски
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в CSV");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.csv/);
   const text = readFileSync(path, "utf8");
   assert.ok(text.startsWith("\uFEFFДата;Тип;Счёт"), "BOM и разделитель «;»");
@@ -117,12 +143,45 @@ test("выгрузка операций по фильтру в CSV: русски
   assert.match(text, /-450,00|-450/);
 });
 
+test("выгрузка операций в OFX и сводки в CSV", async () => {
+  const ofx = join(files, "операции.ofx");
+  await openSection(browser, "Операции");
+  await click(browser, "Сбросить");
+  await pick(ofx);
+  await click(browser, "Выгрузить");
+  await browser.$('[data-testid="export-menu"]').waitForDisplayed({ timeout: 5000 });
+  const items = await browser.execute(() => [...document.querySelectorAll('[data-testid="export-menu"] [role="menuitem"]')].map((i) => i.textContent));
+  assert.deepEqual(items, ["Скачать в CSV", "Скачать в Excel", "Скачать в OFX"]);
+  await click(browser, "Скачать в OFX");
+  await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.ofx/);
+  const text = readFileSync(ofx, "utf8");
+  assert.ok(text.startsWith("<?xml"), text.slice(0, 80));
+  assert.match(text, /<ACCTID>[0-9A-F]{22}<\/ACCTID>/, "номер счёта — постоянный, не название");
+  assert.match(text, /<TRNAMT>-450\.00<\/TRNAMT>/);
+
+  const csv = join(files, "сводка.csv");
+  await openSection(browser, "Настройки");
+  await click(browser, "Сводка в Excel");
+  await pick(csv);
+  await click(browser, "Скачать в CSV", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.csv/);
+  await browser.keys("Escape");
+  const book = readFileSync(csv, "utf8");
+  assert.ok(book.startsWith("﻿"), "BOM для русского Excel");
+  // Строка с названием каждого листа (перевод строки — \n или \r\n).
+  const rows = book.slice(1).split(/\r?\n/);
+  for (const sheet of ["Сводка", "По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]) {
+    assert.ok(rows.includes(sheet), `лист ${sheet}`);
+  }
+});
+
 test("выгрузка отчёта «По месяцам» в Excel", async () => {
   const path = join(files, "по месяцам.xlsx");
   await openSection(browser, "Отчёты");
   await click(browser, "По месяцам");
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в Excel");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: по месяцам\.xlsx/);
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
   assert.match(workbook, /<sheet name="По месяцам"/);

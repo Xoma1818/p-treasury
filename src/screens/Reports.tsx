@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useModules } from "../lib/modules";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { useExport } from "../components/DataTools";
+import { ExportButton, useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
 import { FxGain } from "./FxGain";
 import { parseView, SavedViews } from "../components/SavedViews";
@@ -212,9 +212,7 @@ export function Reports() {
             )
           )}
           {tab !== "balances" && tab !== "fx" && tab !== "tag" && (
-            <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy || !period} title="Отчёт на вкладке в Excel или CSV">
-              Выгрузить
-            </button>
+            <ExportButton exp={exp} disabled={!period} title="Отчёт на вкладке в CSV или Excel" />
           )}
         </div>
         )}
