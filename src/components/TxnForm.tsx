@@ -288,7 +288,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const title = splitId ? "Разбитый чек" : editing ? "Операция" : "Новая операция";
 
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} guardUnsaved>
       <form
         className="form"
         onSubmit={(e) => {
