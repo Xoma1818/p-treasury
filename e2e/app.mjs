@@ -366,10 +366,14 @@ export async function save(browser, button = "Сохранить") {
   await click(browser, button, '//*[@role="dialog"]');
   // Каждый раз ищем заново: сохранённая ссылка на закрывшийся диалог устаревает.
   const open = () => browser.$('[role="dialog"]').isExisting();
-  await browser.waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), {
-    timeout: 5000,
-  });
-  if (await open()) throw new Error(`Диалог не закрылся: ${await browser.$('[role="alert"]').getText()}`);
+  await browser
+    .waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), { timeout: 5000 })
+    .catch(() => {});
+  if (await open()) {
+    const alert = await browser.$('[role="alert"]');
+    const why = (await alert.isExisting()) ? await alert.getText() : `нет ошибки; в окне: ${(await browser.$('[role="dialog"]').getText()).slice(0, 400)}`;
+    throw new Error(`Диалог не закрылся: ${why}`);
+  }
 }
 
 export async function mainText(browser) {
