@@ -226,3 +226,69 @@ test("пачка операций: перенести на другой счёт
   await fill(browser, "search", "Ларёк у дома");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
 });
+
+test("тег: переименовать и удалить — операции остаются", async () => {
+  await openSection(browser, "Категории");
+  const tag = (name) => `//*[@data-testid="tag-row" and @data-tag="${name}"]`;
+  await click(browser, "Переименовать", tag("дача"));
+  await fill(browser, "tagName", "огород");
+  await click(browser, "Сохранить", tag("дача"));
+  await browser.$(tag("огород")).waitForExist({ timeout: 5000, timeoutMsg: "тег не переименовался" });
+  await click(browser, "Удалить", tag("огород"));
+  await click(browser, "Да, удалить", tag("огород"));
+  await browser.$(tag("огород")).waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "тег не удалился" });
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Ларёк у дома");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+});
+
+test("шаблон: крестик удаляет его с Главной", async () => {
+  await openSection(browser, "Главная");
+  await click(browser, "+ Расход");
+  await fill(browser, "amount", "250");
+  await choose(browser, "category", "Путешествия");
+  await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
+  await fill(browser, "templateName", "Билет");
+  await click(browser, "Сохранить шаблон", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="template-saved"]', /Шаблон «Билет» сохранён/);
+  await click(browser, "Отмена", '//*[@role="dialog"]');
+  const tpl = '[data-testid="templates-card"] [data-testid="template"][data-name="Билет"]';
+  await browser.$(tpl).waitForExist({ timeout: 5000 });
+  await (await browser.$('button[aria-label="Удалить шаблон «Билет»"]')).click();
+  await browser.$(tpl).waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "шаблон не удалился" });
+});
+
+test("событие: переименовать, поменять бюджет и удалить", async () => {
+  await openSection(browser, "Бюджет");
+  await click(browser, "+ Событие");
+  await fill(browser, "eventName", "Дача");
+  await fill(browser, "eventBudget", "20000");
+  await save(browser);
+  const ev = (name) => `//*[@data-testid="event-row" and @data-name="${name}"]`;
+  await waitText(browser, ev("Дача"), money("0 ₽ из 20 000 ₽"));
+  await click(browser, "Дача", ev("Дача"));
+  await fill(browser, "eventName", "Дача летом");
+  await fill(browser, "eventBudget", "30000");
+  await save(browser);
+  await waitText(browser, ev("Дача летом"), money("0 ₽ из 30 000 ₽"));
+  await click(browser, "Дача летом", ev("Дача летом"));
+  await save(browser, "Удалить");
+  await browser.$(ev("Дача летом")).waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "событие не удалилось" });
+});
+
+test("имущество: изменить оценку и удалить", async () => {
+  await openSection(browser, "Счета");
+  await click(browser, "+ Имущество");
+  await fill(browser, "assetName", "Гараж");
+  await fill(browser, "assetValue", "500000");
+  await save(browser);
+  const row = '//tr[@data-testid="asset-row"][contains(., "Гараж")]';
+  await waitText(browser, row, money("500 000 ₽"));
+  await (await browser.$(`${row}/td[1]`)).click();
+  await fill(browser, "assetValue", "550000");
+  await save(browser);
+  await waitText(browser, row, money("550 000 ₽"));
+  await (await browser.$(`${row}/td[1]`)).click();
+  await save(browser, "Удалить");
+  await browser.$(row).waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "имущество не удалилось" });
+});
