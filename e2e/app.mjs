@@ -488,3 +488,17 @@ export async function newDebt(browser, { counterparty, principal, rate, term, fi
   await fill(browser, "counterparty", counterparty);
   if (account) await choose(browser, "account", account);
 }
+
+/** Операции (0.29): счёт, категория, тип и тег — в панели «Фильтры». Открывает её, если закрыта. */
+export async function openFilters(browser) {
+  const toggle = await browser.$('[data-testid="filters-toggle"]');
+  await toggle.waitForDisplayed({ timeout: 5000 });
+  if ((await toggle.getAttribute("data-open")) !== "true") await toggle.click();
+  await browser.$('[name="filterCategory"]').waitForDisplayed({ timeout: 5000 });
+}
+
+/** Форма операции (0.29): комментарий, теги, «по месяцам» и «с друзьями» — под строкой «Ещё». */
+export async function openMore(browser) {
+  const more = await browser.$('[role="dialog"] [data-testid="txn-more"]');
+  if (await more.isExisting()) await more.click();
+}

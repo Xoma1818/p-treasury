@@ -86,6 +86,11 @@ export function TxnTable({ items, compact, draggable, selection }: { items: Txn[
             ) : (
               describe(t)
             )}
+            {t.refund && (
+              <span className="event-tag" title={t.countDate ? "Учтён в месяце покупки" : "Учтён в месяце возврата"} data-testid="txn-refund-tag">
+                возврат
+              </span>
+            )}
             {t.spreadMonths != null && (
               <span className="spread-tag" title={`Учитывается по месяцам: ${t.spreadMonths}`} data-testid="txn-spread">
                 ÷ {t.spreadMonths} мес.

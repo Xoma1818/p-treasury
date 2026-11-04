@@ -25,6 +25,7 @@ import { Hint } from "../components/Hint";
 import { barClass, barLevel } from "../lib/budgetLevel";
 import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
 import { ExplainDialog, type ExplainKind } from "../components/Explain";
+import { MonthReviewBanner } from "../components/MonthReview";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -276,6 +277,7 @@ export function Home() {
         </div>
       </div>
 
+      <MonthReviewBanner />
       {backup?.reminderDue && (
         <div className="card banner warn" data-testid="backup-reminder">
           <span>

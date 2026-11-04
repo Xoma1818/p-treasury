@@ -55,6 +55,14 @@ pub struct Txn {
     pub spread_months: Option<i64>,
     /// Теги операции по алфавиту.
     pub tags: Vec<String>,
+    /// Возврат денег за покупку (0.29): приход на счёт, в бюджете — минус
+    /// расход категории покупки.
+    pub refund: bool,
+    /// Исходный расход возврата (если он не удалён).
+    pub refund_of: Option<String>,
+    /// Дата, по которой возврат попадает в бюджетный месяц (дата покупки);
+    /// `None` — по дате самого возврата.
+    pub count_date: Option<String>,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -207,11 +215,26 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     if old.split_id.is_some() {
         return invalid("это часть разбитого чека: измените чек целиком");
     }
+    let refund: bool =
+        conn.query_row("SELECT refund FROM transactions WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?;
+    if refund {
+        return invalid("это возврат: измените его в окне возврата");
+    }
     let previous: Vec<&str> = [Some(old.account_id.as_str()), old.to_account_id.as_deref()]
         .into_iter()
         .flatten()
         .collect();
     let c = validate(conn, input, &previous)?;
+    crate::refunds::purchase_edited(
+        conn,
+        id,
+        &input.kind,
+        input.amount,
+        &input.date,
+        c.category_id.as_deref(),
+    )?;
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,
                 to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11,
@@ -243,6 +266,16 @@ pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
     }
     if old.kind == "adjustment" {
         return invalid("корректировку нельзя перенести: сделайте сверку заново");
+    }
+    let moved: Vec<String> = match &old.split_id {
+        Some(split) => conn
+            .prepare("SELECT id FROM transactions WHERE split_id = ?1")?
+            .query_map([split], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?,
+        None => vec![id.to_string()],
+    };
+    for m in &moved {
+        crate::refunds::purchase_moved(conn, m, date)?;
     }
     // Разбитый чек переносится целиком.
     conn.execute(
@@ -279,6 +312,9 @@ pub fn set_spread(conn: &Connection, id: &str, months: Option<i64>) -> Result<()
         }
         if old.debt_id.is_some() {
             return invalid("это платёж по долгу: его нельзя делить по месяцам");
+        }
+        if crate::refunds::has_refunds(conn, id)? {
+            return invalid("по этой покупке есть возврат: её нельзя делить по месяцам");
         }
     }
     conn.execute(
@@ -362,7 +398,8 @@ const SELECT: &str =
         t.payee, t.note, t.debt_id, t.event_id, e.name, t.split_id, t.spread_months,
         (SELECT group_concat(name, char(31)) FROM
             (SELECT g.name FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
-             WHERE tt.transaction_id = t.id ORDER BY g.name))
+             WHERE tt.transaction_id = t.id ORDER BY g.name)),
+        t.refund, t.refund_of, t.count_date
  FROM transactions t
  JOIN accounts a ON a.id = t.account_id
  JOIN currencies ca ON ca.code = a.currency_code
@@ -400,6 +437,9 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
             .get::<_, Option<String>>(22)?
             .map(|s| s.split('\u{1f}').map(str::to_string).collect())
             .unwrap_or_default(),
+        refund: r.get(23)?,
+        refund_of: r.get(24)?,
+        count_date: r.get(25)?,
     })
 }
 
@@ -560,7 +600,9 @@ pub fn sum_ids(conn: &Connection, ids: &[String]) -> Result<Sums> {
     for chunk in unique.chunks(500) {
         let marks = vec!["?"; chunk.len()].join(", ");
         let mut stmt = conn.prepare(&format!(
-            "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+            "SELECT CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END, t.date,
+                    CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code
+             FROM transactions t
              JOIN accounts a ON a.id = t.account_id WHERE t.id IN ({marks})"
         ))?;
         let rows = stmt
@@ -579,7 +621,9 @@ pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
     };
     let (where_sql, args) = where_clause(conn, f)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END, t.date,
+                    CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code
+             FROM transactions t
          JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
          LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}"
     ))?;

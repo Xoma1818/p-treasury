@@ -152,6 +152,11 @@ export interface Txn {
   spreadMonths: number | null;
   /** Теги операции по алфавиту. */
   tags: string[];
+  /** 0.29: возврат денег за покупку (приход, в бюджете — минус расход). */
+  refund: boolean;
+  refundOf: string | null;
+  /** Дата, по которой возврат попадает в месяц (дата покупки); null — своя. */
+  countDate: string | null;
 }
 
 export interface TxnFilter {
@@ -1881,6 +1886,13 @@ export const api = {
   undo: () => invoke<string | null>("undo"),
   listGoals: () => invoke<Goal[]>("list_goals"),
   freeUntilIncome: () => invoke<FreeMoney>("free_until_income"),
+  refundInfo: (of: string, except?: string | null) => invoke<RefundInfo>("refund_info", { of, except: except ?? null }),
+  createRefund: (input: RefundInput) => invoke<string>("create_refund", { input }),
+  updateRefund: (id: string, input: RefundInput) => invoke<void>("update_refund", { id, input }),
+  monthReview: (month: string) => invoke<MonthReview>("month_review", { month }),
+  suggestedMonthReview: () => invoke<string | null>("suggested_month_review"),
+  closeMonth: (month: string, note: string | null) => invoke<void>("close_month", { month, note }),
+  reopenMonth: (month: string) => invoke<void>("reopen_month", { month }),
   accountReserves: () => invoke<Record<string, number>>("account_reserves"),
   createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
   updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
@@ -1944,3 +1956,51 @@ export const TXN_TYPES: Record<TxnType, string> = {
   transfer: "Перевод",
   adjustment: "Корректировка",
 };
+
+// 0.29 «Возвраты и итоги месяца».
+export interface RefundInput {
+  of: string;
+  date: string;
+  accountId: string | null;
+  amount: number;
+  /** true — учесть в месяце покупки, false — в месяце возврата. */
+  inPurchaseMonth: boolean;
+  note: string | null;
+}
+
+export interface RefundInfo {
+  purchase: Txn;
+  purchaseMonth: string;
+  refunded: number;
+  left: number;
+}
+
+export interface MonthForecastCheck {
+  income: number;
+  expense: number;
+  madeAt: string;
+  partial: boolean;
+  incomeDiff: number;
+  expenseDiff: number;
+}
+
+export interface MonthReview {
+  month: string;
+  start: string;
+  end: string;
+  baseCurrency: string;
+  ended: boolean;
+  closedAt: string | null;
+  note: string | null;
+  income: number;
+  expense: number;
+  saved: number;
+  savingsRate: number | null;
+  refunds: number;
+  forecast: MonthForecastCheck | null;
+  over: { categoryId: string; categoryName: string; limit: number; actual: number }[];
+  hasBudget: boolean;
+  openMatches: number;
+  plannedLeft: number;
+  missingRates: string[];
+}

@@ -274,8 +274,12 @@ input.invalid { border-color: var(--over); }
 .plus { color: var(--accent); }
 .table-foot { padding-top: 10px; font-size: 13px; }
 
-.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters { display: flex; flex-direction: column; gap: 8px; }
+.filters-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filters input[type="search"] { flex: 1; min-width: 220px; }
+.filters .tabs.small { flex: none; }
+.filters [data-testid="filters-toggle"] { display: inline-flex; align-items: center; gap: 6px; }
+.filters [data-testid="filters-toggle"].active { color: var(--accent); }
 
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
 .tile { margin: 0; }
@@ -906,3 +910,7 @@ h2 { font-size: 16px; }
 /* Переименование категорий по новому списку (0.28). */
 .rename-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow: auto; }
 .rename-list .check { display: flex; align-items: baseline; gap: 6px; }
+
+/* 0.29: форма операции — второстепенное в строке «Ещё». */
+.form .more-toggle { align-self: flex-start; font-size: 13px; color: var(--muted); }
+.form .more-toggle:hover { color: var(--accent); }

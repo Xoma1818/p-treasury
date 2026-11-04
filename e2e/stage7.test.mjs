@@ -67,7 +67,7 @@ test("шаблон в форме операции подставляет сум�
   await openSection(browser, "Операции");
   await click(browser, "+ Операция");
   await (await browser.$('//*[@role="dialog"]//*[@data-testid="template" and @data-name="Кофе"]//button')).click();
-  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "250");
+  await browser.waitUntil(async () => (await (await browser.$('[role="dialog"] [name="amount"]')).getValue()) === "250", { timeout: 5000, timeoutMsg: "шаблон не подставил сумму 250" });
   assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "Кофейня");
   await click(browser, "Отмена", '//*[@role="dialog"]');
 });

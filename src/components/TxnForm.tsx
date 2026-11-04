@@ -13,6 +13,7 @@ import { NotesBlock } from "./Notes";
 import { TemplateButtons, useTemplates } from "./Templates";
 import { ErrorText, Modal } from "./Modal";
 import { Hint } from "./Hint";
+import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
 
 const TABS: [TxnType, string][] = [
@@ -26,11 +27,17 @@ export function TxnForm() {
   const state = useUi((s) => s.txnForm);
   const close = useUi((s) => s.openTxnForm);
   if (!state) return null;
+  // 0.29: возврат открывается своим окном, а не формой операции.
+  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} onClose={() => close(null)} />;
+  if (state.mode === "edit" && state.txn.refund && state.txn.refundOf) {
+    return <RefundDialog key={state.txn.id} purchaseId={state.txn.refundOf} refund={state.txn} onClose={() => close(null)} />;
+  }
   const key = state.mode === "edit" ? state.txn.id : `new-${state.type}`;
   return <TxnFormInner key={key} state={state} onClose={() => close(null)} />;
 }
 
-function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; onClose: () => void }) {
+function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | { mode: "refund" }>; onClose: () => void }) {
+  const openTxnForm = useUi((s) => s.openTxnForm);
   const editing = state.mode === "edit" ? state.txn : null;
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const accounts = useAccounts(true).data ?? [];
@@ -52,6 +59,23 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   // Г6: теги; Г3: «Учитывать по месяцам» и разбивка чека по категориям.
   const [tags, setTags] = useState<string[]>(editing?.tags ?? prefill?.tags ?? []);
   const [spread, setSpread] = useState<string>(editing?.spreadMonths ? String(editing.spreadMonths) : "");
+  // «Ещё» (0.29): комментарий, теги, «по месяцам» и «с друзьями» свёрнуты в одну строку.
+  // Раскрываются сами, если что-то из них заполнено; выбор «раскрыто» запоминается.
+  const [more, setMoreState] = useState(() => {
+    try {
+      return localStorage.getItem("kazna.txnMore") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setMore = (v: boolean) => {
+    setMoreState(v);
+    try {
+      localStorage.setItem("kazna.txnMore", v ? "1" : "0");
+    } catch {
+      /* без запоминания */
+    }
+  };
   const [parts, setParts] = useState<{ categoryId: string; amount: string; note?: string | null }[] | null>(null);
   const splitId = editing?.splitId ?? null;
   const receipt = useQuery({ queryKey: ["receipt", splitId], queryFn: () => api.getReceipt(splitId!), enabled: !!splitId });
@@ -287,6 +311,8 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const isAdjustment = editing?.type === "adjustment";
   const title = splitId ? "Разбитый чек" : editing ? "Операция" : "Новая операция";
 
+  const filledMore = note.trim() !== "" || tags.length > 0 || spread !== "" || !!friends;
+  const showMore = more || filledMore;
   return (
     <Modal title={title} onClose={onClose} guardUnsaved>
       <form
@@ -447,7 +473,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                     )}
                   </Field>
                 )}
-                {!editing && type === "expense" && !split && !receiptParts && (
+                {showMore && !editing && type === "expense" && !split && !receiptParts && (
                   <div>
                     <button
                       type="button"
@@ -502,44 +528,57 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                 )}
               </>
             )}
-            <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
-            {!split && (
-              <div className="field">
-                <div className="label-row">
-                  <label htmlFor="txn-tags">Теги</label>
-                  <Hint of="txn.tags" />
+            {showMore ? (
+              <>
+              <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+              {!split && (
+                <div className="field">
+                  <div className="label-row">
+                    <label htmlFor="txn-tags">Теги</label>
+                    <Hint of="txn.tags" />
+                  </div>
+                  <TagInput id="txn-tags" value={tags} onChange={setTags} />
                 </div>
-                <TagInput id="txn-tags" value={tags} onChange={setTags} />
-              </div>
-            )}
-            {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
-              <div className="spread" data-testid="spread">
-                <label className="check">
-                  <input type="checkbox" name="spreadOn" checked={spread !== ""} onChange={(e) => setSpread(e.target.checked ? "12" : "")} />
-                  Учитывать по месяцам
-                </label>
-                {spread !== "" && (
-                  <>
-                    <input
-                      type="number"
-                      name="spreadMonths"
-                      aria-label="Сколько месяцев"
-                      min={2}
-                      max={24}
-                      value={spread}
-                      onChange={(e) => setSpread(e.target.value)}
-                    />
-                    <span className="muted">мес.</span>
-                  </>
+              )}
+              {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
+                <div className="spread" data-testid="spread">
+                  <label className="check">
+                    <input type="checkbox" name="spreadOn" checked={spread !== ""} onChange={(e) => setSpread(e.target.checked ? "12" : "")} />
+                    Учитывать по месяцам
+                  </label>
+                  {spread !== "" && (
+                    <>
+                      <input
+                        type="number"
+                        name="spreadMonths"
+                        aria-label="Сколько месяцев"
+                        min={2}
+                        max={24}
+                        value={spread}
+                        onChange={(e) => setSpread(e.target.value)}
+                      />
+                      <span className="muted">мес.</span>
+                    </>
+                  )}
+                  <Hint of="txn.spread" />
+                  {spreadPreview && spreadMonths && (
+                    <span className="hint" data-testid="spread-preview">
+                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
+                      {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
+                    </span>
+                  )}
+                </div>
+              )}
+                {more && !filledMore && (
+                  <button type="button" className="link more-toggle" data-testid="txn-less" onClick={() => setMore(false)}>
+                    Свернуть
+                  </button>
                 )}
-                <Hint of="txn.spread" />
-                {spreadPreview && spreadMonths && (
-                  <span className="hint" data-testid="spread-preview">
-                    по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
-                    {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
-                  </span>
-                )}
-              </div>
+              </>
+            ) : (
+              <button type="button" className="link more-toggle" data-testid="txn-more" onClick={() => setMore(true)}>
+                Ещё: комментарий · теги{type === "expense" ? " · по месяцам · с друзьями" : ""}
+              </button>
             )}
           </>
         )}
@@ -595,6 +634,11 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
           {editing && (
             <button type="button" className="btn danger" onClick={() => remove.run()} disabled={remove.busy}>
               {splitId ? "Удалить чек" : "Удалить"}
+            </button>
+          )}
+          {editing && editing.type === "expense" && !editing.debtId && !editing.spreadMonths && (
+            <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing })} title="Деньги за покупку вернулись">
+              Вернуть…
             </button>
           )}
           <span className="spacer" />
