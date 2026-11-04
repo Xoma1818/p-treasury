@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { RowMenu } from "../components/RowMenu";
+import { openContextMenu } from "../components/ContextMenu";
 import { useState } from "react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, amountText, Field } from "../components/Fields";
@@ -40,7 +41,20 @@ export function Accounts() {
         <table className="table">
           <tbody>
             {visible.map((a) => (
-              <tr key={a.id} className={a.archived ? "archived" : ""} data-testid="account-row">
+              <tr
+                key={a.id}
+                className={a.archived ? "archived" : ""}
+                data-testid="account-row"
+                onContextMenu={(e) =>
+                  openContextMenu(e, [
+                    { text: "Операции счёта", onClick: () => showTransactions({ accountId: a.id }) },
+                    ...(!a.archived && a.type === "investment" ? [{ text: "Стоимость", onClick: () => setValuing(a.id) }] : []),
+                    ...(!a.archived && a.type !== "investment" ? [{ text: "Сверить", onClick: () => setAdjusting(a) }] : []),
+                    { text: "Изменить", onClick: () => setEditing(a) },
+                    { text: a.archived ? "Вернуть из закрытых" : "Закрыть счёт", onClick: () => archive.run(a.id, !a.archived), danger: !a.archived },
+                  ])
+                }
+              >
                 <td>
                   <div className="main">{a.name}</div>
                   <div className="sub">

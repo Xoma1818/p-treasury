@@ -309,7 +309,11 @@ fn failed_migration_of_copy_keeps_live_data() {
             (None, Some(table), Some(column)) => {
                 format!("ALTER TABLE {table} ADD COLUMN {column} INTEGER")
             }
-            _ => panic!("последняя миграция создаёт таблицу или столбец"),
+            // Миграция только добавляет настройки: у таблицы нет столбца value — вставка упадёт.
+            _ if sql.contains("INTO settings") => {
+                "ALTER TABLE settings RENAME TO settings_old; CREATE TABLE settings (key TEXT PRIMARY KEY)".to_string()
+            }
+            _ => panic!("последняя миграция создаёт таблицу, столбец или настройку"),
         };
         c.execute_batch(&clash).unwrap();
     }

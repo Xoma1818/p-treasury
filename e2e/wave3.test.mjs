@@ -236,6 +236,46 @@ test("Отчёты «Ещё ▾», «⋯» у счёта и разделы На�
   );
 });
 
+test("Ctrl+K находит настройку и действие, правая кнопка, «Возможности» (0.30)", async () => {
+  // Ctrl+K: «формат даты» ведёт в Настройки к полю; «тема» переключает тему.
+  await openSection(browser, "Главная");
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "формат даты");
+  await waitText(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/);
+  await browser.keys("Enter");
+  await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
+  await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
+  const before = await browser.execute(() => document.documentElement.dataset.theme);
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "тема");
+  await waitText(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => (await browser.execute(() => document.documentElement.dataset.theme)) !== before, { timeout: 3000, timeoutMsg: "тема не сменилась" });
+  await tap(before === "dark" ? '[data-testid="theme-dark"]' : '[data-testid="theme-light"]');
+  // Правая кнопка по операции: меню с действиями, «Открыть» открывает её.
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  await browser.execute(() => {
+    const r = document.querySelector('[data-testid="txn-row"] td.date');
+    const b = r.getBoundingClientRect();
+    r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
+  });
+  await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
+  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*Удалить/);
+  await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // «Возможности»: выключенные «Заметки» пропадают из меню и возвращаются.
+  await openSection(browser, "Настройки");
+  await tap('[name="module-notes"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ reverse: true, timeout: 5000 });
+  await tap('[data-testid="modules-all"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ timeout: 5000 });
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });

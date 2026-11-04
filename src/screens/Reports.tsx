@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useModules } from "../lib/modules";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useExport } from "../components/DataTools";
@@ -40,7 +41,9 @@ const MORE_TABS: [Tab, string][] = [
 
 function ReportTabs({ tab, onPick }: { tab: Tab; onPick: (t: Tab) => void }) {
   const { open, setOpen, ref } = usePopup();
-  const more = MORE_TABS.find(([t]) => t === tab);
+  const modules = useModules();
+  const moreTabs = MORE_TABS.filter(([t]) => t !== "subs" || modules.on("subs"));
+  const more = moreTabs.find(([t]) => t === tab);
   return (
     <div className="tabs report-tabs" role="tablist">
       {MAIN_TABS.map(([t, label]) => (
@@ -62,7 +65,7 @@ function ReportTabs({ tab, onPick }: { tab: Tab; onPick: (t: Tab) => void }) {
         </button>
         {open && (
           <div className="menu-pop" role="menu">
-            {MORE_TABS.map(([t, label]) => (
+            {moreTabs.map(([t, label]) => (
               <button
                 key={t}
                 role="menuitem"

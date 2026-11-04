@@ -968,3 +968,13 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
   .settings-layout { grid-template-columns: 1fr; }
   .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* Г2: меню по правой кнопке. */
+.menu-pop.ctx-menu { position: fixed; top: 0; left: 0; z-index: 40; }
+.ctx-menu .menu-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.ctx-menu kbd { font-size: 11px; color: var(--muted); background: none; border: 0; }
+
+/* Г3: «Возможности». */
+.modules-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
+.modules-list .check { align-items: flex-start; }
+.modules-list .sub { display: block; color: var(--muted); font-size: 12px; }

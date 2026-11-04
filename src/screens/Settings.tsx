@@ -11,6 +11,8 @@ import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
 import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
+import { useUi } from "../lib/store";
+import { ModulesCard } from "../components/ModulesCard";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
@@ -30,6 +32,18 @@ export function Settings() {
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
+  // Г1: из Ctrl+K — прокрутить к разделу, поставить курсор в поле, открыть окно «Данных».
+  const jump = useUi((s) => s.settingsJump);
+  useEffect(() => {
+    if (!jump) return;
+    useUi.setState({ settingsJump: null });
+    if (jump.dialog) setDialog(jump.dialog);
+    requestAnimationFrame(() => {
+      document.getElementById(`set-${jump.section}`)?.scrollIntoView({ block: "start" });
+      const f = jump.field ? document.querySelector<HTMLElement>(`[name="${jump.field}"]`) : null;
+      f?.focus({ preventScroll: true });
+    });
+  }, [jump]);
 
   return (
     <section className="screen">
@@ -218,6 +232,10 @@ export function Settings() {
       <HomeCardsCard />
       </div>
 
+      <div className="settings-section" id="set-modules">
+      <ModulesCard />
+      </div>
+
       <div className="settings-section" id="set-rates">
       <Rates base={base} />
       </div>
@@ -290,6 +308,7 @@ export function Settings() {
 const SETTINGS_SECTIONS: [string, string][] = [
   ["general", "Общие"],
   ["home", "Главная"],
+  ["modules", "Возможности"],
   ["rates", "Курсы"],
   ["data", "Данные"],
   ["vault", "Сохранность"],
