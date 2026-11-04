@@ -149,8 +149,9 @@ test("выгрузка операций в OFX и сводки в CSV", async ()
   await click(browser, "Сбросить");
   await pick(ofx);
   await click(browser, "Выгрузить");
-  const items = await browser.$$('[data-testid="export-menu"] [role="menuitem"]');
-  assert.deepEqual(await Promise.all(items.map((i) => i.getText())), ["Скачать в CSV", "Скачать в Excel", "Скачать в OFX"]);
+  await browser.$('[data-testid="export-menu"]').waitForDisplayed({ timeout: 5000 });
+  const items = await browser.execute(() => [...document.querySelectorAll('[data-testid="export-menu"] [role="menuitem"]')].map((i) => i.textContent));
+  assert.deepEqual(items, ["Скачать в CSV", "Скачать в Excel", "Скачать в OFX"]);
   await click(browser, "Скачать в OFX");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.ofx/);
   const text = readFileSync(ofx, "utf8");
