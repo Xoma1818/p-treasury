@@ -224,9 +224,8 @@ test("уменьшение движения: правило для prefers-reduc
     }
     return found.join("\n");
   });
-  assert.match(
-    rules,
-    /\*[^{]*\{[^}]*animation-duration:\s*1ms[^}]*transition-duration:\s*1ms/,
-    "общее правило для всех элементов",
-  );
+  // Порядок свойств в cssText зависит от браузера.
+  const all = rules.match(/(^|\s)\*[^{]*\{[^}]*\}/)?.[0] ?? "";
+  assert.match(all, /animation-duration:\s*1ms/, `общее правило: ${rules}`);
+  assert.match(all, /transition-duration:\s*1ms/, `общее правило: ${rules}`);
 });
