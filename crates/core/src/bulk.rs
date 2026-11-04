@@ -105,6 +105,11 @@ pub fn set_category(
             res.skipped += 1;
             continue;
         }
+        // …и следует за ней, когда меняют категорию покупки.
+        tx.execute(
+            "UPDATE transactions SET category_id = ?2 WHERE refund = 1 AND refund_of = ?1",
+            params![r.id, category_id],
+        )?;
         res.changed += 1;
     }
     tx.commit()?;

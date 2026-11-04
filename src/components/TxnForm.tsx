@@ -604,7 +604,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
               {splitId ? "Удалить чек" : "Удалить"}
             </button>
           )}
-          {editing && editing.type === "expense" && !editing.debtId && (
+          {editing && editing.type === "expense" && !editing.debtId && !editing.spreadMonths && (
             <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing })} title="Деньги за покупку вернулись">
               Вернуть…
             </button>

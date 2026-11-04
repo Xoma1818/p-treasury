@@ -227,6 +227,14 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
         .flatten()
         .collect();
     let c = validate(conn, input, &previous)?;
+    crate::refunds::purchase_edited(
+        conn,
+        id,
+        &input.kind,
+        input.amount,
+        &input.date,
+        c.category_id.as_deref(),
+    )?;
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,
                 to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11,
@@ -258,6 +266,16 @@ pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
     }
     if old.kind == "adjustment" {
         return invalid("корректировку нельзя перенести: сделайте сверку заново");
+    }
+    let moved: Vec<String> = match &old.split_id {
+        Some(split) => conn
+            .prepare("SELECT id FROM transactions WHERE split_id = ?1")?
+            .query_map([split], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?,
+        None => vec![id.to_string()],
+    };
+    for m in &moved {
+        crate::refunds::purchase_moved(conn, m, date)?;
     }
     // Разбитый чек переносится целиком.
     conn.execute(
@@ -294,6 +312,9 @@ pub fn set_spread(conn: &Connection, id: &str, months: Option<i64>) -> Result<()
         }
         if old.debt_id.is_some() {
             return invalid("это платёж по долгу: его нельзя делить по месяцам");
+        }
+        if crate::refunds::has_refunds(conn, id)? {
+            return invalid("по этой покупке есть возврат: её нельзя делить по месяцам");
         }
     }
     conn.execute(

@@ -50,11 +50,12 @@ struct Purchase {
     status: String,
     debt_id: Option<String>,
     refund: bool,
+    spread_months: Option<i64>,
 }
 
 fn purchase(conn: &Connection, id: &str) -> Result<Purchase> {
     conn.query_row(
-        "SELECT type, date, account_id, amount, category_id, payee, status, debt_id, refund
+        "SELECT type, date, account_id, amount, category_id, payee, status, debt_id, refund, spread_months
          FROM transactions WHERE id = ?1",
         [id],
         |r| {
@@ -68,6 +69,7 @@ fn purchase(conn: &Connection, id: &str) -> Result<Purchase> {
                 status: r.get(6)?,
                 debt_id: r.get(7)?,
                 refund: r.get(8)?,
+                spread_months: r.get(9)?,
             })
         },
     )
@@ -109,6 +111,11 @@ fn check(conn: &Connection, input: &RefundInput, except: Option<&str>) -> Result
     let p = purchase(conn, &input.of)?;
     if p.kind != "expense" || p.refund || p.debt_id.is_some() {
         return invalid("вернуть можно только обычную покупку");
+    }
+    if p.spread_months.is_some() {
+        return invalid(
+            "покупка учитывается по месяцам: сначала уберите это, потом оформляйте возврат",
+        );
     }
     if p.status != "cleared" {
         return invalid("покупка ещё запланирована: возврат — после неё");
@@ -211,6 +218,74 @@ pub fn update(conn: &Connection, id: &str, input: &RefundInput) -> Result<()> {
             count_date,
             time::now_utc()
         ],
+    )?;
+    Ok(())
+}
+
+/// Возвраты покупки `id`: сумма и самая ранняя дата.
+fn refunds_of(conn: &Connection, id: &str) -> Result<(i64, Option<String>)> {
+    // Пример данных в тесте обновления заполняет схему до 0018: там возвратов нет.
+    let has_column: bool = conn.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('transactions') WHERE name = 'refund'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_column {
+        return Ok((0, None));
+    }
+    Ok(conn.query_row(
+        "SELECT COALESCE(sum(amount), 0), min(date) FROM transactions
+         WHERE refund = 1 AND refund_of = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
+}
+
+/// Есть ли у покупки возвраты.
+pub fn has_refunds(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(refunds_of(conn, id)?.1.is_some())
+}
+
+/// Новая дата покупки: не позже её возвратов; возвраты, учтённые в месяце
+/// покупки, переезжают вместе с ней.
+pub fn purchase_moved(conn: &Connection, id: &str, date: &str) -> Result<()> {
+    let (_, first) = refunds_of(conn, id)?;
+    let Some(first) = first else { return Ok(()) };
+    if date > first.as_str() {
+        return invalid("по этой покупке есть возврат: покупка не может быть позже него");
+    }
+    conn.execute(
+        "UPDATE transactions SET count_date = ?2
+         WHERE refund = 1 AND refund_of = ?1 AND count_date IS NOT NULL",
+        params![id, date],
+    )?;
+    Ok(())
+}
+
+/// Правка покупки с возвратами: она остаётся расходом не меньше возвращённого,
+/// а категория и месяц возвратов следуют за ней.
+pub fn purchase_edited(
+    conn: &Connection,
+    id: &str,
+    kind: &str,
+    amount: i64,
+    date: &str,
+    category_id: Option<&str>,
+) -> Result<()> {
+    let (done, first) = refunds_of(conn, id)?;
+    if first.is_none() {
+        return Ok(());
+    }
+    if kind != "expense" {
+        return invalid("по этой покупке есть возврат: она остаётся расходом");
+    }
+    if amount < done {
+        return invalid("по этой покупке уже вернули больше: сначала поправьте возврат");
+    }
+    purchase_moved(conn, id, date)?;
+    conn.execute(
+        "UPDATE transactions SET category_id = ?2 WHERE refund = 1 AND refund_of = ?1",
+        params![id, category_id],
     )?;
     Ok(())
 }
@@ -348,6 +423,44 @@ mod tests {
             }
         )
         .is_err());
+        // Правка покупки: не меньше возвращённого, остаётся расходом, категория следует.
+        let edit = |kind: &str, amount, date: &str, cat: &str| TxnInput {
+            kind: kind.into(),
+            date: date.into(),
+            account_id: card.clone(),
+            amount,
+            category_id: Some(cat.into()),
+            to_account_id: None,
+            to_amount: None,
+            payee: Some("Магазин".into()),
+            note: None,
+        };
+        assert!(
+            transactions::update(c, &jacket, &edit("expense", 700_000, "2026-10-20", &cat))
+                .is_err()
+        );
+        assert!(
+            transactions::update(c, &jacket, &edit("income", 800_000, "2026-10-20", &cat)).is_err()
+        );
+        assert!(
+            transactions::update(c, &jacket, &edit("expense", 800_000, "2026-11-10", &cat))
+                .is_err()
+        );
+        assert!(transactions::set_spread(c, &jacket, Some(3)).is_err());
+        let other: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE kind = 'expense' AND id <> ?1 LIMIT 1",
+                [&cat],
+                |r| r.get(0),
+            )
+            .unwrap();
+        transactions::update(c, &jacket, &edit("expense", 800_000, "2026-10-18", &other)).unwrap();
+        let moved = transactions::get(c, &r).unwrap();
+        assert_eq!(moved.category_id.as_deref(), Some(other.as_str()));
+        assert_eq!(moved.count_date, None);
+        assert_eq!(spent(c, "2026-10", &other), 300_000);
+        transactions::update(c, &jacket, &edit("expense", 800_000, "2026-10-20", &cat)).unwrap();
+
         // Отчёт по месяцам и выбранные операции видят возврат как минус расход.
         let sums = transactions::sum_ids(c, &[jacket.clone(), r.clone()]).unwrap();
         assert_eq!((sums.expense, sums.income), (500_000, 0));
