@@ -69,6 +69,86 @@ fn read_text(path: &Path) -> Result<String> {
     })
 }
 
+/// Таблица Excel (`.xlsx`, `.xls`, `.ods`): лист, где в первой строке есть
+/// «Дата», «Тип», «Счёт», «Сумма» (иначе первый лист). Даты — `ДД.ММ.ГГГГ`,
+/// числа — с точкой, как их понимает разбор суммы.
+fn is_book(path: &Path) -> bool {
+    path.extension().is_some_and(|e| {
+        ["xlsx", "xls", "xlsm", "ods"]
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    })
+}
+
+fn book_rows(path: &Path) -> Result<Vec<Vec<String>>> {
+    use calamine::{open_workbook_auto, Data, Reader};
+    let mut book = open_workbook_auto(path)
+        .map_err(|e| Error::Validation(format!("не удалось открыть Excel: {e}")))?;
+    let cell = |d: &Data| match d {
+        Data::DateTime(dt) => {
+            let (y, mo, d, ..) = dt.to_ymd_hms_milli();
+            format!("{d:02}.{mo:02}.{y}")
+        }
+        Data::DateTimeIso(s) => s.get(..10).unwrap_or(s).to_string(),
+        // Сумма в ячейке — число: 1234.5, без хвостов двоичной дроби.
+        Data::Float(f) => {
+            let s = format!("{:.4}", f);
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        }
+        Data::Int(i) => i.to_string(),
+        Data::Empty => String::new(),
+        other => other.to_string(),
+    };
+    let mut first = None;
+    for name in book.sheet_names() {
+        let Ok(range) = book.worksheet_range(&name) else {
+            continue;
+        };
+        let rows: Vec<Vec<String>> = range.rows().map(|r| r.iter().map(cell).collect()).collect();
+        let head = rows
+            .first()
+            .map(|r| {
+                r.iter()
+                    .map(|h| h.trim().to_lowercase())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if ["дата", "тип", "счёт", "сумма"]
+            .iter()
+            .all(|h| head.iter().any(|c| c == h))
+        {
+            return Ok(rows);
+        }
+        first.get_or_insert(rows);
+    }
+    Ok(first.unwrap_or_default())
+}
+
+/// Строки файла по шаблону операций: CSV (`;` или `,`) или Excel.
+pub(crate) fn read_table(path: &Path) -> Result<Vec<Vec<String>>> {
+    if is_book(path) {
+        return book_rows(path);
+    }
+    let text = read_text(path)?;
+    let first = text.lines().next().unwrap_or("");
+    let delimiter = if first.matches(';').count() >= first.matches(',').count() {
+        b';'
+    } else {
+        b','
+    };
+    csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .flexible(true)
+        .has_headers(false)
+        .from_reader(text.as_bytes())
+        .records()
+        .map(|r| {
+            r.map(|r| r.iter().map(str::to_string).collect())
+                .map_err(|e| Error::Validation(format!("не удалось прочитать CSV: {e}")))
+        })
+        .collect()
+}
+
 /// Дата `ДД.ММ.ГГГГ` или `ГГГГ-ММ-ДД` → `ГГГГ-ММ-ДД`.
 pub fn parse_date(s: &str) -> Option<String> {
     let s = s.trim();
@@ -292,20 +372,10 @@ pub(crate) fn create_categories(
 
 /// Разбор без записи в базу: строки и категории, которые нужно создать.
 pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>, NewCategories)> {
-    let text = read_text(path)?;
-    let first = text.lines().next().unwrap_or("");
-    let delimiter = if first.matches(';').count() >= first.matches(',').count() {
-        b';'
-    } else {
-        b','
-    };
-    let mut rdr = csv::ReaderBuilder::new()
-        .delimiter(delimiter)
-        .flexible(true)
-        .from_reader(text.as_bytes());
-    let headers: Vec<String> = rdr
-        .headers()
-        .map_err(|e| Error::Validation(format!("не удалось прочитать CSV: {e}")))?
+    let mut table = read_table(path)?.into_iter();
+    let headers: Vec<String> = table
+        .next()
+        .unwrap_or_default()
         .iter()
         .map(|h| h.trim().to_lowercase())
         .collect();
@@ -336,9 +406,13 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
 
     let mut out = Vec::new();
     let mut new_cats = Vec::new();
-    for (i, rec) in rdr.records().enumerate() {
-        let rec = rec.map_err(|e| Error::Validation(format!("не удалось прочитать CSV: {e}")))?;
-        let get = |c: Option<usize>| c.and_then(|c| rec.get(c)).unwrap_or("").trim().to_string();
+    for (i, rec) in table.enumerate() {
+        let get = |c: Option<usize>| {
+            c.and_then(|c| rec.get(c))
+                .map_or("", |s| s.as_str())
+                .trim()
+                .to_string()
+        };
         if rec.iter().all(|f| f.trim().is_empty()) {
             continue;
         }
@@ -520,7 +594,7 @@ fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result
     let is_csv = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
-    if !is_csv {
+    if !is_csv && !is_book(path) {
         return invalid("файл не похож на выписку Сбера (PDF) или Т-Банка (CSV, Excel)");
     }
     let (parsed, new) = parse_full(conn, path)?;
@@ -823,6 +897,15 @@ mod tests {
         let mut db2 = setup();
         assert_eq!(import(db2.conn_mut(), &out, false, None).unwrap().added, 3);
         let again = transactions_sheet(db2.conn(), &Filter::default()).unwrap();
+        assert_eq!(again.rows, sheet.rows);
+        // То же из Excel: даты и суммы в ячейках — числа, а не текст.
+        let book = dir.path().join("export.xlsx");
+        crate::export::write_xlsx(&book, std::slice::from_ref(&sheet)).unwrap();
+        let mut db3 = setup();
+        let p = preview(db3.conn(), &book, None).unwrap();
+        assert_eq!(p.errors, 0, "{:?}", p.rows);
+        assert_eq!(import(db3.conn_mut(), &book, false, None).unwrap().added, 3);
+        let again = transactions_sheet(db3.conn(), &Filter::default()).unwrap();
         assert_eq!(again.rows, sheet.rows);
     }
 

@@ -19,6 +19,11 @@ use crate::{csv_import, import_log, time, Result};
 /// когда счёт выбран.
 const NO_ACCOUNT: &str = "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»";
 
+/// Чужой файл: не выписка и не шаблон. Больше не читается.
+const NOT_OURS: &str = "не выписка и не шаблон";
+/// Прежняя отметка чужого файла (до 0.30).
+const OLD_NOT_OURS: &str = "не выписка";
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileResult {
@@ -40,21 +45,51 @@ pub struct ScanResult {
 }
 
 /// Первая строка похожа на шаблон операций: есть «Дата», «Тип», «Счёт», «Сумма».
+/// Так узнаётся и CSV, и Excel, в том числе выгрузка операций самой программы.
 fn looks_like_template(path: &Path) -> bool {
     use std::io::Read;
-    // Хватает начала файла: в «Загрузках» бывают файлы на сотни мегабайт.
-    let mut bytes = Vec::new();
-    let Ok(file) = fs::File::open(path) else {
+    let is_csv = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
+    let first: Vec<String> = if is_csv {
+        // Хватает начала файла: в «Загрузках» бывают файлы на сотни мегабайт.
+        let mut bytes = Vec::new();
+        let Ok(file) = fs::File::open(path) else {
+            return false;
+        };
+        if file.take(4096).read_to_end(&mut bytes).is_err() {
+            return false;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let line = text
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('\u{feff}')
+            .to_lowercase();
+        line.split([';', ','])
+            .map(|h| h.trim().trim_matches('"').to_string())
+            .collect()
+    } else if path
+        .extension()
+        .is_some_and(|e| ["xlsx", "xls"].iter().any(|x| e.eq_ignore_ascii_case(x)))
+    {
+        match csv_import::read_table(path) {
+            Ok(rows) => rows
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+                .iter()
+                .map(|h| h.trim().to_lowercase())
+                .collect(),
+            Err(_) => return false,
+        }
+    } else {
         return false;
     };
-    if file.take(4096).read_to_end(&mut bytes).is_err() {
-        return false;
-    }
-    let text = String::from_utf8_lossy(&bytes);
-    let first = text.lines().next().unwrap_or("").to_lowercase();
     ["дата", "тип", "счёт", "сумма"]
         .iter()
-        .all(|h| first.contains(h))
+        .all(|h| first.iter().any(|c| c == h))
 }
 
 /// Разобрать новые файлы папки `dir`. Чужие файлы запоминаются и больше не
@@ -99,6 +134,9 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
         let retry = match seen {
             None => false,
             Some(Some(e)) if e == NO_ACCOUNT => true,
+            // Отмечен до того, как программа научилась читать Excel по
+            // шаблону: смотрим ещё раз, один раз.
+            Some(Some(e)) if e == OLD_NOT_OURS => false,
             Some(_) => continue,
         };
         let name = path
@@ -186,7 +224,7 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 if known {
                     res.error.clone()
                 } else {
-                    Some("не выписка".into())
+                    Some(NOT_OURS.into())
                 }
             ],
         )?;
@@ -265,6 +303,36 @@ mod tests {
         .unwrap();
         let r = scan(c, &dir).unwrap();
         assert_eq!((r.added, r.files[0].skipped), (2, 1));
+
+        // Excel по шаблону (например, выгрузка «Операций») тоже берётся.
+        let sheet = crate::export::Sheet {
+            name: "Операции".into(),
+            headers: crate::export::TXN_HEADERS
+                .iter()
+                .map(|h| h.to_string())
+                .collect(),
+            rows: vec![vec![
+                crate::export::Cell::Date("2026-10-05".into()),
+                crate::export::Cell::Text("Расход".into()),
+                crate::export::Cell::Text("Карта".into()),
+                crate::export::Cell::Text("Питание".into()),
+                crate::export::Cell::Text("Пятёрочка".into()),
+                crate::export::Cell::Empty,
+                crate::export::Cell::Money(-12_345, 2),
+            ]],
+        };
+        crate::export::write_xlsx(&dir.join("Operations.xlsx"), &[sheet]).unwrap();
+        let r = scan(c, &dir).unwrap();
+        assert_eq!(r.files.len(), 1, "{:?}", r.files);
+        assert_eq!((r.added, r.files[0].error.clone()), (1, None));
+        let amount: i64 = c
+            .query_row(
+                "SELECT amount FROM transactions WHERE payee = 'Пятёрочка'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(amount, 12_345);
         fs::remove_dir_all(&dir).unwrap();
     }
 

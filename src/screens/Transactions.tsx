@@ -207,7 +207,7 @@ export function Transactions() {
       <div className="screen-head">
         <ScreenTitle id="transactions" />
         <span className="spacer" />
-        <button className="btn" data-testid="txn-import" onClick={() => setImportFile(null)} title="Выписка банка (Excel, CSV, PDF) или CSV по шаблону. Файл можно просто перетащить в окно">
+        <button className="btn" data-testid="txn-import" onClick={() => setImportFile(null)} title="Выписка банка (Excel, CSV, PDF) или таблица по шаблону. Файл можно просто перетащить в окно">
           Загрузить выписку
         </button>
         <ExportButton exp={exp} title="Операции по текущему фильтру в CSV, Excel или OFX" />
