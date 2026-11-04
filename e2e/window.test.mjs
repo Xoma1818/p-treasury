@@ -72,7 +72,7 @@ test("«Отмена» закрывает форму сразу, без вопр
   await newExpense(browser);
   await fill(browser, "amount", "50");
   await (
-    await browser.$(`${dialog}//button[normalize-space()="Отмена"]`)
+    await browser.$(`//*[@role="dialog"]//button[normalize-space()="Отмена"]`)
   ).click();
   await browser.$(dialog).waitForExist({ reverse: true, timeout: 3000 });
 });
@@ -130,7 +130,7 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
     if (inner[0] > 1100)
       return t.skip(`окно не уменьшилось: ${inner.join("×")}`);
     const titles = await browser.execute(() =>
-      [...document.querySelectorAll("nav button")]
+      [...document.querySelectorAll("nav button.nav-item:not(.nav-view)")]
         .map((b) => b.textContent.trim())
         .filter(Boolean),
     );
@@ -179,7 +179,7 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
       `низ формы недоступен: ${JSON.stringify(fit)}`,
     );
     const saveBtn = await browser.$(
-      `${dialog}//button[normalize-space()="Сохранить"]`,
+      `//*[@role="dialog"]//button[normalize-space()="Сохранить"]`,
     );
     await saveBtn.scrollIntoView({ block: "nearest" });
     assert.ok(
@@ -187,7 +187,7 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
       "кнопка «Сохранить» достижима",
     );
     await (
-      await browser.$(`${dialog}//button[normalize-space()="Отмена"]`)
+      await browser.$(`//*[@role="dialog"]//button[normalize-space()="Отмена"]`)
     ).click();
   } finally {
     await browser.setWindowSize(before.width, before.height).catch(() => {});

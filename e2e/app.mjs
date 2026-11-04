@@ -253,7 +253,12 @@ export function closeLikeUser(dataDir = currentDir) {
 /** Нажать пункт бокового меню по названию. */
 export async function openSection(browser, title) {
   // Если предыдущий тест упал с открытым диалогом, закрываем его, чтобы не ронять следующие.
-  if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+  if (await browser.$('[role="dialog"]').isExisting()) {
+    await browser.keys("Escape");
+    // Форма с введённым спрашивает «Закрыть без сохранения?» — закрываем.
+    const ask = await browser.$('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
+    if (await ask.isExisting()) await ask.click();
+  }
   const item = await browser.$(`//nav//button[normalize-space()="${title}"]`);
   await item.click();
   await browser.$(`//main//h1[normalize-space()="${title}"]`).waitForDisplayed({ timeout: 5000 });
