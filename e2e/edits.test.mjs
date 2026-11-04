@@ -320,3 +320,15 @@ test("кредит: каникулы и смена ставки записыва
   await save(browser);
   await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "название долга не поменялось" });
 });
+
+test("сценарий «что если»: правка сохраняется", async () => {
+  await openSection(browser, "Взгляд вперёд");
+  await click(browser, "+ Сценарий");
+  await click(browser, "Ипотека или кредит", '//*[@role="dialog"]');
+  await save(browser);
+  await (await browser.$('button[aria-label="Изменить сценарий «Ипотека»"]')).click();
+  await fill(browser, "scenario-name", "Ипотека на 20 лет");
+  await save(browser);
+  await waitText(browser, '[data-testid="scenario-bar"]', /Ипотека на 20 лет/);
+  await waitText(browser, '[data-testid="fc-table"] thead', /Ипотека на 20 лет/);
+});
