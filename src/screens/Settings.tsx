@@ -1,4 +1,5 @@
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
+import { TxnFormCard } from "../components/TxnFormCard";
 import { NavCard } from "../components/NavCard";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -239,6 +240,7 @@ export function Settings() {
 
       <div className="settings-section" id="set-menu">
       <NavCard />
+      <TxnFormCard />
       </div>
 
       <div className="settings-section" id="set-rates">
@@ -314,7 +316,7 @@ const SETTINGS_SECTIONS: [string, string][] = [
   ["general", "Общие"],
   ["home", "Главная"],
   ["modules", "Возможности"],
-  ["menu", "Меню"],
+  ["menu", "Меню и форма"],
   ["rates", "Курсы"],
   ["data", "Данные"],
   ["vault", "Сохранность"],

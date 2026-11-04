@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { newTxnDate, preferredAccount, rememberTxnDate, savedForm } from "../lib/txnFormPrefs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api, type Template, type TxnExtra, type TxnInput, type TxnType } from "../lib/api";
@@ -49,7 +50,9 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const [type, setType] = useState<TxnType>(editing?.type ?? (state.mode === "new" ? state.type : "expense"));
   const [amount, setAmount] = useState(amountText(editing?.amount ?? prefill?.amount, editing?.minorUnits));
   const [toAmount, setToAmount] = useState(amountText(editing?.toAmount, editing?.toMinorUnits ?? 2));
-  const [date, setDate] = useState(editing?.date ?? ((state.mode === "new" ? state.date : undefined) || today()));
+  // Г9: настройка формы (поля без «Ещё», счёт и дата новой операции) — один раз на открытие.
+  const [formPrefs] = useState(savedForm);
+  const [date, setDate] = useState(editing?.date ?? ((state.mode === "new" ? state.date : undefined) || newTxnDate(formPrefs, today())));
   const [accountId, setAccountId] = useState(editing?.accountId ?? prefill?.accountId ?? "");
   const [toAccountId, setToAccountId] = useState(editing?.toAccountId ?? prefill?.toAccountId ?? "");
   const [categoryId, setCategoryId] = useState(editing?.categoryId ?? prefill?.categoryId ?? "");
@@ -108,7 +111,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   useEffect(() => {
     if (editing) return;
     api.transactionDefaults(type).then((d) => {
-      setAccountId((cur) => cur || d.accountId || accounts.find((a) => !a.archived)?.id || "");
+      const open = accounts.filter((a) => !a.archived);
+      setAccountId((cur) => cur || preferredAccount(formPrefs, open) || d.accountId || open[0]?.id || "");
       if (type === "transfer") setToAccountId((cur) => cur || d.toAccountId || "");
       else setCategoryId((cur) => (prefill?.categoryId && cur ? cur : d.categoryId ?? ""));
     });
@@ -173,6 +177,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   };
 
   const save = useAction(async (input: TxnInput) => {
+    if (!editing) rememberTxnDate(input.date);
     const event = type === "transfer" ? null : eventId || null;
     if (receiptParts) {
       const r = {
@@ -314,8 +319,22 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const isAdjustment = editing?.type === "adjustment";
   const title = splitId ? "Разбитый чек" : editing ? "Операция" : "Новая операция";
 
-  const filledMore = note.trim() !== "" || tags.length > 0 || spread !== "" || !!friends;
+  // Закреплённые поля (Г9) видны всегда и не раскрывают «Ещё» сами.
+  const pinNote = formPrefs.pinNote;
+  const pinTags = formPrefs.pinTags;
+  const filledMore = (!pinNote && note.trim() !== "") || (!pinTags && tags.length > 0) || spread !== "" || !!friends;
   const showMore = more || filledMore;
+  const moreLabel = [!pinNote && "комментарий", !pinTags && "теги", ...(type === "expense" ? ["по месяцам", "с друзьями"] : [])].filter(Boolean).join(" · ");
+  const noteField = <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>;
+  const tagsField = (
+    <div className="field">
+      <div className="label-row">
+        <label htmlFor="txn-tags">Теги</label>
+        <Hint of="txn.tags" />
+      </div>
+      <TagInput id="txn-tags" value={tags} onChange={setTags} />
+    </div>
+  );
   // Р4: существующая операция по умолчанию открывается панелью справа с похожими операциями.
   const side = !!editing && savedTxnOpen() === "panel";
   // Есть ли несохранённые правки: тогда переход к похожей операции сначала спрашивает.
@@ -549,18 +568,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                 )}
               </>
             )}
+            {(showMore || pinNote) && noteField}
+            {(showMore || pinTags) && !split && tagsField}
             {showMore ? (
               <>
-              <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
-              {!split && (
-                <div className="field">
-                  <div className="label-row">
-                    <label htmlFor="txn-tags">Теги</label>
-                    <Hint of="txn.tags" />
-                  </div>
-                  <TagInput id="txn-tags" value={tags} onChange={setTags} />
-                </div>
-              )}
               {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
                 <div className="spread" data-testid="spread">
                   <label className="check">
@@ -597,9 +608,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                 )}
               </>
             ) : (
-              <button type="button" className="link more-toggle" data-testid="txn-more" onClick={() => setMore(true)}>
-                Ещё: комментарий · теги{type === "expense" ? " · по месяцам · с друзьями" : ""}
-              </button>
+              moreLabel && (
+                <button type="button" className="link more-toggle" data-testid="txn-more" onClick={() => setMore(true)}>
+                  Ещё: {moreLabel}
+                </button>
+              )
             )}
           </>
         )}

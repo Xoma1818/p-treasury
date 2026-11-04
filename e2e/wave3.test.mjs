@@ -312,6 +312,34 @@ test("своё меню и главная кнопка «+»: скрыть, пе
   await openSection(browser, "Настройки");
 });
 
+test("форма операции: комментарий без «Ещё», свой счёт по умолчанию (0.31)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="txn-form-card"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[name="pinNote"]');
+    // Счёт по умолчанию — последний в списке (не тот, что подставился бы сам).
+    const want = await browser.execute(() => {
+      const sel = document.querySelector('[name="formAccount"]');
+      const opt = sel.options[sel.options.length - 1];
+      return opt.value;
+    });
+    const sel = await browser.$('[name="formAccount"]');
+    await sel.selectByAttribute("value", want);
+    await openSection(browser, "Главная");
+    await click(browser, "+ Расход");
+    await browser.$('[role="dialog"] [name="note"]').waitForDisplayed({ timeout: 5000 });
+    assert.equal(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), want, "счёт из настройки");
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    await openSection(browser, "Настройки");
+    const reset = await browser.$('[data-testid="txn-form-reset"]');
+    if (await reset.isExisting()) await tap('[data-testid="txn-form-reset"]');
+  }
+  await browser.$('[data-testid="txn-form-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });

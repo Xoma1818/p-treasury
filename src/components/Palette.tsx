@@ -37,6 +37,7 @@ const SETTINGS: { key: string; title: string; words: string; section: string; fi
   { key: "hotkey", title: "Клавиша быстрого ввода", words: "горячая клавиша быстрый ввод", section: "general", field: "quickHotkey" },
   { key: "home", title: "Карточки Главной", words: "главная настроить блоки", section: "home" },
   { key: "menu", title: "Меню и кнопка «+»: порядок разделов", words: "меню разделы порядок скрыть переставить кнопка плюс расход доход перевод виды", section: "menu" },
+  { key: "txnForm", title: "Форма операции: поля и значения по умолчанию", words: "форма операции поля комментарий теги счёт по умолчанию дата сегодня прошлой", section: "menu" },
   { key: "modules", title: "Возможности: включить и выключить модули", words: "модули функции выключить инвестиции займы долги подписки привычки заметки поездки", section: "modules" },
   { key: "rates", title: "Курсы валют", words: "курс цб доллар евро", section: "rates" },
   { key: "summary", title: "Сводка в Excel", words: "выгрузить excel эксель отчёт", section: "data", dialog: "summary" },
