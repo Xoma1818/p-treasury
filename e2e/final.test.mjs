@@ -196,7 +196,7 @@ test("месяц жизни: от первого запуска до сводк�
   await openSection(browser, "Настройки");
   await click(browser, "Сводка в Excel");
   await pick(xlsx);
-  await click(browser, "Скачать", '//*[@role="dialog"]');
+  await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="export-done"]', /Сохранено/);
   await browser.keys("Escape");
   const sheet1 = execFileSync("unzip", ["-p", xlsx, "xl/worksheets/sheet1.xml"], { encoding: "utf8" });

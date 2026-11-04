@@ -14,6 +14,7 @@ import { useDebounced } from "../../lib/useDebounced";
 import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor, RateEditor } from "./Editors";
 import { ExportDialog, exportSchedule, savedText, type ExportSource } from "./ExportDialog";
+import { FormatMenu } from "../../components/DataTools";
 
 const SOLVES: [Solve, string][] = [
   ["payment", "Платёж"],
@@ -44,7 +45,7 @@ export function initialForm(example: boolean): LoanForm {
 }
 
 /** Калькулятор и «Новый долг» — одна форма: расчёт, досрочки, диаграмма, график,
- *  «Записать заём», «Скачать Excel», «PDF для подписи». Расчёт живой (planLoan). */
+ *  «Записать заём», «Скачать график» (CSV или Excel), «PDF для подписи». Расчёт живой (planLoan). */
 export function LoanPlanner({ back, example, onCreated }: { back: () => void; example: boolean; onCreated: (id: string) => void }) {
   const currencies = useCurrencies().data ?? [];
   const base = useSettings().data?.base_currency ?? "RUB";
@@ -67,7 +68,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   const r = input ? plan.data : undefined;
   const bullet = f.repayment === "bullet";
   const solve: Solve = bullet ? "payment" : f.solve;
-  const excel = useAction(async () => input && exportSchedule({ kind: "calc", input, currency: cur }, "xlsx"), (p) => p && setStatus(savedText(p)));
+  const excel = useAction(async (format: "xlsx" | "csv") => input && exportSchedule({ kind: "calc", input, currency: cur }, format), (p) => p && setStatus(savedText(p)));
 
   return (
     <>
@@ -281,9 +282,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                 <Hint of="loan.record" />
               </span>
               <span className="btn-with-hint">
-                <button type="button" className="btn" disabled={!r || !!plan.error} aria-busy={excel.busy} data-done={excel.done || undefined} onClick={() => (setStatus(null), excel.run())}>
-                  Скачать Excel
-                </button>
+                <FormatMenu label="Скачать график" formats={["csv", "xlsx"]} disabled={!r || !!plan.error} busy={excel.busy} done={excel.done} onPick={(f) => (setStatus(null), excel.run(f as "xlsx" | "csv"))} />
                 <Hint of="loan.excel" />
               </span>
               <span className="btn-with-hint">

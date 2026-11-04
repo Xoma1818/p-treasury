@@ -37,6 +37,7 @@ pub mod money;
 pub mod month_review;
 pub mod net_worth;
 pub mod notes;
+pub mod ofx;
 pub mod onboarding;
 pub mod pdf;
 pub mod quick;

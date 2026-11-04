@@ -116,7 +116,7 @@ test("сводка в Excel: файл .xlsx с шестью листами", asy
   await click(browser, "Сводка в Excel");
   await click(browser, "Год", '//*[@role="dialog"]');
   await pick(path);
-  await click(browser, "Скачать", '//*[@role="dialog"]');
+  await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.xlsx/);
   await browser.keys("Escape");
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
@@ -133,6 +133,7 @@ test("выгрузка операций по фильтру в CSV: русски
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в CSV");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.csv/);
   const text = readFileSync(path, "utf8");
   assert.ok(text.startsWith("\uFEFFДата;Тип;Счёт"), "BOM и разделитель «;»");
@@ -142,12 +143,42 @@ test("выгрузка операций по фильтру в CSV: русски
   assert.match(text, /-450,00|-450/);
 });
 
+test("выгрузка операций в OFX и сводки в CSV", async () => {
+  const ofx = join(files, "операции.ofx");
+  await openSection(browser, "Операции");
+  await click(browser, "Сбросить");
+  await pick(ofx);
+  await click(browser, "Выгрузить");
+  const items = await browser.$$('[data-testid="export-menu"] [role="menuitem"]');
+  assert.deepEqual(await Promise.all(items.map((i) => i.getText())), ["Скачать в CSV", "Скачать в Excel", "Скачать в OFX"]);
+  await click(browser, "Скачать в OFX");
+  await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.ofx/);
+  const text = readFileSync(ofx, "utf8");
+  assert.ok(text.startsWith("<?xml"), text.slice(0, 80));
+  assert.match(text, /<ACCTID>Наличные<\/ACCTID>/);
+  assert.match(text, /<TRNAMT>-450\.00<\/TRNAMT>/);
+
+  const csv = join(files, "сводка.csv");
+  await openSection(browser, "Настройки");
+  await click(browser, "Сводка в Excel");
+  await pick(csv);
+  await click(browser, "Скачать в CSV", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.csv/);
+  await browser.keys("Escape");
+  const book = readFileSync(csv, "utf8");
+  assert.ok(book.startsWith("﻿Сводка\r\n"), book.slice(0, 40));
+  for (const sheet of ["По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]) {
+    assert.ok(book.includes(`\n${sheet}\r\n`), `лист ${sheet}`);
+  }
+});
+
 test("выгрузка отчёта «По месяцам» в Excel", async () => {
   const path = join(files, "по месяцам.xlsx");
   await openSection(browser, "Отчёты");
   await click(browser, "По месяцам");
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в Excel");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: по месяцам\.xlsx/);
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
   assert.match(workbook, /<sheet name="По месяцам"/);

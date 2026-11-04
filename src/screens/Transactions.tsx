@@ -7,7 +7,7 @@ import { isTyping } from "../lib/hotkeys";
 import { groupReceipts, rowIds } from "../lib/receipt";
 import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { loadAllTransactionIds } from "../lib/transactionSelection";
-import { ImportDialog, useExport } from "../components/DataTools";
+import { ExportButton, ImportDialog, useExport } from "../components/DataTools";
 import { onFileDrop, statementOf } from "../lib/fileDrop";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -62,7 +62,7 @@ export function Transactions() {
 
   const query = { ...f, limit };
   const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
-  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path));
+  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path), ["csv", "xlsx", "ofx"]);
   // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
   const [importFile, setImportFile] = useState<string | null | undefined>(undefined);
   const [importKey, setImportKey] = useState(0);
@@ -210,9 +210,7 @@ export function Transactions() {
         <button className="btn" data-testid="txn-import" onClick={() => setImportFile(null)} title="Выписка банка (Excel, CSV, PDF) или CSV по шаблону. Файл можно просто перетащить в окно">
           Загрузить выписку
         </button>
-        <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy} title="Операции по текущему фильтру в Excel или CSV">
-          Выгрузить
-        </button>
+        <ExportButton exp={exp} title="Операции по текущему фильтру в CSV, Excel или OFX" />
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
           + Операция
         </button>

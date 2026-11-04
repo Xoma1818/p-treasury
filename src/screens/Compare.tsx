@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useExport } from "../components/DataTools";
+import { ExportButton, useExport } from "../components/DataTools";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney as M } from "../components/Money";
 import { api, type CategoryKind, type CompareBy, type ComparePeriods, type CompareRow, type ReportPeriodKind } from "../lib/api";
@@ -75,9 +75,7 @@ export function Compare() {
             <PeriodBox n={1} from={periods.aFrom} to={periods.aTo} onFrom={(v) => edit("aFrom", v)} onTo={(v) => edit("aTo", v)} />
             <span className="vs muted" aria-hidden>→</span>
             <PeriodBox n={2} from={periods.bFrom} to={periods.bTo} onFrom={(v) => edit("bFrom", v)} onTo={(v) => edit("bTo", v)} />
-            <button className="btn" onClick={exp.run} aria-busy={exp.busy} data-done={exp.done || undefined} disabled={exp.busy || !valid} title="Сравнение в Excel или CSV">
-              Выгрузить
-            </button>
+            <ExportButton exp={exp} disabled={!valid} title="Сравнение в CSV или Excel" />
           </div>
         )}
         {periods && !valid && <p className="error">Конец периода раньше начала.</p>}
