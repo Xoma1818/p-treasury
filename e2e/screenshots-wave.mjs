@@ -64,7 +64,7 @@ try {
   await browser.pause(300);
   await shot(browser, "habits");
   await openSection(browser, "Главная");
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await browser.pause(400);
   await shot(browser, "home-edit");
   await click(browser, "Готово");

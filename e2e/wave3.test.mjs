@@ -148,10 +148,41 @@ test("календарь: дни без трат отмечены, итог не
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });
 });
 
+test("Главная: «+ Расход ▾» и операция панелью справа (0.30)", async () => {
+  await openSection(browser, "Главная");
+  // Доход и перевод — в меню у «+ Расход».
+  assert.equal(await browser.$('//main//button[normalize-space()="+ Доход"]').isExisting(), false, "доход спрятан в меню");
+  await browser.$('[data-testid="add-menu-toggle"]').click();
+  await browser.$('//*[@role="menu"]//button[normalize-space()="+ Доход"]').click();
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Существующая операция — панелью справа, с похожими операциями.
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Пятёрочка");
+  await browser.waitUntil(async () => (await browser.$$('[data-testid="txn-row"]')).length > 1, { timeout: 5000 });
+  await browser.$('[data-testid="txn-row"]').click();
+  await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('[data-testid="similar-txns"] li').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // В Настройках можно вернуть окно.
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "окном");
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-row"]').click();
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "панелью справа");
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
   await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
@@ -164,7 +195,7 @@ test("своя Главная: скрыть карточку, перестави
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await click(browser, "Вернуть по умолчанию");
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
   await click(browser, "Готово");

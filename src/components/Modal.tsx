@@ -5,7 +5,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  *  сначала играют исчезновение, потом закрывают. Под автотестом — сразу. */
 const CLOSE_MS = 160;
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+/** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
+export function Modal({ title, onClose, children, wide, side }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; side?: boolean }) {
   const [closing, setClosing] = useState(false);
   const timer = useRef(0);
   const close = useRef(onClose);
@@ -28,8 +29,8 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     return () => window.removeEventListener("keydown", onKey);
   });
   return (
-    <div className={closing ? "overlay closing" : "overlay"} onMouseDown={(e) => e.target === e.currentTarget && dismiss()}>
-      <div className={wide ? "modal wide" : "modal"} role="dialog" aria-label={title}>
+    <div className={["overlay", side && "side", closing && "closing"].filter(Boolean).join(" ")} onMouseDown={(e) => e.target === e.currentTarget && dismiss()}>
+      <div className={["modal", wide && "wide", side && "side"].filter(Boolean).join(" ")} role="dialog" aria-label={title} data-side={side || undefined}>
         <div className="modal-head">
           <h2>{title}</h2>
           <button className="icon-btn" onClick={dismiss} aria-label="Закрыть">

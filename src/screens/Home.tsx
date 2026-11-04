@@ -26,6 +26,7 @@ import { barClass, barLevel } from "../lib/budgetLevel";
 import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
 import { ExplainDialog, type ExplainKind } from "../components/Explain";
 import { MonthReviewBanner } from "../components/MonthReview";
+import { AddMenu } from "../components/AddMenu";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -49,7 +50,7 @@ export function Home() {
   const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
-  const { openTxnForm, showTransactions, go } = useUi();
+  const { showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
@@ -190,52 +191,62 @@ export function Home() {
     ),
     plans: (
           <div className="columns home-bottom">
-          <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
-            <h2>Бюджет, {monthName}</h2>
-            {budget && !budget.id && <p className="muted">Бюджета на этот месяц нет. Нажмите, чтобы составить.</p>}
-            {budget?.id && (
-              <>
-                <p>
-                  Можно тратить сегодня:{" "}
-                  <b data-testid="home-safe-to-spend">
-                    {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
-                  </b>
-                </p>
-                <ul className="budget-brief">
-                  {budget.lines
-                    .filter((l) => l.kind === "expense" && !l.parentId)
-                    .sort((a, b) => b.percent - a.percent)
-                    .slice(0, 5)
-                    .map((l) => (
-                      <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
-                        <span>{l.categoryName}</span>
-                        <div className={barClass(l.percent)}>
-                          <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                        </div>
-                        <span className="percent">{l.percent} %</span>
-                      </li>
-                    ))}
-                </ul>
-              </>
-            )}
-          </div>
-          <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
-            <h2>
-              Ближайшие платежи по долгам
-              <Hint of="debts.upcoming" />
-            </h2>
-            {debts && debts.upcoming.length === 0 && <p className="muted">Платежей нет.</p>}
-            <ul className="account-list">
-              {debts?.upcoming.slice(0, 4).map((u) => (
-                <li key={u.scheduleId} className={u.overdue ? "over" : undefined}>
-                  <span>
-                    {formatDate(u.dueDate)} · {u.counterparty}
-                  </span>
-                  <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
-                </li>
-              ))}
-            </ul>
-          </div>
+          {budget && !budget.id ? (
+            <button type="button" className="card empty-line" data-testid="home-budget" onClick={() => go("budget")}>
+              Бюджета на {monthShort} нет <span className="go">Составить →</span>
+            </button>
+          ) : (
+            <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
+              <h2>Бюджет, {monthName}</h2>
+              {budget?.id && (
+                <>
+                  <p>
+                    Можно тратить сегодня:{" "}
+                    <b data-testid="home-safe-to-spend">
+                      {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
+                    </b>
+                  </p>
+                  <ul className="budget-brief">
+                    {budget.lines
+                      .filter((l) => l.kind === "expense" && !l.parentId)
+                      .sort((a, b) => b.percent - a.percent)
+                      .slice(0, 5)
+                      .map((l) => (
+                        <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
+                          <span>{l.categoryName}</span>
+                          <div className={barClass(l.percent)}>
+                            <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
+                          </div>
+                          <span className="percent">{l.percent} %</span>
+                        </li>
+                      ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+          {debts && debts.upcoming.length === 0 ? (
+            <button type="button" className="card empty-line" data-testid="home-upcoming" onClick={() => go("debts")}>
+              Платежей по долгам нет <span className="go">Займы и долги →</span>
+            </button>
+          ) : (
+            <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
+              <h2>
+                Ближайшие платежи по долгам
+                <Hint of="debts.upcoming" />
+              </h2>
+              <ul className="account-list">
+                {debts?.upcoming.slice(0, 4).map((u) => (
+                  <li key={u.scheduleId} className={u.overdue ? "over" : undefined}>
+                    <span>
+                      {formatDate(u.dueDate)} · {u.counterparty}
+                    </span>
+                    <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           </div>
     ),
     reminders: (
@@ -261,20 +272,13 @@ export function Home() {
     <section className="screen wide">
       <div className="screen-head">
         <ScreenTitle id="home" />
-        <div className="btn-group">
-          <button className={editing ? "btn primary" : "btn"} onClick={() => setEditing(!editing)} data-testid="home-customize">
-            {editing ? "Готово" : "Настроить"}
+        {editing ? (
+          <button className="btn primary" onClick={() => setEditing(false)} data-testid="home-customize">
+            Готово
           </button>
-          <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>
-            + Доход
-          </button>
-          <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "transfer" })}>
-            Перевод
-          </button>
-          <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
-            + Расход
-          </button>
-        </div>
+        ) : (
+          <AddMenu />
+        )}
       </div>
 
       <MonthReviewBanner />
@@ -369,6 +373,13 @@ export function Home() {
             </div>
           ),
         )}
+      {!editing && (
+        <p className="home-foot">
+          <button className="link quiet" onClick={() => setEditing(true)} data-testid="home-customize">
+            Настроить Главную
+          </button>
+        </p>
+      )}
       {explain && period && <ExplainDialog kind={explain} on={date} from={period.start} to={period.end} onClose={() => setExplain(null)} />}
     </section>
   );
