@@ -167,6 +167,9 @@ pub fn parse_date(s: &str) -> Option<String> {
 struct Lookup {
     /// имя счёта в нижнем регистре → (id, знаки после запятой)
     accounts: HashMap<String, (String, u32)>,
+    /// Счета долгов (имя в нижнем регистре → id, знаки): операции по ним вносят в
+    /// «Долгах», из файла они только узнаются как уже записанные.
+    debts: HashMap<String, (String, u32)>,
     /// (вид, «родитель → подкатегория» или имя) в нижнем регистре → id; `None` — имя неоднозначно
     categories: HashMap<(String, String), Option<String>>,
     /// Все категории (вид, id, имя) — для поиска похожей.
@@ -248,6 +251,21 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
         let (id, name, mu) = r?;
         accounts.insert(name.trim().to_lowercase(), (id, mu));
     }
+    let mut debts = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, c.minor_units FROM accounts a JOIN currencies c ON c.code = a.currency_code
+         WHERE a.type = 'debt'",
+    )?;
+    for r in stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, u32>(2)?,
+        ))
+    })? {
+        let (id, name, mu) = r?;
+        debts.entry(name.trim().to_lowercase()).or_insert((id, mu));
+    }
     let mut categories: HashMap<(String, String), Option<String>> = HashMap::new();
     let mut names = Vec::new();
     let mut stmt = conn.prepare(
@@ -306,6 +324,7 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
     }
     Ok(Lookup {
         accounts,
+        debts,
         categories,
         names,
     })
@@ -482,6 +501,11 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             let (account_id, mu) = lk
                 .accounts
                 .get(&row.account.to_lowercase())
+                .or_else(|| {
+                    (kind == "transfer")
+                        .then(|| lk.debts.get(&row.account.to_lowercase()))
+                        .flatten()
+                })
                 .cloned()
                 .ok_or_else(|| format!("нет счёта «{}»", row.account))?;
             let amount = money::parse_amount(&row.amount, mu)
@@ -503,17 +527,18 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             };
             if kind == "transfer" {
                 let to = get(c_to);
-                let (to_id, to_mu) =
-                    lk.accounts
-                        .get(&to.to_lowercase())
-                        .cloned()
-                        .ok_or_else(|| {
-                            if to.is_empty() {
-                                "для перевода нужен «Счёт зачисления»".to_string()
-                            } else {
-                                format!("нет счёта зачисления «{to}»")
-                            }
-                        })?;
+                let (to_id, to_mu) = lk
+                    .accounts
+                    .get(&to.to_lowercase())
+                    .or_else(|| lk.debts.get(&to.to_lowercase()))
+                    .cloned()
+                    .ok_or_else(|| {
+                        if to.is_empty() {
+                            "для перевода нужен «Счёт зачисления»".to_string()
+                        } else {
+                            format!("нет счёта зачисления «{to}»")
+                        }
+                    })?;
                 let to_amount = get(c_to_amount);
                 if !to_amount.is_empty() {
                     input.to_amount = Some(
@@ -613,6 +638,17 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         let input = match input {
             Some(i) if repeat(conn, &i, &mut seen)? => {
                 row.duplicate = true;
+                None
+            }
+            // Перевод с долгом (выдача, платёж) из своей же выгрузки узнаётся выше
+            // как записанный; новый так не вносят — иначе разойдётся график долга.
+            Some(i)
+                if lk.debts.values().any(|(id, _)| {
+                    *id == i.account_id || i.to_account_id.as_deref() == Some(id.as_str())
+                }) =>
+            {
+                row.error =
+                    Some("операция по долгу: выдачу и платежи вносите в разделе «Долги»".into());
                 None
             }
             other => other,
