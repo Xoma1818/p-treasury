@@ -26,6 +26,11 @@ export function Modal({
   const timer = useRef(0);
   const close = useRef(onClose);
   close.current = onClose;
+  // Блоки со своим сохранением (заметки) форму «грязной» не делают.
+  const markDirty = (e: { target: EventTarget }) => {
+    if (!(e.target instanceof Element && e.target.closest("[data-own-save]")))
+      setDirty(true);
+  };
   const dismiss = (force = false) => {
     if (guardUnsaved && dirty && !force) return setAsking(true);
     if (
@@ -59,8 +64,8 @@ export function Modal({
         className={wide ? "modal wide" : "modal"}
         role="dialog"
         aria-label={title}
-        onInputCapture={guardUnsaved ? () => setDirty(true) : undefined}
-        onChangeCapture={guardUnsaved ? () => setDirty(true) : undefined}
+        onInputCapture={guardUnsaved ? markDirty : undefined}
+        onChangeCapture={guardUnsaved ? markDirty : undefined}
       >
         <div className="modal-head">
           <h2>{title}</h2>

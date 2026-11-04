@@ -24,6 +24,8 @@ after(async () => {
 
 const dialog = '[role="dialog"]';
 const ask = '[data-testid="unsaved-ask"]';
+const askButton = (text) =>
+  `//*[@data-testid="unsaved-ask"]//button[normalize-space()="${text}"]`;
 const isOpen = (b) => b.$(dialog).isExisting();
 
 async function newExpense(browser) {
@@ -55,15 +57,11 @@ test("Esc в форме с введённой суммой спрашивает,
   );
   // «×» тоже спрашивает; «Продолжить ввод» оставляет форму.
   await (await browser.$(`${dialog} button[aria-label="Закрыть"]`)).click();
-  await (
-    await browser.$(`${ask}//button[normalize-space()="Продолжить ввод"]`)
-  ).click();
+  await (await browser.$(askButton("Продолжить ввод"))).click();
   assert.ok(await isOpen(browser));
   // «Закрыть» в вопросе закрывает без сохранения.
   await browser.keys("Escape");
-  await (
-    await browser.$(`${ask}//button[normalize-space()="Закрыть"]`)
-  ).click();
+  await (await browser.$(askButton("Закрыть"))).click();
   await browser.$(dialog).waitForExist({ reverse: true, timeout: 3000 });
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="total-balance"]', money("10 000 ₽"));

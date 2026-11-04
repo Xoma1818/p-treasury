@@ -108,7 +108,7 @@ export function NotesBlock({
   );
   const remove = useAction((id: string) => api.deleteNote(id));
   return (
-    <div className="notes-block" data-testid="notes-block">
+    <div className="notes-block" data-testid="notes-block" data-own-save>
       <h3>{title}</h3>
       <ul className="note-list" data-testid="notes">
         {notes.data?.map((n) => (
