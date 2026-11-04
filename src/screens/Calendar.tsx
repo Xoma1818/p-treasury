@@ -344,7 +344,7 @@ function RemindersView() {
                 <span className="sub">
                   {" "}
                   · {REPEATS[r.repeat].toLowerCase()}
-                  {r.nextAt ? `, следующее ${formatDateTime(r.nextAt)}` : r.active ? ", больше не повторится" : ", выключено"}
+                  {!r.active ? ", выключено" : r.nextAt ? `, следующее ${formatDateTime(r.nextAt)}` : ", больше не повторится"}
                   {r.leadDays != null && `, ${leadText(parseLead(r.leadDays))}`}
                   {(r.noteId || r.eventId) && (r.noteId ? ", из заметки" : ", у события")}
                 </span>

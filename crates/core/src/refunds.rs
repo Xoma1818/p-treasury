@@ -465,4 +465,112 @@ mod tests {
         let sums = transactions::sum_ids(c, &[jacket.clone(), r.clone()]).unwrap();
         assert_eq!((sums.expense, sums.income), (500_000, 0));
     }
+
+    fn buy(c: &Connection, card: &str, cat: &str, date: &str, amount: i64) -> String {
+        transactions::create(
+            c,
+            &TxnInput {
+                kind: "expense".into(),
+                date: date.into(),
+                account_id: card.into(),
+                amount,
+                category_id: Some(cat.into()),
+                to_account_id: None,
+                to_amount: None,
+                payee: Some("Магазин".into()),
+                note: None,
+            },
+        )
+        .unwrap()
+    }
+
+    fn refund(of: &str, date: &str, amount: i64) -> RefundInput {
+        RefundInput {
+            of: of.into(),
+            date: date.into(),
+            account_id: None,
+            amount,
+            in_purchase_month: true,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn calendar_cannot_move_refund_before_purchase() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let (card, cat) = (card(c), category(c));
+        let p = buy(c, &card, &cat, "2026-10-20", 500_000);
+        let r = create(c, &refund(&p, "2026-10-25", 100_000)).unwrap();
+        assert!(transactions::move_to(c, &r, "2026-10-19").is_err());
+        assert_eq!(transactions::get(c, &r).unwrap().date, "2026-10-25");
+        transactions::move_to(c, &r, "2026-10-20").unwrap();
+        // И покупку нельзя унести позже возврата.
+        assert!(transactions::move_to(c, &p, "2026-10-21").is_err());
+    }
+
+    #[test]
+    fn editing_receipt_keeps_refund_link_and_limit() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let (card, cat) = (card(db.conn()), category(db.conn()));
+        let other: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM categories WHERE kind = 'expense' AND id <> ?1 LIMIT 1",
+                [&cat],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let input = |a: i64, b: i64| ReceiptInput {
+            date: "2026-10-20".into(),
+            account_id: card.clone(),
+            payee: Some("Ашан".into()),
+            note: None,
+            total: a + b,
+            parts: vec![
+                PartInput {
+                    category_id: cat.clone(),
+                    amount: a,
+                    note: None,
+                },
+                PartInput {
+                    category_id: other.clone(),
+                    amount: b,
+                    note: None,
+                },
+            ],
+            event_id: None,
+            tags: vec![],
+        };
+        let split = receipts::create(db.conn_mut(), &input(300_000, 200_000)).unwrap();
+        let part: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM transactions WHERE split_id = ?1 AND category_id = ?2",
+                [&split, &cat],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let r = create(db.conn(), &refund(&part, "2026-10-22", 250_000)).unwrap();
+        receipts::update(db.conn_mut(), &split, &input(310_000, 190_000)).unwrap();
+        let new_part: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM transactions WHERE split_id = ?1 AND category_id = ?2",
+                [&split, &cat],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let t = transactions::get(db.conn(), &r).unwrap();
+        assert_eq!(
+            t.refund_of.as_deref(),
+            Some(new_part.as_str()),
+            "возврат остался привязан к части"
+        );
+        // Лимит работает: вернули 2 500 из 3 100, ещё 1 000 нельзя.
+        assert!(create(db.conn(), &refund(&new_part, "2026-10-23", 100_000)).is_err());
+    }
 }

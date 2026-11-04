@@ -24,6 +24,13 @@ describe("настройки вида в базе (Г13)", () => {
     expect(s.m.get("p-treasury-theme")).toBe("light");
     expect(s.m.get("p-treasury-scale")).toBe("125");
   });
+  it("тема из базы главнее темы окна (восстановление копии на том же компьютере)", () => {
+    const s = mem({ "p-treasury-theme": "light", "p-treasury-scale": "125" });
+    const restored = loadPrefs('{"p-treasury-theme":"dark","p-treasury-scale":"90"}', s);
+    expect(restored).toEqual(["p-treasury-theme"]);
+    expect(s.m.get("p-treasury-theme")).toBe("dark");
+    expect(s.m.get("p-treasury-scale")).toBe("125");
+  });
   it("испорченное значение в базе не мешает", () => {
     expect(loadPrefs("не json", mem({}))).toEqual([]);
   });

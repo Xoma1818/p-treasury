@@ -29,8 +29,13 @@ export function pushPref(key: string, value: string) {
   write();
 }
 
+/** Тема: копия в базе главнее окна. После восстановления копии или переноса тема
+ *  приходит из неё, даже если в этом окне уже была выбрана другая. */
+const DB_WINS = new Set<string>(["p-treasury-theme"]);
+
 /** При запуске: чего нет в окне — берём из базы (восстановление копии);
- *  чего нет в базе — дописываем из окна. Возвращает ключи, взятые из базы. */
+ *  чего нет в базе — дописываем из окна. Тему из базы берём всегда.
+ *  Возвращает ключи, взятые из базы. */
 export function loadPrefs(raw: string | undefined, storage: Pick<Storage, "getItem" | "setItem"> = localStorage): string[] {
   const saved = parse(raw);
   const restored: string[] = [];
@@ -42,7 +47,7 @@ export function loadPrefs(raw: string | undefined, storage: Pick<Storage, "getIt
     } catch {
       /* хранилище недоступно */
     }
-    if (local == null && saved[k] != null) {
+    if (saved[k] != null && (local == null || (DB_WINS.has(k) && local !== saved[k]))) {
       try {
         storage.setItem(k, saved[k]);
         restored.push(k);

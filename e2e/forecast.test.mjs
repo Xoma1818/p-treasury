@@ -87,6 +87,9 @@ test("0.19: плитка на Главной, строка в Календаре
   await click(browser, "Карта", '//*[@data-testid="fc-accounts"]');
   await waitText(browser, '[data-testid="fc-now"]', money("0 ₽"));
   await waitText(browser, '[data-testid="fc-how"]', /без Карта/);
+  // Последний счёт убрать нельзя: кнопка не молчит, а выключена и объясняет почему.
+  await waitText(browser, '[data-testid="fc-accounts"]', /Хотя бы один счёт остаётся в прогнозе/);
+  assert.equal(await (await browser.$('//*[@data-testid="fc-accounts"]//button[normalize-space()="Наличные"]')).isEnabled(), false);
   await click(browser, "Карта", '//*[@data-testid="fc-accounts"]');
   await waitText(browser, '[data-testid="fc-now"]', money("95 000 ₽"));
 });
