@@ -52,6 +52,23 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   // Г6: теги; Г3: «Учитывать по месяцам» и разбивка чека по категориям.
   const [tags, setTags] = useState<string[]>(editing?.tags ?? prefill?.tags ?? []);
   const [spread, setSpread] = useState<string>(editing?.spreadMonths ? String(editing.spreadMonths) : "");
+  // «Ещё» (0.29): комментарий, теги, «по месяцам» и «с друзьями» свёрнуты в одну строку.
+  // Раскрываются сами, если что-то из них заполнено; выбор «раскрыто» запоминается.
+  const [more, setMoreState] = useState(() => {
+    try {
+      return localStorage.getItem("kazna.txnMore") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setMore = (v: boolean) => {
+    setMoreState(v);
+    try {
+      localStorage.setItem("kazna.txnMore", v ? "1" : "0");
+    } catch {
+      /* без запоминания */
+    }
+  };
   const [parts, setParts] = useState<{ categoryId: string; amount: string; note?: string | null }[] | null>(null);
   const splitId = editing?.splitId ?? null;
   const receipt = useQuery({ queryKey: ["receipt", splitId], queryFn: () => api.getReceipt(splitId!), enabled: !!splitId });
@@ -287,6 +304,8 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
   const isAdjustment = editing?.type === "adjustment";
   const title = splitId ? "Разбитый чек" : editing ? "Операция" : "Новая операция";
 
+  const filledMore = note.trim() !== "" || tags.length > 0 || spread !== "" || !!friends;
+  const showMore = more || filledMore;
   return (
     <Modal title={title} onClose={onClose}>
       <form
@@ -447,7 +466,7 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                     )}
                   </Field>
                 )}
-                {!editing && type === "expense" && !split && !receiptParts && (
+                {showMore && !editing && type === "expense" && !split && !receiptParts && (
                   <div>
                     <button
                       type="button"
@@ -502,44 +521,57 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
                 )}
               </>
             )}
-            <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
-            {!split && (
-              <div className="field">
-                <div className="label-row">
-                  <label htmlFor="txn-tags">Теги</label>
-                  <Hint of="txn.tags" />
+            {showMore ? (
+              <>
+              <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+              {!split && (
+                <div className="field">
+                  <div className="label-row">
+                    <label htmlFor="txn-tags">Теги</label>
+                    <Hint of="txn.tags" />
+                  </div>
+                  <TagInput id="txn-tags" value={tags} onChange={setTags} />
                 </div>
-                <TagInput id="txn-tags" value={tags} onChange={setTags} />
-              </div>
-            )}
-            {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
-              <div className="spread" data-testid="spread">
-                <label className="check">
-                  <input type="checkbox" name="spreadOn" checked={spread !== ""} onChange={(e) => setSpread(e.target.checked ? "12" : "")} />
-                  Учитывать по месяцам
-                </label>
-                {spread !== "" && (
-                  <>
-                    <input
-                      type="number"
-                      name="spreadMonths"
-                      aria-label="Сколько месяцев"
-                      min={2}
-                      max={24}
-                      value={spread}
-                      onChange={(e) => setSpread(e.target.value)}
-                    />
-                    <span className="muted">мес.</span>
-                  </>
+              )}
+              {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
+                <div className="spread" data-testid="spread">
+                  <label className="check">
+                    <input type="checkbox" name="spreadOn" checked={spread !== ""} onChange={(e) => setSpread(e.target.checked ? "12" : "")} />
+                    Учитывать по месяцам
+                  </label>
+                  {spread !== "" && (
+                    <>
+                      <input
+                        type="number"
+                        name="spreadMonths"
+                        aria-label="Сколько месяцев"
+                        min={2}
+                        max={24}
+                        value={spread}
+                        onChange={(e) => setSpread(e.target.value)}
+                      />
+                      <span className="muted">мес.</span>
+                    </>
+                  )}
+                  <Hint of="txn.spread" />
+                  {spreadPreview && spreadMonths && (
+                    <span className="hint" data-testid="spread-preview">
+                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
+                      {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
+                    </span>
+                  )}
+                </div>
+              )}
+                {more && !filledMore && (
+                  <button type="button" className="link more-toggle" data-testid="txn-less" onClick={() => setMore(false)}>
+                    Свернуть
+                  </button>
                 )}
-                <Hint of="txn.spread" />
-                {spreadPreview && spreadMonths && (
-                  <span className="hint" data-testid="spread-preview">
-                    по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
-                    {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
-                  </span>
-                )}
-              </div>
+              </>
+            ) : (
+              <button type="button" className="link more-toggle" data-testid="txn-more" onClick={() => setMore(true)}>
+                Ещё: комментарий · теги{type === "expense" ? " · по месяцам · с друзьями" : ""}
+              </button>
             )}
           </>
         )}

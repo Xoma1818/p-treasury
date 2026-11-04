@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -104,6 +104,7 @@ test("общая трата за троих: своя доля — расход,
   await fill(browser, "amount", "3000");
   await chooseLike(browser, "category", "Общепит");
   await fill(browser, "payee", "Пиццерия");
+  await openMore(browser);
   await click(browser, "Разделить с друзьями");
   await fill(browser, "friend0", "Аня");
   await click(browser, "+ ещё человек");
