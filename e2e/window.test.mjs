@@ -9,6 +9,7 @@ import {
   openSection,
   fill,
   click,
+  chooseLike,
   waitText,
   money,
 } from "./app.mjs";
@@ -108,16 +109,25 @@ test("Tab идёт по полям формы по порядку, фокус в
   );
   assert.ok(seen.length >= 4, `Tab прошёл поля: ${order.join(" → ")}`);
 
+  await chooseLike(browser, "category", "Питание");
   await (await browser.$(`${dialog} [name="amount"]`)).click();
   await fill(browser, "amount", "123");
   await browser.keys("Enter");
-  await browser.$(dialog).waitForExist({ reverse: true, timeout: 5000 });
+  const closed = await browser
+    .$(dialog)
+    .waitForExist({ reverse: true, timeout: 5000 })
+    .catch(() => false);
+  if (!closed) {
+    const text = await (await browser.$(dialog)).getText();
+    assert.fail(`Enter не сохранил форму: ${text.slice(0, 300)}`);
+  }
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="total-balance"]', money("9 877 ₽"));
 });
 
 test("маленькое окно (как масштаб 150 %): ни в одном разделе нет прокрутки вбок, форма помещается", async (t) => {
   const { browser } = app;
+  await openSection(browser, "Главная"); // закрывает окно, оставшееся от прошлого теста
   const before = await browser.getWindowSize();
   try {
     await browser.setWindowSize(1024, 640);
