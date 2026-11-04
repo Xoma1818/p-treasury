@@ -4,7 +4,7 @@
 // выключатель «Предупреждать о бюджете». Постановка: docs/product/0.16-quick-wins.md.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -292,6 +292,7 @@ test("форма расхода: разбить чек на две катего�
   await waitText(browser, '[role="alert"]', /Распределите остаток/);
   await fill(browser, "partAmount1", "1000");
   await waitText(browser, '[data-testid="receipt-left"]', /Распределено полностью/);
+  await openMore(browser);
   await (await browser.$('[role="dialog"] [name="tags"]')).click();
   await (await browser.$('[role="dialog"] [name="tags"]')).setValue("праздник");
   await browser.keys("Enter");
@@ -311,6 +312,7 @@ test("форма расхода: «Учитывать по месяцам» по
   await openSection(browser, "Главная");
   await click(browser, "+ Расход");
   await fill(browser, "amount", "1000");
+  await openMore(browser);
   await (await browser.$('[role="dialog"] [name="spreadOn"]')).click();
   // Поле числа перерисовывается при каждом вводе: значение ставим через страницу.
   await setDate(browser, "spreadMonths", "3");
@@ -328,6 +330,7 @@ test("форма расхода: «Учитывать по месяцам» по
 test("фильтр «Тег» в Операциях и Ctrl+K находит тег", async () => {
   await openSection(browser, "Операции");
   await click(browser, "Сбросить");
+  await openFilters(browser);
   await pickLike("filterTag", "#дача");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 1: расходы 4[\s ]500 ₽/);
@@ -517,6 +520,7 @@ test("событие разбитого чека: создание, смена �
   const page = await parts();
   const canonical = page.items.map((p) => p.id).sort().at(-1);
   const other = page.items.find((p) => p.id !== canonical);
+  await openFilters(browser);
   await browser.$('[name="filterCategory"]').selectByAttribute("value", other.categoryId);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await openReceipt();

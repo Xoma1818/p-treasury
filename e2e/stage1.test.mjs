@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 1 «Учёт»: сценарии из product/mvp-features.md, разделы 1–4.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, mainText, money, field } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, mainText, money, field, openFilters } from "./app.mjs";
 
 let app;
 let browser;
@@ -119,6 +119,7 @@ test("сверка: корректировка записывает разниц
 test("найти трату: фильтр по категории и поиск по получателю и сумме", async () => {
   await openSection(browser, "Операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 6 из 6/);
+  await openFilters(browser);
   await choose(browser, "filterCategory", "Питание");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await click(browser, "Сбросить");
@@ -168,6 +169,7 @@ test("объединение: удаление категории с перен�
   const text = await mainText(browser);
   assert.ok(!/Магазины/.test(text), "подкатегории удалены вместе с категорией");
   await openSection(browser, "Операции");
+  await openFilters(browser);
   await choose(browser, "filterCategory", "Прочие расходы");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
 });

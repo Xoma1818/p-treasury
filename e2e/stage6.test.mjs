@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, choose, click, waitText, money, appPid, closeLikeUser } from "./app.mjs";
+import { start, stop, openSection, onboard, choose, click, waitText, money, appPid, closeLikeUser, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -103,6 +103,7 @@ test("выгрузка операций по фильтру в CSV: русски
   const path = join(files, "операции.csv");
   await openSection(browser, "Операции");
   await click(browser, "Сбросить");
+  await openFilters(browser);
   await choose(browser, "filterAccount", "Наличные (₽)");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await pick(path);

@@ -70,6 +70,7 @@ try {
   await click(browser, "Готово");
   await click(browser, "+ Расход");
   await browser.$('[name="amount"]').setValue("3000");
+  await (await browser.$('[data-testid="txn-more"]')).click();
   await click(browser, "Разделить с друзьями");
   await browser.$('[name="friend0"]').setValue("Аня");
   await click(browser, "+ ещё человек");

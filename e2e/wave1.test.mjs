@@ -2,7 +2,7 @@
 // курсовая разница, сохранённые виды. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, waitText, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, waitText, setDate, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -69,6 +69,7 @@ test("сохранённый вид отчёта открывает ту же в
 
 test("сохранённый вид операций: «Кафе» возвращает фильтр после сброса", async () => {
   await openSection(browser, "Операции");
+  await openFilters(browser);
   await choose(browser, "filterCategory", "Общепит");
   const filtered = await waitText(browser, '[data-testid="txn-count"]', /Показано \d+ из \d+/);
   await click(browser, "Сохранить вид");
