@@ -40,7 +40,7 @@ test("«Вернуть…»: возврат в месяце покупки ум�
   await openSection(browser, "Операции");
   // Покупка в прошлом месяце: снимаем фильтр месяца и открываем строку.
   await click(browser, "Сбросить");
-  const row = await browser.$('//tr[@data-testid="txn-row"][contains(., "Куртка")]');
+  const row = await browser.$('//tr[@data-testid="txn-row"][contains(., "Куртка")]/td[contains(@class, "date")]');
   await row.waitForExist({ timeout: 5000 });
   await row.click();
   await (await browser.$('[data-testid="txn-refund"]')).click();
