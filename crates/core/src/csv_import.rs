@@ -164,7 +164,7 @@ pub fn parse_date(s: &str) -> Option<String> {
         .map(|d| d.to_string())
 }
 
-struct Lookup {
+pub(crate) struct Lookup {
     /// имя счёта в нижнем регистре → (id, знаки после запятой)
     accounts: HashMap<String, (String, u32)>,
     /// (вид, «родитель → подкатегория» или имя) в нижнем регистре → id; `None` — имя неоднозначно
@@ -197,6 +197,17 @@ pub(crate) struct NewCategory {
     name: String,
 }
 
+impl NewCategory {
+    /// Категория верхнего уровня (из выписки банка).
+    pub(crate) fn top(kind: &str, name: &str) -> Self {
+        NewCategory {
+            kind: kind.to_string(),
+            parent: None,
+            name: name.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Parent {
     Existing(String),
@@ -214,7 +225,7 @@ fn stems(s: &str) -> Vec<String> {
 
 /// Похожая категория того же вида: больше всего общих основ слов
 /// («Продукты питания» → «Питание», «Кафе и рестораны» → «Рестораны»).
-fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
+pub(crate) fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
     let want = stems(name);
     if want.is_empty() {
         return None;
@@ -232,7 +243,7 @@ fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
         .map(|(_, id, n)| (id.clone(), n.clone()))
 }
 
-fn lookup(conn: &Connection) -> Result<Lookup> {
+pub(crate) fn lookup(conn: &Connection) -> Result<Lookup> {
     let mut accounts = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT a.id, a.name, c.minor_units FROM accounts a JOIN currencies c ON c.code = a.currency_code
@@ -711,7 +722,7 @@ fn repeat(conn: &Connection, t: &TxnInput, seen: &mut HashMap<String, usize>) ->
 /// Покупка, к которой относится возврат: обычный проведённый расход той же
 /// категории и получателя, где осталось вернуть не меньше суммы возврата; в дату
 /// для бюджета, если она есть, иначе последняя не позже возврата.
-fn purchase_for(
+pub(crate) fn purchase_for(
     conn: &Connection,
     category: &str,
     t: &TxnInput,
@@ -733,13 +744,14 @@ fn purchase_for(
         .optional()?)
 }
 
-/// Записать разобранные строки файла по шаблону: операции — через историю
+/// Записать разобранные строки файла по шаблону или выписки банка (`bank`): операции — через историю
 /// импорта, возвраты — возвратами своих покупок (они могли загрузиться этим же
 /// файлом). Всё в транзакции вызывающего.
 pub(crate) fn save_rows(
     conn: &Connection,
     origin: import_log::Origin,
     file_name: &str,
+    bank: Option<&str>,
     parsed: Vec<Parsed>,
     refunds: &Refunds,
     skipped: usize,
@@ -757,7 +769,7 @@ pub(crate) fn save_rows(
         }
     }
     let mut saved =
-        import_log::save_with_raw(conn, origin, file_name, None, &plain.0, &plain.1, skipped)?;
+        import_log::save_with_raw(conn, origin, file_name, bank, &plain.0, &plain.1, skipped)?;
     for (line, t, budget) in back {
         let of = t
             .category_id
@@ -799,8 +811,8 @@ fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result
         if ops.is_empty() {
             return invalid("в выписке нет проведённых операций");
         }
-        let parsed = bank_import::to_parsed(conn, bank, &ops, account_id)?;
-        return Ok((parsed, Extra::default(), Some((bank, ops))));
+        let (parsed, extra) = bank_import::to_parsed(conn, bank, &ops, account_id)?;
+        return Ok((parsed, extra, Some((bank, ops))));
     }
     let is_csv = path
         .extension()
@@ -878,29 +890,13 @@ pub fn import(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    if bank.is_none() {
-        let saved = save_rows(
-            &tx,
-            import_log::Origin::Manual,
-            &name,
-            parsed,
-            &extra.refunds,
-            skipped,
-        )?;
-        tx.commit()?;
-        return Ok(saved);
-    }
-    let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
-        .into_iter()
-        .filter_map(|p| p.input.map(|i| (i, p.raw_payee)))
-        .unzip();
-    let saved = import_log::save_with_raw(
+    let saved = save_rows(
         &tx,
         import_log::Origin::Manual,
         &name,
         bank.as_ref().map(|(b, _)| b.title()),
-        &inputs,
-        &raws,
+        parsed,
+        &extra.refunds,
         skipped,
     )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
