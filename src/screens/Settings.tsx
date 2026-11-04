@@ -10,6 +10,7 @@ import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
+import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
@@ -28,6 +29,7 @@ export function Settings() {
   const base = settings?.base_currency ?? "RUB";
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
+  const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
 
   return (
     <section className="screen">
@@ -135,6 +137,23 @@ export function Settings() {
               <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>
                 <option value="1">за день</option>
                 <option value="0">не напоминать</option>
+              </select>
+            )}
+          </Field>
+          <Field label="Открывать операцию" hint="Панель справа показывает операцию рядом со списком и похожие операции; окно — как раньше, посередине.">
+            {(id) => (
+              <select
+                id={id}
+                name="txnOpen"
+                value={txnOpen}
+                onChange={(e) => {
+                  const next = e.target.value as TxnOpen;
+                  setTxnOpen(next);
+                  saveTxnOpen(next);
+                }}
+              >
+                <option value="panel">панелью справа</option>
+                <option value="dialog">окном</option>
               </select>
             )}
           </Field>

@@ -12,6 +12,8 @@ import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from ".
 import { NotesBlock } from "./Notes";
 import { TemplateButtons, useTemplates } from "./Templates";
 import { ErrorText, Modal } from "./Modal";
+import { SimilarTxns } from "./SimilarTxns";
+import { savedTxnOpen } from "../lib/txnOpen";
 import { Hint } from "./Hint";
 import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
@@ -313,8 +315,26 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
 
   const filledMore = note.trim() !== "" || tags.length > 0 || spread !== "" || !!friends;
   const showMore = more || filledMore;
+  // Р4: существующая операция по умолчанию открывается панелью справа с похожими операциями.
+  const side = !!editing && savedTxnOpen() === "panel";
+  // Есть ли несохранённые правки: тогда переход к похожей операции сначала спрашивает.
+  const dirty =
+    !!editing &&
+    (amount !== amountText(editing.amount, editing.minorUnits) ||
+      date !== editing.date ||
+      type !== editing.type ||
+      accountId !== editing.accountId ||
+      (toAccountId || null) !== (editing.toAccountId ?? null) ||
+      toAmount !== amountText(editing.toAmount, editing.toMinorUnits ?? 2) ||
+      (categoryId || null) !== (editing.categoryId ?? null) ||
+      payee !== (editing.payee ?? "") ||
+      note !== (editing.note ?? "") ||
+      (eventId || null) !== (editing.eventId ?? null) ||
+      tags.join("\u0000") !== editing.tags.join("\u0000") ||
+      spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
+      !!friends);
   return (
-    <Modal title={title} onClose={onClose} guardUnsaved>
+    <Modal title={title} onClose={onClose} side={side} guardUnsaved>
       <form
         className="form"
         onSubmit={(e) => {
@@ -626,6 +646,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
               </button>
             </div>
           ))}
+        {side && editing && !splitId && <SimilarTxns txn={editing} dirty={dirty} />}
         {splitId && !receiptLoaded.current && !receipt.error && <p className="hint" role="status">Загружаем чек…</p>}
         <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />

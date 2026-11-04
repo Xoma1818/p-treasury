@@ -148,10 +148,70 @@ test("календарь: дни без трат отмечены, итог не
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });
 });
 
+/** Щелчок с повтором: список перерисовывается (поиск, обновление данных), и найденный узел устаревает. */
+async function tap(sel) {
+  for (let i = 0; ; i++) {
+    try {
+      const el = await browser.$(sel);
+      await el.waitForClickable({ timeout: 5000 });
+      return await el.click();
+    } catch (e) {
+      if (i >= 4 || !/stale|not found/i.test(String(e.message))) throw e;
+      await browser.pause(200);
+    }
+  }
+}
+
+test("Главная: «+ Расход ▾» и операция панелью справа (0.30)", async () => {
+  await openSection(browser, "Главная");
+  // Доход и перевод — в меню у «+ Расход».
+  assert.equal(await browser.$('//main//button[normalize-space()="+ Доход"]').isExisting(), false, "доход спрятан в меню");
+  await tap('[data-testid="add-menu-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="+ Доход"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Существующая операция — панелью справа, с похожими операциями.
+  await openSection(browser, "Операции");
+  // Пример заполняет месяц по дням: за весь срок у «Пятёрочки» точно несколько покупок.
+  await tap('//*[@data-testid="period"]//button[normalize-space()="Всё время"]');
+  await fill(browser, "search", "Пятёрочка");
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const rows = [...document.querySelectorAll('[data-testid="txn-row"]')];
+      return rows.length > 1 && rows.every((r) => r.textContent.includes("Пятёрочка"));
+    }),
+    { timeout: 5000 },
+  );
+  await tap('[data-testid="txn-row"] td.date');
+  await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('[data-testid="similar-txns"] li button').waitForDisplayed({ timeout: 5000 });
+  // Несохранённая правка: переход к похожей сначала спрашивает, «Остаться» оставляет форму.
+  await fill(browser, "amount", "77");
+  await tap('[data-testid="similar-txns"] li button');
+  await browser.$('[data-testid="similar-confirm"]').waitForDisplayed({ timeout: 5000 });
+  await tap('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]');
+  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "77", "правка на месте");
+  await browser.keys("Escape");
+  await tap('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // В Настройках можно вернуть окно.
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "окном");
+  await openSection(browser, "Операции");
+  await tap('[data-testid="txn-row"] td.date');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "панелью справа");
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
   await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
@@ -164,7 +224,7 @@ test("своя Главная: скрыть карточку, перестави
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await click(browser, "Вернуть по умолчанию");
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
   await click(browser, "Готово");

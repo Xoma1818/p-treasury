@@ -7,17 +7,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  *  спрашивают «Закрыть без сохранения?». Кнопка «Отмена» формы закрывает сразу. */
 const CLOSE_MS = 160;
 
+/** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
 export function Modal({
   title,
   onClose,
   children,
   wide,
+  side,
   guardUnsaved,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  side?: boolean;
   guardUnsaved?: boolean;
 }) {
   const [closing, setClosing] = useState(false);
@@ -57,13 +60,14 @@ export function Modal({
   });
   return (
     <div
-      className={closing ? "overlay closing" : "overlay"}
+      className={["overlay", side && "side", closing && "closing"].filter(Boolean).join(" ")}
       onMouseDown={(e) => e.target === e.currentTarget && dismiss()}
     >
       <div
-        className={wide ? "modal wide" : "modal"}
+        className={["modal", wide && "wide", side && "side"].filter(Boolean).join(" ")}
         role="dialog"
         aria-label={title}
+        data-side={side || undefined}
         onInputCapture={guardUnsaved ? markDirty : undefined}
         onChangeCapture={guardUnsaved ? markDirty : undefined}
       >

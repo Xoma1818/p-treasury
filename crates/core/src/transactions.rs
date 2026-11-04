@@ -380,6 +380,8 @@ pub struct Filter {
     pub tag_id: Option<String>,
     /// Операции, добавленные одним импортом.
     pub import_id: Option<String>,
+    /// Получатель целиком, без учёта регистра и пробелов по краям (похожие операции).
+    pub payee: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -473,6 +475,12 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     }
     if let Some(e) = &f.event_id {
         wh.push(format!("t.event_id = {}", arg(e.clone().into())));
+    }
+    if let Some(p) = f.payee.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        wh.push(format!(
+            "kz_lower(trim(t.payee)) = {}",
+            arg(p.to_lowercase().into())
+        ));
     }
     if let Some(i) = &f.import_id {
         wh.push(format!("t.import_id = {}", arg(i.clone().into())));
@@ -844,6 +852,37 @@ mod tests {
         )
         .is_err());
         assert!(create(c, &txn("adjustment", "2026-10-20", &f.card, 100, None)).is_err());
+    }
+
+    #[test]
+    fn payee_filter_is_exact() {
+        // Р4 «Похожие»: получатель целиком, без учёта регистра и пробелов; комментарий не в счёт.
+        let f = fx();
+        let c = f.db.conn();
+        let mut a = txn("expense", "2026-10-20", &f.card, 100, Some(&f.food));
+        a.payee = Some(" Пятёрочка ".into());
+        create(c, &a).unwrap();
+        let mut b = txn("expense", "2026-10-21", &f.card, 200, Some(&f.food));
+        b.payee = Some("Пятёрочка у дома".into());
+        create(c, &b).unwrap();
+        let mut n = txn("expense", "2026-10-22", &f.card, 300, Some(&f.food));
+        n.note = Some("как в Пятёрочке".into());
+        create(c, &n).unwrap();
+        let by = |p: &str| {
+            list(
+                c,
+                &Filter {
+                    payee: Some(p.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let page = by("пятёрочка");
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].amount, 100);
+        assert_eq!(by("  ПЯТЁРОЧКА У ДОМА").total, 1);
+        assert_eq!(by("   ").total, 3, "пустой получатель не фильтрует");
     }
 
     #[test]
