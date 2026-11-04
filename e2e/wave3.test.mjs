@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, money, openMore } from "./app.mjs";
+import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -242,7 +242,7 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.keys(["Control", "k"]);
   await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
   await fill(browser, "paletteQuery", "формат даты");
-  await waitText(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/i);
+  await waitContent(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/i);
   await browser.keys("Enter");
   await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
   await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
@@ -250,7 +250,7 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.keys(["Control", "k"]);
   await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
   await fill(browser, "paletteQuery", "тема");
-  await waitText(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
+  await waitContent(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
   await browser.keys("Enter");
   await browser.waitUntil(async () => (await browser.execute(() => document.documentElement.dataset.theme)) !== before, { timeout: 3000, timeoutMsg: "тема не сменилась" });
   await tap(before === "dark" ? '[data-testid="theme-dark"]' : '[data-testid="theme-light"]');
