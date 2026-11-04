@@ -82,7 +82,7 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Импорт: выписка Сбера или Т-Банка либо CSV по шаблону → предпросмотр с ошибками и повторами → загрузка. */
-export function ImportDialog({ onClose }: { onClose: () => void }) {
+export function ImportDialog({ onClose, initialPath }: { onClose: () => void; initialPath?: string }) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -105,6 +105,10 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       setError(String(e));
     }
   };
+  // Файл, брошенный в окно: сразу предпросмотр.
+  useEffect(() => {
+    if (initialPath) void load(initialPath, null);
+  }, [initialPath]);
   const choose = async () => {
     const p = await pickOpen([STATEMENT, CSV]);
     if (p) await load(p, null);

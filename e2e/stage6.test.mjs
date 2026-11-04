@@ -67,6 +67,31 @@ test("импорт CSV: три строки с ошибкой в дате вид
   await waitText(browser, card("Наличные"), money("5 550 ₽"));
 });
 
+/** Файл из проводника, брошенный в окно: так Tauri сообщает о нём странице. */
+const dropFiles = (paths) =>
+  browser.execute(
+    (p) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "tauri://drag-drop", payload: { paths: p, position: { x: 400, y: 300 } } }),
+    paths,
+  );
+
+test("Операции: выписку можно загрузить кнопкой или перетащить файл в окно", async () => {
+  await openSection(browser, "Операции");
+  await click(browser, "Загрузить выписку");
+  await (await browser.$('//*[@role="dialog"]//button[normalize-space()="Выбрать файл"]')).waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+
+  // Чужой файл — понятная ошибка, а не тишина.
+  await dropFiles([join(files, "заметки.docx")]);
+  await waitText(browser, '//p[@role="alert"]', /не выписка/);
+
+  // Файл выписки — сразу предпросмотр.
+  const path = join(files, "перетащили.csv");
+  writeFileSync(path, csv([[ru(daysAgo(5)), "Расход", "Карта", "Такси", "", "", "300", ""]]));
+  await dropFiles(["/нет/такого.png", path]);
+  await waitText(browser, '[data-testid="import-summary"]', /перетащили\.csv: строк 1, без ошибок 1/);
+  await browser.keys("Escape");
+});
+
 test("напоминание о копии: операции старше месяца, а копий не было", async () => {
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="backup-reminder"]', /Резервной копии не было больше месяца/);
