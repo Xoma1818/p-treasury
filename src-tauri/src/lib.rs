@@ -130,6 +130,8 @@ pub fn run() {
                     main = main.additional_browser_args(&args);
                 }
                 main.build()?;
+            } else {
+                eprintln!("в tauri.conf.json нет окна \"main\": программа запущена без окна");
             }
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");
