@@ -163,7 +163,13 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await browser.waitUntil(async () => (await browser.$$('[data-testid="txn-row"]')).length > 1, { timeout: 5000 });
   await browser.$('[data-testid="txn-row"]').click();
   await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
-  await browser.$('[data-testid="similar-txns"] li').waitForDisplayed({ timeout: 5000 });
+  await browser.$('[data-testid="similar-txns"] li button').waitForDisplayed({ timeout: 5000 });
+  // Несохранённая правка: переход к похожей сначала спрашивает, «Остаться» оставляет форму.
+  await fill(browser, "amount", "77");
+  await browser.$('[data-testid="similar-txns"] li button').click();
+  await browser.$('[data-testid="similar-confirm"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]').click();
+  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "77", "правка на месте");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // В Настройках можно вернуть окно.

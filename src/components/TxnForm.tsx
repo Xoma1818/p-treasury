@@ -317,6 +317,21 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const showMore = more || filledMore;
   // Р4: существующая операция по умолчанию открывается панелью справа с похожими операциями.
   const side = !!editing && savedTxnOpen() === "panel";
+  // Есть ли несохранённые правки: тогда переход к похожей операции сначала спрашивает.
+  const dirty =
+    !!editing &&
+    (amount !== amountText(editing.amount, editing.minorUnits) ||
+      date !== editing.date ||
+      type !== editing.type ||
+      accountId !== editing.accountId ||
+      (toAccountId || null) !== (editing.toAccountId ?? null) ||
+      (categoryId || null) !== (editing.categoryId ?? null) ||
+      payee !== (editing.payee ?? "") ||
+      note !== (editing.note ?? "") ||
+      (eventId || null) !== (editing.eventId ?? null) ||
+      tags.join("\u0000") !== editing.tags.join("\u0000") ||
+      spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
+      !!friends);
   return (
     <Modal title={title} onClose={onClose} side={side}>
       <form
@@ -630,7 +645,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
               </button>
             </div>
           ))}
-        {side && editing && !splitId && <SimilarTxns txn={editing} />}
+        {side && editing && !splitId && <SimilarTxns txn={editing} dirty={dirty} />}
         {splitId && !receiptLoaded.current && !receipt.error && <p className="hint" role="status">Загружаем чек…</p>}
         <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />

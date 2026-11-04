@@ -936,7 +936,9 @@ h2 { font-size: 16px; }
 .similar { margin: 8px 0 4px; border-top: 1px solid var(--border); padding-top: 12px; }
 .similar h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
 .similar ul { list-style: none; margin: 0; padding: 0; }
-.similar li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.similar li:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.similar li .when { color: var(--muted); margin-right: 6px; }
+.similar-row { display: flex; width: 100%; justify-content: space-between; gap: 8px; padding: 6px 4px; border: 0; background: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; color: var(--text); text-align: left; }
+.similar-row:hover, .similar-row:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: none; }
+.similar-row:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.similar-confirm { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin: 4px 0 6px; }
+.similar .when { color: var(--muted); margin-right: 6px; }
 @media (prefers-reduced-motion: reduce) { .modal.side, .menu-pop { animation: none; } }
