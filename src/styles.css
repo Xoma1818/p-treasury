@@ -978,3 +978,10 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .modules-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
 .modules-list .check { align-items: flex-start; }
 .modules-list .sub { display: block; color: var(--muted); font-size: 12px; }
+.nav-order { list-style: none; margin: 8px 0 12px; padding: 0; max-width: 420px; }
+.nav-order li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.nav-order .sub { display: block; color: var(--muted); font-size: 12px; }
+.nav-order-move { display: flex; gap: 2px; }
+.nav-order-move .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; }
+.nav-order-move .icon-btn:disabled { opacity: 0.3; cursor: default; }
+#set-menu .field { max-width: 320px; margin-top: 12px; }

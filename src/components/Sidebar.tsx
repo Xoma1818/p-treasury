@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import { useModules } from "../lib/modules";
 import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
 import { useEffect, Fragment, useState } from "react";
 import { api } from "../lib/api";
-import { SECTIONS } from "../lib/sections";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
@@ -81,6 +81,10 @@ function NavViews() {
 export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
   const { sectionOn } = useModules();
+  // Г4: своё меню — порядок, скрытые разделы, «Мои виды» вверху. Подписи групп — только у меню как было.
+  const { nav } = useNavPrefs();
+  const shown = navSections(nav, sectionOn);
+  const groups = isDefaultNav(nav);
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
@@ -92,12 +96,13 @@ export function Sidebar() {
         <span>Поиск</span>
         <kbd>Ctrl+K</kbd>
       </button>
-      <ul>
-        {SECTIONS.map((s, i) => [s, i] as const).filter(([s]) => sectionOn(s.id)).map(([s, i], k, shown) => (
+      <ul data-testid="nav-list">
+        {nav.viewsTop && <NavViews />}
+        {shown.map((s, i) => (
           <Fragment key={s.id}>
-            {s.id === "settings" && <NavViews />}
+            {s.id === "settings" && !nav.viewsTop && <NavViews />}
             <li className={s.id === "settings" ? "nav-settings" : undefined}>
-              {s.group && shown[k - 1]?.[0].group !== s.group && <div className="nav-group">{s.group}</div>}
+              {groups && s.group && shown[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
               <button
                 className={s.id === section ? "nav-item active" : "nav-item"}
                 aria-current={s.id === section ? "page" : undefined}
