@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useModules } from "../lib/modules";
 import { useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ErrorText } from "../components/Modal";
@@ -132,6 +133,7 @@ function ForecastLine({ month }: { month: string }) {
 }
 
 function MonthView({ month, setMonth, selected, select }: { month: string; setMonth: (m: string) => void; selected: string | null; select: (d: string) => void }) {
+  const modules = useModules();
   const q = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) });
   const m = q.data;
   const t = today();
@@ -207,7 +209,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
           </div>
           <ErrorText error={move.error} />
           <Totals m={m} />
-          <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />
+          {modules.on("habits") && <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />}
         </>
       )}
     </>

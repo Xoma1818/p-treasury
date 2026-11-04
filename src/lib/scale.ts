@@ -1,6 +1,7 @@
 // Масштаб интерфейса: «Авто» подстраивает размер под окно (на весь экран крупнее),
 // либо выбранный вручную процент. Как и тема, хранится в браузерном хранилище окна.
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { pushPref } from "./uiPrefs";
 import { isTauri } from "./api";
 
 export type Scale = "auto" | "90" | "100" | "110" | "125" | "150";
@@ -51,6 +52,7 @@ function apply() {
 
 export function applyScale(scale: Scale) {
   mode = scale;
+  pushPref(KEY, scale);
   try {
     localStorage.setItem(KEY, scale);
   } catch {

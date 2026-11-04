@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, money, openMore } from "./app.mjs";
+import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -206,6 +206,74 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   await openSection(browser, "Настройки");
   await choose(browser, "txnOpen", "панелью справа");
+});
+
+test("Отчёты «Ещё ▾», «⋯» у счёта и разделы Настроек (0.30)", async () => {
+  await openSection(browser, "Отчёты");
+  // Четыре главных отчёта видны, остальные — в «Ещё ▾»; выбранный встаёт на место кнопки.
+  assert.equal(await browser.$('//*[@role="tablist"]//button[normalize-space()="Итоги года"]').isExisting(), false);
+  await tap('[data-testid="more-tabs-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Итоги года"]');
+  await waitText(browser, '[data-testid="more-tabs-toggle"]', /Итоги года/);
+  await click(browser, "Структура", '//*[@role="tablist"]');
+  await waitText(browser, '[data-testid="more-tabs-toggle"]', /Ещё/);
+  // Счета: «Изменить» и «Закрыть счёт» — в меню «⋯».
+  await openSection(browser, "Счета");
+  await tap('[data-testid="account-row"] [data-testid="row-menu"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Изменить"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Настройки: раздел слева прокручивает к своей карточке.
+  await openSection(browser, "Настройки");
+  await tap('//aside[@aria-label="Разделы настроек"]//button[normalize-space()="О программе"]');
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const r = document.getElementById("set-about").getBoundingClientRect();
+      return r.top < innerHeight && r.bottom > 0;
+    }),
+    { timeout: 5000, timeoutMsg: "«О программе» не видно" },
+  );
+});
+
+test("Ctrl+K находит настройку и действие, правая кнопка, «Возможности» (0.30)", async () => {
+  // Ctrl+K: «формат даты» ведёт в Настройки к полю; «тема» переключает тему.
+  await openSection(browser, "Главная");
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "формат даты");
+  await waitContent(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/i);
+  await browser.keys("Enter");
+  await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
+  await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
+  const before = await browser.execute(() => document.documentElement.dataset.theme);
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "тема");
+  await waitContent(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => (await browser.execute(() => document.documentElement.dataset.theme)) !== before, { timeout: 3000, timeoutMsg: "тема не сменилась" });
+  await tap(before === "dark" ? '[data-testid="theme-dark"]' : '[data-testid="theme-light"]');
+  // Правая кнопка по операции: меню с действиями, «Открыть» открывает её.
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  await browser.execute(() => {
+    const r = document.querySelector('[data-testid="txn-row"] td.date');
+    const b = r.getBoundingClientRect();
+    r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
+  });
+  await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
+  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*Удалить/);
+  await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // «Возможности»: выключенные «Заметки» пропадают из меню и возвращаются.
+  await openSection(browser, "Настройки");
+  await tap('[name="module-notes"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ reverse: true, timeout: 5000 });
+  await tap('[data-testid="modules-all"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ timeout: 5000 });
 });
 
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
