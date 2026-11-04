@@ -89,6 +89,55 @@ struct Lookup {
     accounts: HashMap<String, (String, u32)>,
     /// (вид, «родитель → подкатегория» или имя) в нижнем регистре → id; `None` — имя неоднозначно
     categories: HashMap<(String, String), Option<String>>,
+    /// Все категории (вид, id, имя) — для поиска похожей.
+    names: Vec<(String, String, String)>,
+}
+
+/// Новые категории: (номер строки в разборе, категория).
+pub(crate) type NewCategories = Vec<(usize, NewCategory)>;
+
+/// Категория из файла, которой нет в программе: её создаст загрузка.
+#[derive(Debug, Clone)]
+pub(crate) struct NewCategory {
+    kind: String,
+    /// Родитель из «Родитель → Имя»: id готовой категории или имя новой.
+    parent: Option<Parent>,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+enum Parent {
+    Existing(String),
+    New(String),
+}
+
+/// Основы слов длиной от 4 букв: «Продукты питания» → «проду», «питан».
+fn stems(s: &str) -> Vec<String> {
+    s.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= 4)
+        .map(|w| w.chars().take(5).collect())
+        .collect()
+}
+
+/// Похожая категория того же вида: больше всего общих основ слов
+/// («Продукты питания» → «Питание», «Кафе и рестораны» → «Рестораны»).
+fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
+    let want = stems(name);
+    if want.is_empty() {
+        return None;
+    }
+    lk.names
+        .iter()
+        .filter(|(k, _, _)| k == kind)
+        .map(|(_, id, n)| (stems(n).iter().filter(|s| want.contains(s)).count(), id, n))
+        .filter(|(score, _, _)| *score > 0)
+        // При равенстве — первая по порядку категорий.
+        .fold(None::<(usize, &String, &String)>, |best, cur| match best {
+            Some(b) if b.0 >= cur.0 => Some(b),
+            _ => Some(cur),
+        })
+        .map(|(_, id, n)| (id.clone(), n.clone()))
 }
 
 fn lookup(conn: &Connection) -> Result<Lookup> {
@@ -108,9 +157,11 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
         accounts.insert(name.trim().to_lowercase(), (id, mu));
     }
     let mut categories: HashMap<(String, String), Option<String>> = HashMap::new();
+    let mut names = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT c.id, c.kind, c.name, p.name FROM categories c LEFT JOIN categories p ON p.id = c.parent_id
-         WHERE c.archived_at IS NULL",
+         WHERE c.archived_at IS NULL
+         ORDER BY COALESCE(p.sort_order, c.sort_order), c.parent_id IS NOT NULL, c.sort_order",
     )?;
     for r in stmt.query_map([], |r| {
         Ok((
@@ -121,6 +172,7 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
         ))
     })? {
         let (id, kind, name, parent) = r?;
+        names.push((kind.clone(), id.clone(), name.clone()));
         let short = name.to_lowercase();
         if let Some(p) = &parent {
             categories.insert(
@@ -163,10 +215,83 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
     Ok(Lookup {
         accounts,
         categories,
+        names,
     })
 }
 
+/// Разбор CSV; строки с неизвестной категорией без похожей попадут в
+/// загрузку только после `create_categories` (сразу — в `parse`).
 pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
+    let (mut parsed, new) = parse_full(conn, path)?;
+    create_categories(conn, &mut parsed, &new)?;
+    Ok(parsed)
+}
+
+/// Создать недостающие категории и проставить их строкам (`(номер строки в
+/// `parsed`, категория)`). Одинаковые имена создаются один раз.
+pub(crate) fn create_categories(
+    conn: &Connection,
+    parsed: &mut [Parsed],
+    new: &[(usize, NewCategory)],
+) -> Result<()> {
+    // «Аквариум» и «аквариум» — одна категория (первое написание).
+    let key = |nc: &NewCategory| {
+        let parent = match &nc.parent {
+            None => String::new(),
+            Some(Parent::Existing(id)) => id.clone(),
+            Some(Parent::New(n)) => format!("new:{}", n.to_lowercase()),
+        };
+        (nc.kind.clone(), parent, nc.name.to_lowercase())
+    };
+    let mut made: HashMap<(String, String, String), String> = HashMap::new();
+    let mut parents: HashMap<(String, String), String> = HashMap::new();
+    for (i, nc) in new {
+        let id = match made.get(&key(nc)) {
+            Some(id) => id.clone(),
+            None => {
+                let parent_id = match &nc.parent {
+                    None => None,
+                    Some(Parent::Existing(id)) => Some(id.clone()),
+                    Some(Parent::New(name)) => {
+                        let key = (nc.kind.clone(), name.to_lowercase());
+                        Some(match parents.get(&key) {
+                            Some(id) => id.clone(),
+                            None => {
+                                let id = crate::categories::create(
+                                    conn,
+                                    &crate::categories::CategoryInput {
+                                        name: name.clone(),
+                                        kind: nc.kind.clone(),
+                                        parent_id: None,
+                                    },
+                                )?;
+                                parents.insert(key, id.clone());
+                                id
+                            }
+                        })
+                    }
+                };
+                let id = crate::categories::create(
+                    conn,
+                    &crate::categories::CategoryInput {
+                        name: nc.name.clone(),
+                        kind: nc.kind.clone(),
+                        parent_id,
+                    },
+                )?;
+                made.insert(key(nc), id.clone());
+                id
+            }
+        };
+        if let Some(input) = parsed.get_mut(*i).and_then(|p| p.input.as_mut()) {
+            input.category_id = Some(id);
+        }
+    }
+    Ok(())
+}
+
+/// Разбор без записи в базу: строки и категории, которые нужно создать.
+pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>, NewCategories)> {
     let text = read_text(path)?;
     let first = text.lines().next().unwrap_or("");
     let delimiter = if first.matches(';').count() >= first.matches(',').count() {
@@ -210,6 +335,7 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
     let lk = lookup(conn)?;
 
     let mut out = Vec::new();
+    let mut new_cats = Vec::new();
     for (i, rec) in rdr.records().enumerate() {
         let rec = rec.map_err(|e| Error::Validation(format!("не удалось прочитать CSV: {e}")))?;
         let get = |c: Option<usize>| c.and_then(|c| rec.get(c)).unwrap_or("").trim().to_string();
@@ -229,6 +355,8 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
             linked_to: None,
             maybe: 0,
         };
+        let mut new_cat: Option<NewCategory> = None;
+        let mut shown: Option<String> = None;
         let checked = (|| -> std::result::Result<TxnInput, String> {
             let date = parse_date(&row.date)
                 .ok_or_else(|| format!("дата «{}»: нужна ДД.ММ.ГГГГ", row.date))?;
@@ -308,18 +436,55 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
                             row.category, row.category
                         ))
                     }
+                    // Нет такой категории: похожая, иначе новая (её создаст загрузка).
                     None => {
-                        return Err(format!(
-                            "нет категории «{}» для типа «{}»",
-                            row.category, row.kind
-                        ))
+                        let (parent, name) = match row
+                            .category
+                            .split_once(" → ")
+                            .or_else(|| row.category.split_once(" / "))
+                        {
+                            Some((p, n)) => (Some(p.trim()), n.trim()),
+                            None => (None, row.category.as_str()),
+                        };
+                        let parent = parent.filter(|p| !p.is_empty());
+                        let parent_id = parent.and_then(|p| {
+                            lk.categories
+                                .get(&(kind.to_string(), p.to_lowercase()))
+                                .cloned()
+                                .flatten()
+                        });
+                        if parent.is_none() {
+                            if let Some((id, found)) = similar(&lk, kind, name) {
+                                shown = Some(format!("{found} (в файле «{}»)", row.category));
+                                input.category_id = Some(id);
+                                return Ok(input);
+                            }
+                        }
+                        new_cat = Some(NewCategory {
+                            kind: kind.to_string(),
+                            parent: parent.map(|p| match parent_id {
+                                Some(id) => Parent::Existing(id),
+                                None => Parent::New(p.to_string()),
+                            }),
+                            name: name.to_string(),
+                        });
+                        shown = Some(format!("{} (новая)", row.category));
+                        None
                     }
                 };
             }
             Ok(input)
         })();
         let input = match checked {
-            Ok(i) => Some(i),
+            Ok(i) => {
+                if let Some(nc) = new_cat {
+                    new_cats.push((out.len(), nc));
+                }
+                if let Some(s) = shown {
+                    row.category = s;
+                }
+                Some(i)
+            }
             Err(e) => {
                 row.error = Some(e);
                 None
@@ -334,24 +499,23 @@ pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
     if out.is_empty() {
         return invalid("в файле нет строк с операциями");
     }
-    Ok(out)
+    Ok((out, new_cats))
 }
 
 /// Узнанная выписка банка и её операции.
 type Statement = (bank_import::Bank, Vec<bank_import::Op>);
 
-/// Выписка банка или CSV по шаблону.
-fn parse_any(
-    conn: &Connection,
-    path: &Path,
-    account_id: Option<&str>,
-) -> Result<(Vec<Parsed>, Option<Statement>)> {
+/// Строки, их новые категории (только CSV по шаблону) и выписка банка.
+type Parsed3 = (Vec<Parsed>, NewCategories, Option<Statement>);
+
+/// Выписка банка или CSV по шаблону. В базу ничего не пишет.
+fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Parsed3> {
     if let Some((bank, ops)) = bank_import::read(path)? {
         if ops.is_empty() {
             return invalid("в выписке нет проведённых операций");
         }
         let parsed = bank_import::to_parsed(conn, bank, &ops, account_id)?;
-        return Ok((parsed, Some((bank, ops))));
+        return Ok((parsed, Vec::new(), Some((bank, ops))));
     }
     let is_csv = path
         .extension()
@@ -359,13 +523,14 @@ fn parse_any(
     if !is_csv {
         return invalid("файл не похож на выписку Сбера (PDF) или Т-Банка (CSV, Excel)");
     }
-    Ok((parse(conn, path)?, None))
+    let (parsed, new) = parse_full(conn, path)?;
+    Ok((parsed, new, None))
 }
 
 /// Предпросмотр: каждая строка с ошибкой или без. Для выписки банка
 /// `account_id` — выбранный счёт (без него — запомненный).
 pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Preview> {
-    let (mut parsed, bank) = parse_any(conn, path, account_id)?;
+    let (mut parsed, _, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
     let inputs: Vec<TxnInput> = parsed.iter().filter_map(|p| p.input.clone()).collect();
@@ -413,13 +578,16 @@ pub fn import(
     skip_errors: bool,
     account_id: Option<&str>,
 ) -> Result<import_log::Saved> {
-    let (parsed, bank) = parse_any(conn, path, account_id)?;
+    let (mut parsed, new, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
             "в файле строк с ошибками: {errors}; исправьте их или загрузите только правильные"
         ));
     }
+    let tx = conn.transaction()?;
+    // Недостающие категории — в той же транзакции, что и операции.
+    create_categories(&tx, &mut parsed, &new)?;
     let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
     let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
         .into_iter()
@@ -429,7 +597,6 @@ pub fn import(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let tx = conn.transaction()?;
     let saved = import_log::save_with_raw(
         &tx,
         import_log::Origin::Manual,
@@ -659,6 +826,82 @@ mod tests {
         assert_eq!(again.rows, sheet.rows);
     }
 
+    /// Категории, которых нет в программе: похожая берётся сама, иначе
+    /// загрузка создаёт новую (предпросмотр ничего не создаёт).
+    #[test]
+    fn missing_categories_go_to_similar_or_are_created() {
+        let mut db = setup();
+        let dir = tempfile::tempdir().unwrap();
+        let count = |db: &Storage| -> i64 {
+            db.conn()
+                .query_row("SELECT count(*) FROM categories", [], |r| r.get(0))
+                .unwrap()
+        };
+        let before = count(&db);
+        let f = file(
+            &dir,
+            "new.csv",
+            "Дата;Тип;Счёт;Категория;Сумма
+             01.10.2026;Расход;Карта;Продукты питания;100
+             02.10.2026;Расход;Карта;Аквариум;200
+             03.10.2026;Расход;Карта;аквариум;300
+             04.10.2026;Расход;Карта;Дети → Шахматы;400
+             05.10.2026;Расход;Карта;Рыбалка → Снасти;500
+             06.10.2026;Доход;Карта;Фриланс;600
+",
+        );
+        let p = preview(db.conn(), &f, None).unwrap();
+        assert_eq!((p.valid, p.errors), (6, 0));
+        let shown: Vec<_> = p.rows.iter().map(|r| r.category.as_str()).collect();
+        assert_eq!(
+            shown,
+            [
+                "Питание (в файле «Продукты питания»)",
+                "Аквариум (новая)",
+                "аквариум (новая)",
+                "Дети → Шахматы (новая)",
+                "Рыбалка → Снасти (новая)",
+                "Фриланс (новая)",
+            ]
+        );
+        assert_eq!(count(&db), before, "предпросмотр ничего не создаёт");
+
+        assert_eq!(import(db.conn_mut(), &f, false, None).unwrap().added, 6);
+        // Аквариум (один раз на два написания), Шахматы, Рыбалка и Снасти, Фриланс.
+        assert_eq!(count(&db), before + 5);
+        let c = db.conn();
+        let cat_of = |amount: i64| -> (String, Option<String>, String) {
+            c.query_row(
+                "SELECT c.name, p.name, c.kind FROM transactions t JOIN categories c ON c.id = t.category_id
+                 LEFT JOIN categories p ON p.id = c.parent_id WHERE t.amount = ?1",
+                [amount],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(cat_of(10_000).0, "Питание");
+        assert_eq!(cat_of(20_000), cat_of(30_000));
+        assert_eq!(
+            cat_of(40_000),
+            ("Шахматы".into(), Some("Дети".into()), "expense".into())
+        );
+        assert_eq!(
+            cat_of(50_000),
+            ("Снасти".into(), Some("Рыбалка".into()), "expense".into())
+        );
+        assert_eq!(cat_of(60_000), ("Фриланс".into(), None, "income".into()));
+        // Второй раз категории уже есть: ничего нового.
+        let again = file(
+            &dir,
+            "again.csv",
+            "Дата;Тип;Счёт;Категория;Сумма
+07.10.2026;Расход;Карта;Аквариум;700
+",
+        );
+        import(db.conn_mut(), &again, false, None).unwrap();
+        assert_eq!(count(&db), before + 5);
+    }
+
     #[test]
     fn header_problems_and_ambiguous_categories() {
         let db = setup();
@@ -670,11 +913,8 @@ mod tests {
         let f = file(&dir, "c.csv", "Дата;Тип;Счёт;Категория;Сумма\n01.10.2026;Расход;Карта;Дети → Одежда;1\n01.10.2026;Расход;Карта;Нет такой;1\n");
         let p = preview(db.conn(), &f, None).unwrap();
         assert_eq!(p.rows[0].error, None);
-        assert!(p.rows[1]
-            .error
-            .as_deref()
-            .unwrap()
-            .starts_with("нет категории"));
+        assert_eq!(p.rows[1].error, None);
+        assert_eq!(p.rows[1].category, "Нет такой (новая)");
         let f = file(&dir, "e.csv", "Дата;Тип;Счёт;Сумма\n");
         assert!(preview(db.conn(), &f, None).is_err());
         fs::write(dir.path().join("w.csv"), [0xC4u8, 0xE0, 0xF2, 0xE0]).unwrap();

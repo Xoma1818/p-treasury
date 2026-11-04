@@ -155,7 +155,7 @@ test("выгрузка операций в OFX и сводки в CSV", async ()
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.ofx/);
   const text = readFileSync(ofx, "utf8");
   assert.ok(text.startsWith("<?xml"), text.slice(0, 80));
-  assert.match(text, /<ACCTID>Наличные<\/ACCTID>/);
+  assert.match(text, /<ACCTID>[0-9A-F]{22}<\/ACCTID>/, "номер счёта — постоянный, не название");
   assert.match(text, /<TRNAMT>-450\.00<\/TRNAMT>/);
 
   const csv = join(files, "сводка.csv");

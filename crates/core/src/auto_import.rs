@@ -230,7 +230,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pt-auto-{}", crate::ids::new_id()));
         fs::create_dir_all(&dir).unwrap();
         let head = "Дата;Тип;Счёт;Сумма;Категория;Получатель\n";
-        fs::write(dir.join("a.csv"), format!("{head}01.10.2026;Расход;Карта;100;Продукты;Магнит\n02.10.2026;Расход;Карта;50;Нет такой;X\n")).unwrap();
+        fs::write(dir.join("a.csv"), format!("{head}01.10.2026;Расход;Карта;100;Продукты;Магнит\n02.10.2026;Расход;Сейф;50;Продукты;X\n")).unwrap();
         fs::write(dir.join("other.csv"), "name,price\nчай,10\n").unwrap();
         fs::write(dir.join("notes.txt"), head).unwrap();
 

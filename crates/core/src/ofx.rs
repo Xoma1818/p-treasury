@@ -43,16 +43,18 @@ pub fn transactions_ofx(conn: &Connection, filter: &Filter, today: &str) -> Resu
         by_account.entry(a.to_string()).or_default();
     }
     let all = accounts::list(conn, true)?;
+    // Период выписки охватывает все её операции (и будущие), остаток — на его конец.
+    let last = txns.last().map(|t| t.date.as_str()).unwrap_or(today);
+    let to = filter
+        .date_to
+        .clone()
+        .unwrap_or_else(|| last.max(today).to_string());
     let from = filter
         .date_from
         .clone()
         .or_else(|| txns.first().map(|t| t.date.clone()))
-        .unwrap_or_else(|| today.to_string());
-    let to = filter
-        .date_to
-        .clone()
-        .filter(|d| d.as_str() < today)
-        .unwrap_or_else(|| today.to_string());
+        .unwrap_or_else(|| to.clone())
+        .min(to.clone());
 
     let mut out = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n\
@@ -75,7 +77,7 @@ pub fn transactions_ofx(conn: &Connection, filter: &Filter, today: &str) -> Resu
              <BANKACCTFROM><BANKID>KAZNA</BANKID><ACCTID>{}</ACCTID><ACCTTYPE>{}</ACCTTYPE></BANKACCTFROM>\n",
             n + 1,
             esc(&acc.currency_code),
-            esc(&acc.name),
+            acct_id(&acc.id),
             if acc.kind == "credit" { "CREDITLINE" } else { "CHECKING" },
         );
         out += &format!(
@@ -201,6 +203,15 @@ fn lines(t: &Txn) -> Vec<(String, Line)> {
     }
 }
 
+/// Номер счёта в OFX (до 22 знаков): постоянный — из id счёта, а не из
+/// названия, поэтому не меняется при переименовании и не совпадает у двух
+/// одноимённых карт. Хвост UUID v7 — случайная часть.
+fn acct_id(id: &str) -> String {
+    let hex: String = id.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let start = hex.len().saturating_sub(22);
+    hex[start..].to_uppercase()
+}
+
 /// `YYYY-MM-DD` → `YYYYMMDD`.
 fn day(date: &str) -> String {
     date.replace('-', "")
@@ -292,7 +303,9 @@ mod tests {
         let all = transactions_ofx(c, &Filter::default(), "2026-11-04").unwrap();
         assert!(all.starts_with("<?xml"));
         assert_eq!(all.matches("<STMTRS>").count(), 2, "по выписке на счёт");
-        assert!(all.contains("<ACCTID>Карта &lt;Сбер&gt; &amp; Ко</ACCTID>"));
+        assert!(all.contains(&format!("<ACCTID>{}</ACCTID>", acct_id(&card))));
+        assert_eq!(acct_id(&card).len(), 22);
+        assert_ne!(acct_id(&card), acct_id(&cash));
         assert!(all.contains(&format!(
             "<TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20261005</DTPOSTED><TRNAMT>-2340.50</TRNAMT><FITID>{spent}</FITID><NAME>Пятёрочка</NAME><MEMO>Питание · у дома</MEMO>"
         )));
@@ -318,6 +331,50 @@ mod tests {
         assert_eq!(one.matches("<STMTTRN>").count(), 1);
         assert!(one.contains(&format!("{moved}-in")));
         assert!(one.contains("<BALAMT>1000.00</BALAMT>"));
+    }
+
+    /// Даты выписки согласованы с операциями: будущая операция внутри
+    /// периода, остаток — на его конец; одноимённые счета различаются.
+    #[test]
+    fn period_covers_future_operations_and_same_names_differ() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let a = accounts::create(c, &input("Сбер", "debit", "RUB", 0)).unwrap();
+        let b = accounts::create(c, &input("Сбер", "debit", "RUB", 0)).unwrap();
+        let mut inc = txn("income", "2026-12-20", &a, 500);
+        inc.category_id = Some(salary(c));
+        transactions::create(c, &inc).unwrap();
+        let mut inc2 = txn("income", "2026-10-02", &b, 100);
+        inc2.category_id = Some(salary(c));
+        transactions::create(c, &inc2).unwrap();
+
+        let all = transactions_ofx(c, &Filter::default(), "2026-11-04").unwrap();
+        assert!(
+            all.contains("<DTSTART>20261002</DTSTART><DTEND>20261220</DTEND>"),
+            "{all}"
+        );
+        assert!(all.contains("<BALAMT>5.00</BALAMT><DTASOF>20261220</DTASOF>"));
+        assert_eq!(all.matches("<ACCTID>").count(), 2);
+        assert_ne!(acct_id(&a), acct_id(&b));
+
+        // Период целиком в будущем: начало не позже конца.
+        let f = Filter {
+            date_from: Some("2027-01-01".into()),
+            date_to: Some("2027-01-31".into()),
+            ..Filter::default()
+        };
+        let future = transactions_ofx(c, &f, "2026-11-04").unwrap();
+        assert!(!future.contains("<STMTTRN>"));
+        let f = Filter {
+            date_from: Some("2026-12-01".into()),
+            ..Filter::default()
+        };
+        let tail = transactions_ofx(c, &f, "2026-11-04").unwrap();
+        assert!(
+            tail.contains("<DTSTART>20261201</DTSTART><DTEND>20261220</DTEND>"),
+            "{tail}"
+        );
     }
 
     #[test]
