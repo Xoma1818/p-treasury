@@ -16,6 +16,8 @@ export interface TxnPrefill {
 export type TxnFormState =
   | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; onSaved?: (id: string) => Promise<unknown> }
   | { mode: "edit"; txn: Txn }
+  /** 0.29: возврат за покупку `purchase`. */
+  | { mode: "refund"; purchase: Txn }
   | null;
 
 /** Фильтр перехода в «Операции»; без дат — за всё время. */
