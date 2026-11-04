@@ -1,4 +1,5 @@
 import { EventsCard } from "../components/Events";
+import { useModules } from "../lib/modules";
 import { InvestBudgetCard } from "../components/Invest";
 import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useState } from "react";
@@ -20,6 +21,7 @@ import { MonthReviewDialog } from "../components/MonthReview";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
+  const modules = useModules();
   const current = useMonthOf(today()).data?.month;
   const [picked, setPicked] = useState<string | null>(null);
   const month = picked ?? current;
@@ -64,7 +66,7 @@ export function Budget() {
       {budget.error && <p className="error">{String(budget.error)}</p>}
       {b && (b.id ? <BudgetView key={b.id} b={b} /> : <NoBudget month={b.period.month} />)}
       {month && b && !b.id && <InvestBudgetCard month={month} />}
-      <EventsCard />
+      {modules.on("events") && <EventsCard />}
     </section>
   );
 }

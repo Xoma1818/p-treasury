@@ -106,6 +106,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "refunds_and_month_review",
         sql: include_str!("../../migrations/0018_refunds_and_month_review.sql"),
     },
+    Migration {
+        version: 19,
+        name: "ui_modules_and_prefs",
+        sql: include_str!("../../migrations/0019_ui_modules_and_prefs.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

@@ -25,7 +25,12 @@ after(async () => {
 async function figures() {
   const f = {};
   await openSection(browser, "Счета");
-  f.accounts = await browser.execute(() => [...document.querySelectorAll('[data-testid="account-row"]')].map((r) => r.textContent));
+  // Сравниваем данные строки, а не кнопки действий: в 0.30 «Изменить» и «Закрыть» ушли в меню «⋯».
+  f.accounts = await browser.execute(() =>
+    [...document.querySelectorAll('[data-testid="account-row"]')].map((r) =>
+      [...r.children].filter((td) => !td.classList.contains("row-actions")).map((td) => td.textContent).join(""),
+    ),
+  );
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="month-expense"]', /₽/);
   // Плашка «−3 %» (сравнение с прошлым месяцем) есть только в новых версиях — сравниваем суммы.
