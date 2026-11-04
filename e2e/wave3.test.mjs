@@ -173,11 +173,13 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // Существующая операция — панелью справа, с похожими операциями.
   await openSection(browser, "Операции");
+  // Пример заполняет месяц по дням: за весь срок у «Пятёрочки» точно несколько покупок.
+  await tap('//*[@data-testid="period"]//button[normalize-space()="Всё время"]');
   await fill(browser, "search", "Пятёрочка");
   await browser.waitUntil(
     async () => browser.execute(() => {
       const rows = [...document.querySelectorAll('[data-testid="txn-row"]')];
-      return rows.length > 1 && rows[0].textContent.includes("Пятёрочка");
+      return rows.length > 1 && rows.every((r) => r.textContent.includes("Пятёрочка"));
     }),
     { timeout: 5000 },
   );
