@@ -944,3 +944,27 @@ h2 { font-size: 16px; }
 .similar-confirm { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin: 4px 0 6px; }
 .similar .when { color: var(--muted); margin-right: 6px; }
 @media (prefers-reduced-motion: reduce) { .modal.side, .menu-pop { animation: none; } }
+
+/* П. 11: Отчёты — четыре вкладки и «Ещё ▾». */
+.tab-more { position: relative; flex: 1; display: flex; }
+.tab-more > .tab { display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+.menu-item.active { color: var(--accent); font-weight: 600; }
+
+/* П. 13: Счета — частые действия в строке тише, ярче при наведении; редкие в «⋯». */
+.row-menu { position: relative; display: inline-flex; vertical-align: middle; }
+.row-actions .link { color: var(--muted); }
+tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--accent); }
+.menu-item.danger { color: var(--over); }
+
+/* П. 14: Настройки — разделы слева, карточки справа на одной странице. */
+.settings-layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
+.settings-nav-item { border: 0; background: none; text-align: left; padding: 7px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--muted); cursor: pointer; transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.settings-nav-item:hover { color: var(--text); background: var(--hover); }
+.settings-nav-item.active { color: var(--accent); background: var(--card); font-weight: 600; }
+.settings-body { min-width: 0; }
+.settings-section { scroll-margin-top: 16px; }
+@media (max-width: 860px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+}

@@ -18,8 +18,69 @@ import { YearReviewReport } from "../components/YearReview";
 import { Hint } from "../components/Hint";
 import { NetWorthReport } from "../components/NetWorth";
 import { TagReport } from "../components/Tags";
+import { usePopup } from "../lib/usePopup";
 
 const M = BaseMoney;
+
+/** П. 11 плана: четыре главных отчёта видны всегда, остальные — в «Ещё ▾».
+ *  Открытый отчёт из «Ещё» показывается на месте этой кнопки. */
+const MAIN_TABS: [Tab, string][] = [
+  ["structure", "Структура"],
+  ["months", "По месяцам"],
+  ["compare", "Сравнение"],
+  ["balances", "Остатки на дату"],
+];
+const MORE_TABS: [Tab, string][] = [
+  ["fx", "Курсовая разница"],
+  ["subs", "Подписки"],
+  ["year", "Итоги года"],
+  ["tag", "По тегу"],
+  ["networth", "Чистые активы"],
+];
+
+function ReportTabs({ tab, onPick }: { tab: Tab; onPick: (t: Tab) => void }) {
+  const { open, setOpen, ref } = usePopup();
+  const more = MORE_TABS.find(([t]) => t === tab);
+  return (
+    <div className="tabs report-tabs" role="tablist">
+      {MAIN_TABS.map(([t, label]) => (
+        <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => onPick(t)}>
+          {label}
+        </button>
+      ))}
+      <div className="tab-more" ref={ref}>
+        <button
+          role="tab"
+          aria-selected={!!more}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className={more ? "tab active" : "tab"}
+          data-testid="more-tabs-toggle"
+          onClick={() => setOpen(!open)}
+        >
+          {more ? more[1] : "Ещё"} <ChevronDown size={14} aria-hidden />
+        </button>
+        {open && (
+          <div className="menu-pop" role="menu">
+            {MORE_TABS.map(([t, label]) => (
+              <button
+                key={t}
+                role="menuitem"
+                className={t === tab ? "menu-item active" : "menu-item"}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(t);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type Tab = "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
 
@@ -203,25 +264,7 @@ export function Reports() {
         current={{ tab, kind, custom: kind === "custom" ? custom : null }}
         onApply={applyView}
       />
-      <div className="tabs report-tabs" role="tablist">
-        {(
-          [
-            ["structure", "Структура"],
-            ["months", "По месяцам"],
-            ["balances", "Остатки на дату"],
-            ["compare", "Сравнение"],
-            ["fx", "Курсовая разница"],
-            ["subs", "Подписки"],
-            ["year", "Итоги года"],
-            ["tag", "По тегу"],
-            ["networth", "Чистые активы"],
-          ] as [Tab, string][]
-        ).map(([t, label]) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <ReportTabs tab={tab} onPick={setTab} />
 
       {period && tab === "structure" && <Structure period={period} />}
       {period && tab === "months" && <Months period={period} kind={kind} />}

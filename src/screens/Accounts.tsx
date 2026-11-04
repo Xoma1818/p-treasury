@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { RowMenu } from "../components/RowMenu";
 import { useState } from "react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, amountText, Field } from "../components/Fields";
@@ -77,12 +78,13 @@ export function Accounts() {
                       Сверить
                     </button>
                   )}
-                  <button className="link" onClick={() => setEditing(a)}>
-                    Изменить
-                  </button>
-                  <button className="link" onClick={() => archive.run(a.id, !a.archived)}>
-                    {a.archived ? "Вернуть" : "Закрыть"}
-                  </button>
+                  <RowMenu
+                    label={`Ещё: ${a.name}`}
+                    items={[
+                      { text: "Изменить", onClick: () => setEditing(a) },
+                      { text: a.archived ? "Вернуть из закрытых" : "Закрыть счёт", onClick: () => archive.run(a.id, !a.archived), danger: !a.archived },
+                    ]}
+                  />
                 </td>
               </tr>
             ))}
