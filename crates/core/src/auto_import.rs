@@ -149,19 +149,35 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
         };
         let template = looks_like_template(&path);
         let parsed = if template {
-            csv_import::parse(conn, &path).map(|p| Some((None, p)))
+            csv_import::parse(conn, &path).map(|(p, r)| Some((None, p, r)))
         } else {
             match bank_import::read(&path) {
-                Ok(Some((bank, ops))) => {
-                    bank_import::to_parsed(conn, bank, &ops, None).map(|p| Some((Some(bank), p)))
-                }
+                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None)
+                    .map(|p| Some((Some(bank), p, Vec::new()))),
                 // Не выписка или не читается — чужой файл, молча пропускаем.
                 Ok(None) | Err(_) => Ok(None),
             }
         };
         let known = !matches!(parsed, Ok(None));
         match parsed {
-            Ok(Some((bank, parsed))) => {
+            // Файл по шаблону: повторы и возвраты разобраны при чтении.
+            Ok(Some((None, parsed, refunds))) => {
+                res.skipped = parsed.iter().filter(|p| p.input.is_none()).count();
+                let tx = conn.transaction()?;
+                let s = csv_import::save_rows(
+                    &tx,
+                    import_log::Origin::Folder,
+                    &res.name,
+                    parsed,
+                    &refunds,
+                    res.skipped,
+                )?;
+                tx.commit()?;
+                res.added = s.added;
+                res.linked = s.linked;
+                res.suggested = s.suggested;
+            }
+            Ok(Some((bank, parsed, _))) => {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
@@ -333,6 +349,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(amount, 12_345);
+
+        // Выгрузка всех операций, брошенная в папку той же базы, ничего не удваивает.
+        let all = crate::export::transactions_sheet(c, &Default::default()).unwrap();
+        crate::export::write_xlsx(&dir.join("Все.xlsx"), &[all]).unwrap();
+        let r = scan(c, &dir).unwrap();
+        assert_eq!((r.added, r.files[0].skipped), (0, 4), "{:?}", r.files);
         fs::remove_dir_all(&dir).unwrap();
     }
 

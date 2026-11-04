@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::invalid;
@@ -176,6 +176,18 @@ struct Lookup {
 /// Новые категории: (номер строки в разборе, категория).
 pub(crate) type NewCategories = Vec<(usize, NewCategory)>;
 
+/// Возвраты покупок из файла: (номер строки в разборе, дата для бюджета).
+/// Дата для бюджета — дата покупки, если возврат учтён в её месяце, иначе `None`.
+/// Такие строки пишутся не как доход, а как возврат найденной покупки.
+pub(crate) type Refunds = Vec<(usize, Option<String>)>;
+
+/// Что разбор файла по шаблону добавил к строкам.
+#[derive(Debug, Default)]
+pub(crate) struct Extra {
+    pub(crate) categories: NewCategories,
+    pub(crate) refunds: Refunds,
+}
+
 /// Категория из файла, которой нет в программе: её создаст загрузка.
 #[derive(Debug, Clone)]
 pub(crate) struct NewCategory {
@@ -301,10 +313,10 @@ fn lookup(conn: &Connection) -> Result<Lookup> {
 
 /// Разбор CSV; строки с неизвестной категорией без похожей попадут в
 /// загрузку только после `create_categories` (сразу — в `parse`).
-pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<Vec<Parsed>> {
-    let (mut parsed, new) = parse_full(conn, path)?;
-    create_categories(conn, &mut parsed, &new)?;
-    Ok(parsed)
+pub(crate) fn parse(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>, Refunds)> {
+    let (mut parsed, extra) = parse_full(conn, path)?;
+    create_categories(conn, &mut parsed, &extra.categories)?;
+    Ok((parsed, extra.refunds))
 }
 
 /// Создать недостающие категории и проставить их строкам (`(номер строки в
@@ -371,7 +383,7 @@ pub(crate) fn create_categories(
 }
 
 /// Разбор без записи в базу: строки и категории, которые нужно создать.
-pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>, NewCategories)> {
+pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>, Extra)> {
     let mut table = read_table(path)?.into_iter();
     let headers: Vec<String> = table
         .next()
@@ -402,7 +414,12 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         idx("Счёт зачисления"),
         idx("Сумма зачисления"),
     );
+    let c_budget = idx("Дата для бюджета");
     let lk = lookup(conn)?;
+    let mut refunds: Refunds = Vec::new();
+    // Ключ категории строки: id или «new:имя» для той, что создаст загрузка.
+    let mut cat_keys: Vec<Option<String>> = Vec::new();
+    let mut seen = HashMap::new();
 
     let mut out = Vec::new();
     let mut new_cats = Vec::new();
@@ -431,20 +448,37 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         };
         let mut new_cat: Option<NewCategory> = None;
         let mut shown: Option<String> = None;
+        // Возврат покупки: категория — расходная, как у покупки.
+        let is_refund = row.kind.to_lowercase() == "возврат";
+        let mut budget_date: Option<String> = None;
         let checked = (|| -> std::result::Result<TxnInput, String> {
             let date = parse_date(&row.date)
                 .ok_or_else(|| format!("дата «{}»: нужна ДД.ММ.ГГГГ", row.date))?;
             let kind = match row.kind.to_lowercase().as_str() {
-                "расход" => "expense",
+                "расход" | "возврат" => "expense",
                 "доход" => "income",
                 "перевод" => "transfer",
                 _ => {
                     return Err(format!(
-                        "тип «{}»: нужен Расход, Доход или Перевод",
+                        "тип «{}»: нужен Расход, Доход, Перевод или Возврат",
                         row.kind
                     ))
                 }
             };
+            if is_refund {
+                if row.category.is_empty() {
+                    return Err("у возврата нужна категория покупки".into());
+                }
+                let b = get(c_budget);
+                if !b.is_empty() {
+                    let b = parse_date(&b)
+                        .ok_or_else(|| format!("дата для бюджета «{b}»: нужна ДД.ММ.ГГГГ"))?;
+                    if b > date {
+                        return Err("дата для бюджета позже возврата".into());
+                    }
+                    budget_date = Some(b).filter(|b| *b != date);
+                }
+            }
             let (account_id, mu) = lk
                 .accounts
                 .get(&row.account.to_lowercase())
@@ -550,9 +584,18 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             Ok(input)
         })();
         let input = match checked {
-            Ok(i) => {
+            Ok(mut i) => {
+                cat_keys.push(i.category_id.clone().or_else(|| {
+                    new_cat
+                        .as_ref()
+                        .map(|nc| format!("new:{}", nc.name.to_lowercase()))
+                }));
                 if let Some(nc) = new_cat {
                     new_cats.push((out.len(), nc));
+                }
+                if is_refund {
+                    i.kind = "income".into();
+                    refunds.push((out.len(), budget_date));
                 }
                 if let Some(s) = shown {
                     row.category = s;
@@ -560,9 +603,19 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
                 Some(i)
             }
             Err(e) => {
+                cat_keys.push(None);
                 row.error = Some(e);
                 None
             }
+        };
+        // Уже есть такая операция (файл загружают второй раз, например
+        // выгрузку «Операций»): пропускается. Части разбитого чека — каждая сама по себе.
+        let input = match input {
+            Some(i) if repeat(conn, &i, &mut seen)? => {
+                row.duplicate = true;
+                None
+            }
+            other => other,
         };
         out.push(Parsed {
             row,
@@ -573,14 +626,172 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
     if out.is_empty() {
         return invalid("в файле нет строк с операциями");
     }
-    Ok((out, new_cats))
+    // Возврат без покупки (ни в программе, ни выше в файле) не загружается:
+    // иначе он стал бы обычным доходом.
+    refunds.retain(|(i, budget)| {
+        let Some(input) = out[*i].input.as_ref() else {
+            return false;
+        };
+        let in_file = out[..*i].iter().zip(&cat_keys).any(|(p, key)| {
+            p.input.as_ref().is_some_and(|q| {
+                q.kind == "expense"
+                    && key.is_some()
+                    && *key == cat_keys[*i]
+                    && q.payee == input.payee
+                    && q.amount >= input.amount
+                    && match budget {
+                        Some(d) => q.date == *d,
+                        None => q.date <= input.date,
+                    }
+            })
+        });
+        let found = in_file
+            || input.category_id.as_deref().is_some_and(|c| {
+                purchase_for(conn, c, input, budget.as_deref())
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            // Уже загруженный возврат пропущен как повтор — покупка у него есть.
+            || out[*i].row.duplicate;
+        if !found {
+            out[*i].row.error = Some(format!(
+                "возврат: нет покупки «{}» в категории «{}» не дороже возврата — загрузите файл вместе с покупкой",
+                input.payee.as_deref().unwrap_or("без получателя"),
+                out[*i].row.category
+            ));
+            out[*i].input = None;
+        }
+        found
+    });
+    // Категории создаются только для строк, которые загрузятся.
+    new_cats.retain(|(i, _)| out[*i].input.is_some());
+    Ok((
+        out,
+        Extra {
+            categories: new_cats,
+            refunds,
+        },
+    ))
+}
+
+/// Строка — повтор уже записанной операции (дата, счёт, тип, сумма, получатель;
+/// у перевода и счёт зачисления). N-я одинаковая строка файла — повтор, только
+/// если таких операций уже не меньше N: две одинаковые покупки за день остаются.
+fn repeat(conn: &Connection, t: &TxnInput, seen: &mut HashMap<String, usize>) -> Result<bool> {
+    let key = format!(
+        "{}|{}|{}|{}|{}|{}",
+        t.date,
+        t.account_id,
+        t.kind,
+        t.amount,
+        t.payee.as_deref().unwrap_or(""),
+        t.to_account_id.as_deref().unwrap_or("")
+    );
+    let nth = seen.entry(key).or_insert(0);
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM transactions WHERE date = ?1 AND account_id = ?2 AND type = ?3
+           AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
+           AND coalesce(to_account_id, '') = coalesce(?6, '')",
+        params![
+            t.date,
+            t.account_id,
+            t.kind,
+            t.amount,
+            t.payee,
+            t.to_account_id
+        ],
+        |r| r.get(0),
+    )?;
+    let repeat = n as usize > *nth;
+    *nth += 1;
+    Ok(repeat)
+}
+
+/// Покупка, к которой относится возврат: обычный проведённый расход той же
+/// категории и получателя, где осталось вернуть не меньше суммы возврата; в дату
+/// для бюджета, если она есть, иначе последняя не позже возврата.
+fn purchase_for(
+    conn: &Connection,
+    category: &str,
+    t: &TxnInput,
+    budget: Option<&str>,
+) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT p.id FROM transactions p
+             WHERE p.type = 'expense' AND p.refund = 0 AND p.category_id = ?1
+               AND coalesce(p.payee, '') = coalesce(?2, '') AND p.status = 'cleared'
+               AND p.spread_months IS NULL AND p.debt_id IS NULL
+               AND (CASE WHEN ?4 IS NULL THEN p.date <= ?3 ELSE p.date = ?4 END)
+               AND p.amount - coalesce((SELECT sum(r.amount) FROM transactions r
+                                        WHERE r.refund_of = p.id), 0) >= ?5
+             ORDER BY p.date DESC, p.created_at DESC LIMIT 1",
+            params![category, t.payee, t.date, budget, t.amount],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Записать разобранные строки файла по шаблону: операции — через историю
+/// импорта, возвраты — возвратами своих покупок (они могли загрузиться этим же
+/// файлом). Всё в транзакции вызывающего.
+pub(crate) fn save_rows(
+    conn: &Connection,
+    origin: import_log::Origin,
+    file_name: &str,
+    parsed: Vec<Parsed>,
+    refunds: &Refunds,
+    skipped: usize,
+) -> Result<import_log::Saved> {
+    let mut plain = (Vec::new(), Vec::new());
+    let mut back = Vec::new();
+    for (i, p) in parsed.into_iter().enumerate() {
+        let Some(input) = p.input else { continue };
+        match refunds.iter().find(|(r, _)| *r == i) {
+            Some((_, budget)) => back.push((p.row.line, input, budget.clone())),
+            None => {
+                plain.0.push(input);
+                plain.1.push(p.raw_payee);
+            }
+        }
+    }
+    let mut saved =
+        import_log::save_with_raw(conn, origin, file_name, None, &plain.0, &plain.1, skipped)?;
+    for (line, t, budget) in back {
+        let of = t
+            .category_id
+            .as_deref()
+            .map(|c| purchase_for(conn, c, &t, budget.as_deref()))
+            .transpose()?
+            .flatten()
+            .ok_or_else(|| Error::Validation(format!("строка {line}: возврат без покупки")))?;
+        let id = crate::refunds::create(
+            conn,
+            &crate::refunds::RefundInput {
+                of,
+                date: t.date.clone(),
+                account_id: Some(t.account_id.clone()),
+                amount: t.amount,
+                in_purchase_month: budget.is_some(),
+                note: t.note.clone(),
+            },
+        )
+        .map_err(|e| Error::Validation(format!("строка {line}: {e}")))?;
+        conn.execute(
+            "UPDATE transactions SET import_id = ?2 WHERE id = ?1",
+            params![id, saved.import_id],
+        )?;
+        saved.added += 1;
+    }
+    Ok(saved)
 }
 
 /// Узнанная выписка банка и её операции.
 type Statement = (bank_import::Bank, Vec<bank_import::Op>);
 
 /// Строки, их новые категории (только CSV по шаблону) и выписка банка.
-type Parsed3 = (Vec<Parsed>, NewCategories, Option<Statement>);
+type Parsed3 = (Vec<Parsed>, Extra, Option<Statement>);
 
 /// Выписка банка или CSV по шаблону. В базу ничего не пишет.
 fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Parsed3> {
@@ -589,7 +800,7 @@ fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result
             return invalid("в выписке нет проведённых операций");
         }
         let parsed = bank_import::to_parsed(conn, bank, &ops, account_id)?;
-        return Ok((parsed, Vec::new(), Some((bank, ops))));
+        return Ok((parsed, Extra::default(), Some((bank, ops))));
     }
     let is_csv = path
         .extension()
@@ -597,8 +808,8 @@ fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result
     if !is_csv && !is_book(path) {
         return invalid("файл не похож на выписку Сбера (PDF) или Т-Банка (CSV, Excel)");
     }
-    let (parsed, new) = parse_full(conn, path)?;
-    Ok((parsed, new, None))
+    let (parsed, extra) = parse_full(conn, path)?;
+    Ok((parsed, extra, None))
 }
 
 /// Предпросмотр: каждая строка с ошибкой или без. Для выписки банка
@@ -652,7 +863,7 @@ pub fn import(
     skip_errors: bool,
     account_id: Option<&str>,
 ) -> Result<import_log::Saved> {
-    let (mut parsed, new, bank) = parse_any(conn, path, account_id)?;
+    let (mut parsed, extra, bank) = parse_any(conn, path, account_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
@@ -661,16 +872,28 @@ pub fn import(
     }
     let tx = conn.transaction()?;
     // Недостающие категории — в той же транзакции, что и операции.
-    create_categories(&tx, &mut parsed, &new)?;
+    create_categories(&tx, &mut parsed, &extra.categories)?;
     let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
-    let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
-        .into_iter()
-        .filter_map(|p| p.input.map(|i| (i, p.raw_payee)))
-        .unzip();
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+    if bank.is_none() {
+        let saved = save_rows(
+            &tx,
+            import_log::Origin::Manual,
+            &name,
+            parsed,
+            &extra.refunds,
+            skipped,
+        )?;
+        tx.commit()?;
+        return Ok(saved);
+    }
+    let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
+        .into_iter()
+        .filter_map(|p| p.input.map(|i| (i, p.raw_payee)))
+        .unzip();
     let saved = import_log::save_with_raw(
         &tx,
         import_log::Origin::Manual,
@@ -911,6 +1134,151 @@ mod tests {
 
     /// Категории, которых нет в программе: похожая берётся сама, иначе
     /// загрузка создаёт новую (предпросмотр ничего не создаёт).
+    /// Ревью OTTO 04.11: выгрузка с разбитым чеком и возвратами, загруженная
+    /// повторно, ничего не удваивает, а в новую базу переносит возвраты возвратами.
+    #[test]
+    fn receipt_parts_and_refunds_survive_export_and_reimport() {
+        let mut db = setup();
+        let cat = |c: &Connection, name: &str| -> String {
+            c.query_row(
+                "SELECT id FROM categories WHERE kind = 'expense' AND name = ?1",
+                [name],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let card: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM accounts WHERE name = 'Карта'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let (food, home) = (cat(db.conn(), "Питание"), cat(db.conn(), "Одежда и обувь"));
+        crate::receipts::create(
+            db.conn_mut(),
+            &crate::receipts::ReceiptInput {
+                date: "2026-10-05".into(),
+                account_id: card.clone(),
+                payee: Some("Ашан".into()),
+                note: None,
+                total: 300_000,
+                parts: vec![
+                    crate::receipts::PartInput {
+                        category_id: food.clone(),
+                        amount: 200_000,
+                        note: None,
+                    },
+                    crate::receipts::PartInput {
+                        category_id: home.clone(),
+                        amount: 100_000,
+                        note: None,
+                    },
+                ],
+                tags: vec![],
+                event_id: None,
+            },
+        )
+        .unwrap();
+        let shoes = crate::transactions::create(
+            db.conn(),
+            &TxnInput {
+                kind: "expense".into(),
+                date: "2026-09-28".into(),
+                account_id: card.clone(),
+                amount: 500_000,
+                category_id: Some(home.clone()),
+                to_account_id: None,
+                to_amount: None,
+                payee: Some("Леруа".into()),
+                note: None,
+            },
+        )
+        .unwrap();
+        let part: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM transactions WHERE split_id IS NOT NULL AND category_id = ?1",
+                [&food],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let refund =
+            |of: &str, date: &str, amount: i64, in_month: bool| crate::refunds::RefundInput {
+                of: of.into(),
+                date: date.into(),
+                account_id: None,
+                amount,
+                in_purchase_month: in_month,
+                note: None,
+            };
+        // Возврат части чека — в месяце возврата, возврат покупки — в месяце покупки.
+        crate::refunds::create(db.conn(), &refund(&part, "2026-10-07", 50_000, false)).unwrap();
+        crate::refunds::create(db.conn(), &refund(&shoes, "2026-10-02", 120_000, true)).unwrap();
+        let state = |c: &Connection| -> (i64, Vec<(String, String, i64)>) {
+            let balance: i64 = c
+                .query_row(
+                    "SELECT sum(CASE WHEN type = 'expense' THEN -amount ELSE amount END) FROM transactions",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let mut st = c
+                .prepare("SELECT type, substr(date, 1, 7), sum(amount) FROM txn_by_month GROUP BY 1, 2 ORDER BY 1, 2")
+                .unwrap();
+            let months = st
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            (balance, months)
+        };
+        let before = state(db.conn());
+        let sheet = transactions_sheet(db.conn(), &Filter::default()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let book = dir.path().join("Операции.xlsx");
+        crate::export::write_xlsx(&book, std::slice::from_ref(&sheet)).unwrap();
+
+        // Тот же файл в ту же базу: всё — повторы, ничего не добавлено.
+        let p = preview(db.conn(), &book, None).unwrap();
+        assert_eq!((p.errors, p.duplicates), (0, 5), "{:?}", p.rows);
+        assert_eq!(import(db.conn_mut(), &book, false, None).unwrap().added, 0);
+        assert_eq!(state(db.conn()), before);
+
+        // В новую базу: возвраты остаются возвратами своих покупок и своих месяцев.
+        let mut db2 = setup();
+        let p = preview(db2.conn(), &book, None).unwrap();
+        assert_eq!(p.errors, 0, "{:?}", p.rows);
+        assert_eq!(import(db2.conn_mut(), &book, false, None).unwrap().added, 5);
+        assert_eq!(state(db2.conn()), before);
+        let linked: i64 = db2
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE refund = 1 AND refund_of IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked, 2);
+        let again = transactions_sheet(db2.conn(), &Filter::default()).unwrap();
+        assert_eq!(again.rows, sheet.rows);
+
+        // Возврат без покупки не превращается в доход: строка с ошибкой.
+        let alone = dir.path().join("возврат.csv");
+        std::fs::write(
+            &alone,
+            "Дата;Тип;Счёт;Категория;Получатель;Сумма\n07.10.2026;Возврат;Карта;Питание;Пятёрочка;500\n",
+        )
+        .unwrap();
+        let p = preview(db2.conn(), &alone, None).unwrap();
+        assert!(
+            p.rows[0].error.as_deref().unwrap().contains("нет покупки"),
+            "{:?}",
+            p.rows
+        );
+    }
+
     #[test]
     fn missing_categories_go_to_similar_or_are_created() {
         let mut db = setup();

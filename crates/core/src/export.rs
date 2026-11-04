@@ -226,7 +226,7 @@ pub fn write_one(path: &Path, sheet: &Sheet) -> Result<()> {
 
 // --- Листы ---
 
-pub const TXN_HEADERS: [&str; 11] = [
+pub const TXN_HEADERS: [&str; 12] = [
     "Дата",
     "Тип",
     "Счёт",
@@ -238,6 +238,8 @@ pub const TXN_HEADERS: [&str; 11] = [
     "Сумма в основной валюте",
     "Счёт зачисления",
     "Сумма зачисления",
+    // Только у возврата, учтённого в месяце покупки: дата покупки.
+    "Дата для бюджета",
 ];
 
 pub fn txn_type_name(kind: &str) -> &'static str {
@@ -277,7 +279,11 @@ fn txn_row(
     };
     Ok(vec![
         Cell::Date(t.date.clone()),
-        Cell::text(txn_type_name(&t.kind)),
+        Cell::text(if t.refund {
+            "Возврат"
+        } else {
+            txn_type_name(&t.kind)
+        }),
         Cell::text(&t.account_name),
         Cell::opt(&t.category_name),
         Cell::opt(&t.payee),
@@ -288,6 +294,10 @@ fn txn_row(
         Cell::opt(&t.to_account_name),
         match (t.to_amount, t.to_minor_units) {
             (Some(a), Some(mu)) => Cell::Money(a, mu),
+            _ => Cell::Empty,
+        },
+        match (&t.count_date, t.refund) {
+            (Some(d), true) => Cell::Date(d.clone()),
             _ => Cell::Empty,
         },
     ])
@@ -829,7 +839,7 @@ mod tests {
         assert!(lines[0].starts_with("Дата;Тип;Счёт;Категория"));
         assert!(
             lines.contains(
-                &"05.10.2026;Расход;Карта;Питание;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;"
+                &"05.10.2026;Расход;Карта;Питание;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;;"
             ),
             "{text}"
         );
