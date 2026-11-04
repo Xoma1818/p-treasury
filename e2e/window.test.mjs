@@ -193,7 +193,7 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
     );
     await saveBtn.scrollIntoView({ block: "nearest" });
     assert.ok(
-      await saveBtn.isDisplayedInViewport(),
+      await saveBtn.isDisplayed({ withinViewport: true }),
       "кнопка «Сохранить» достижима",
     );
     await (
