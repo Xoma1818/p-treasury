@@ -1,4 +1,5 @@
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
+import { NavCard } from "../components/NavCard";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { CbrButton } from "../components/CbrButton";
@@ -236,6 +237,10 @@ export function Settings() {
       <ModulesCard />
       </div>
 
+      <div className="settings-section" id="set-menu">
+      <NavCard />
+      </div>
+
       <div className="settings-section" id="set-rates">
       <Rates base={base} />
       </div>
@@ -309,6 +314,7 @@ const SETTINGS_SECTIONS: [string, string][] = [
   ["general", "Общие"],
   ["home", "Главная"],
   ["modules", "Возможности"],
+  ["menu", "Меню"],
   ["rates", "Курсы"],
   ["data", "Данные"],
   ["vault", "Сохранность"],
