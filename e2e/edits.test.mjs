@@ -2,7 +2,7 @@
 // счёт, категория, заметка, курс. Каждый тест проверяет результат на экране, а не только нажатие.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose, newDebt } from "./app.mjs";
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const today = iso(new Date());
@@ -291,4 +291,32 @@ test("имущество: изменить оценку и удалить", asyn
   await (await browser.$(`${row}/td[1]`)).click();
   await save(browser, "Удалить");
   await browser.$(row).waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "имущество не удалилось" });
+});
+
+test("кредит: каникулы и смена ставки записываются и удаляются, название меняется", async () => {
+  await newDebt(browser, { counterparty: "Сбер", principal: "120000", rate: "12", term: "12", account: "Карта (₽)" });
+  await save(browser);
+  await browser.$('//main//h1[contains(., "Сбер")]').waitForDisplayed({ timeout: 5000 });
+  const next = async () => (await browser.$('[data-testid="debt-next"]')).getText();
+  const before = await next();
+
+  await click(browser, "Каникулы");
+  await save(browser);
+  await waitText(browser, '[data-testid="loan-changes"]', /Каникулы:/);
+  await browser.waitUntil(async () => (await next()) !== before, { timeout: 5000, timeoutMsg: "каникулы не сдвинули ближайший платёж" });
+  await (await browser.$('button[aria-label="Удалить каникулы"]')).click();
+  await browser.waitUntil(async () => (await next()) === before, { timeout: 5000, timeoutMsg: "после удаления каникул платёж не вернулся" });
+
+  await click(browser, "Ставка изменилась");
+  await fill(browser, "newRate", "8");
+  await save(browser);
+  await waitText(browser, '[data-testid="loan-changes"]', /Ставка 8 % годовых/);
+  await (await browser.$('button[aria-label="Удалить изменение ставки"]')).click();
+  await browser.$('[data-testid="loan-changes"]').waitForExist({ timeout: 5000, reverse: true, timeoutMsg: "изменение ставки не удалилось" });
+  await browser.waitUntil(async () => (await next()) === before, { timeout: 5000, timeoutMsg: "после удаления ставки платёж не вернулся" });
+
+  await click(browser, "Изменить название и комментарий");
+  await fill(browser, "counterparty", "Сбер ипотека");
+  await save(browser);
+  await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "название долга не поменялось" });
 });
