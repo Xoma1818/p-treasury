@@ -325,6 +325,12 @@ export async function chooseLike(browser, name, text) {
 }
 
 export async function click(browser, text, scope = "") {
+  // С 0.30 «+ Доход» и «Перевод» на Главной лежат в меню «+ Расход ▾»: открываем его.
+  if (!scope && (text === "+ Доход" || text === "Перевод")) {
+    const shown = await browser.$(`//button[normalize-space()="${text}"]`).isExisting();
+    const toggle = await browser.$('[data-testid="add-menu-toggle"]');
+    if (!shown && (await toggle.isExisting())) await toggle.click();
+  }
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
   // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
   // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.

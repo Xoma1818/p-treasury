@@ -141,7 +141,7 @@ export function Transactions() {
   };
   const [defFrom, defTo] = [from, to];
   const filtered =
-    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId || f.importId) || f.dateFrom !== defFrom || f.dateTo !== defTo;
+    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId || f.importId || f.payee) || f.dateFrom !== defFrom || f.dateTo !== defTo;
 
   // Быстрые периоды (0.29): месяц, прошлый месяц, год и всё время; свои даты — полями рядом.
   const periods = useMemo(() => {
@@ -180,6 +180,7 @@ export function Transactions() {
   if (f.types?.length) chips.push({ id: "chip-type", label: TXN_TYPES[f.types[0]], clear: () => set({ types: undefined }) });
   if (f.tagId) chips.push({ id: tags.some((t) => t.id === f.tagId) ? "chip-tag" : "filter-tag", label: tags.find((t) => t.id === f.tagId) ? `#${tags.find((t) => t.id === f.tagId)!.name}` : "Тег", clear: () => set({ tagId: undefined }) });
   if (f.importId) chips.push({ id: "filter-import", label: "Один импорт", clear: () => set({ importId: undefined }) });
+  if (f.payee) chips.push({ id: "filter-payee", label: `Получатель: ${f.payee}`, clear: () => set({ payee: undefined }) });
   if (f.eventId) chips.push({ id: "filter-event", label: events.find((e) => e.id === f.eventId)?.name ?? "Событие", clear: () => set({ eventId: undefined }) });
 
   return (
@@ -228,7 +229,7 @@ export function Transactions() {
           <button type="button" className={showPanel ? "btn small active" : "btn small"} aria-expanded={showPanel} data-open={panelOpen || undefined} data-testid="filters-toggle" onClick={() => togglePanel(!panelOpen)} title="Счёт, категория, тип и тег">
             <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden="true" /> Фильтры{activeCount > 0 ? ` · ${activeCount}` : ""}
           </button>
-          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined }))}>
+          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined }))}>
             Сбросить
           </button>
         </div>
