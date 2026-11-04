@@ -215,11 +215,10 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     if old.split_id.is_some() {
         return invalid("это часть разбитого чека: измените чек целиком");
     }
-    let refund: bool = conn.query_row(
-        "SELECT refund FROM transactions WHERE id = ?1",
-        [id],
-        |r| r.get(0),
-    )?;
+    let refund: bool =
+        conn.query_row("SELECT refund FROM transactions WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?;
     if refund {
         return invalid("это возврат: измените его в окне возврата");
     }

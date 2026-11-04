@@ -13,6 +13,7 @@ import { NotesBlock } from "./Notes";
 import { TemplateButtons, useTemplates } from "./Templates";
 import { ErrorText, Modal } from "./Modal";
 import { Hint } from "./Hint";
+import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
 
 const TABS: [TxnType, string][] = [
@@ -26,11 +27,17 @@ export function TxnForm() {
   const state = useUi((s) => s.txnForm);
   const close = useUi((s) => s.openTxnForm);
   if (!state) return null;
+  // 0.29: возврат открывается своим окном, а не формой операции.
+  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} onClose={() => close(null)} />;
+  if (state.mode === "edit" && state.txn.refund && state.txn.refundOf) {
+    return <RefundDialog key={state.txn.id} purchaseId={state.txn.refundOf} refund={state.txn} onClose={() => close(null)} />;
+  }
   const key = state.mode === "edit" ? state.txn.id : `new-${state.type}`;
   return <TxnFormInner key={key} state={state} onClose={() => close(null)} />;
 }
 
-function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; onClose: () => void }) {
+function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | { mode: "refund" }>; onClose: () => void }) {
+  const openTxnForm = useUi((s) => s.openTxnForm);
   const editing = state.mode === "edit" ? state.txn : null;
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const accounts = useAccounts(true).data ?? [];
@@ -595,6 +602,11 @@ function TxnFormInner({ state, onClose }: { state: NonNullable<TxnFormState>; on
           {editing && (
             <button type="button" className="btn danger" onClick={() => remove.run()} disabled={remove.busy}>
               {splitId ? "Удалить чек" : "Удалить"}
+            </button>
+          )}
+          {editing && editing.type === "expense" && !editing.debtId && (
+            <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing })} title="Деньги за покупку вернулись">
+              Вернуть…
             </button>
           )}
           <span className="spacer" />

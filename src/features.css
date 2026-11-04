@@ -378,3 +378,10 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 /* 0.27 «Свободно до дохода и резервы». */
 .free-line { display: block; margin-top: 6px; font-size: 12px; text-align: left; color: var(--text); }
 .free-line .money { font-weight: 600; }
+
+/* 0.29 «Возвраты и итоги месяца». */
+fieldset.choice { border: 0; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; }
+fieldset.choice legend { font-size: 12px; color: var(--muted); margin-bottom: 4px; padding: 0; }
+.month-review h3 { font-size: 14px; margin: 16px 0 6px; }
+.month-review ul.plain { columns: 1; }
+.month-review table.explain { width: 100%; }
