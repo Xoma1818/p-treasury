@@ -148,27 +148,47 @@ test("календарь: дни без трат отмечены, итог не
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });
 });
 
+/** Щелчок с повтором: список перерисовывается (поиск, обновление данных), и найденный узел устаревает. */
+async function tap(sel) {
+  for (let i = 0; ; i++) {
+    try {
+      const el = await browser.$(sel);
+      await el.waitForClickable({ timeout: 5000 });
+      return await el.click();
+    } catch (e) {
+      if (i >= 4 || !/stale|not found/i.test(String(e.message))) throw e;
+      await browser.pause(200);
+    }
+  }
+}
+
 test("Главная: «+ Расход ▾» и операция панелью справа (0.30)", async () => {
   await openSection(browser, "Главная");
   // Доход и перевод — в меню у «+ Расход».
   assert.equal(await browser.$('//main//button[normalize-space()="+ Доход"]').isExisting(), false, "доход спрятан в меню");
-  await browser.$('[data-testid="add-menu-toggle"]').click();
-  await browser.$('//*[@role="menu"]//button[normalize-space()="+ Доход"]').click();
+  await tap('[data-testid="add-menu-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="+ Доход"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // Существующая операция — панелью справа, с похожими операциями.
   await openSection(browser, "Операции");
   await fill(browser, "search", "Пятёрочка");
-  await browser.waitUntil(async () => (await browser.$$('[data-testid="txn-row"]')).length > 1, { timeout: 5000 });
-  await browser.$('[data-testid="txn-row"]').click();
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const rows = [...document.querySelectorAll('[data-testid="txn-row"]')];
+      return rows.length > 1 && rows[0].textContent.includes("Пятёрочка");
+    }),
+    { timeout: 5000 },
+  );
+  await tap('[data-testid="txn-row"]');
   await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
   await browser.$('[data-testid="similar-txns"] li button').waitForDisplayed({ timeout: 5000 });
   // Несохранённая правка: переход к похожей сначала спрашивает, «Остаться» оставляет форму.
   await fill(browser, "amount", "77");
-  await browser.$('[data-testid="similar-txns"] li button').click();
+  await tap('[data-testid="similar-txns"] li button');
   await browser.$('[data-testid="similar-confirm"]').waitForDisplayed({ timeout: 5000 });
-  await browser.$('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]').click();
+  await tap('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]');
   assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "77", "правка на месте");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
@@ -176,7 +196,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await openSection(browser, "Настройки");
   await choose(browser, "txnOpen", "окном");
   await openSection(browser, "Операции");
-  await browser.$('[data-testid="txn-row"]').click();
+  await tap('[data-testid="txn-row"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
   await browser.keys("Escape");
