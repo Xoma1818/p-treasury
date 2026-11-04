@@ -162,7 +162,7 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
             })
         } else {
             match bank_import::read(&path) {
-                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None)
+                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None, None)
                     .map(|(p, extra)| Some((Some(bank), p, extra))),
                 // Не выписка или не читается — чужой файл, молча пропускаем.
                 Ok(None) | Err(_) => Ok(None),
