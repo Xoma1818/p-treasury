@@ -239,6 +239,8 @@ input.invalid { border-color: var(--over); }
 .modal.wide { width: 720px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-head h2 { margin: 0; font-size: 17px; }
+.modal-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 12px; padding: 8px 12px; border: 1px solid var(--over-border); background: var(--over-soft); border-radius: 8px; font-size: 13px; }
+.modal-ask span { flex: 1 1 200px; }
 
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }

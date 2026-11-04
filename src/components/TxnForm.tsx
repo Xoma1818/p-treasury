@@ -334,7 +334,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
       !!friends);
   return (
-    <Modal title={title} onClose={onClose} side={side}>
+    <Modal title={title} onClose={onClose} side={side} guardUnsaved>
       <form
         className="form"
         onSubmit={(e) => {

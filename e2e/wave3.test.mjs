@@ -193,6 +193,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await tap('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]');
   assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "77", "правка на месте");
   await browser.keys("Escape");
+  await tap('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // В Настройках можно вернуть окно.
   await openSection(browser, "Настройки");

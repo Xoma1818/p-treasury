@@ -37,7 +37,7 @@ function assertFile(path, magic) {
 
 /** Текст PDF, если в системе есть pdftotext (poppler); иначе null. */
 function pdfText(path) {
-  const r = spawnSync("pdftotext", ["-layout", path, "-"], { encoding: "utf8" });
+  const r = spawnSync("pdftotext", ["-layout", "-enc", "UTF-8", path, "-"], { encoding: "utf8" });
   return r.status === 0 ? r.stdout : null;
 }
 
