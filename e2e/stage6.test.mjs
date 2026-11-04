@@ -167,9 +167,11 @@ test("выгрузка операций в OFX и сводки в CSV", async ()
   await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.csv/);
   await browser.keys("Escape");
   const book = readFileSync(csv, "utf8");
-  assert.ok(book.startsWith("﻿Сводка\r\n"), book.slice(0, 40));
-  for (const sheet of ["По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]) {
-    assert.ok(book.includes(`\n${sheet}\r\n`), `лист ${sheet}`);
+  assert.ok(book.startsWith("﻿"), "BOM для русского Excel");
+  // Строка с названием каждого листа (перевод строки — \n или \r\n).
+  const rows = book.slice(1).split(/\r?\n/);
+  for (const sheet of ["Сводка", "По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]) {
+    assert.ok(rows.includes(sheet), `лист ${sheet}`);
   }
 });
 
