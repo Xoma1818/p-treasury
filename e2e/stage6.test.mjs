@@ -45,6 +45,12 @@ test("импорт CSV: три строки с ошибкой в дате вид
   writeFileSync(path, csv(broken));
   await openSection(browser, "Настройки");
   await click(browser, "Импорт выписки или CSV");
+  // «Скачать шаблон CSV» сохраняет файл и говорит об этом (раньше молчал).
+  const tpl = join(files, "шаблон.csv");
+  await pick(tpl);
+  await click(browser, "Скачать шаблон CSV", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="template-saved"]', /Шаблон сохранён: шаблон\.csv/);
+  assert.match(readFileSync(tpl, "utf8"), /Дата;Тип;Счёт/);
   await pick(path);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="import-summary"]', /строк 7, без ошибок 4, с ошибками 3/);

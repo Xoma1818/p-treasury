@@ -89,6 +89,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const [loaded, setLoaded] = useState<ImportSaved | null>(null);
   const [next, setNext] = useState<"history" | "matches" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
   const qc = useQueryClient();
 
@@ -110,8 +111,15 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     if (p) await load(p, null);
   };
   const template = async () => {
+    setSaved(null);
     const p = await pickSave("Kazna — шаблон импорта.csv", [CSV]);
-    if (p) await api.writeImportTemplate(p).catch((e) => setError(String(e)));
+    if (!p) return;
+    try {
+      await api.writeImportTemplate(p);
+      setSaved(`Шаблон сохранён: ${baseName(p)}`);
+    } catch (e) {
+      setError(String(e));
+    }
   };
   const commit = async (skipErrors: boolean) => {
     try {
@@ -196,6 +204,11 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             </table>
           </div>
         </>
+      )}
+      {saved && (
+        <p className="ok" data-testid="template-saved">
+          {saved}
+        </p>
       )}
       {loaded !== null && (
         <p className="ok" data-testid="import-done">
@@ -295,7 +308,7 @@ export function UpdatesCard() {
         <button className="btn" onClick={() => check.run()} disabled={check.busy}>
           Проверить обновления
         </button>
-        <button className="link" onClick={() => api.changelog().then(setNews)}>
+        <button className="link" onClick={() => api.changelog().then(setNews, (e) => setResult(String(e)))}>
           Что нового
         </button>
         <select name="updateCheck" aria-label="Проверять при запуске" value={settings?.update_check ?? "1"} onChange={(e) => setSetting.run("update_check", e.target.value)}>

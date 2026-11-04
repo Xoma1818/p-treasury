@@ -57,7 +57,13 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
     setError(null);
     const dir = await pickFolder();
     if (!dir) return;
-    const list = await api.vaultScan([dir]);
+    let list: VaultFound[];
+    try {
+      list = await api.vaultScan([dir]);
+    } catch (e) {
+      setError(String(e));
+      return;
+    }
     if (list.length === 0) setError("В этой папке нет данных Kazna. Покажите папку Kazna или выберите файл копии.");
     else setFound(list);
   };
