@@ -33,6 +33,8 @@ export interface TxnJump {
   search?: string;
   /** Операции одного импорта. */
   importId?: string;
+  /** Получатель целиком (из панели операции «Все →»). */
+  payee?: string;
   /** Только эти типы (доходы или расходы из «Как посчитано»). */
   types?: TxnType[];
 }
