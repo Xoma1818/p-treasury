@@ -66,14 +66,6 @@ export function Settings() {
               </select>
             )}
           </Field>
-          <Field label="Скрыть суммы" hint="Все суммы заменяются на «•••».">
-            {(id) => (
-              <select id={id} name="hideAmounts" value={settings?.hide_amounts ?? "0"} onChange={(e) => setSetting.run("hide_amounts", e.target.value)}>
-                <option value="0">Нет</option>
-                <option value="1">Да</option>
-              </select>
-            )}
-          </Field>
           <Field label="Напоминать о платежах по долгам" hint="Уведомление приходит в 9:00.">
             {(id) => (
               <select

@@ -1,7 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CategorySelect, Field } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
-import { api, type Category, type CategoryKind } from "../lib/api";
+import { api, type Category, type CategoryKind, type CategoryRename } from "../lib/api";
 import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -65,6 +66,7 @@ export function Categories() {
     <section className="screen">
       <ScreenTitle id="categories" />
       <ErrorText error={archive.error} />
+      <RenameOffer />
       <div className="columns">
         {column("expense", "Расходы")}
         {column("income", "Доходы")}
@@ -160,6 +162,65 @@ function DeleteForm({ category, all, onClose }: { category: Category; all: Categ
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** Предложение для баз до 0.28: переименовать категории набора по умолчанию в новые
+ *  «деловые короткие» названия. Показывается, только пока есть что переименовать. */
+function RenameOffer() {
+  const preview = useQuery({ queryKey: ["categories", "rename-preview"], queryFn: api.categoryRenamePreview });
+  const [open, setOpen] = useState(false);
+  const items = preview.data ?? [];
+  if (items.length === 0) return null;
+  return (
+    <div className="card banner" data-testid="rename-offer">
+      <span>
+        Есть новые, более формальные названия для {items.length} категорий: например, «{items[0].from}» → «{items[0].to}».{" "}
+        <span className="muted">Операции, лимиты и правила останутся на месте.</span>
+      </span>
+      <button className="btn" onClick={() => setOpen(true)} data-testid="rename-open">
+        Переименовать по новому списку
+      </button>
+      {open && <RenameDialog items={items} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function RenameDialog({ items, onClose }: { items: CategoryRename[]; onClose: () => void }) {
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(items.map((i) => i.id)));
+  const apply = useAction(() => api.categoryRenameApply([...picked]), onClose, { celebrate: true });
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  return (
+    <Modal title="Новые названия категорий" onClose={onClose}>
+      <p className="muted">Отметьте, что переименовать. Категории, которые вы называли по-своему, сюда не попали. Отменить можно Ctrl+Z.</p>
+      <ul className="rename-list" data-testid="rename-list">
+        {items.map((i) => (
+          <li key={i.id}>
+            <label className="check">
+              <input type="checkbox" checked={picked.has(i.id)} onChange={() => toggle(i.id)} />
+              <span className="muted">{i.parent ? `${i.parent} → ` : ""}</span>
+              {i.from} <span className="muted">→</span> <strong>{i.to}</strong>
+              <span className="muted small">{i.kind === "income" ? " · доход" : ""}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <ErrorText error={apply.error} />
+      <div className="actions">
+        <button type="button" className="btn" onClick={onClose}>
+          Отмена
+        </button>
+        <button type="button" className="btn primary" onClick={() => apply.run()} disabled={apply.busy || picked.size === 0} aria-busy={apply.busy} data-testid="rename-apply">
+          Переименовать ({picked.size})
+        </button>
+      </div>
     </Modal>
   );
 }

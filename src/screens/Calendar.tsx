@@ -28,12 +28,12 @@ export function Calendar() {
       <div className="screen-head">
         <ScreenTitle id="calendar" />
         <div className="btn-group">
-          <button className="btn" onClick={() => setReminderDate(selected ?? today())}>
+          <button className="btn primary" onClick={() => setReminderDate(selected ?? today())}>
             + Напоминание
           </button>
         </div>
       </div>
-      <div className="tabs cal-tabs" role="tablist">
+      <div className="tabs fit cal-tabs" role="tablist">
         {(
           [
             ["month", "Месяц"],

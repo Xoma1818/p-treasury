@@ -22,7 +22,7 @@ function Logo() {
   );
 }
 
-/** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
+/** Тема: два значка «Светлая» / «Тёмная», выбранная подсвечена. Подписи — в подсказке и для экранного диктора. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
   // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
@@ -38,13 +38,13 @@ function ThemeSwitch() {
   };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
-      <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>
+      <button aria-pressed={theme === "light"} data-testid="theme-light" title="Светлая тема" onClick={() => pick("light")}>
         <Sun className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-        Светлая
+        <span className="sr-only">Светлая</span>
       </button>
-      <button aria-pressed={theme === "dark"} data-testid="theme-dark" onClick={() => pick("dark")}>
+      <button aria-pressed={theme === "dark"} data-testid="theme-dark" title="Тёмная тема" onClick={() => pick("dark")}>
         <Moon className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-        Тёмная
+        <span className="sr-only">Тёмная</span>
       </button>
     </div>
   );
@@ -105,13 +105,13 @@ export function Sidebar() {
           </Fragment>
         ))}
       </ul>
+      {/* Нижний ряд (0.28): тема, скрыть суммы и горячие клавиши — одной строкой, чтобы меню помещалось в окно высотой 800 px. */}
       <div className="sidebar-foot">
         <ThemeSwitch />
+        <span className="foot-spacer" />
         <HideAmountsSwitch />
-        <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">
+        <button className="foot-btn" onClick={() => setHelp(true)} title="Горячие клавиши · F1" aria-label="Горячие клавиши" data-testid="hotkeys-open">
           <Keyboard className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-          <span className="foot-label">Горячие клавиши</span>
-          <kbd>F1</kbd>
         </button>
       </div>
     </nav>

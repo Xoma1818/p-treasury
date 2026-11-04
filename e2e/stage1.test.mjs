@@ -31,7 +31,7 @@ async function newTxn(type, { amount, account, toAccount, toAmount, category, pa
 const accountRow = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
 test("покупка в магазине: 2 340 ₽ на «Продукты» уменьшает баланс карты", async () => {
-  await newTxn("expense", { amount: "2340", account: "Карта (₽)", category: "Продукты", payee: "Пятёрочка" });
+  await newTxn("expense", { amount: "2340", account: "Карта (₽)", category: "Питание", payee: "Пятёрочка" });
   await save(browser);
   await waitText(browser, '[data-testid="month-expense"]', money("2 340 ₽"));
   await openSection(browser, "Счета");
@@ -39,7 +39,7 @@ test("покупка в магазине: 2 340 ₽ на «Продукты» у
 });
 
 test("зарплата: доход 85 000 ₽", async () => {
-  await newTxn("income", { amount: "85000", account: "Карта (₽)", category: "Зарплата" });
+  await newTxn("income", { amount: "85000", account: "Карта (₽)", category: "Заработная плата" });
   await save(browser);
   await waitText(browser, '[data-testid="month-income"]', money("85 000 ₽"));
 });
@@ -64,7 +64,7 @@ test("знакомый магазин: получатель подставляе
   // Имя набрано целиком: категория подставляется, как при выборе из списка.
   await fill(browser, "payee", "Пятёрочка");
   await browser.waitUntil(
-    async () => (await (await field(browser, "category")).$("option:checked").getText()).trim() === "Продукты",
+    async () => (await (await field(browser, "category")).$("option:checked").getText()).trim() === "Питание",
     { timeout: 5000, timeoutMsg: "категория «Продукты» не подставилась" },
   );
   // Счёт тоже подставился из прошлой операции («Карта»); эту покупку оплатили наличными.
@@ -119,7 +119,7 @@ test("сверка: корректировка записывает разниц
 test("найти трату: фильтр по категории и поиск по получателю и сумме", async () => {
   await openSection(browser, "Операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 6 из 6/);
-  await choose(browser, "filterCategory", "Продукты");
+  await choose(browser, "filterCategory", "Питание");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await click(browser, "Сбросить");
   await fill(browser, "search", "пятёрочка");
@@ -159,14 +159,14 @@ test("настройка под семью: «Дети → Секция»", asyn
 
 test("объединение: удаление категории с переносом операций", async () => {
   await openSection(browser, "Категории");
-  const food = '//*[@data-testid="categories-expense"]//li[.//span[@class="name" and normalize-space()="Продукты"]]';
+  const food = '//*[@data-testid="categories-expense"]//li[.//span[@class="name" and normalize-space()="Питание"]]';
   await (await browser.$(food)).moveTo();
   await (await browser.$(`${food}//button[normalize-space()="Удалить"]`)).click();
   await waitText(browser, '[role="dialog"]', /Перенести операции \(1\)/);
   await choose(browser, "moveTo", "Прочие расходы");
   await save(browser, "Удалить");
   const text = await mainText(browser);
-  assert.ok(!/Супермаркет/.test(text), "подкатегории удалены вместе с категорией");
+  assert.ok(!/Магазины/.test(text), "подкатегории удалены вместе с категорией");
   await openSection(browser, "Операции");
   await choose(browser, "filterCategory", "Прочие расходы");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);

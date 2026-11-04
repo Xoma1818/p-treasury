@@ -181,7 +181,7 @@ mod tests {
                 to_amount: None,
                 payee: Some(
                     if kind == "income" {
-                        "Зарплата"
+                        "Заработная плата"
                     } else {
                         "Аренда"
                     }

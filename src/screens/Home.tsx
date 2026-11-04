@@ -9,7 +9,6 @@ import { AheadCard } from "../components/Ahead";
 import { change, DaysCard, Delta, Sparkline, sparkSeries, SummaryCard, TrendCard, useDashboard } from "../components/Dashboard";
 import { InvestCard } from "../components/Invest";
 import { QuickEntry } from "../components/QuickEntry";
-import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
 import { TemplatesCard } from "../components/Templates";
 import { OccurrenceItem } from "../components/Reminders";
@@ -265,7 +264,6 @@ export function Home() {
           <button className={editing ? "btn primary" : "btn"} onClick={() => setEditing(!editing)} data-testid="home-customize">
             {editing ? "Готово" : "Настроить"}
           </button>
-          <HideAmountsButton className="btn" />
           <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>
             + Доход
           </button>

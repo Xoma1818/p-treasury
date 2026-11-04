@@ -40,7 +40,7 @@ test("выписка Т-Банка: счёт выбирается и запом�
   await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 0, с ошибками 4/);
   await choose(browser, "importAccount", "Карта (₽)");
   await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 4$/);
-  await previewHas(/Супермаркет[\s\S]*Пятерочка[\s\S]*Зарплата/);
+  await previewHas(/Магазины[\s\S]*Пятерочка[\s\S]*Зарплата/);
   await click(browser, "Загрузить 4", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 4/);
 

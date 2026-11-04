@@ -247,14 +247,14 @@ mod tests {
             note: None,
         };
         let ids = vec![
+            transactions::create(c, &t("expense", Some(cat(c, "Магазины", "expense")), None))
+                .unwrap(),
+            transactions::create(c, &t("expense", Some(cat(c, "Такси", "expense")), None)).unwrap(),
             transactions::create(
                 c,
-                &t("expense", Some(cat(c, "Супермаркет", "expense")), None),
+                &t("income", Some(cat(c, "Заработная плата", "income")), None),
             )
             .unwrap(),
-            transactions::create(c, &t("expense", Some(cat(c, "Такси", "expense")), None)).unwrap(),
-            transactions::create(c, &t("income", Some(cat(c, "Зарплата", "income")), None))
-                .unwrap(),
             transactions::create(c, &t("transfer", None, Some(&cash))).unwrap(),
         ];
         Fx {
@@ -351,8 +351,8 @@ mod tests {
     #[test]
     fn receipt_parts_move_and_delete_together() {
         let mut f = fx();
-        let food = cat(f.db.conn(), "Супермаркет", "expense");
-        let drug = cat(f.db.conn(), "Аптека", "expense");
+        let food = cat(f.db.conn(), "Магазины", "expense");
+        let drug = cat(f.db.conn(), "Лекарства", "expense");
         let c = f.db.conn_mut();
         let split = receipts::create(
             c,

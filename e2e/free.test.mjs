@@ -27,7 +27,7 @@ before(async () => {
     invoke("create_reminder", {
       input: { title, startAt: `${date}T10:00`, repeat: "once", dayOfMonth: null, endDate: null, amount, txnType, accountId: card, categoryId: null, note: null },
     });
-  await reminder("Зарплата", day(10), 10_000_000, "income");
+  await reminder("Заработная плата", day(10), 10_000_000, "income");
   await reminder("Аренда", day(3), 3_000_000, "expense");
 });
 after(async () => {

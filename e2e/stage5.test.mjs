@@ -47,7 +47,7 @@ async function newReminder({ title, date, time = "09:00", repeat, amount, catego
 
 test("коммуналка: «ЖКХ» ежемесячно, «Создать операцию» с суммой 6 230 ₽", async () => {
   await openReminders();
-  await newReminder({ title: "ЖКХ", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "ЖКХ", account: "Карта (₽)" });
+  await newReminder({ title: "ЖКХ", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
   await waitText(browser, '[data-testid="rem-all"]', /ЖКХ · ежемесячно, следующее/);
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
   await click(browser, "Создать операцию", occ("rem-overdue", "ЖКХ"));

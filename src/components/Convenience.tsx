@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../lib/api";
@@ -84,26 +84,14 @@ export function UndoBar() {
   );
 }
 
-/** Кнопка «Скрыть суммы» / «Показать суммы» (Ctrl+H). */
-export function HideAmountsButton({ className = "link" }: { className?: string }) {
-  const hidden = useSettings().data?.hide_amounts === "1";
-  const toggle = useAction(api.setSetting);
-  return (
-    <button className={className} data-testid="hide-amounts" aria-pressed={hidden} onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")} title="Ctrl+H">
-      {hidden ? "Показать суммы" : "Скрыть суммы"}
-    </button>
-  );
-}
-
-/** Переключатель «Скрыть суммы» внизу меню (Ctrl+H). */
+/** Значок «Скрыть суммы» в нижнем ряду меню (Ctrl+H): глаз открыт — суммы видны, перечёркнут — скрыты. */
 export function HideAmountsSwitch() {
   const hidden = useSettings().data?.hide_amounts === "1";
   const toggle = useAction(api.setSetting);
+  const label = hidden ? "Показать суммы" : "Скрыть суммы";
   return (
-    <button className="foot-row" role="switch" aria-checked={hidden} data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")} title="Ctrl+H">
-      <EyeOff className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-      <span className="foot-label">Скрыть суммы</span>
-      <span className="switch" aria-hidden="true" />
+    <button className="foot-btn" role="switch" aria-checked={hidden} aria-label="Скрыть суммы" data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")} title={`${label} · Ctrl+H`}>
+      {hidden ? <EyeOff className="foot-icon" strokeWidth={1.75} aria-hidden="true" /> : <Eye className="foot-icon" strokeWidth={1.75} aria-hidden="true" />}
     </button>
   );
 }

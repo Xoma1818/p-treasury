@@ -1491,7 +1491,12 @@ mod tests {
         let c = db.conn();
         let id = create(
             c,
-            &reminder("ЖКХ", "2026-10-10T10:00", "monthly", Some(600_000)),
+            &reminder(
+                "Коммунальные платежи",
+                "2026-10-10T10:00",
+                "monthly",
+                Some(600_000),
+            ),
         )
         .unwrap();
         let now = dt("2026-10-11T12:00");
@@ -1503,7 +1508,7 @@ mod tests {
                 due[0].amount,
                 due[0].txn_type.as_deref()
             ),
-            ("ЖКХ", Some(600_000), Some("expense"))
+            ("Коммунальные платежи", Some(600_000), Some("expense"))
         );
         mark_notified(c, &[due[0].key.clone()], "2026-10-11T12:00").unwrap();
         assert!(

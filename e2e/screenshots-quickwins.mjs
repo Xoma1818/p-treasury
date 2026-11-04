@@ -125,9 +125,9 @@ try {
       await setValue('[role="dialog"] [name="payee"]', "Перекрёсток");
       await button("Разбить по категориям", '[role="dialog"]');
       await pause(300);
-      await selectByText('[role="dialog"] [name="partCategory0"]', "Супермаркет");
+      await selectByText('[role="dialog"] [name="partCategory0"]', "Магазины");
       await setValue('[role="dialog"] [name="partAmount0"]', "2200");
-      await selectByText('[role="dialog"] [name="partCategory1"]', "Аптека");
+      await selectByText('[role="dialog"] [name="partCategory1"]', "Лекарства");
       await setValue('[role="dialog"] [name="partAmount1"]', "500");
       await pause();
       await shot("forma-razbivka-cheka");

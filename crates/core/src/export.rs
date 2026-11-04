@@ -662,7 +662,7 @@ mod tests {
         };
         let salary: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Зарплата'",
+                "SELECT id FROM categories WHERE name = 'Заработная плата'",
                 [],
                 |r| r.get(0),
             )
@@ -690,15 +690,25 @@ mod tests {
                 "expense",
                 "2026-10-05",
                 234_050,
-                cat("Продукты"),
+                cat("Питание"),
                 Some("Пятёрочка; у дома"),
             ),
         )
         .unwrap();
-        transactions::create(c, &t("expense", "2026-10-07", 623_000, cat("ЖКХ"), None)).unwrap();
         transactions::create(
             c,
-            &t("expense", "2026-11-02", 100_000, cat("Продукты"), None),
+            &t(
+                "expense",
+                "2026-10-07",
+                623_000,
+                cat("Коммунальные платежи"),
+                None,
+            ),
+        )
+        .unwrap();
+        transactions::create(
+            c,
+            &t("expense", "2026-11-02", 100_000, cat("Питание"), None),
         )
         .unwrap();
         db
@@ -755,7 +765,7 @@ mod tests {
         let cats = wb.worksheet_range("По категориям").unwrap();
         let housing: Vec<_> = cats.rows().filter(|r| r[1] == "Жильё").collect();
         assert_eq!(housing[0][3], Data::Float(6230.0));
-        assert_eq!(housing[1][2].to_string(), "ЖКХ");
+        assert_eq!(housing[1][2].to_string(), "Коммунальные платежи");
         let months = wb.worksheet_range("По месяцам").unwrap();
         assert_eq!(months.rows().nth(1).unwrap()[0].to_string(), "2026-10");
     }
@@ -783,7 +793,7 @@ mod tests {
         assert!(lines[0].starts_with("Дата;Тип;Счёт;Категория"));
         assert!(
             lines.contains(
-                &"05.10.2026;Расход;Карта;Продукты;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;"
+                &"05.10.2026;Расход;Карта;Питание;\"Пятёрочка; у дома\";;-2340,50;RUB;-2340,50;;"
             ),
             "{text}"
         );
@@ -838,7 +848,7 @@ mod tests {
                 .unwrap()
                 .to_vec()
         };
-        let food = row("Продукты");
+        let food = row("Питание");
         assert_eq!(
             &food[2..6],
             [

@@ -59,7 +59,7 @@ test("поток денег за месяц: продукты справа, не
   await click(browser, "+ Расход");
   await fill(browser, "amount", "5000");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Продукты");
+  await choose(browser, "category", "Питание");
   await save(browser);
   await openSection(browser, "Взгляд вперёд");
   await waitText(browser, '[data-testid="fc-now"]', money("95 000 ₽"));
@@ -68,7 +68,7 @@ test("поток денег за месяц: продукты справа, не
   await waitText(browser, '[data-testid="flow-card"]', /доходов, расходов и вложений нет/);
   await (await browser.$('button[aria-label="Позже"]')).click();
   await waitText(browser, '[data-testid="flow-title"]', new RegExp(monthName(0)));
-  await waitText(browser, '[data-testid="flow-chart"]', /Продукты/);
+  await waitText(browser, '[data-testid="flow-chart"]', /Питание/);
   await waitText(browser, '[data-testid="flow-chart"]', /Из накоплений/);
   await waitText(browser, '[data-testid="flow-card"]', money("Расходы 5 000 ₽"));
 });

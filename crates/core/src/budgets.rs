@@ -708,9 +708,9 @@ mod tests {
         let mut f = fx();
         let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
         let c = f.db.conn();
-        set_limit(c, &id, &cat(c, "Кафе и рестораны"), Some(1_000_000)).unwrap();
-        spend(c, &f.card, "2026-10-05", 200_000, "Кафе и рестораны");
-        spend(c, &f.card, "2026-10-12", 700_000, "Кафе и рестораны");
+        set_limit(c, &id, &cat(c, "Общепит"), Some(1_000_000)).unwrap();
+        spend(c, &f.card, "2026-10-05", 200_000, "Общепит");
+        spend(c, &f.card, "2026-10-12", 700_000, "Общепит");
         let trip = crate::events::create(
             c,
             &crate::events::EventInput {
@@ -730,7 +730,7 @@ mod tests {
         let cafe = b
             .lines
             .iter()
-            .find(|l| l.category_name == "Кафе и рестораны")
+            .find(|l| l.category_name == "Общепит")
             .unwrap();
         assert_eq!((cafe.actual, cafe.over), (200_000, false));
         assert_eq!((b.actual_expense, b.event_expense), (200_000, 700_000));
@@ -738,7 +738,7 @@ mod tests {
         let avg = suggest(c, "2026-11", FillMode::Average3).unwrap();
         let cafe_avg = avg
             .iter()
-            .find(|(id, _)| *id == cat(c, "Кафе и рестораны"))
+            .find(|(id, _)| *id == cat(c, "Общепит"))
             .unwrap()
             .1;
         assert!(cafe_avg < 700_000, "{cafe_avg}");
@@ -750,15 +750,15 @@ mod tests {
         let mut f = fx();
         let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
         let c = f.db.conn();
-        set_limit(c, &id, &cat(c, "Кафе и рестораны"), Some(1_000_000)).unwrap();
-        set_limit(c, &id, &cat(c, "Продукты"), Some(2_000_000)).unwrap();
-        set_limit(c, &id, &cat(c, "Зарплата"), Some(8_500_000)).unwrap();
-        spend(c, &f.card, "2026-10-05", 600_000, "Кафе и рестораны");
+        set_limit(c, &id, &cat(c, "Общепит"), Some(1_000_000)).unwrap();
+        set_limit(c, &id, &cat(c, "Питание"), Some(2_000_000)).unwrap();
+        set_limit(c, &id, &cat(c, "Заработная плата"), Some(8_500_000)).unwrap();
+        spend(c, &f.card, "2026-10-05", 600_000, "Общепит");
         spend(c, &f.card, "2026-10-12", 300_000, "Обеды"); // подкатегория идёт в «Кафе»
-        spend(c, &f.card, "2026-10-15", 1_100_000, "Супермаркет");
+        spend(c, &f.card, "2026-10-15", 1_100_000, "Магазины");
         spend(c, &f.card, "2026-10-16", 50_000, "Такси"); // без лимита
-        spend(c, &f.card, "2026-11-01", 999_999, "Продукты"); // другой месяц
-        spend(c, &f.card, "2026-10-05", 8_500_000, "Зарплата");
+        spend(c, &f.card, "2026-11-01", 999_999, "Питание"); // другой месяц
+        spend(c, &f.card, "2026-10-05", 8_500_000, "Заработная плата");
         accounts::adjust_balance(c, &f.card, 0, "2026-10-20", None).unwrap(); // не входит в факт
 
         let b = get(c, "2026-10", "2026-10-18").unwrap();
@@ -770,17 +770,14 @@ mod tests {
                 .clone()
         };
         assert_eq!(
-            (
-                line("Кафе и рестораны").actual,
-                line("Кафе и рестораны").percent
-            ),
+            (line("Общепит").actual, line("Общепит").percent),
             (900_000, 90)
         );
         assert_eq!(
-            (line("Продукты").actual, line("Продукты").percent),
+            (line("Питание").actual, line("Питание").percent),
             (1_100_000, 55)
         );
-        assert!(!line("Кафе и рестораны").over);
+        assert!(!line("Общепит").over);
         assert_eq!(b.planned_expense, 3_000_000);
         assert_eq!(b.planned_income, 8_500_000);
         assert_eq!(b.actual_expense, 2_050_000);
@@ -793,12 +790,12 @@ mod tests {
             None
         );
 
-        spend(c, &f.card, "2026-10-19", 200_000, "Кафе и рестораны");
+        spend(c, &f.card, "2026-10-19", 200_000, "Общепит");
         let b = get(c, "2026-10", "2026-10-19").unwrap();
         let cafe = b
             .lines
             .iter()
-            .find(|l| l.category_name == "Кафе и рестораны")
+            .find(|l| l.category_name == "Общепит")
             .unwrap();
         assert!(cafe.over, "перерасход отмечается");
         assert_eq!(cafe.remaining, -100_000);
@@ -825,7 +822,7 @@ mod tests {
         {
             let c = f.db.conn();
             set_limit(c, &oct, &cat(c, "Подарки"), Some(500_000)).unwrap();
-            set_limit(c, &oct, &cat(c, "Продукты"), Some(2_000_000)).unwrap();
+            set_limit(c, &oct, &cat(c, "Питание"), Some(2_000_000)).unwrap();
         }
         assert!(
             create(f.db.conn_mut(), "2026-10", false).is_err(),
@@ -854,7 +851,7 @@ mod tests {
             get(c, "2026-11", "2026-11-01").unwrap().note.as_deref(),
             Some("в ноябре ремонт, кафе урезал")
         );
-        assert!(set_limit(c, &nov, &cat(c, "Продукты"), Some(-1)).is_err());
+        assert!(set_limit(c, &nov, &cat(c, "Питание"), Some(-1)).is_err());
     }
 
     #[test]
@@ -893,10 +890,10 @@ mod tests {
         {
             let c = f.db.conn();
             // Август и сентябрь, июля в учёте ещё нет: среднее делится на 2.
-            spend(c, &f.card, "2026-08-10", 1_000_000, "Супермаркет");
-            spend(c, &f.card, "2026-09-10", 1_550_000, "Продукты");
+            spend(c, &f.card, "2026-08-10", 1_000_000, "Магазины");
+            spend(c, &f.card, "2026-09-10", 1_550_000, "Питание");
             spend(c, &f.card, "2026-09-11", 120_000, "Обеды");
-            spend(c, &f.card, "2026-09-20", 8_500_000, "Зарплата");
+            spend(c, &f.card, "2026-09-20", 8_500_000, "Заработная плата");
         }
         let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
         assert_eq!(
@@ -913,10 +910,10 @@ mod tests {
         };
         let c = f.db.conn();
         // (10 000 + 15 500) / 2 = 12 750 → 12 800 ₽.
-        assert_eq!(limit(c, "Продукты"), Some(1_280_000));
+        assert_eq!(limit(c, "Питание"), Some(1_280_000));
         // 1 200 / 2 = 600 ₽ ровно.
-        assert_eq!(limit(c, "Кафе и рестораны"), Some(60_000));
-        assert_eq!(limit(c, "Зарплата"), Some(4_250_000));
+        assert_eq!(limit(c, "Общепит"), Some(60_000));
+        assert_eq!(limit(c, "Заработная плата"), Some(4_250_000));
 
         // Такси год назад: «как в прошлом году» только для «Транспорта».
         spend(c, &f.card, "2025-10-05", 300_000, "Такси");
@@ -927,11 +924,7 @@ mod tests {
         );
         let c = f.db.conn();
         assert_eq!(limit(c, "Транспорт"), Some(300_000));
-        assert_eq!(
-            limit(c, "Продукты"),
-            Some(1_280_000),
-            "остальные не тронуты"
-        );
+        assert_eq!(limit(c, "Питание"), Some(1_280_000), "остальные не тронуты");
         let mar = create(f.db.conn_mut(), "2027-03", false).unwrap();
         assert!(fill(f.db.conn_mut(), &mar, FillMode::LastYear, None).is_err());
         assert_eq!(round_up_hundred(1, 0), 100);
@@ -945,10 +938,10 @@ mod tests {
         let mut f = fx();
         let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
         let c = f.db.conn();
-        set_limit(c, &id, &cat(c, "Продукты"), Some(2_000_000)).unwrap();
+        set_limit(c, &id, &cat(c, "Питание"), Some(2_000_000)).unwrap();
         set_limit(c, &id, &cat(c, "Жильё"), Some(600_000)).unwrap();
-        spend(c, &f.card, "2026-10-03", 1_000_000, "Продукты");
-        spend(c, &f.card, "2026-10-02", 600_000, "ЖКХ");
+        spend(c, &f.card, "2026-10-03", 1_000_000, "Питание");
+        spend(c, &f.card, "2026-10-02", 600_000, "Коммунальные платежи");
         let b = get(c, "2026-10", "2026-10-10").unwrap();
         assert_eq!(b.forecast_expense, Some(3_100_000 + 600_000));
         assert_eq!(
@@ -964,9 +957,9 @@ mod tests {
         settings::set(f.db.conn(), "month_start_day", "25").unwrap();
         let id = create(f.db.conn_mut(), "2026-11", false).unwrap();
         let c = f.db.conn();
-        set_limit(c, &id, &cat(c, "Продукты"), Some(1_000_000)).unwrap();
-        spend(c, &f.card, "2026-10-26", 10_000, "Продукты");
-        spend(c, &f.card, "2026-10-24", 20_000, "Продукты");
+        set_limit(c, &id, &cat(c, "Питание"), Some(1_000_000)).unwrap();
+        spend(c, &f.card, "2026-10-26", 10_000, "Питание");
+        spend(c, &f.card, "2026-10-24", 20_000, "Питание");
         let b = get(c, "2026-11", "2026-10-26").unwrap();
         assert_eq!(b.period.start, "2026-10-25");
         assert_eq!(b.lines[0].actual, 10_000);
