@@ -177,3 +177,26 @@ fn ofx_lines_add_up_to_ledger_balance() {
     }
     assert!(checked > 2);
 }
+
+/// Ревью 04.11 (P1): обычный счёт называется как должник («Иван»). Своя выгрузка,
+/// загруженная обратно, не должна повторить выдачу долга переводом на этот счёт.
+#[test]
+fn own_export_with_account_named_like_debtor_adds_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut db = Storage::open(&tmp.path().join("b.db"), &opts(tmp.path())).unwrap();
+    budget_core::demo::seed(db.conn_mut(), AS_OF).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO accounts (id, name, type, currency_code, opening_balance, opening_date, created_at, updated_at)
+             VALUES ('ivan-card', 'Иван', 'cash', 'RUB', 0, '2026-01-01', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    let before = snapshot(&db);
+    let sheet = export::transactions_sheet(db.conn(), &Filter::default()).unwrap();
+    let file = tmp.path().join("Операции.csv");
+    export::write_one(&file, &sheet).unwrap();
+    let saved = csv_import::import(db.conn_mut(), &file, false, None).unwrap();
+    assert_eq!(saved.added, 0);
+    assert_eq!(snapshot(&db), before);
+}

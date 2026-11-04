@@ -18,8 +18,26 @@ function parse(raw: string | undefined): Record<string, string> {
   }
 }
 
+/** Пока своя запись в базу не дошла, перечитанные настройки ещё старые: их не применяем. */
+let pending = 0;
+
 function write() {
-  if (db) api.setSetting("ui_prefs", JSON.stringify(db)).catch(() => {});
+  if (!db) return;
+  pending++;
+  api
+    .setSetting("ui_prefs", JSON.stringify(db))
+    .catch(() => {})
+    .finally(() => pending--);
+}
+
+/** Копию из базы надо применить: при запуске, и когда она поменялась не из этого окна
+ *  (восстановили копию, перенесли данные, открыли другой бюджет). Пока своя запись
+ *  в пути, перечитанные настройки ещё старые — их не применяем. */
+export function prefsToApply(raw: string | undefined): boolean {
+  if (db == null) return true;
+  if (pending > 0) return false;
+  const saved = parse(raw);
+  return MIRRORED_PREFS.some((k) => saved[k] != null && saved[k] !== db![k]);
 }
 
 /** Записать изменённую настройку вида и в базу. До загрузки настроек — только в окно. */

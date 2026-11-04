@@ -636,7 +636,9 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         // Уже есть такая операция (файл загружают второй раз, например
         // выгрузку «Операций»): пропускается. Части разбитого чека — каждая сама по себе.
         let input = match input {
-            Some(i) if repeat(conn, &i, &mut seen)? => {
+            Some(i)
+                if repeat(conn, &i, &mut seen)? || repeat_as_debt(conn, &lk, &i, &mut seen)? =>
+            {
                 row.duplicate = true;
                 None
             }
@@ -714,6 +716,34 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
 /// Строка — повтор уже записанной операции (дата, счёт, тип, сумма, получатель;
 /// у перевода и счёт зачисления). N-я одинаковая строка файла — повтор, только
 /// если таких операций уже не меньше N: две одинаковые покупки за день остаются.
+/// Обычный счёт и должник с одинаковым именем («Иван»): строка выгрузки могла быть
+/// выдачей или платежом по долгу. Если такая операция по долгу уже записана — это повтор,
+/// а не новый перевод на одноимённый счёт (иначе списание удвоится).
+fn repeat_as_debt(
+    conn: &Connection,
+    lk: &Lookup,
+    t: &TxnInput,
+    seen: &mut HashMap<String, usize>,
+) -> Result<bool> {
+    if t.kind != "transfer" {
+        return Ok(false);
+    }
+    let debt_for = |id: &str| -> Option<String> {
+        let (name, _) = lk.accounts.iter().find(|(_, (a, _))| a == id)?;
+        lk.debts.get(name).map(|(d, _)| d.clone())
+    };
+    let mut alt = t.clone();
+    let mut changed = false;
+    if let Some(d) = debt_for(&t.account_id) {
+        alt.account_id = d;
+        changed = true;
+    } else if let Some(d) = t.to_account_id.as_deref().and_then(debt_for) {
+        alt.to_account_id = Some(d);
+        changed = true;
+    }
+    Ok(changed && repeat(conn, &alt, seen)?)
+}
+
 fn repeat(conn: &Connection, t: &TxnInput, seen: &mut HashMap<String, usize>) -> Result<bool> {
     let key = format!(
         "{}|{}|{}|{}|{}|{}",

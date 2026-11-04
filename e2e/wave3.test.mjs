@@ -263,7 +263,7 @@ test("Ctrl+K находит настройку и действие, правая
     r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
   });
   await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
-  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*Удалить/);
+  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*(Удалить|Открыть долг)/);
   await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   await browser.keys("Escape");

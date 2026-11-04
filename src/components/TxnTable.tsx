@@ -8,6 +8,7 @@ import { groupReceipts, receiptTitle, rowIds, type TxnRow } from "../lib/receipt
 import { isRowSelected, type SelState } from "../lib/selection";
 import { useUi } from "../lib/store";
 import { Money } from "./Money";
+import { ErrorText } from "./Modal";
 
 /** Тип данных перетаскивания операции (на другой день календаря). */
 export const TXN_DRAG = "application/x-p-treasury-txn";
@@ -23,6 +24,7 @@ export interface TableSelection {
 export function TxnTable({ items, compact, draggable, selection }: { items: Txn[]; compact?: boolean; draggable?: boolean; selection?: TableSelection }) {
   const open = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
+  const openDebt = useUi((s) => s.openDebt);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
@@ -40,7 +42,9 @@ export function TxnTable({ items, compact, draggable, selection }: { items: Txn[
       });
     if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
     if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
-    if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => remove.run(t) });
+    // Платёж по долгу удаляется в карточке долга (ядро здесь откажет): вместо «Удалить» — «Открыть долг».
+    if (t.debtId) items.push({ text: "Открыть долг", onClick: () => openDebt(t.debtId!) });
+    else if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => remove.run(t) });
     return items;
   };
   if (items.length === 0) return <p className="muted">Операций нет.</p>;
@@ -158,9 +162,13 @@ export function TxnTable({ items, compact, draggable, selection }: { items: Txn[
   };
 
   return (
-    <table className={selection ? "table txn-table selectable" : "table txn-table"}>
-      <tbody>{rows.map(renderRow)}</tbody>
-    </table>
+    <>
+      {/* Отказ удаления из меню правой кнопки виден, а не теряется молча. */}
+      <ErrorText error={remove.error} />
+      <table className={selection ? "table txn-table selectable" : "table txn-table"}>
+        <tbody>{rows.map(renderRow)}</tbody>
+      </table>
+    </>
   );
 }
 
