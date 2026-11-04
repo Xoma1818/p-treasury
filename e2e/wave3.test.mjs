@@ -242,7 +242,7 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.keys(["Control", "k"]);
   await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
   await fill(browser, "paletteQuery", "формат даты");
-  await waitText(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/);
+  await waitText(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/i);
   await browser.keys("Enter");
   await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
   await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
