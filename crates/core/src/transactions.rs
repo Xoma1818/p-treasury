@@ -267,6 +267,19 @@ pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
     if old.kind == "adjustment" {
         return invalid("корректировку нельзя перенести: сделайте сверку заново");
     }
+    // То же правило, что и в форме возврата: возврат не раньше покупки
+    // (покупку позже её возврата не пускает refunds::purchase_moved ниже).
+    let refund_purchase: Option<String> = conn
+        .query_row(
+            "SELECT p.date FROM transactions r JOIN transactions p ON p.id = r.refund_of
+         WHERE r.id = ?1 AND r.refund = 1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if refund_purchase.is_some_and(|p| date < p.as_str()) {
+        return invalid("возврат не может быть раньше покупки");
+    }
     let moved: Vec<String> = match &old.split_id {
         Some(split) => conn
             .prepare("SELECT id FROM transactions WHERE split_id = ?1")?

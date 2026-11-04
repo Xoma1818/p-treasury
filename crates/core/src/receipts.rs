@@ -153,6 +153,24 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
     // повторная выписка добавит покупку второй раз.
     crate::import_log::carry_matches(&tx, &previous, &ids)?;
     for old in previous {
+        // Возвраты по части чека переходят к новой части той же категории (иначе к
+        // первой части): без этого ON DELETE SET NULL отвязал бы возврат, и
+        // вернуть можно было бы больше, чем куплено.
+        let target: String = tx
+            .query_row(
+                "SELECT n.id FROM transactions n, transactions o
+                 WHERE o.id = ?1 AND n.split_id = ?2 AND n.id <> o.id
+                   AND n.category_id IS o.category_id AND n.id IN (SELECT value FROM json_each(?3))
+                 ORDER BY n.amount DESC LIMIT 1",
+                params![old, split_id, serde_json::to_string(&ids).expect("строки")],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| anchor.clone());
+        tx.execute(
+            "UPDATE transactions SET refund_of = ?2 WHERE refund = 1 AND refund_of = ?1",
+            params![old, target],
+        )?;
         tx.execute(
             "UPDATE reminder_occurrences SET transaction_id = ?2 WHERE transaction_id = ?1",
             params![old, anchor],
