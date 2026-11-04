@@ -38,7 +38,11 @@ after(async () => {
 
 test("«Вернуть…»: возврат в месяце покупки уменьшает его расходы, деньги на счёте", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Куртка");
+  // Покупка в прошлом месяце: снимаем фильтр месяца и открываем строку.
+  await click(browser, "Сбросить");
+  const row = await browser.$('//tr[@data-testid="txn-row"][contains(., "Куртка")]');
+  await row.waitForExist({ timeout: 5000 });
+  await row.click();
   await (await browser.$('[data-testid="txn-refund"]')).click();
   await waitText(browser, '[data-testid="refund-purchase"]', /Куртка/);
   // Месяц покупки выбран по умолчанию.
@@ -54,7 +58,7 @@ test("«Вернуть…»: возврат в месяце покупки ум�
   assert.equal(totals.total, 5_000_000 - 800_000 + 300_000);
 
   // Возврат открывается своим окном; больше покупки вернуть нельзя.
-  await click(browser, "возврат");
+  await (await browser.$('[data-testid="txn-refund-tag"]')).click();
   await waitText(browser, '[data-testid="refund-purchase"]', /уже вернули|Куртка/);
   await fill(browser, "amount", "9000");
   await click(browser, "Сохранить", '//*[@role="dialog"]');

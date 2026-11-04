@@ -119,7 +119,13 @@ test("общая трата за троих: своя доля — расход,
 
 test("календарь: дни без трат отмечены, итог недели, операция перетаскивается на другой день", async () => {
   await openSection(browser, "Календарь");
-  await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
+  // В первые дни месяца в примере трата есть каждый день: тогда отметок нет и не должно быть.
+  const cal = await browser.executeAsync((month, done) => {
+    window.__TAURI_INTERNALS__.invoke("calendar_month", { month }).then(done, (e) => done({ error: String(e) }));
+  }, today.slice(0, 7));
+  assert.equal(cal.error, undefined, cal.error);
+  if (cal.days.some((d) => d.noSpend)) await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
+  else assert.equal(await browser.$('[data-testid="no-spend"]').isExisting(), false);
   await waitText(browser, '[data-testid="no-spend-card"]', /\d+ (день|дня|дней) в этом месяце/);
   await waitText(browser, '[data-testid="week-summary"]', /Итог прошлой недели[\s\S]*Расходы/);
   // Сегодняшнюю операцию переносим на вчера (если сегодня 1-е, вчера в другом месяце — пропускаем).
