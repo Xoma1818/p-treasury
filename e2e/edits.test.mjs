@@ -26,10 +26,17 @@ const catRow = (name) => `//*[@data-testid="categories-expense"]//li[.//span[@cl
 async function rowButton(row, text) {
   await click(browser, text, row);
 }
+/** С 0.30 «Изменить» и «Закрыть счёт» у счёта — в меню «⋯». */
+async function rowMenu(row, text) {
+  await (await browser.$(`${row}//*[@data-testid="row-menu"]`)).click();
+  const item = await browser.$(`//*[@role="menu"]//button[normalize-space()="${text}"]`);
+  await item.waitForDisplayed({ timeout: 5000 });
+  await item.click();
+}
 
 test("счёт: переименовать и поменять начальный остаток — баланс и название меняются", async () => {
   await openSection(browser, "Счета");
-  await rowButton(accountRow("Наличные"), "Изменить");
+  await rowMenu(accountRow("Наличные"), "Изменить");
   await fill(browser, "name", "Кошелёк");
   await fill(browser, "openingBalance", "6000");
   await save(browser);
@@ -40,11 +47,11 @@ test("счёт: переименовать и поменять начальны�
 
 test("счёт: «Закрыть» убирает из списка, «Вернуть» возвращает", async () => {
   await openSection(browser, "Счета");
-  await rowButton(accountRow("Кошелёк"), "Закрыть");
+  await rowMenu(accountRow("Кошелёк"), "Закрыть счёт");
   await browser.waitUntil(async () => !(await browser.$(accountRow("Кошелёк")).isExisting()), { timeout: 5000, timeoutMsg: "закрытый счёт остался в списке" });
   await (await browser.$('//label[contains(., "закрытые")]//input')).click();
   await waitText(browser, accountRow("Кошелёк"), /закрыт/);
-  await rowButton(accountRow("Кошелёк"), "Вернуть");
+  await rowMenu(accountRow("Кошелёк"), "Вернуть из закрытых");
   await browser.waitUntil(async () => !/закрыт/.test(await (await browser.$(accountRow("Кошелёк"))).getText()), { timeout: 5000, timeoutMsg: "счёт не вернулся" });
   await (await browser.$('//label[contains(., "закрытые")]//input')).click();
 });
