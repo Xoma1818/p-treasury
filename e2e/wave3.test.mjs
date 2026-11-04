@@ -183,7 +183,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
     }),
     { timeout: 5000 },
   );
-  await tap('[data-testid="txn-row"]');
+  await tap('[data-testid="txn-row"] td.date');
   await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
   await browser.$('[data-testid="similar-txns"] li button').waitForDisplayed({ timeout: 5000 });
   // Несохранённая правка: переход к похожей сначала спрашивает, «Остаться» оставляет форму.
@@ -198,7 +198,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await openSection(browser, "Настройки");
   await choose(browser, "txnOpen", "окном");
   await openSection(browser, "Операции");
-  await tap('[data-testid="txn-row"]');
+  await tap('[data-testid="txn-row"] td.date');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
   await browser.keys("Escape");
