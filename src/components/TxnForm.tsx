@@ -325,6 +325,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       type !== editing.type ||
       accountId !== editing.accountId ||
       (toAccountId || null) !== (editing.toAccountId ?? null) ||
+      toAmount !== amountText(editing.toAmount, editing.toMinorUnits ?? 2) ||
       (categoryId || null) !== (editing.categoryId ?? null) ||
       payee !== (editing.payee ?? "") ||
       note !== (editing.note ?? "") ||

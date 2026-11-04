@@ -172,6 +172,8 @@ export interface TxnFilter {
   tagId?: string;
   /** Операции одного импорта (история импорта). */
   importId?: string;
+  /** Получатель целиком (похожие операции); без учёта регистра. */
+  payee?: string;
   limit?: number;
   offset?: number;
 }

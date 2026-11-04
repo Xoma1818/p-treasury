@@ -5,24 +5,20 @@ import { formatDate } from "../lib/dates";
 import { useUi } from "../lib/store";
 import { Money } from "./Money";
 
-const norm = (s: string | null | undefined) => (s ?? "").trim().toLocaleLowerCase("ru");
-
 /** Р4: в панели операции — последние похожие (тот же получатель, а без него — та же категория).
- *  Получатель сравнивается целиком: общий поиск находит и операции, где слово есть только в комментарии.
  *  Щелчок или Enter открывает похожую операцию, «Все» — список в «Операциях» с тем же отбором.
  *  Если в форме есть несохранённые правки, сначала спрашиваем. */
 export function SimilarTxns({ txn, dirty }: { txn: Txn; dirty: boolean }) {
   const { openTxnForm, showTransactions } = useUi();
   const [pending, setPending] = useState<(() => void) | null>(null);
-  const by = txn.payee ? { search: txn.payee } : txn.categoryId ? { categoryId: txn.categoryId } : null;
+  // Получатель сравнивается целиком (фильтр payee в ядре), а не общим поиском с комментариями.
+  const by = txn.payee ? { payee: txn.payee } : txn.categoryId ? { categoryId: txn.categoryId } : null;
   const q = useQuery({
     queryKey: ["transactions", "similar", txn.id, by],
-    queryFn: () => api.listTransactions({ ...by, limit: 40 }),
+    queryFn: () => api.listTransactions({ ...by, limit: 6 }),
     enabled: !!by,
   });
-  const items = (q.data?.items ?? [])
-    .filter((t) => t.id !== txn.id && (!txn.payee || norm(t.payee) === norm(txn.payee)))
-    .slice(0, 5);
+  const items = (q.data?.items ?? []).filter((t) => t.id !== txn.id).slice(0, 5);
   if (!by || items.length === 0) return null;
   const guard = (act: () => void) => (dirty ? setPending(() => act) : act());
   return (
