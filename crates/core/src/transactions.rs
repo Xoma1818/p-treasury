@@ -552,11 +552,66 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     )?;
     let limit = f.limit.unwrap_or(200).clamp(1, 5000);
     let offset = f.offset.unwrap_or(0).max(0);
-    let sql = page_sql(f.sort.as_deref(), &where_sql, limit, offset);
-    let mut stmt = conn.prepare(&sql)?;
-    let items: Vec<Txn> = stmt
-        .query_map(params_from_iter(args.iter()), map)?
-        .collect::<rusqlite::Result<_>>()?;
+    let fetch = |sql: &str, args: &[Value]| -> Result<Vec<Txn>> {
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params_from_iter(args.iter()), map)?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    };
+    // По дате (обычный случай) части чека и так идут подряд: быстрый путь по индексу даты,
+    // без окна по всей выборке. Правило страницы то же, что в page_sql.
+    let by_date = match f.sort.as_deref() {
+        None | Some("") | Some("date:desc") => Some("DESC"),
+        Some("date:asc") => Some("ASC"),
+        Some(s) => match s.split_once(':') {
+            Some((by, "asc" | "desc"))
+                if ["amount", "category", "account", "payee"].contains(&by) =>
+            {
+                None
+            }
+            _ => Some("DESC"),
+        },
+    };
+    let Some(dir) = by_date else {
+        let items = fetch(
+            &page_sql(f.sort.as_deref(), &where_sql, limit, offset),
+            &args,
+        )?;
+        return Ok(Page { items, total });
+    };
+    let start = (offset - 1).max(0);
+    let mut items = fetch(
+        &format!(
+            "{SELECT} WHERE {where_sql}
+             ORDER BY t.date {dir}, coalesce(t.split_id, t.id) {dir}, t.id {dir}
+             LIMIT {} OFFSET {start}",
+            limit + offset.min(1)
+        ),
+        &args,
+    )?;
+    // Строка перед offset принадлежит прошлой странице, с ней — и продолжение её чека.
+    if offset > 0 && !items.is_empty() {
+        let prev = items.remove(0).split_id;
+        let cont = items
+            .iter()
+            .take_while(|t| prev.is_some() && t.split_id == prev)
+            .count();
+        items.drain(..cont);
+    }
+    // Последний чек страницы — до конца.
+    if let Some(split) = items.last().and_then(|t| t.split_id.clone()) {
+        let mut all = args.clone();
+        all.push(split.into());
+        let n = all.len();
+        let rest = fetch(
+            &format!("{SELECT} WHERE {where_sql} AND t.split_id = ?{n} ORDER BY t.id {dir}"),
+            &all,
+        )?;
+        let last = items.last().map(|t| t.id.clone()).unwrap_or_default();
+        let after = rest.iter().position(|t| t.id == last).map_or(0, |i| i + 1);
+        items.extend(rest.into_iter().skip(after));
+    }
     Ok(Page { items, total })
 }
 
@@ -1087,6 +1142,35 @@ mod tests {
             got.extend(page);
         }
         assert_eq!(got, sorted(0, 100));
+        // То же по дате (быстрый путь): чек не режется, страницы не пересекаются.
+        for sort in [None, Some("date:asc")] {
+            let page = |offset: i64, limit: i64| -> Vec<String> {
+                let f = Filter {
+                    sort: sort.map(Into::into),
+                    limit: Some(limit),
+                    offset: Some(offset),
+                    ..Default::default()
+                };
+                list(c, &f)
+                    .unwrap()
+                    .items
+                    .into_iter()
+                    .map(|t| t.id)
+                    .collect()
+            };
+            let whole = page(0, 100);
+            assert_eq!(whole.len(), 7);
+            let (mut got, mut offset) = (Vec::new(), 0);
+            loop {
+                let p = page(offset, 1);
+                if p.is_empty() {
+                    break;
+                }
+                offset += p.len() as i64;
+                got.extend(p);
+            }
+            assert_eq!(got, whole, "{sort:?}");
+        }
         // Фильтр по категории — только подходящая часть, без дописывания остальных.
         let page = list(
             c,
