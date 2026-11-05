@@ -412,9 +412,9 @@ test("свои клавиши: доход на Ctrl+I, занятое не пр�
   await browser.$('[data-testid="keys-card"]').waitForExist({ timeout: 5000 });
   try {
     await tap('[data-testid="key-newIncome"]');
-    await waitText(browser, '[data-testid="key-newIncome"]', /Нажмите/);
+    await waitContent(browser, '[data-testid="key-newIncome"]', /Нажмите/);
     await browser.keys(["Control", "t"]);
-    await waitText(browser, '[data-testid="keys-msg"]', /Ctrl\+T уже занято: «Новый перевод»/);
+    await waitContent(browser, '[data-testid="keys-msg"]', /Ctrl\+T уже занято: «Новый перевод»/);
     await browser.keys(["Control", "i"]);
     await waitContent(browser, '[data-testid="key-newIncome"]', /Ctrl\+I/);
     await browser.execute(() => document.activeElement?.blur());
