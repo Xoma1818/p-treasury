@@ -152,6 +152,14 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
     // Чек, узнанный в выписке, остаётся связанным со строкой банка, иначе
     // повторная выписка добавит покупку второй раз.
     crate::import_log::carry_matches(&tx, &previous, &ids)?;
+    // История: что было в чеке и что стало; дата добавления чека не меняется.
+    crate::history::record_receipt(&tx, split_id, &previous, &ids)?;
+    tx.execute(
+        "UPDATE transactions SET created_at =
+             (SELECT min(created_at) FROM transactions WHERE split_id = ?1)
+         WHERE split_id = ?1",
+        [split_id],
+    )?;
     for old in previous {
         // Возвраты по части чека переходят к новой части той же категории (иначе к
         // первой части): без этого ON DELETE SET NULL отвязал бы возврат, и

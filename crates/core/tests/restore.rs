@@ -313,7 +313,12 @@ fn failed_migration_of_copy_keeps_live_data() {
             _ if sql.contains("INTO settings") => {
                 "ALTER TABLE settings RENAME TO settings_old; CREATE TABLE settings (key TEXT PRIMARY KEY)".to_string()
             }
-            _ => panic!("последняя миграция создаёт таблицу, столбец или настройку"),
+            // Миграция только добавляет триггеры: триггер с тем же именем уже есть.
+            _ if word("CREATE TRIGGER ").is_some() => format!(
+                "CREATE TRIGGER {} AFTER INSERT ON settings BEGIN SELECT 1; END",
+                word("CREATE TRIGGER ").unwrap()
+            ),
+            _ => panic!("последняя миграция создаёт таблицу, столбец, настройку или триггер"),
         };
         c.execute_batch(&clash).unwrap();
     }

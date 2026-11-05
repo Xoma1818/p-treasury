@@ -793,5 +793,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(19), "ui_modules_and_prefs");
     assert_eq!(at(20), "fine_settings");
     assert_eq!(at(21), "txn_history");
-    assert_eq!(LATEST_VERSION, 21);
+    assert_eq!(at(22), "txn_history_tags");
+    assert_eq!(LATEST_VERSION, 22);
 }

@@ -1,7 +1,8 @@
 //! История изменений операций.
 //!
-//! Записи делают триггеры базы (миграция 0021): любая правка видимых полей и
-//! удаление операции добавляют строку в `txn_history` со снимком «до» и «после».
+//! Записи делают триггеры базы (миграции 0021–0022): любая правка видимых полей,
+//! тегов и удаление операции добавляют строку в `txn_history` со снимком «до» и
+//! «после». Пересборку разбитого чека записывает `receipts::update`.
 //! Здесь снимки превращаются в понятный список «что стало»: названия счетов,
 //! категорий и поездок подставляются нынешние, суммы — в валюте счёта;
 //! даты остаются `YYYY-MM-DD`, окно показывает их в выбранном формате.
@@ -21,6 +22,8 @@ pub struct FieldChange {
     pub field: String,
     pub before: String,
     pub after: String,
+    /// Денежное поле: окно прячет его в режиме «Скрыть суммы».
+    pub money: bool,
 }
 
 /// Одна запись истории.
@@ -50,7 +53,11 @@ const FIELDS: &[(&str, &str)] = &[
     ("event_id", "Поездка или событие"),
     ("spread_months", "По месяцам"),
     ("count_date", "Дата для бюджета"),
+    ("parts", "Части чека"),
 ];
+
+/// Поля с деньгами.
+const MONEY: &[&str] = &["amount", "to_amount", "parts"];
 
 /// История операции целиком.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -66,52 +73,215 @@ pub struct TxnHistory {
 
 const EMPTY: &str = "—";
 
-/// Когда добавлена операция и что с ней было потом.
-pub fn get(conn: &Connection, txn_id: &str) -> Result<TxnHistory> {
-    let row = conn
-        .query_row(
-            "SELECT created_at, import_id IS NOT NULL FROM transactions WHERE id = ?1",
-            [txn_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)),
-        )
-        .optional()?;
+/// Когда добавлена операция и что с ней было потом. Для разбитого чека
+/// (`split_id`) собирается история всего чека: пересборки и правки частей.
+pub fn get(conn: &Connection, txn_id: &str, split_id: Option<&str>) -> Result<TxnHistory> {
+    let mut ids = vec![txn_id.to_string()];
+    if let Some(split) = split_id {
+        ids = conn
+            .prepare("SELECT id FROM transactions WHERE split_id = ?1")?
+            .query_map([split], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        ids.push(split.to_string());
+    }
+    let mut created: Option<String> = None;
+    let mut imported = false;
+    for id in &ids {
+        let row = conn
+            .query_row(
+                "SELECT created_at, import_id IS NOT NULL FROM transactions WHERE id = ?1",
+                [id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)),
+            )
+            .optional()?;
+        if let Some((at, imp)) = row {
+            imported |= imp;
+            if created.as_ref().is_none_or(|c| at < *c) {
+                created = Some(at);
+            }
+        }
+    }
     Ok(TxnHistory {
-        created_at: row.as_ref().map(|r| r.0.clone()),
-        imported: row.is_some_and(|r| r.1),
-        changes: for_txn(conn, txn_id)?,
+        created_at: created,
+        imported,
+        changes: for_ids(conn, &ids)?,
     })
 }
 
 /// Правки и удаления операции, новые записи сверху. Для удалённой операции тоже работает.
 pub fn for_txn(conn: &Connection, txn_id: &str) -> Result<Vec<Change>> {
-    let mut stmt = conn.prepare(
-        "SELECT at, kind, before, after FROM txn_history WHERE txn_id = ?1 ORDER BY id DESC",
-    )?;
-    let rows = stmt
-        .query_map([txn_id], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut out = Vec::with_capacity(rows.len());
-    for (at, kind, before, after) in rows {
-        let before = parse(&before);
-        let fields = match after.as_deref() {
-            Some(after) => diff(conn, &before, &parse(after))?,
-            None => Vec::new(),
-        };
-        // Правка без видимой разницы (например, сумма 100 → 100 после
-        // пересчёта) не показывается.
-        if kind == "update" && fields.is_empty() {
+    for_ids(conn, &[txn_id.to_string()])
+}
+
+fn is_tag(r: &Row) -> bool {
+    r.before.contains_key("tag_removed")
+        || r.after
+            .as_ref()
+            .is_some_and(|a| a.contains_key("tag_added"))
+}
+
+struct Row {
+    id: i64,
+    txn: String,
+    at: String,
+    kind: String,
+    before: Map<String, Value>,
+    after: Option<Map<String, Value>>,
+}
+
+fn for_ids(conn: &Connection, ids: &[String]) -> Result<Vec<Change>> {
+    let mut stmt = conn
+        .prepare("SELECT id, txn_id, at, kind, before, after FROM txn_history WHERE txn_id = ?1")?;
+    let mut rows = Vec::new();
+    for id in ids {
+        let found = stmt
+            .query_map([id], |r| {
+                Ok(Row {
+                    id: r.get(0)?,
+                    txn: r.get(1)?,
+                    at: r.get(2)?,
+                    kind: r.get(3)?,
+                    before: parse(&r.get::<_, String>(4)?),
+                    after: r.get::<_, Option<String>>(5)?.as_deref().map(parse),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.extend(found);
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r.id));
+
+    // Одно сохранение — одна запись: теги, снятые и поставленные в ту же
+    // секунду, присоединяются к правке полей этой операции.
+    let mut groups: Vec<Vec<Row>> = Vec::new();
+    for row in rows {
+        let same = groups.last().is_some_and(|g| {
+            let last = &g[0];
+            row.kind == "update"
+                && last.kind == "update"
+                && row.txn == last.txn
+                && row.at.get(..19) == last.at.get(..19)
+                // Две правки полей не склеиваются (правка и быстрая отмена).
+                && (is_tag(&row) || g.iter().all(is_tag))
+        });
+        if same {
+            groups.last_mut().expect("есть").push(row);
+        } else {
+            groups.push(vec![row]);
+        }
+    }
+
+    let mut out = Vec::with_capacity(groups.len());
+    for g in groups {
+        let first = &g[0];
+        let (at, kind) = (first.at.clone(), first.kind.clone());
+        if kind != "update" {
+            out.push(Change {
+                at,
+                kind,
+                fields: Vec::new(),
+            });
             continue;
         }
-        out.push(Change { at, kind, fields });
+        let mut fields = Vec::new();
+        let (mut added, mut removed) = (Vec::<String>::new(), Vec::<String>::new());
+        // Внутри группы строки новые сверху; поля разбираем в порядке записи.
+        for row in g.iter().rev() {
+            let after = row.after.clone().unwrap_or_default();
+            if let Some(t) = after.get("tag_added").and_then(Value::as_str) {
+                match removed.iter().position(|x| x == t) {
+                    Some(i) => drop(removed.remove(i)),
+                    None => added.push(t.to_string()),
+                }
+                continue;
+            }
+            if let Some(t) = row.before.get("tag_removed").and_then(Value::as_str) {
+                match added.iter().position(|x| x == t) {
+                    Some(i) => drop(added.remove(i)),
+                    None => removed.push(t.to_string()),
+                }
+                continue;
+            }
+            fields.extend(diff(conn, &row.before, &after)?);
+        }
+        if !added.is_empty() || !removed.is_empty() {
+            let list = |v: &[String]| {
+                if v.is_empty() {
+                    EMPTY.to_string()
+                } else {
+                    v.join(", ")
+                }
+            };
+            fields.push(FieldChange {
+                field: "Теги".into(),
+                before: list(&removed),
+                after: list(&added),
+                money: false,
+            });
+        }
+        // Правка без видимой разницы (например, тег снят и поставлен снова)
+        // не показывается.
+        if !fields.is_empty() {
+            out.push(Change { at, kind, fields });
+        }
     }
     Ok(out)
+}
+
+/// Записать пересборку разбитого чека: что было и что стало (части, дата,
+/// счёт, получатель, поездка). Вызывается из `receipts::update` до удаления
+/// старых частей; `new_ids` — уже вставленные новые части.
+pub(crate) fn record_receipt(
+    conn: &Connection,
+    split_id: &str,
+    old_ids: &[String],
+    new_ids: &[String],
+) -> Result<()> {
+    let before = receipt_snapshot(conn, old_ids)?;
+    let after = receipt_snapshot(conn, new_ids)?;
+    if before == after {
+        return Ok(());
+    }
+    conn.execute(
+        "INSERT INTO txn_history (txn_id, at, kind, before, after)
+         VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'update', ?2, ?3)",
+        params![split_id, before.to_string(), after.to_string()],
+    )?;
+    Ok(())
+}
+
+fn receipt_snapshot(conn: &Connection, ids: &[String]) -> Result<Value> {
+    let mut stmt = conn.prepare(
+        "SELECT date, account_id, payee, event_id, category_id, amount
+         FROM transactions WHERE id = ?1",
+    )?;
+    let mut head = Map::new();
+    let mut parts = Vec::new();
+    let mut sorted = ids.to_vec();
+    sorted.sort();
+    for id in &sorted {
+        let row = stmt
+            .query_row([id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, i64>(5)?,
+                ))
+            })
+            .optional()?;
+        let Some((date, account, payee, event, category, amount)) = row else {
+            continue;
+        };
+        head.insert("date".into(), date.into());
+        head.insert("account_id".into(), account.into());
+        head.insert("payee".into(), payee.map_or(Value::Null, Value::from));
+        head.insert("event_id".into(), event.map_or(Value::Null, Value::from));
+        parts.push(serde_json::json!([category, amount]));
+    }
+    head.insert("parts".into(), Value::Array(parts));
+    Ok(Value::Object(head))
 }
 
 fn parse(json: &str) -> Map<String, Value> {
@@ -137,6 +307,7 @@ fn diff(
             field: (*label).to_string(),
             before: show(conn, key, b, before)?,
             after: show(conn, key, a, after)?,
+            money: MONEY.contains(key),
         });
     }
     Ok(out)
@@ -167,6 +338,7 @@ fn show(conn: &Connection, key: &str, v: &Value, row: &Map<String, Value>) -> Re
         "account_id" | "to_account_id" => name(conn, "SELECT name FROM accounts WHERE id = ?1", s)?,
         "category_id" => name(conn, "SELECT name FROM categories WHERE id = ?1", s)?,
         "event_id" => name(conn, "SELECT name FROM events WHERE id = ?1", s)?,
+        "parts" => parts(conn, v, row.get("account_id"))?,
         "spread_months" => match v.as_i64() {
             Some(n) if n > 1 => format!("на {n} мес."),
             _ => "нет".to_string(),
@@ -181,6 +353,24 @@ fn name(conn: &Connection, sql: &str, id: &str) -> Result<String> {
         .query_row(sql, [id], |r| r.get::<_, String>(0))
         .optional()?
         .unwrap_or_else(|| "(удалено)".to_string()))
+}
+
+/// «Питание 300 ₽, Хозтовары 200 ₽».
+fn parts(conn: &Connection, v: &Value, account: Option<&Value>) -> Result<String> {
+    let mut out = Vec::new();
+    for p in v.as_array().into_iter().flatten() {
+        let category = match p.get(0).and_then(Value::as_str) {
+            Some(id) => name(conn, "SELECT name FROM categories WHERE id = ?1", id)?,
+            None => EMPTY.to_string(),
+        };
+        let amount = money(conn, p.get(1).unwrap_or(&Value::Null), account)?;
+        out.push(format!("{category} {amount}"));
+    }
+    Ok(if out.is_empty() {
+        EMPTY.to_string()
+    } else {
+        out.join(", ")
+    })
 }
 
 fn money(conn: &Connection, v: &Value, account: Option<&Value>) -> Result<String> {
@@ -260,12 +450,14 @@ mod tests {
                 FieldChange {
                     field: "Сумма".into(),
                     before: "500 ₽".into(),
-                    after: "450 ₽".into()
+                    after: "450 ₽".into(),
+                    money: true
                 },
                 FieldChange {
                     field: "Категория".into(),
                     before: "Питание".into(),
-                    after: "Общепит".into()
+                    after: "Общепит".into(),
+                    money: false
                 },
             ]
         );
@@ -280,7 +472,7 @@ mod tests {
         journal.undo(db.conn()).unwrap();
         let c = db.conn();
         assert!(transactions::get(c, &id).is_ok());
-        let full = get(c, &id).unwrap();
+        let full = get(c, &id, None).unwrap();
         assert!(full.created_at.is_some() && !full.imported);
         let h = for_txn(c, &id).unwrap();
         assert_eq!(h.len(), 2);
@@ -297,5 +489,84 @@ mod tests {
         assert_eq!(h.len(), 4);
         assert_eq!(h[0].fields[0].before, "300 ₽");
         assert_eq!(h[0].fields[0].after, "450 ₽");
+    }
+
+    #[test]
+    fn tags_and_receipts_are_recorded() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+        use crate::tags;
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let card = accounts::create(c, &acc("Карта", "debit", "RUB", 0)).unwrap();
+        let food = cat(c, "Питание");
+        let cafe = cat(c, "Общепит");
+        let id = transactions::create(c, &input(&card, 50_000, &food)).unwrap();
+        // Теги при создании не пишутся.
+        tags::set_for(c, &id, &["дача".into()]).unwrap();
+        assert!(for_txn(c, &id).unwrap().is_empty());
+        let old = |c: &Connection| {
+            c.execute(
+                "UPDATE transactions SET created_at = '2026-01-01T00:00:00.000Z'",
+                [],
+            )
+            .unwrap()
+        };
+        old(c);
+        // Правка суммы и тегов одним сохранением — одна запись.
+        transactions::update(c, &id, &input(&card, 40_000, &food)).unwrap();
+        tags::set_for(c, &id, &["отпуск".into()]).unwrap();
+        let h = for_txn(c, &id).unwrap();
+        assert_eq!(h.len(), 1);
+        let tag = h[0].fields.iter().find(|f| f.field == "Теги").unwrap();
+        assert_eq!(
+            (tag.before.as_str(), tag.after.as_str()),
+            ("дача", "отпуск")
+        );
+        assert!(h[0].fields.iter().any(|f| f.field == "Сумма" && f.money));
+
+        // Разбитый чек: пересборка видна у чека, дата добавления сохраняется.
+        let receipt = |a: i64, b: i64| ReceiptInput {
+            date: "2026-11-05".into(),
+            account_id: card.clone(),
+            payee: None,
+            note: None,
+            total: a + b,
+            parts: vec![
+                PartInput {
+                    category_id: food.clone(),
+                    amount: a,
+                    note: None,
+                },
+                PartInput {
+                    category_id: cafe.clone(),
+                    amount: b,
+                    note: None,
+                },
+            ],
+            tags: vec![],
+            event_id: None,
+        };
+        let split = receipts::create(db.conn_mut(), &receipt(30_000, 20_000)).unwrap();
+        old(db.conn());
+        let first = db
+            .conn()
+            .query_row(
+                "SELECT id FROM transactions WHERE split_id = ?1",
+                [&split],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+        receipts::update(db.conn_mut(), &split, &receipt(25_000, 25_000)).unwrap();
+        let full = get(db.conn(), &first, Some(&split)).unwrap();
+        assert_eq!(full.created_at.as_deref(), Some("2026-01-01T00:00:00.000Z"));
+        assert_eq!(full.changes.len(), 1);
+        let f = &full.changes[0].fields[0];
+        assert_eq!(f.field, "Части чека");
+        assert!(f.money);
+        assert!(
+            f.before.contains("300 ₽") && f.after.contains("250 ₽"),
+            "{f:?}"
+        );
     }
 }

@@ -121,6 +121,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "txn_history",
         sql: include_str!("../../migrations/0021_txn_history.sql"),
     },
+    Migration {
+        version: 22,
+        name: "txn_history_tags",
+        sql: include_str!("../../migrations/0022_txn_history_tags.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

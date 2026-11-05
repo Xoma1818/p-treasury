@@ -1596,7 +1596,7 @@ export interface TxnChange {
   /** Когда (UTC, ISO 8601). */
   at: string;
   kind: "update" | "delete";
-  fields: { field: string; before: string; after: string }[];
+  fields: { field: string; before: string; after: string; money: boolean }[];
 }
 
 export interface TxnHistory {
@@ -1948,7 +1948,7 @@ export const api = {
   updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
   deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),
   getReceipt: (splitId: string) => invoke<Receipt>("get_receipt", { splitId }),
-  transactionHistory: (id: string) => invoke<TxnHistory>("transaction_history", { id }),
+  transactionHistory: (id: string, splitId: string | null = null) => invoke<TxnHistory>("transaction_history", { id, splitId }),
   listTags: () => invoke<Tag[]>("list_tags"),
   setTransactionTags: (id: string, tags: string[]) => invoke<void>("set_transaction_tags", { id, tags }),
   renameTag: (id: string, name: string) => invoke<void>("rename_tag", { id, name }),
