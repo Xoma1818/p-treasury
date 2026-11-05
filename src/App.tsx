@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
+import { notifyTable, TABLE_KEY } from "./lib/txnTable";
 import { LOOK_KEY, savedLook, showLook } from "./lib/look";
 import { actionFor, comboOf, KEYS_KEY, notifyKeys, usable, useKeyMap } from "./lib/keymap";
 import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
-import { loadPrefs, prefsToApply } from "./lib/uiPrefs";
+import { loadPrefs, prefsLoaded, prefsToApply } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
 import { applyScale, savedScale } from "./lib/scale";
 import { useModules } from "./lib/modules";
@@ -73,7 +74,8 @@ export function App() {
     if (!settingsData) return;
     const raw = settingsData.ui_prefs;
     if (!prefsToApply(raw)) return;
-    const restored = loadPrefs(raw);
+    // Уже работающее окно получило другую копию из базы (восстановление): база главнее.
+    const restored = loadPrefs(raw, localStorage, { restore: prefsLoaded() });
     if (restored.includes("p-treasury-theme")) applyTheme(savedTheme());
     if (restored.includes("p-treasury-scale")) applyScale(savedScale());
     if (restored.some((k) => k === NAV_KEY || k === ADD_KEY)) notifyNav();
@@ -81,6 +83,7 @@ export function App() {
     if (restored.includes(HEAD_KEY)) notifyHead();
     if (restored.includes(LOOK_KEY)) showLook(savedLook());
     if (restored.includes(KEYS_KEY)) notifyKeys();
+    if (restored.includes(TABLE_KEY)) notifyTable();
   }, [settingsData]);
   // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
   const { sectionOn } = useModules();

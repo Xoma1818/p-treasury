@@ -4,7 +4,7 @@
 import { api } from "./api";
 
 /** Ключи хранилища окна, которые копируются в базу. */
-export const MIRRORED_PREFS = ["p-treasury-theme", "p-treasury-scale", "kazna.txnOpen", "kazna.navLayout", "kazna.addMain", "kazna.txnForm", "kazna.txnHead", "kazna.look", "kazna.keys"] as const;
+export const MIRRORED_PREFS = ["p-treasury-theme", "p-treasury-scale", "kazna.txnOpen", "kazna.navLayout", "kazna.addMain", "kazna.txnForm", "kazna.txnHead", "kazna.look", "kazna.keys", "kazna.txnTable"] as const;
 
 let db: Record<string, string> | null = null;
 
@@ -51,10 +51,15 @@ export function pushPref(key: string, value: string) {
  *  приходит из неё, даже если в этом окне уже была выбрана другая. */
 const DB_WINS = new Set<string>(["p-treasury-theme"]);
 
+/** Настройки уже загружены в этом окне: новая копия из базы пришла извне
+ *  (восстановили копию, перенесли данные) и должна победить. */
+export const prefsLoaded = () => db != null;
+
 /** При запуске: чего нет в окне — берём из базы (восстановление копии);
  *  чего нет в базе — дописываем из окна. Тему из базы берём всегда.
+ *  `restore` — база сменилась у работающего окна: тогда всё, что есть в базе, главнее окна.
  *  Возвращает ключи, взятые из базы. */
-export function loadPrefs(raw: string | undefined, storage: Pick<Storage, "getItem" | "setItem"> = localStorage): string[] {
+export function loadPrefs(raw: string | undefined, storage: Pick<Storage, "getItem" | "setItem"> = localStorage, { restore = false } = {}): string[] {
   const saved = parse(raw);
   const restored: string[] = [];
   let dirty = false;
@@ -65,7 +70,7 @@ export function loadPrefs(raw: string | undefined, storage: Pick<Storage, "getIt
     } catch {
       /* хранилище недоступно */
     }
-    if (saved[k] != null && (local == null || (DB_WINS.has(k) && local !== saved[k]))) {
+    if (saved[k] != null && (local == null || ((restore || DB_WINS.has(k)) && local !== saved[k]))) {
       try {
         storage.setItem(k, saved[k]);
         restored.push(k);

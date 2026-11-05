@@ -1872,6 +1872,11 @@ pub fn bulk_tag(
 }
 
 #[tauri::command(async)]
+pub fn bulk_receipt_extra(state: State<AppState>, ids: Vec<String>) -> CmdResult<usize> {
+    with_db(&state, |db| bulk::receipt_extra(db.conn(), &ids))
+}
+
+#[tauri::command(async)]
 pub fn bulk_delete(state: State<AppState>, ids: Vec<String>) -> CmdResult<BulkResult> {
     with_undo(&state, "Удаление выбранных", |c| {
         bulk::delete(c, &ids)

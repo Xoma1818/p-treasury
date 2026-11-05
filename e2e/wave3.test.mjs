@@ -436,8 +436,15 @@ test("своя Главная: скрыть карточку, перестави
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
   await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
-  await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
-  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
+  // Щёлкаем «Ниже», когда скрытие уже применилось (кнопка сменилась на «Показать»).
+  await browser.$('//*[@data-block="templates"]//button[normalize-space()="Показать"]').waitForExist({ timeout: 5000 });
+  const lower = await browser.$('button[aria-label="Ниже: Быстрый ввод"]');
+  await lower.waitForClickable({ timeout: 5000 });
+  await lower.click();
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", {
+    timeout: 5000,
+    timeoutMsg: "«Быстрый ввод» не опустился ниже",
+  });
   // Перетаскивание карточки: «Напоминания» — в самый верх.
   await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="summary"]');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
@@ -481,4 +488,40 @@ test("счёт, перетащенный на категорию «Куда тр
   assert.equal(await picked("category"), "Общепит");
   assert.match(await picked("account"), /^Наличные/);
   await browser.keys("Escape");
+});
+
+test("таблица операций: столбец «Получатель», порядок по сумме, группы по категориям, как было (0.32)", async () => {
+  await openSection(browser, "Операции");
+  await tap('//*[@data-testid="period"]//button[normalize-space()="Прошлый"]');
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  const amounts = () =>
+    browser.execute(() =>
+      [...document.querySelectorAll('[data-testid="txn-row"] td.num')].map((td) => Math.abs(Number(td.textContent.replace(/[^\d,-]/g, "").replace(",", ".")) || 0)),
+    );
+  try {
+    await tap('[data-testid="table-view"]');
+    await tap('[data-testid="table-menu"] [data-col="payee"]');
+    await waitContent(browser, ".txn-table thead", /Получатель/);
+    // Сумма по убыванию — нажатием на заголовок; порядок делает ядро для всего списка.
+    await browser.keys("Escape");
+    await tap('.txn-table th [data-sort="amount"]');
+    await browser.waitUntil(
+      async () => {
+        const a = await amounts();
+        return a.length > 1 && a.every((x, i) => i === 0 || a[i - 1] >= x);
+      },
+      { timeout: 5000, timeoutMsg: "строки не встали по сумме" },
+    );
+    await tap('[data-testid="table-view"]');
+    await tap('[data-testid="table-menu"] [data-group="category"]');
+    await browser.$('[data-testid="txn-group"]').waitForExist({ timeout: 5000 });
+  } finally {
+    if (!(await browser.$('[data-testid="table-menu"]').isExisting())) await tap('[data-testid="table-view"]');
+    const reset = await browser.$('[data-testid="table-reset"]');
+    if (await reset.isExisting()) await reset.click();
+    await browser.keys("Escape");
+  }
+  await browser.$('[data-testid="txn-group"]').waitForExist({ reverse: true, timeout: 5000 });
+  assert.equal(await browser.execute(() => document.querySelector(".txn-table thead")?.textContent.includes("Получатель")), false);
+  await openSection(browser, "Настройки");
 });

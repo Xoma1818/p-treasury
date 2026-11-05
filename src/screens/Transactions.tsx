@@ -4,7 +4,9 @@ import { SlidersHorizontal, X } from "lucide-react";
 import { Hint } from "../components/Hint";
 import { SelectionBar } from "../components/SelectionBar";
 import { isTyping } from "../lib/hotkeys";
-import { groupReceipts, rowIds } from "../lib/receipt";
+import { rowIds } from "../lib/receipt";
+import { clickSort, orderedRows, parseTable, saveTable, sortParam, useTxnTable, type TxnTableLayout } from "../lib/txnTable";
+import { TableViewMenu } from "../components/TableViewMenu";
 import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { loadAllTransactionIds } from "../lib/transactionSelection";
 import { ImportDialog, useExport } from "../components/DataTools";
@@ -43,15 +45,18 @@ export function Transactions() {
     }
   }, [txnFilter]);
 
-  const applyView = (v: { filter: TxnFilter; search: string }) => {
+  const table = useTxnTable();
+  const applyView = (v: { filter: TxnFilter; search: string; table?: TxnTableLayout }) => {
     setLimit(PAGE);
+    // Вид, сохранённый до Г8, таблицу не трогает.
+    if (v.table) saveTable(parseTable(v.table));
     setSearch(v.search ?? "");
     setF({ ...v.filter, search: v.search || undefined });
   };
   // Вид, открытый из бокового меню.
   useEffect(() => {
     if (viewJump?.kind !== "transactions") return;
-    const params = parseView<{ filter: TxnFilter; search: string }>(viewJump.params);
+    const params = parseView<{ filter: TxnFilter; search: string; table?: TxnTableLayout }>(viewJump.params);
     if (params) applyView(params);
     useUi.setState({ viewJump: null });
   }, [viewJump]);
@@ -61,7 +66,7 @@ export function Transactions() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const query = { ...f, limit };
+  const query = { ...f, sort: sortParam(table), limit };
   const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
   const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path), ["csv", "xlsx", "ofx"]);
   // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
@@ -110,7 +115,7 @@ export function Transactions() {
   }, [filterKey, cancelSelection]);
   useEffect(() => () => selectionRequest.current?.abort(), []);
   const items = page.data?.items;
-  const rows = useMemo(() => (items ? groupReceipts(items).map((r) => ({ key: r.key, ids: rowIds(r) })) : []), [items]);
+  const rows = useMemo(() => (items ? orderedRows(items, table.group).map((r) => ({ key: r.key, ids: rowIds(r) })) : []), [items, table.group]);
   useEffect(() => {
     if (items && !page.isPlaceholderData) setSel((cur) => (cur.ids.size && !selectAllRef.current ? keepExisting(cur, new Set(items.map((t) => t.id))) : cur));
   }, [items, page.isPlaceholderData]);
@@ -231,7 +236,7 @@ export function Transactions() {
       {selectingAll && <p className="hint" role="status" data-testid="select-all-loading">Выделяем все найденные операции…</p>}
       <SavedViews
         kind="transactions"
-        current={{ filter: { ...f, search: undefined }, search }}
+        current={{ filter: { ...f, search: undefined }, search, table }}
         onApply={applyView}
       />
       <div className="card filters" data-testid="filters">
@@ -258,6 +263,7 @@ export function Transactions() {
           <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined }))}>
             Сбросить
           </button>
+          <TableViewMenu layout={table} />
         </div>
         {showPanel && (
           <div className="filters-row" data-testid="filters-panel">
@@ -300,7 +306,7 @@ export function Transactions() {
         {page.error && <p className="error">{String(page.error)}</p>}
         {page.data && (
           <>
-            <TxnTable items={page.data.items} selection={{ sel, onToggle }} />
+            <TxnTable items={page.data.items} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />
             <div className="table-foot muted" data-testid="txn-count">
               Показано {page.data.items.length} из {page.data.total}
               {sel.ids.size === 0 && <Hint of="txn.select" />}

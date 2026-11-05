@@ -132,6 +132,8 @@ export interface Txn {
   accountId: string;
   accountName: string;
   currencySymbol: string;
+  /** Код валюты счёта: у CNY и JPY один символ «¥». */
+  currencyCode: string;
   minorUnits: number;
   amount: number;
   toAccountId: string | null;
@@ -174,6 +176,8 @@ export interface TxnFilter {
   importId?: string;
   /** Получатель целиком (похожие операции); без учёта регистра. */
   payee?: string;
+  /** Г8: порядок «столбец:asc|desc»; без него новые сверху. */
+  sort?: string;
   limit?: number;
   offset?: number;
 }
@@ -1923,6 +1927,8 @@ export const api = {
   bulkSetAccount: (ids: string[], accountId: string) => invoke<BulkResult>("bulk_set_account", { ids, accountId }),
   bulkTag: (ids: string[], tag: string, add: boolean) => invoke<BulkResult>("bulk_tag", { ids, tag, add }),
   bulkDelete: (ids: string[]) => invoke<BulkResult>("bulk_delete", { ids }),
+  /** Сколько скрытых частей чеков затронет удаление, смена счёта или получателя. */
+  bulkReceiptExtra: (ids: string[]) => invoke<number>("bulk_receipt_extra", { ids }),
   createReceipt: (input: ReceiptInput) => invoke<string>("create_receipt", { input }),
   updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
   deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),

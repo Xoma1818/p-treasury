@@ -162,7 +162,10 @@ test("Операции: разбитый чек одной строкой с р�
   await waitText(browser, '//tr[@data-testid="txn-row"][.//*[@data-testid="txn-tag"]]', /#дача/);
   await waitText(browser, '//tr[@data-testid="txn-row"][.//*[@data-testid="txn-spread"]]', /÷ 12 мес\./);
   // Нажатие на чек открывает весь чек.
-  await (await browser.$(`${receipt}/td[@class="date"]`)).click();
+  // Строку — в середину окна: у таблицы теперь заголовок, и низ строки может уйти под нижнюю полосу.
+  const dateCell = await browser.$(`${receipt}/td[@class="date"]`);
+  await browser.execute((el) => el.scrollIntoView({ block: "center" }), dateCell);
+  await dateCell.click();
   await waitText(browser, `${dialog}//h2`, /Разбитый чек/);
   await waitText(browser, '[data-testid="receipt-split"]', /По категориям/);
   assert.equal(await count('[role="dialog"] [name^="partCategory"]'), 3);
