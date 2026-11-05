@@ -174,6 +174,8 @@ export interface TxnFilter {
   importId?: string;
   /** Получатель целиком (похожие операции); без учёта регистра. */
   payee?: string;
+  /** Г8: порядок «столбец:asc|desc»; без него новые сверху. */
+  sort?: string;
   limit?: number;
   offset?: number;
 }

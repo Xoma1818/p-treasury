@@ -395,6 +395,9 @@ pub struct Filter {
     pub import_id: Option<String>,
     /// Получатель целиком, без учёта регистра и пробелов по краям (похожие операции).
     pub payee: Option<String>,
+    /// Порядок списка (Г8): «date», «amount», «category», «account», «payee»
+    /// с «:asc» или «:desc». Пусто или незнакомое — новые сверху. Выгрузки идут по дате.
+    pub sort: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -546,14 +549,38 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     )?;
     let limit = f.limit.unwrap_or(200).clamp(1, 5000);
     let offset = f.offset.unwrap_or(0).max(0);
-    let sql = format!(
-        "{SELECT} WHERE {where_sql} ORDER BY t.date DESC, t.id DESC LIMIT {limit} OFFSET {offset}"
-    );
+    let order = order_sql(f.sort.as_deref());
+    let sql = format!("{SELECT} WHERE {where_sql} ORDER BY {order} LIMIT {limit} OFFSET {offset}");
     let mut stmt = conn.prepare(&sql)?;
     let items = stmt
         .query_map(params_from_iter(args.iter()), map)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(Page { items, total })
+}
+
+/// ORDER BY для списка: только известные столбцы, при равенстве — новые сверху.
+/// Пустые получатель и категория всегда в конце.
+fn order_sql(sort: Option<&str>) -> String {
+    const TAIL: &str = "t.date DESC, t.id DESC";
+    let Some((by, dir)) = sort.and_then(|s| s.split_once(':')) else {
+        return TAIL.into();
+    };
+    let dir = match dir {
+        "asc" => "ASC",
+        "desc" => "DESC",
+        _ => return TAIL.into(),
+    };
+    let key = match by {
+        "date" => return format!("t.date {dir}, t.id {dir}"),
+        "amount" => format!("t.amount {dir}"),
+        "category" => {
+            format!("(c.name IS NULL), kz_lower(coalesce(p.name || ' → ' || c.name, c.name)) {dir}")
+        }
+        "account" => format!("kz_lower(a.name) {dir}"),
+        "payee" => format!("(coalesce(trim(t.payee), '') = ''), kz_lower(trim(t.payee)) {dir}"),
+        _ => return TAIL.into(),
+    };
+    format!("{key}, {TAIL}")
 }
 
 /// Все операции по фильтру одним запросом, новые сверху (выгрузки).
@@ -919,6 +946,45 @@ mod tests {
             &txn("expense", "2026-10-20", &f.cash, 200, Some(&f.food)),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn list_sorts_by_chosen_column() {
+        let f = fx();
+        let c = f.db.conn();
+        let mut a = txn("expense", "2026-10-01", &f.cash, 300, Some(&f.food));
+        a.payee = Some("Яблоко".into());
+        create(c, &a).unwrap();
+        let mut b = txn("expense", "2026-10-03", &f.card, 100, Some(&f.lunch));
+        b.payee = Some("ашан".into());
+        create(c, &b).unwrap();
+        create(
+            c,
+            &txn("income", "2026-10-02", &f.card, 200, Some(&f.salary)),
+        )
+        .unwrap();
+        let by = |sort: &str| -> Vec<i64> {
+            let page = list(
+                c,
+                &Filter {
+                    sort: Some(sort.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            page.items.iter().map(|t| t.amount).collect()
+        };
+        assert_eq!(by(""), vec![100, 200, 300]);
+        assert_eq!(by("date:asc"), vec![300, 200, 100]);
+        assert_eq!(by("amount:desc"), vec![300, 200, 100]);
+        assert_eq!(by("amount:asc"), vec![100, 200, 300]);
+        // Без учёта регистра; пустой получатель — в конце при любом направлении.
+        assert_eq!(by("payee:asc"), vec![100, 300, 200]);
+        assert_eq!(by("payee:desc"), vec![300, 100, 200]);
+        assert_eq!(by("account:desc"), vec![300, 100, 200]);
+        // Незнакомое не ломает запрос.
+        assert_eq!(by("rowid; DROP TABLE x:asc"), vec![100, 200, 300]);
+        assert_eq!(by("amount:sideways"), vec![100, 200, 300]);
     }
 
     #[test]
