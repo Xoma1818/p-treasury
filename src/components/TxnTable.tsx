@@ -29,6 +29,7 @@ export function TxnTable({
   selection,
   layout,
   onSort,
+  partial,
 }: {
   items: Txn[];
   compact?: boolean;
@@ -38,6 +39,8 @@ export function TxnTable({
   layout?: TxnTableLayout;
   /** Заголовки столбцов нажимаются и сортируют. */
   onSort?: (by: SortBy) => void;
+  /** Загружены не все операции по фильтру: итоги групп — только по показанным. */
+  partial?: boolean;
 }) {
   const open = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
@@ -241,7 +244,8 @@ export function TxnTable({
                   <span className="group-label" data-testid="txn-group-label">{g.label}</span>
                   <span className="muted group-count">{g.rows.length}</span>
                   {g.total && g.total.amount !== 0 && (
-                    <span className="group-total">
+                    <span className="group-total" title={partial ? "Итог по загруженным операциям; «Показать ещё» загрузит остальные" : undefined}>
+                      {partial && <span className="muted group-partial">по загруженным </span>}
                       <Money amount={g.total.amount} symbol={g.total.symbol} minorUnits={g.total.minorUnits} signed />
                     </span>
                   )}

@@ -5,7 +5,7 @@ import { notifyTable, TABLE_KEY } from "./lib/txnTable";
 import { LOOK_KEY, savedLook, showLook } from "./lib/look";
 import { actionFor, comboOf, KEYS_KEY, notifyKeys, usable, useKeyMap } from "./lib/keymap";
 import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
-import { loadPrefs, prefsToApply } from "./lib/uiPrefs";
+import { loadPrefs, prefsLoaded, prefsToApply } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
 import { applyScale, savedScale } from "./lib/scale";
 import { useModules } from "./lib/modules";
@@ -74,7 +74,8 @@ export function App() {
     if (!settingsData) return;
     const raw = settingsData.ui_prefs;
     if (!prefsToApply(raw)) return;
-    const restored = loadPrefs(raw);
+    // Уже работающее окно получило другую копию из базы (восстановление): база главнее.
+    const restored = loadPrefs(raw, localStorage, { restore: prefsLoaded() });
     if (restored.includes("p-treasury-theme")) applyTheme(savedTheme());
     if (restored.includes("p-treasury-scale")) applyScale(savedScale());
     if (restored.some((k) => k === NAV_KEY || k === ADD_KEY)) notifyNav();

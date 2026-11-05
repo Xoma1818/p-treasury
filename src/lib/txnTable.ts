@@ -29,6 +29,17 @@ export const GROUP_LABEL: Record<Group, string> = { none: "Без групп", d
 
 export const SORTS = ["date", "amount", "category", "account", "payee"] as const;
 export type SortBy = (typeof SORTS)[number];
+/** Порядок строк в меню «Таблица»: виден и тогда, когда заголовка нужного столбца нет (группы по дням). */
+export const SORT_CHOICES: { by: SortBy; desc: boolean; label: string }[] = [
+  { by: "date", desc: true, label: "Сначала новые" },
+  { by: "date", desc: false, label: "Сначала старые" },
+  { by: "amount", desc: true, label: "Сначала крупные" },
+  { by: "amount", desc: false, label: "Сначала мелкие" },
+  { by: "category", desc: false, label: "Категория по алфавиту" },
+  { by: "payee", desc: false, label: "Получатель по алфавиту" },
+  { by: "account", desc: false, label: "Счёт по алфавиту" },
+];
+
 /** По какому полю сортирует нажатие на заголовок столбца. */
 export const COL_SORT: Record<Col, SortBy | null> = { date: "date", what: "category", payee: "payee", note: null, account: "account", amount: "amount" };
 

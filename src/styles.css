@@ -1031,3 +1031,5 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .table-menu .menu-label.first { border-top: 0; margin-top: 0; }
 .table-menu .menu-item[aria-disabled] { color: var(--muted); cursor: default; }
 .menu-note { padding: 6px 12px 2px; margin: 4px 0 0; font-size: 12px; border-top: 1px solid var(--border); }
+.group-row .group-partial { font-weight: 400; font-size: 12px; }
+.table-menu { max-height: min(70vh, 640px); overflow-y: auto; }

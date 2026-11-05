@@ -139,6 +139,15 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
   const [value, setValue] = useState("");
   const n = ids.length;
   const word = plural(n, "операцию", "операции", "операций");
+  // Удаление, счёт и получатель меняют разбитый чек целиком: говорим об этом до подтверждения.
+  const wholeReceipt = mode === "delete" || mode === "account" || mode === "payee";
+  const extra = useQuery({ queryKey: ["bulkReceiptExtra", ids], queryFn: () => api.bulkReceiptExtra(ids), enabled: wholeReceipt }).data ?? 0;
+  const extraNote =
+    wholeReceipt && extra > 0 ? (
+      <span className="warn" data-testid="bulk-receipt-extra">
+        Разбитый чек меняется целиком: {mode === "delete" ? plural(extra, "удалится", "удалятся", "удалятся") : plural(extra, "изменится", "изменятся", "изменятся")} ещё {extra} {plural(extra, "часть", "части", "частей")} чека, которых нет в выделении.
+      </span>
+    ) : null;
   const act = useAction(
     (run: () => Promise<BulkResult>) => run(),
     (r) => onDone(r),
@@ -240,6 +249,7 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
       )}
       {body}
       {cancel}
+      {extraNote}
       <ErrorText error={act.error} />
     </div>
   );

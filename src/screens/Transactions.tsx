@@ -306,7 +306,7 @@ export function Transactions() {
         {page.error && <p className="error">{String(page.error)}</p>}
         {page.data && (
           <>
-            <TxnTable items={page.data.items} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} />
+            <TxnTable items={page.data.items} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />
             <div className="table-foot muted" data-testid="txn-count">
               Показано {page.data.items.length} из {page.data.total}
               {sel.ids.size === 0 && <Hint of="txn.select" />}

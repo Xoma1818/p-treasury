@@ -31,6 +31,17 @@ describe("настройки вида в базе (Г13)", () => {
     expect(s.m.get("p-treasury-theme")).toBe("dark");
     expect(s.m.get("p-treasury-scale")).toBe("125");
   });
+  it("восстановление у работающего окна: раскладка таблицы из копии главнее окна и не перезаписывается", () => {
+    const s = mem({ "kazna.txnTable": '{"group":"account"}', "p-treasury-scale": "125" });
+    const restored = loadPrefs('{"kazna.txnTable":"{\\"group\\":\\"day\\"}"}', s, { restore: true });
+    expect(restored).toEqual(["kazna.txnTable"]);
+    expect(s.m.get("kazna.txnTable")).toBe('{"group":"day"}');
+    expect(s.m.get("p-treasury-scale")).toBe("125");
+    // При обычном запуске окно главнее (кроме темы).
+    const s2 = mem({ "kazna.txnTable": '{"group":"account"}' });
+    expect(loadPrefs('{"kazna.txnTable":"{\\"group\\":\\"day\\"}"}', s2)).toEqual([]);
+    expect(s2.m.get("kazna.txnTable")).toBe('{"group":"account"}');
+  });
   it("испорченное значение в базе не мешает", () => {
     expect(loadPrefs("не json", mem({}))).toEqual([]);
   });

@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, Check, Columns3 } from "lucide-react";
-import { COL_LABEL, DEFAULT_TABLE, FIXED_COLS, GROUP_LABEL, GROUPS, isDefaultTable, moveCol, saveTable, TABLE_COLS, toggleCol, type TxnTableLayout } from "../lib/txnTable";
+import { COL_LABEL, DEFAULT_TABLE, FIXED_COLS, GROUP_LABEL, GROUPS, isDefaultTable, moveCol, saveTable, SORT_CHOICES, TABLE_COLS, toggleCol, type TxnTableLayout } from "../lib/txnTable";
 import { usePopup } from "../lib/usePopup";
 
 /** Г8: «Таблица» над списком операций — столбцы, их порядок и группы. Сортировка — по заголовкам. */
@@ -64,7 +64,19 @@ export function TableViewMenu({ layout }: { layout: TxnTableLayout }) {
               {GROUP_LABEL[g]}
             </button>
           ))}
-          <p className="menu-note muted">Порядок строк — нажатием на заголовок столбца.</p>
+          <div className="menu-label" role="presentation">
+            Порядок строк
+          </div>
+          {SORT_CHOICES.map((o) => {
+            const on = layout.sort.by === o.by && layout.sort.desc === o.desc;
+            return (
+              <button key={`${o.by}:${o.desc}`} role="menuitemradio" aria-checked={on} className="menu-item check-item" data-sort-choice={`${o.by}:${o.desc ? "desc" : "asc"}`} onClick={() => saveTable({ ...layout, sort: { by: o.by, desc: o.desc } })}>
+                <span className="check-mark">{on && <Check size={14} aria-hidden />}</span>
+                {o.label}
+              </button>
+            );
+          })}
+          <p className="menu-note muted">Порядок меняется и нажатием на заголовок столбца.</p>
           {custom && (
             <button role="menuitem" className="menu-item" data-testid="table-reset" onClick={() => saveTable(DEFAULT_TABLE)}>
               Как было

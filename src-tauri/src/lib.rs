@@ -377,6 +377,7 @@ pub fn run() {
             commands::bulk_set_account,
             commands::bulk_tag,
             commands::bulk_delete,
+            commands::bulk_receipt_extra,
             commands::create_receipt,
             commands::update_receipt,
             commands::delete_receipt,
