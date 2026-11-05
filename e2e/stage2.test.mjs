@@ -146,6 +146,29 @@ test("планирование: бюджет копируется в следу�
   await waitText(browser, '[data-testid="budget-planned"]', money("30 000 ₽"));
 });
 
+test("перенос остатка: неистраченное «Питание» переходит в следующий месяц (Р8, 0.32)", async () => {
+  const rollover = `${line("Питание")}//button[@data-testid="budget-rollover"]`;
+  const press = () => browser.execute((x) => document.evaluate(x, document, null, 9, null).singleNodeValue.click(), rollover);
+  await openSection(browser, "Бюджет");
+  await browser.$(rollover).waitForExist({ timeout: 5000 });
+  try {
+    await press();
+    await browser.waitUntil(async () => (await browser.$(rollover).getAttribute("aria-pressed")) === "true", { timeout: 5000 });
+    await (await browser.$('button[aria-label="Следующий месяц"]')).click();
+    await waitText(browser, '[data-testid="budget-month"]', new RegExp(title(nextMonth)));
+    // 20 000 − 4 522,50 = 15 477,50 добавляются к лимиту и к плану.
+    await waitText(browser, `${line("Питание")}//*[@data-testid="budget-carried"]`, money("+ 15 477,50 ₽ с прошлого месяца"));
+    await waitText(browser, '[data-testid="budget-planned"]', money("47 477,50 ₽"));
+    // У «Общепита» перенос не включён: ничего не приходит.
+    assert.equal(await browser.$(`${line("Общепит")}//*[@data-testid="budget-carried"]`).isExisting(), false);
+  } finally {
+    await click(browser, "Текущий");
+    await browser.$(rollover).waitForExist({ timeout: 5000 });
+    if ((await browser.$(rollover).getAttribute("aria-pressed")) === "true") await press();
+  }
+  await browser.waitUntil(async () => (await browser.$(rollover).getAttribute("aria-pressed")) === "false", { timeout: 5000 });
+});
+
 test("период бюджета следует настройке «первый день месяца»", async () => {
   await openSection(browser, "Настройки");
   await choose(browser, "monthStartDay", "25-го числа");

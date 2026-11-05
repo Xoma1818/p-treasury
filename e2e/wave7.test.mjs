@@ -274,6 +274,8 @@ test("удаление пачки спрашивает подтверждени�
   await (await browser.$('[data-testid="bulk-delete"]')).click();
   await waitText(browser, '[data-testid="bulk-delete"]', /Удалить 2 операции\? Отменить можно через Ctrl\+Z\./);
   assert.match(await (await browser.$('[data-testid="txn-count"]')).getText(), /Показано 2 из 2/, "до подтверждения ничего не удалено");
+  // Подтверждение доступно, когда проверены части разбитых чеков.
+  await (await browser.$('[data-testid="bulk-delete-confirm"]')).waitForEnabled({ timeout: 5000 });
   await (await browser.$('[data-testid="bulk-delete-confirm"]')).click();
   await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
   await blur();

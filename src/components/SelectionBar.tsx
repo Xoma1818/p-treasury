@@ -141,9 +141,23 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
   const word = plural(n, "операцию", "операции", "операций");
   // Удаление, счёт и получатель меняют разбитый чек целиком: говорим об этом до подтверждения.
   const wholeReceipt = mode === "delete" || mode === "account" || mode === "payee";
-  const extra = useQuery({ queryKey: ["bulkReceiptExtra", ids], queryFn: () => api.bulkReceiptExtra(ids), enabled: wholeReceipt }).data ?? 0;
+  const extraQ = useQuery({ queryKey: ["bulkReceiptExtra", ids], queryFn: () => api.bulkReceiptExtra(ids), enabled: wholeReceipt, retry: false });
+  const extra = extraQ.data ?? 0;
+  // Пока не известно, сколько частей чека заденет действие, подтвердить нельзя (ревью 184d320).
+  const checking = wholeReceipt && !extraQ.isSuccess;
   const extraNote =
-    wholeReceipt && extra > 0 ? (
+    wholeReceipt && extraQ.isError ? (
+      <span className="warn" role="alert" data-testid="bulk-receipt-error">
+        Не удалось проверить, какие части разбитых чеков изменятся: {String(extraQ.error)}{" "}
+        <button className="link" onClick={() => extraQ.refetch()}>
+          Проверить ещё раз
+        </button>
+      </span>
+    ) : checking ? (
+      <span className="muted" data-testid="bulk-receipt-checking">
+        Проверяю разбитые чеки…
+      </span>
+    ) : wholeReceipt && extra > 0 ? (
       <span className="warn" data-testid="bulk-receipt-extra">
         Разбитый чек меняется целиком: {mode === "delete" ? plural(extra, "удалится", "удалятся", "удалятся") : plural(extra, "изменится", "изменятся", "изменятся")} ещё {extra} {plural(extra, "часть", "части", "частей")} чека, которых нет в выделении.
       </span>
@@ -181,9 +195,9 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
             value={value}
             autoFocus
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && act.run(() => api.bulkSetPayee(ids, value.trim() || null))}
+            onKeyDown={(e) => e.key === "Enter" && !checking && act.run(() => api.bulkSetPayee(ids, value.trim() || null))}
           />
-          <button className="btn small primary" disabled={busy} aria-busy={busy} onClick={() => act.run(() => api.bulkSetPayee(ids, value.trim() || null))}>
+          <button className="btn small primary" disabled={busy || checking} aria-busy={busy} onClick={() => act.run(() => api.bulkSetPayee(ids, value.trim() || null))}>
             {value.trim() ? "Поставить" : "Убрать получателя"}
           </button>
         </>
@@ -193,7 +207,7 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
       body = (
         <>
           <AccountSelect name="bulkAccount" accounts={accounts} value={value} onChange={setValue} placeholder="Новый счёт" />
-          <button className="btn small primary" disabled={!value || busy} aria-busy={busy} onClick={() => act.run(() => api.bulkSetAccount(ids, value))}>
+          <button className="btn small primary" disabled={!value || busy || checking} aria-busy={busy} onClick={() => act.run(() => api.bulkSetAccount(ids, value))}>
             Перенести
           </button>
         </>
@@ -233,7 +247,7 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
           <span className="sel-confirm">
             Удалить {n} {word}? Отменить можно через Ctrl+Z.
           </span>
-          <button className="btn small danger" autoFocus disabled={busy} aria-busy={busy} data-testid="bulk-delete-confirm" onClick={() => act.run(() => api.bulkDelete(ids))}>
+          <button className="btn small danger" autoFocus disabled={busy || checking} aria-busy={busy} data-testid="bulk-delete-confirm" onClick={() => act.run(() => api.bulkDelete(ids))}>
             Да, удалить
           </button>
         </>
