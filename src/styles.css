@@ -985,3 +985,4 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .nav-order-move .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; }
 .nav-order-move .icon-btn:disabled { opacity: 0.3; cursor: default; }
 #set-menu .field { max-width: 320px; margin-top: 12px; }
+.form-prefs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
