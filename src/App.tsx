@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
 import { loadPrefs } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
 import { applyScale, savedScale } from "./lib/scale";
@@ -15,7 +16,7 @@ import { TxnForm } from "./components/TxnForm";
 import { api, isTauri } from "./lib/api";
 import { useAppInfo, useSettings } from "./lib/queries";
 import { useAction } from "./lib/useAction";
-import { SECTIONS, type SectionId } from "./lib/sections";
+import { type SectionId } from "./lib/sections";
 import { useUi } from "./lib/store";
 import { Accounts } from "./screens/Accounts";
 import { Budget } from "./screens/Budget";
@@ -70,6 +71,7 @@ export function App() {
     const restored = loadPrefs(settingsData.ui_prefs);
     if (restored.includes("p-treasury-theme")) applyTheme(savedTheme());
     if (restored.includes("p-treasury-scale")) applyScale(savedScale());
+    if (restored.some((k) => k === NAV_KEY || k === ADD_KEY)) notifyNav();
   }, [settingsData]);
   // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
   const { sectionOn } = useModules();
@@ -89,9 +91,10 @@ export function App() {
       }
       if (!e.ctrlKey || e.altKey || e.shiftKey) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= 9 && SECTIONS[n - 1] && sectionOn(SECTIONS[n - 1].id)) {
+      const menu = navSections(savedNav(), sectionOn);
+      if (n >= 1 && n <= 9 && menu[n - 1]) {
         e.preventDefault();
-        go(SECTIONS[n - 1].id);
+        go(menu[n - 1].id);
       } else if (e.code === "KeyN") {
         e.preventDefault();
         openTxnForm({ mode: "new", type: "expense" });

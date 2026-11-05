@@ -276,6 +276,42 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ timeout: 5000 });
 });
 
+test("своё меню и главная кнопка «+»: скрыть, переставить, вернуть как было (0.31)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="nav-card"]').waitForExist({ timeout: 5000 });
+  try {
+    // Скрыть «Календарь»: пропадает из меню.
+    await tap('[name="nav-calendar"]');
+    await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ reverse: true, timeout: 5000 });
+    // «Счета» выше «Бюджета»: порядок меню меняется.
+    await tap('[data-testid="nav-order-accounts"] button[aria-label="Счета: выше"]');
+    await browser.waitUntil(
+      async () =>
+        browser.execute(() => {
+          const t = [...document.querySelectorAll('[data-testid="nav-list"] .nav-item')].map((b) => b.textContent.trim());
+          return t.indexOf("Счета") >= 0 && t.indexOf("Счета") < t.indexOf("Взгляд вперёд");
+        }),
+      { timeout: 5000, timeoutMsg: "Счета не поднялись в меню" },
+    );
+    // Главная кнопка — перевод; расход уходит в меню ▾.
+    await choose(browser, "addMain", "Перевод");
+    await openSection(browser, "Главная");
+    await waitContent(browser, '[data-testid="add-main"]', /Перевод/);
+    await tap('[data-testid="add-menu-toggle"]');
+    await waitContent(browser, '[data-testid="add-menu"] [role="menu"]', /Расход[\s\S]*Доход/);
+    await browser.keys("Escape");
+  } finally {
+    // «Как было» возвращает всё, даже если проверка выше упала: остальные тесты ждут «+ Расход».
+    await openSection(browser, "Настройки");
+    await tap('[data-testid="nav-reset"]');
+    await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ timeout: 5000 });
+    await openSection(browser, "Главная");
+  }
+  await waitContent(browser, '[data-testid="add-main"]', /Расход/);
+  // Следующий тест начинает с перехода на Главную, как и раньше — из Настроек.
+  await openSection(browser, "Настройки");
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
