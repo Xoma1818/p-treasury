@@ -525,3 +525,24 @@ test("таблица операций: столбец «Получатель», 
   assert.equal(await browser.execute(() => document.querySelector(".txn-table thead")?.textContent.includes("Получатель")), false);
   await openSection(browser, "Настройки");
 });
+
+test("тонкие настройки: суммы кодом валюты, неделя с воскресенья, как было (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  const card = await browser.$('[data-testid="fine-card"]');
+  await card.waitForExist({ timeout: 5000 });
+  try {
+    if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
+    await (await browser.$('[name="fineCode"]')).selectByAttribute("value", "1");
+    await (await browser.$('[name="fineWeek"]')).selectByAttribute("value", "sun");
+    await openSection(browser, "Главная");
+    await waitContent(browser, "main", /\d[\s\u00a0\u202f]RUB/);
+    await openSection(browser, "Календарь");
+    await waitContent(browser, '[data-testid="calendar"] .cal-weekday', /^Вс$/);
+  } finally {
+    await openSection(browser, "Настройки");
+    if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
+    const reset = await browser.$('[data-testid="fine-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="fine-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});

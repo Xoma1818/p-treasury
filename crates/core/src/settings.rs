@@ -53,6 +53,8 @@ fn validate(key: &str, value: &str) -> Result<()> {
             .parse::<i64>()
             .is_ok_and(|d| (0..=crate::reminders::MAX_LEAD_DAYS).contains(&d)),
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
+        "unusual_percent" => value.parse::<i64>().is_ok_and(|p| (5..=300).contains(&p)),
+        "checks_days" => value.parse::<i64>().is_ok_and(|d| (7..=180).contains(&d)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
         "subscriptions_hidden" | "forecast_excluded_accounts" | "ui_modules" => {

@@ -1,4 +1,5 @@
 import { KeysCard } from "../components/KeysCard";
+import { FineCard } from "../components/FineCard";
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
 import { TxnFormCard } from "../components/TxnFormCard";
 import { NavCard } from "../components/NavCard";
@@ -281,6 +282,10 @@ export function Settings() {
       <KeysCard />
       </div>
 
+      <div className="settings-section" id="set-fine">
+      <FineCard />
+      </div>
+
       <div className="settings-section" id="set-rates">
       <Rates base={base} />
       </div>
@@ -356,6 +361,7 @@ const SETTINGS_SECTIONS: [string, string][] = [
   ["modules", "Возможности"],
   ["menu", "Меню и форма"],
   ["keys", "Клавиши"],
+  ["fine", "Тонкие"],
   ["rates", "Курсы"],
   ["data", "Данные"],
   ["vault", "Сохранность"],

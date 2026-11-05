@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
+import { rememberSection, startSection } from "./fine";
 
 /** Что подставить в новую операцию (например, из напоминания). */
 export interface TxnPrefill {
@@ -79,7 +80,7 @@ export interface SettingsJump {
 }
 
 export const useUi = create<UiState>((set) => ({
-  section: "home",
+  section: startSection(),
   visit: 0,
   go: (section) => set((s) => ({ section, visit: s.visit + 1 })),
   txnFilter: null,
@@ -101,3 +102,6 @@ export const useUi = create<UiState>((set) => ({
   settingsJump: null,
   openSettings: (settingsJump) => set((s) => ({ settingsJump, section: "settings", visit: s.visit + 1 })),
 }));
+
+// Г12: «Экран при запуске — где закончили» помнит последний раздел, как бы в него ни пришли.
+useUi.subscribe((s, prev) => s.section !== prev.section && rememberSection(s.section as SectionId));

@@ -1,3 +1,4 @@
+import { weekdayIndex } from "../lib/fine";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MonthsReport, type Period } from "../lib/api";
 import { addDays, monthTitle, shiftMonth, today } from "../lib/dates";
@@ -250,7 +251,7 @@ export function DaysCard() {
   const hidden = useSettings().data?.hide_amounts === "1";
   if (!cal) return <div className="card" data-testid="home-days" />;
   const max = Math.max(...cal.days.map((d) => d.expense), 1);
-  const lead = (new Date(`${cal.days[0].date}T00:00:00`).getDay() + 6) % 7;
+  const lead = weekdayIndex(new Date(`${cal.days[0].date}T00:00:00`).getDay());
   const t = today();
   const noSpend = cal.days.filter((d) => d.noSpend).length;
   const level = (v: number) => (v <= 0 ? 0 : Math.min(4, Math.ceil((v / max) * 4)));
