@@ -17,7 +17,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
@@ -59,6 +59,7 @@ export function Home() {
   const layout = parseLayout(useSettings().data?.home_layout);
   const setSetting = useAction(api.setSetting);
   const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
+  const half = (b: HomeBlock) => !!layout.half?.includes(b);
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
   const monthShort = monthName.replace(/ \d{4}$/, "");
@@ -324,19 +325,20 @@ export function Home() {
 
       {editing && (
         <p className="hint home-edit-hint">
-          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
+          Перетащите карточку мышью или двигайте стрелками; «Половина» ставит две карточки в ряд, «Скрыть» убирает карточку с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
           <button className="link" onClick={() => saveLayout(DEFAULT_LAYOUT)}>
             Вернуть по умолчанию
           </button>
         </p>
       )}
+      <div className="home-grid">
       {layout.order
         .filter((b) => modules.blockOn(b) && (editing || !layout.hidden.includes(b)))
         .map((b) =>
           editing ? (
             <div
               key={b}
-              className={["home-block", "editing", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}
+              className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}
               data-testid="home-block"
               data-block={b}
               draggable
@@ -363,6 +365,11 @@ export function Home() {
                 <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, 1))}>
                   <ChevronDown size={16} />
                 </button>
+                {!layout.hidden.includes(b) && (
+                  <button className="link" data-testid="home-half" onClick={() => saveLayout(toggleHalf(layout, b))} title="Две половинные карточки встают в один ряд">
+                    {half(b) ? "Во всю ширину" : "Половина"}
+                  </button>
+                )}
                 <button className="link" onClick={() => saveLayout(toggleBlock(layout, b))}>
                   {layout.hidden.includes(b) ? "Показать" : "Скрыть"}
                 </button>
@@ -370,11 +377,12 @@ export function Home() {
               {!layout.hidden.includes(b) && <div className="home-block-body">{blocks[b]}</div>}
             </div>
           ) : (
-            <div key={b} className="home-block" data-block={b}>
+            <div key={b} className={half(b) ? "home-block half" : "home-block"} data-block={b}>
               {blocks[b]}
             </div>
           ),
         )}
+      </div>
       {!editing && (
         <p className="home-foot">
           <button className="link quiet" onClick={() => setEditing(true)} data-testid="home-customize">

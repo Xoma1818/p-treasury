@@ -991,3 +991,25 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .menu-label { padding: 8px 12px 4px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
 .menu-item.check-item { display: flex; align-items: center; gap: 8px; }
 .check-mark { width: 14px; display: inline-flex; color: var(--accent); }
+
+/* Г11: акцентный цвет (мятный — без атрибута) и плотность. */
+:root:not([data-theme="dark"])[data-accent="blue"] { --accent: #2563eb; --accent-hover: #1d4ed8; --accent-press: #1e40af; --on-accent: #ffffff; --accent-soft: rgba(37, 99, 235, 0.12); --accent-shadow: rgba(37, 99, 235, 0.3); }
+:root[data-theme="dark"][data-accent="blue"] { --accent: #60a5fa; --accent-hover: #93c5fd; --accent-press: #3b82f6; --on-accent: #0b1730; --accent-soft: rgba(96, 165, 250, 0.16); --accent-shadow: rgba(96, 165, 250, 0.45); }
+:root:not([data-theme="dark"])[data-accent="violet"] { --accent: #7c3aed; --accent-hover: #6d28d9; --accent-press: #5b21b6; --on-accent: #ffffff; --accent-soft: rgba(124, 58, 237, 0.12); --accent-shadow: rgba(124, 58, 237, 0.3); }
+:root[data-theme="dark"][data-accent="violet"] { --accent: #a78bfa; --accent-hover: #c4b5fd; --accent-press: #8b5cf6; --on-accent: #1a1033; --accent-soft: rgba(167, 139, 250, 0.16); --accent-shadow: rgba(167, 139, 250, 0.45); }
+:root:not([data-theme="dark"])[data-accent="amber"] { --accent: #b45309; --accent-hover: #92400e; --accent-press: #78350f; --on-accent: #ffffff; --accent-soft: rgba(180, 83, 9, 0.12); --accent-shadow: rgba(180, 83, 9, 0.3); }
+:root[data-theme="dark"][data-accent="amber"] { --accent: #fbbf24; --accent-hover: #fcd34d; --accent-press: #f59e0b; --on-accent: #2a1a03; --accent-soft: rgba(251, 191, 36, 0.16); --accent-shadow: rgba(251, 191, 36, 0.45); }
+:root:not([data-theme="dark"])[data-accent="rose"] { --accent: #e11d48; --accent-hover: #be123c; --accent-press: #9f1239; --on-accent: #ffffff; --accent-soft: rgba(225, 29, 72, 0.12); --accent-shadow: rgba(225, 29, 72, 0.3); }
+:root[data-theme="dark"][data-accent="rose"] { --accent: #fb7185; --accent-hover: #fda4af; --accent-press: #f43f5e; --on-accent: #2a0710; --accent-soft: rgba(251, 113, 133, 0.16); --accent-shadow: rgba(251, 113, 133, 0.45); }
+:root:not([data-theme="dark"])[data-accent="graphite"] { --accent: #475569; --accent-hover: #334155; --accent-press: #1e293b; --on-accent: #ffffff; --accent-soft: rgba(71, 85, 105, 0.12); --accent-shadow: rgba(71, 85, 105, 0.3); }
+:root[data-theme="dark"][data-accent="graphite"] { --accent: #cbd5e1; --accent-hover: #e2e8f0; --accent-press: #94a3b8; --on-accent: #0f172a; --accent-soft: rgba(203, 213, 225, 0.16); --accent-shadow: rgba(203, 213, 225, 0.45); }
+:root[data-density="compact"] .table td { padding: 5px 8px; }
+:root[data-density="compact"] .card { padding: 12px 16px; }
+:root[data-density="compact"] .nav-item { padding-top: 5px; padding-bottom: 5px; }
+:root[data-density="roomy"] .table td { padding: 13px 10px; }
+:root[data-density="roomy"] .card { padding: 22px 26px; }
+:root[data-density="roomy"] .nav-item { padding-top: 10px; padding-bottom: 10px; }
+.accent-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.accent-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; transition: transform var(--fast) var(--ease); }
+.accent-dot:hover { transform: scale(1.08); }
+.accent-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }

@@ -372,6 +372,41 @@ test("своя шапка «Операций»: выписку в «⋯», ша�
   await openSection(browser, "Настройки");
 });
 
+test("вид: компактно и синий акцент сразу видны, возвращаются обратно (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="accent-pick"]').waitForExist({ timeout: 5000 });
+  const attr = (name) => browser.execute((n) => document.documentElement.dataset[n] ?? "", name);
+  try {
+    await tap('[data-testid="accent-pick"] [data-accent="blue"]');
+    await browser.waitUntil(async () => (await attr("accent")) === "blue", { timeout: 5000, timeoutMsg: "акцент не сменился" });
+    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", "compact");
+    await browser.waitUntil(async () => (await attr("density")) === "compact", { timeout: 5000, timeoutMsg: "плотность не сменилась" });
+  } finally {
+    await tap('[data-testid="accent-pick"] [data-accent="mint"]');
+    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", "normal");
+  }
+  await browser.waitUntil(async () => (await attr("accent")) === "" && (await attr("density")) === "", { timeout: 5000, timeoutMsg: "вид не вернулся" });
+});
+
+test("Главная: карточка в половину ширины и обратно (0.32)", async () => {
+  await openSection(browser, "Главная");
+  const tiles = '[data-block="tiles"]';
+  await browser.$(tiles).waitForExist({ timeout: 5000 });
+  const isHalf = () => browser.execute((sel) => document.querySelector(sel)?.classList.contains("half") ?? false, tiles);
+  await click(browser, "Настроить Главную");
+  try {
+    await tap(`${tiles} [data-testid="home-half"]`);
+    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "карточка не стала половинной" });
+    await tap('[data-testid="home-customize"]');
+    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "после «Готово» карточка во всю ширину" });
+    await click(browser, "Настроить Главную");
+  } finally {
+    if (await isHalf()) await tap(`${tiles} [data-testid="home-half"]`);
+    await browser.waitUntil(async () => !(await isHalf()), { timeout: 5000, timeoutMsg: "половина не снялась" });
+    await tap('[data-testid="home-customize"]');
+  }
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });

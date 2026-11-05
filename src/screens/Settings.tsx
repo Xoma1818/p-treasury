@@ -12,6 +12,7 @@ import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
+import { ACCENTS, applyLook, DENSITIES, savedLook, type Density, type Look } from "../lib/look";
 import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
 import { useUi } from "../lib/store";
 import { ModulesCard } from "../components/ModulesCard";
@@ -33,6 +34,8 @@ export function Settings() {
   const base = settings?.base_currency ?? "RUB";
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
+  const [look, setLook] = useState<Look>(savedLook);
+  const setLookNow = (l: Look) => (setLook(l), applyLook(l));
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
   // Г1: из Ctrl+K — прокрутить к разделу, поставить курсор в поле, открыть окно «Данных».
   const jump = useUi((s) => s.settingsJump);
@@ -203,6 +206,36 @@ export function Settings() {
                   </option>
                 ))}
               </select>
+            )}
+          </Field>
+          <Field label="Плотность" hint="Компактно — больше строк на экране, просторно — крупнее отступы.">
+            {(id) => (
+              <select id={id} name="uiDensity" value={look.density} onChange={(e) => setLookNow({ ...look, density: e.target.value as Density })}>
+                {DENSITIES.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label="Цвет акцента" hint="Цвет главных кнопок, ссылок и выделения. Мятный — фирменный.">
+            {() => (
+              <div className="accent-pick" role="group" aria-label="Цвет акцента" data-testid="accent-pick">
+                {ACCENTS.map((a) => (
+                  <button
+                    key={a.value}
+                    type="button"
+                    className="accent-dot"
+                    style={{ background: a.color }}
+                    aria-label={a.label}
+                    title={a.label}
+                    aria-pressed={look.accent === a.value}
+                    data-accent={a.value}
+                    onClick={() => setLookNow({ ...look, accent: a.value })}
+                  />
+                ))}
+              </div>
             )}
           </Field>
           <Field label="При закрытии окна" hint="В трее приложение продолжает присылать напоминания.">

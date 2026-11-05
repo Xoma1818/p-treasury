@@ -391,3 +391,9 @@ fieldset.choice legend { font-size: 12px; color: var(--muted); margin-bottom: 4p
 .export-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 190px; padding: 6px; display: grid; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-md); animation: fade-in 120ms var(--ease); }
 .export-pop button { text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .export-pop button:hover, .export-pop button:focus-visible { background: var(--accent-soft); outline: none; }
+
+/* Г7: карточки Главной в половину ширины встают по две в ряд; на узком окне — во всю строку. */
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; align-items: start; }
+.home-grid > .home-block { grid-column: 1 / -1; min-width: 0; }
+.home-grid > .home-block.half { grid-column: auto; }
+@media (max-width: 900px) { .home-grid > .home-block.half { grid-column: 1 / -1; } }
