@@ -4,7 +4,7 @@
 // выключатель «Предупреждать о бюджете». Постановка: docs/product/0.16-quick-wins.md.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -150,19 +150,22 @@ test("Операции: разбитый чек одной строкой с р�
   const receipt = '//tr[@data-testid="txn-row" and @data-receipt="3"]';
   await waitText(browser, receipt, /Ашан, 3 категории/);
   await waitText(browser, receipt, money("−5 000 ₽"));
-  await waitText(browser, receipt, /Супермаркет, [^,]*Аптека, [^,]*Одежда|Одежда, [^,]*Аптека, [^,]*Супермаркет/);
+  await waitText(browser, receipt, /Магазины, [^,]*Лекарства, [^,]*Одежда|Одежда, [^,]*Лекарства, [^,]*Магазины/);
   await (await browser.$(`${receipt}//button[@aria-label="Раскрыть чек"]`)).click();
   await waitCount(browser, '[data-testid="receipt-part"]', 3);
   const parts = await browser.execute(() => [...document.querySelectorAll('[data-testid="receipt-part"]')].map((r) => r.textContent));
-  // Части идут по названию категории: «Дети → Одежда», «Здоровье → Аптека», «Продукты → Супермаркет».
-  for (const re of [/Супермаркет\D*3\s200\s₽/, /Аптека\D*450\s₽/, /Одежда\D*1\s350\s₽/]) assert.ok(parts.some((p) => re.test(p)), `${re} в ${parts.join(" | ")}`);
+  // Части идут по названию категории: «Дети → Одежда», «Медицина → Лекарства», «Питание → Магазины».
+  for (const re of [/Магазины\D*3\s200\s₽/, /Лекарства\D*450\s₽/, /Одежда\D*1\s350\s₽/]) assert.ok(parts.some((p) => re.test(p)), `${re} в ${parts.join(" | ")}`);
   await (await browser.$(`${receipt}//button[@aria-label="Свернуть чек"]`)).click();
   await waitCount(browser, '[data-testid="receipt-part"]', 0);
   // Ремонт с тегом «дача» и страховка «÷ 12 мес.».
   await waitText(browser, '//tr[@data-testid="txn-row"][.//*[@data-testid="txn-tag"]]', /#дача/);
   await waitText(browser, '//tr[@data-testid="txn-row"][.//*[@data-testid="txn-spread"]]', /÷ 12 мес\./);
   // Нажатие на чек открывает весь чек.
-  await (await browser.$(`${receipt}/td[@class="date"]`)).click();
+  // Строку — в середину окна: у таблицы теперь заголовок, и низ строки может уйти под нижнюю полосу.
+  const dateCell = await browser.$(`${receipt}/td[@class="date"]`);
+  await browser.execute((el) => el.scrollIntoView({ block: "center" }), dateCell);
+  await dateCell.click();
   await waitText(browser, `${dialog}//h2`, /Разбитый чек/);
   await waitText(browser, '[data-testid="receipt-split"]', /По категориям/);
   assert.equal(await count('[role="dialog"] [name^="partCategory"]'), 3);
@@ -222,18 +225,18 @@ test("пачка: категория двум операциям, перевод
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
   await waitText(browser, '[data-testid="sel-sum"]', /Выбрано 2/);
   await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
-  await pickLike("bulkCategory", "Кафе");
+  await pickLike("bulkCategory", "Общепит");
   await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
   await waitText(browser, '[data-testid="bulk-message"]', /Категория поставлена: 2 операции\. Отменить — Ctrl\+Z\./);
-  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Кафе[^|]*\|[^|]*Кафе/), {
+  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Общепит[^|]*\|[^|]*Общепит/), {
     timeout: 5000,
-    timeoutMsg: "обе операции получили «Кафе»",
+    timeoutMsg: "обе операции получили «Общепит»",
   });
   await blur();
   await keys("Control", "z");
-  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Супермаркет[^|]*\|[^|]*Супермаркет/), {
+  await browser.waitUntil(async () => (await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"] .main')].map((e) => e.textContent).join("|"))).match(/Магазины[^|]*\|[^|]*Магазины/), {
     timeout: 5000,
-    timeoutMsg: "одним Ctrl+Z обе вернулись в «Супермаркет»",
+    timeoutMsg: "одним Ctrl+Z обе вернулись в «Магазины»",
   });
 
   // Переводы категорию не получают: программа говорит, сколько пропущено.
@@ -246,12 +249,14 @@ test("пачка: категория двум операциям, перевод
       const rows = [...document.querySelectorAll('tr[data-testid="txn-row"]:not([data-receipt])')];
       const isTransfer = (r) => r.querySelector(".main")?.textContent.startsWith("Перевод");
       rows.find(isTransfer).querySelector('[data-testid="txn-select"]').click();
-      rows.find((r) => !isTransfer(r) && !r.querySelector(".main")?.textContent.startsWith("Корректировка")).querySelector('[data-testid="txn-select"]').click();
+      // Второй — обычный расход: верхняя строка бывает доходом (зарплата 5-го числа), а доход
+      // расходную категорию тоже не получает.
+      rows.find((r) => r.querySelector(".main")?.textContent.includes("Магазины")).querySelector('[data-testid="txn-select"]').click();
     });
     // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
     if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
     await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
-    await pickLike("bulkCategory", "Кафе");
+    await pickLike("bulkCategory", "Общепит");
     await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
     await waitText(browser, '[data-testid="bulk-message"]', /пропущено 1: переводы/);
     await blur();
@@ -283,15 +288,16 @@ test("форма расхода: разбить чек на две катего�
   await fill(browser, "payee", "Перекрёсток");
   await click(browser, "Разбить по категориям", dialog);
   await waitText(browser, '[data-testid="receipt-split"]', /По категориям/);
-  await pickLike("partCategory0", "Супермаркет");
+  await pickLike("partCategory0", "Магазины");
   await fill(browser, "partAmount0", "2000");
-  await pickLike("partCategory1", "Аптека");
+  await pickLike("partCategory1", "Лекарства");
   await fill(browser, "partAmount1", "500");
   await waitText(browser, '[data-testid="receipt-left"]', /Остаток: 500/);
   await click(browser, "Сохранить", dialog);
   await waitText(browser, '[role="alert"]', /Распределите остаток/);
   await fill(browser, "partAmount1", "1000");
   await waitText(browser, '[data-testid="receipt-left"]', /Распределено полностью/);
+  await openMore(browser);
   await (await browser.$('[role="dialog"] [name="tags"]')).click();
   await (await browser.$('[role="dialog"] [name="tags"]')).setValue("праздник");
   await browser.keys("Enter");
@@ -311,6 +317,7 @@ test("форма расхода: «Учитывать по месяцам» по
   await openSection(browser, "Главная");
   await click(browser, "+ Расход");
   await fill(browser, "amount", "1000");
+  await openMore(browser);
   await (await browser.$('[role="dialog"] [name="spreadOn"]')).click();
   // Поле числа перерисовывается при каждом вводе: значение ставим через страницу.
   await setDate(browser, "spreadMonths", "3");
@@ -328,6 +335,7 @@ test("форма расхода: «Учитывать по месяцам» по
 test("фильтр «Тег» в Операциях и Ctrl+K находит тег", async () => {
   await openSection(browser, "Операции");
   await click(browser, "Сбросить");
+  await openFilters(browser);
   await pickLike("filterTag", "#дача");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 1: расходы 4[\s ]500 ₽/);
@@ -463,9 +471,9 @@ test("событие разбитого чека: создание, смена �
   await fill(browser, "amount", "1200");
   await fill(browser, "payee", payee);
   await click(browser, "Разбить по категориям", dialog);
-  await pickLike("partCategory0", "Супермаркет");
+  await pickLike("partCategory0", "Магазины");
   await fill(browser, "partAmount0", "800");
-  await pickLike("partCategory1", "Аптека");
+  await pickLike("partCategory1", "Лекарства");
   await fill(browser, "partAmount1", "400");
   await browser.$(`[role="dialog"] select[name="event"] option[value="${eventIds[0]}"]`).waitForExist({ timeout: 5000 });
   await choose(browser, "event", eventNames[0]);
@@ -517,6 +525,7 @@ test("событие разбитого чека: создание, смена �
   const page = await parts();
   const canonical = page.items.map((p) => p.id).sort().at(-1);
   const other = page.items.find((p) => p.id !== canonical);
+  await openFilters(browser);
   await browser.$('[name="filterCategory"]').selectByAttribute("value", other.categoryId);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await openReceipt();

@@ -44,7 +44,7 @@ test("Главная по умолчанию: пять основных карт
 
 test("предупреждение бюджета объясняет причину и ведёт к операциям и плану", async () => {
   const card = (await invoke("list_accounts", { includeArchived: false })).find((a) => a.name === "Карта");
-  const cafe = (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Кафе и рестораны");
+  const cafe = (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Общепит");
   const period = await invoke("month_of", { date: today });
   const budget = await invoke("create_budget", { month: period.month, copyPrevious: false });
   await invoke("set_budget_limit", { budgetId: budget, categoryId: cafe.id, limit: 1_000_000 });
@@ -56,7 +56,7 @@ test("предупреждение бюджета объясняет причи�
   }
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
-  await waitText(browser, '[data-testid="warning-row"]', /Кафе и рестораны: потрачено 95 % бюджета/);
+  await waitText(browser, '[data-testid="warning-row"]', /Общепит: потрачено 95 % бюджета/);
   await waitText(browser, '[data-testid="warning-reason"]', /Месяц прошёл на \d+ %, а лимит потрачен на 95 %[\s\S]*«Шоколадница»: 2 из 2/);
   await browser.$('[data-testid="warning-ops"]').click();
   await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
@@ -64,7 +64,7 @@ test("предупреждение бюджета объясняет причи�
   await openSection(browser, "Главная");
   await browser.$('[data-testid="warning-plan"]').click();
   await browser.$('//main//h1[normalize-space()="Бюджет"]').waitForDisplayed({ timeout: 5000 });
-  await browser.$('tr[data-focus="true"][data-category="Кафе и рестораны"]').waitForExist({ timeout: 5000 });
+  await browser.$('tr[data-focus="true"][data-category="Общепит"]').waitForExist({ timeout: 5000 });
   const focused = await browser.execute(() => document.activeElement?.getAttribute("name"));
   assert.equal(focused, "limit", "курсор в лимите категории");
 });

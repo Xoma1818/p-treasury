@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -102,8 +102,9 @@ test("общая трата за троих: своя доля — расход,
   const expense = await browser.$('[data-testid="month-expense"]').getText();
   await click(browser, "+ Расход");
   await fill(browser, "amount", "3000");
-  await chooseLike(browser, "category", "Кафе и рестораны");
+  await chooseLike(browser, "category", "Общепит");
   await fill(browser, "payee", "Пиццерия");
+  await openMore(browser);
   await click(browser, "Разделить с друзьями");
   await fill(browser, "friend0", "Аня");
   await click(browser, "+ ещё человек");
@@ -119,7 +120,17 @@ test("общая трата за троих: своя доля — расход,
 
 test("календарь: дни без трат отмечены, итог недели, операция перетаскивается на другой день", async () => {
   await openSection(browser, "Календарь");
-  await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
+  // В начале месяца дней без трат может ещё не быть (в примере траты 1–4-го, а сегодня
+  // траты добавили прошлые тесты), тогда отметки проверяем в прошлом месяце и возвращаемся.
+  await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
+  if (!(await browser.$('[data-testid="no-spend"]').isExisting())) {
+    await (await browser.$('button[aria-label="Предыдущий месяц"]')).click();
+    await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
+    await (await browser.$('button[aria-label="Следующий месяц"]')).click();
+    await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
+  } else {
+    await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
+  }
   await waitText(browser, '[data-testid="no-spend-card"]', /\d+ (день|дня|дней) в этом месяце/);
   await waitText(browser, '[data-testid="week-summary"]', /Итог прошлой недели[\s\S]*Расходы/);
   // Сегодняшнюю операцию переносим на вчера (если сегодня 1-е, вчера в другом месяце — пропускаем).
@@ -132,19 +143,308 @@ test("календарь: дни без трат отмечены, итог не
     await dragTo('[data-testid="day-panel"] tr.draggable', `[data-testid="cal-day"][data-date="${target}"]`);
     await browser.waitUntil(async () => (await rows()) === n - 1, { timeout: 5000, timeoutMsg: "операция не ушла с этого дня" });
     await browser.$(`[data-testid="cal-day"][data-date="${target}"]`).click();
-    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Кафе/);
+    await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Общепит/);
   }
   await browser.$('[name="weeklySummary"]').click();
   await browser.waitUntil(async () => !(await browser.$('[name="weeklySummary"]').isSelected()), { timeout: 5000 });
 });
 
+/** Щелчок с повтором: список перерисовывается (поиск, обновление данных), и найденный узел устаревает. */
+async function tap(sel) {
+  for (let i = 0; ; i++) {
+    try {
+      const el = await browser.$(sel);
+      await el.waitForClickable({ timeout: 5000 });
+      return await el.click();
+    } catch (e) {
+      if (i >= 4 || !/stale|not found/i.test(String(e.message))) throw e;
+      await browser.pause(200);
+    }
+  }
+}
+
+test("Главная: «+ Расход ▾» и операция панелью справа (0.30)", async () => {
+  await openSection(browser, "Главная");
+  // Доход и перевод — в меню у «+ Расход».
+  assert.equal(await browser.$('//main//button[normalize-space()="+ Доход"]').isExisting(), false, "доход спрятан в меню");
+  await tap('[data-testid="add-menu-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="+ Доход"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Существующая операция — панелью справа, с похожими операциями.
+  await openSection(browser, "Операции");
+  // Пример заполняет месяц по дням: за весь срок у «Пятёрочки» точно несколько покупок.
+  await tap('//*[@data-testid="period"]//button[normalize-space()="Всё время"]');
+  await fill(browser, "search", "Пятёрочка");
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const rows = [...document.querySelectorAll('[data-testid="txn-row"]')];
+      return rows.length > 1 && rows.every((r) => r.textContent.includes("Пятёрочка"));
+    }),
+    { timeout: 5000 },
+  );
+  await tap('[data-testid="txn-row"] td.date');
+  await browser.$('[role="dialog"][data-side="true"]').waitForDisplayed({ timeout: 5000 });
+  await browser.$('[data-testid="similar-txns"] li button').waitForDisplayed({ timeout: 5000 });
+  // Несохранённая правка: переход к похожей сначала спрашивает, «Остаться» оставляет форму.
+  await fill(browser, "amount", "77");
+  await tap('[data-testid="similar-txns"] li button');
+  await browser.$('[data-testid="similar-confirm"]').waitForDisplayed({ timeout: 5000 });
+  await tap('//*[@data-testid="similar-confirm"]//button[normalize-space()="Остаться"]');
+  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "77", "правка на месте");
+  await browser.keys("Escape");
+  await tap('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // В Настройках можно вернуть окно.
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "окном");
+  await openSection(browser, "Операции");
+  await tap('[data-testid="txn-row"] td.date');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  await openSection(browser, "Настройки");
+  await choose(browser, "txnOpen", "панелью справа");
+});
+
+test("Отчёты «Ещё ▾», «⋯» у счёта и разделы Настроек (0.30)", async () => {
+  await openSection(browser, "Отчёты");
+  // Четыре главных отчёта видны, остальные — в «Ещё ▾»; выбранный встаёт на место кнопки.
+  assert.equal(await browser.$('//*[@role="tablist"]//button[normalize-space()="Итоги года"]').isExisting(), false);
+  await tap('[data-testid="more-tabs-toggle"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Итоги года"]');
+  await waitText(browser, '[data-testid="more-tabs-toggle"]', /Итоги года/);
+  await click(browser, "Структура", '//*[@role="tablist"]');
+  await waitText(browser, '[data-testid="more-tabs-toggle"]', /Ещё/);
+  // Счета: «Изменить» и «Закрыть счёт» — в меню «⋯».
+  await openSection(browser, "Счета");
+  await tap('[data-testid="account-row"] [data-testid="row-menu"]');
+  await tap('//*[@role="menu"]//button[normalize-space()="Изменить"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Настройки: раздел слева прокручивает к своей карточке.
+  await openSection(browser, "Настройки");
+  await tap('//aside[@aria-label="Разделы настроек"]//button[normalize-space()="О программе"]');
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const r = document.getElementById("set-about").getBoundingClientRect();
+      return r.top < innerHeight && r.bottom > 0;
+    }),
+    { timeout: 5000, timeoutMsg: "«О программе» не видно" },
+  );
+});
+
+test("Ctrl+K находит настройку и действие, правая кнопка, «Возможности» (0.30)", async () => {
+  // Ctrl+K: «формат даты» ведёт в Настройки к полю; «тема» переключает тему.
+  await openSection(browser, "Главная");
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "формат даты");
+  await waitContent(browser, '[data-testid="palette"]', /Настройки[\s\S]*Формат даты/i);
+  await browser.keys("Enter");
+  await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
+  await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
+  const before = await browser.execute(() => document.documentElement.dataset.theme);
+  await browser.keys(["Control", "k"]);
+  await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
+  await fill(browser, "paletteQuery", "тема");
+  await waitContent(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => (await browser.execute(() => document.documentElement.dataset.theme)) !== before, { timeout: 3000, timeoutMsg: "тема не сменилась" });
+  await tap(before === "dark" ? '[data-testid="theme-dark"]' : '[data-testid="theme-light"]');
+  // Правая кнопка по операции: меню с действиями, «Открыть» открывает её.
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  await browser.execute(() => {
+    const r = document.querySelector('[data-testid="txn-row"] td.date');
+    const b = r.getBoundingClientRect();
+    r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
+  });
+  await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
+  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*(Удалить|Открыть долг)/);
+  await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть"]');
+  await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // «Возможности»: выключенные «Заметки» пропадают из меню и возвращаются.
+  await openSection(browser, "Настройки");
+  await tap('[name="module-notes"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ reverse: true, timeout: 5000 });
+  await tap('[data-testid="modules-all"]');
+  await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ timeout: 5000 });
+});
+
+test("своё меню и главная кнопка «+»: скрыть, переставить, вернуть как было (0.31)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="nav-card"]').waitForExist({ timeout: 5000 });
+  try {
+    // Скрыть «Календарь»: пропадает из меню.
+    await tap('[name="nav-calendar"]');
+    await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ reverse: true, timeout: 5000 });
+    // «Счета» выше «Бюджета»: порядок меню меняется.
+    await tap('[data-testid="nav-order-accounts"] button[aria-label="Счета: выше"]');
+    await browser.waitUntil(
+      async () =>
+        browser.execute(() => {
+          const t = [...document.querySelectorAll('[data-testid="nav-list"] .nav-item')].map((b) => b.textContent.trim());
+          return t.indexOf("Счета") >= 0 && t.indexOf("Счета") < t.indexOf("Взгляд вперёд");
+        }),
+      { timeout: 5000, timeoutMsg: "Счета не поднялись в меню" },
+    );
+    // Главная кнопка — перевод; расход уходит в меню ▾.
+    await choose(browser, "addMain", "Перевод");
+    await openSection(browser, "Главная");
+    await waitContent(browser, '[data-testid="add-main"]', /Перевод/);
+    await tap('[data-testid="add-menu-toggle"]');
+    await waitContent(browser, '[data-testid="add-menu"] [role="menu"]', /Расход[\s\S]*Доход/);
+    await browser.keys("Escape");
+  } finally {
+    // «Как было» возвращает всё, даже если проверка выше упала: остальные тесты ждут «+ Расход».
+    await openSection(browser, "Настройки");
+    await tap('[data-testid="nav-reset"]');
+    await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ timeout: 5000 });
+    await openSection(browser, "Главная");
+  }
+  await waitContent(browser, '[data-testid="add-main"]', /Расход/);
+  // Следующий тест начинает с перехода на Главную, как и раньше — из Настроек.
+  await openSection(browser, "Настройки");
+});
+
+test("форма операции: комментарий без «Ещё», свой счёт по умолчанию (0.31)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="txn-form-card"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[name="pinNote"]');
+    // Счёт по умолчанию — последний в списке (не тот, что подставился бы сам).
+    const want = await browser.execute(() => {
+      const sel = document.querySelector('[name="formAccount"]');
+      const opt = sel.options[sel.options.length - 1];
+      return opt.value;
+    });
+    const sel = await browser.$('[name="formAccount"]');
+    await sel.selectByAttribute("value", want);
+    await openSection(browser, "Главная");
+    await click(browser, "+ Расход");
+    await browser.$('[role="dialog"] [name="note"]').waitForDisplayed({ timeout: 5000 });
+    assert.equal(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), want, "счёт из настройки");
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    await openSection(browser, "Настройки");
+    const reset = await browser.$('[data-testid="txn-form-reset"]');
+    if (await reset.isExisting()) await tap('[data-testid="txn-form-reset"]');
+  }
+  await browser.$('[data-testid="txn-form-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});
+
+test("своя шапка «Операций»: выписку в «⋯», шаблон в шапку, как было (0.32)", async () => {
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-import"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[data-testid="head-more"]');
+    await tap('[data-head="import"]');
+    await browser.$('[data-testid="txn-import"]').waitForExist({ reverse: true, timeout: 5000 });
+    // Скрытая кнопка не пропала: она в «⋯» и открывает то же окно.
+    await tap('//*[@data-testid="head-menu"]//button[@role="menuitem" and normalize-space()="Загрузить выписку"]');
+    await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+    // Шаблон из примера — кнопкой в шапке.
+    await tap('[data-testid="head-more"]');
+    const tpl = await browser.$('[data-testid="head-menu"] [data-head^="tpl:"]');
+    if (await tpl.isExisting()) {
+      await tpl.click();
+      await browser.$('[data-testid="head-template"]').waitForExist({ timeout: 5000 });
+    }
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    if (!(await browser.$('[data-testid="head-menu"]').isExisting())) await tap('[data-testid="head-more"]');
+    const reset = await browser.$('[data-testid="head-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="txn-import"]').waitForExist({ timeout: 5000 });
+  assert.equal(await browser.$('[data-testid="head-template"]').isExisting(), false);
+  await browser.keys("Escape");
+  await openSection(browser, "Настройки");
+});
+
+test("вид: компактно и синий акцент сразу видны, возвращаются обратно (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="accent-pick"]').waitForExist({ timeout: 5000 });
+  const attr = (name) => browser.execute((n) => document.documentElement.dataset[n] ?? "", name);
+  try {
+    await tap('[data-testid="accent-pick"] [data-accent="blue"]');
+    await browser.waitUntil(async () => (await attr("accent")) === "blue", { timeout: 5000, timeoutMsg: "акцент не сменился" });
+    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", "compact");
+    await browser.waitUntil(async () => (await attr("density")) === "compact", { timeout: 5000, timeoutMsg: "плотность не сменилась" });
+  } finally {
+    await tap('[data-testid="accent-pick"] [data-accent="mint"]');
+    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", "normal");
+  }
+  await browser.waitUntil(async () => (await attr("accent")) === "" && (await attr("density")) === "", { timeout: 5000, timeoutMsg: "вид не вернулся" });
+});
+
+test("Главная: карточка в половину ширины и обратно (0.32)", async () => {
+  await openSection(browser, "Главная");
+  const tiles = '[data-block="tiles"]';
+  await browser.$(tiles).waitForExist({ timeout: 5000 });
+  const isHalf = () => browser.execute((sel) => document.querySelector(sel)?.classList.contains("half") ?? false, tiles);
+  await click(browser, "Настроить Главную");
+  try {
+    await tap(`${tiles} [data-testid="home-half"]`);
+    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "карточка не стала половинной" });
+    await tap('[data-testid="home-customize"]');
+    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "после «Готово» карточка во всю ширину" });
+    await click(browser, "Настроить Главную");
+  } finally {
+    if (await isHalf()) await tap(`${tiles} [data-testid="home-half"]`);
+    await browser.waitUntil(async () => !(await isHalf()), { timeout: 5000, timeoutMsg: "половина не снялась" });
+    await tap('[data-testid="home-customize"]');
+  }
+});
+
+test("свои клавиши: доход на Ctrl+I, занятое не принимается, как было (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="keys-card"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[data-testid="key-newIncome"]');
+    await waitContent(browser, '[data-testid="key-newIncome"]', /Нажмите/);
+    await browser.keys(["Control", "t"]);
+    await waitContent(browser, '[data-testid="keys-msg"]', /Ctrl\+T уже занято: «Новый перевод»/);
+    await browser.keys(["Control", "i"]);
+    await waitContent(browser, '[data-testid="key-newIncome"]', /Ctrl\+I/);
+    await browser.execute(() => document.activeElement?.blur());
+    await browser.keys(["Control", "i"]);
+    await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+    assert.match(await browser.execute(() => document.querySelector('[role="dialog"] [role="tab"][aria-selected="true"]')?.textContent ?? ""), /Доход/);
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    const reset = await browser.$('[data-testid="keys-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="keys-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
-  await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
-  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
+  // Щёлкаем «Ниже», когда скрытие уже применилось (кнопка сменилась на «Показать»).
+  await browser.$('//*[@data-block="templates"]//button[normalize-space()="Показать"]').waitForExist({ timeout: 5000 });
+  const lower = await browser.$('button[aria-label="Ниже: Быстрый ввод"]');
+  await lower.waitForClickable({ timeout: 5000 });
+  await lower.click();
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", {
+    timeout: 5000,
+    timeoutMsg: "«Быстрый ввод» не опустился ниже",
+  });
   // Перетаскивание карточки: «Напоминания» — в самый верх.
   await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="summary"]');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
@@ -154,7 +454,7 @@ test("своя Главная: скрыть карточку, перестави
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await click(browser, "Вернуть по умолчанию");
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
   await click(browser, "Готово");
@@ -183,9 +483,66 @@ test("счёт, перетащенный на категорию «Куда тр
   assert.equal(await picked("category"), "Такси");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ timeout: 5000, reverse: true });
-  await dragTo('[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Кафе и рестораны"]');
+  await dragTo('[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Общепит"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
-  assert.equal(await picked("category"), "Кафе и рестораны");
+  assert.equal(await picked("category"), "Общепит");
   assert.match(await picked("account"), /^Наличные/);
   await browser.keys("Escape");
+});
+
+test("таблица операций: столбец «Получатель», порядок по сумме, группы по категориям, как было (0.32)", async () => {
+  await openSection(browser, "Операции");
+  await tap('//*[@data-testid="period"]//button[normalize-space()="Прошлый"]');
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  const amounts = () =>
+    browser.execute(() =>
+      [...document.querySelectorAll('[data-testid="txn-row"] td.num')].map((td) => Math.abs(Number(td.textContent.replace(/[^\d,-]/g, "").replace(",", ".")) || 0)),
+    );
+  try {
+    await tap('[data-testid="table-view"]');
+    await tap('[data-testid="table-menu"] [data-col="payee"]');
+    await waitContent(browser, ".txn-table thead", /Получатель/);
+    // Сумма по убыванию — нажатием на заголовок; порядок делает ядро для всего списка.
+    await browser.keys("Escape");
+    await tap('.txn-table th [data-sort="amount"]');
+    await browser.waitUntil(
+      async () => {
+        const a = await amounts();
+        return a.length > 1 && a.every((x, i) => i === 0 || a[i - 1] >= x);
+      },
+      { timeout: 5000, timeoutMsg: "строки не встали по сумме" },
+    );
+    await tap('[data-testid="table-view"]');
+    await tap('[data-testid="table-menu"] [data-group="category"]');
+    await browser.$('[data-testid="txn-group"]').waitForExist({ timeout: 5000 });
+  } finally {
+    if (!(await browser.$('[data-testid="table-menu"]').isExisting())) await tap('[data-testid="table-view"]');
+    const reset = await browser.$('[data-testid="table-reset"]');
+    if (await reset.isExisting()) await reset.click();
+    await browser.keys("Escape");
+  }
+  await browser.$('[data-testid="txn-group"]').waitForExist({ reverse: true, timeout: 5000 });
+  assert.equal(await browser.execute(() => document.querySelector(".txn-table thead")?.textContent.includes("Получатель")), false);
+  await openSection(browser, "Настройки");
+});
+
+test("тонкие настройки: суммы кодом валюты, неделя с воскресенья, как было (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  const card = await browser.$('[data-testid="fine-card"]');
+  await card.waitForExist({ timeout: 5000 });
+  try {
+    if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
+    await (await browser.$('[name="fineCode"]')).selectByAttribute("value", "1");
+    await (await browser.$('[name="fineWeek"]')).selectByAttribute("value", "sun");
+    await openSection(browser, "Главная");
+    await waitContent(browser, "main", /\d[\s\u00a0\u202f]RUB/);
+    await openSection(browser, "Календарь");
+    await waitContent(browser, '[data-testid="calendar"] .cal-weekday', /^Вс$/);
+  } finally {
+    await openSection(browser, "Настройки");
+    if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
+    const reset = await browser.$('[data-testid="fine-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="fine-reset"]').waitForExist({ reverse: true, timeout: 5000 });
 });

@@ -55,6 +55,16 @@ pub struct Txn {
     pub spread_months: Option<i64>,
     /// Теги операции по алфавиту.
     pub tags: Vec<String>,
+    /// Возврат денег за покупку (0.29): приход на счёт, в бюджете — минус
+    /// расход категории покупки.
+    pub refund: bool,
+    /// Исходный расход возврата (если он не удалён).
+    pub refund_of: Option<String>,
+    /// Дата, по которой возврат попадает в бюджетный месяц (дата покупки);
+    /// `None` — по дате самого возврата.
+    pub count_date: Option<String>,
+    /// Код валюты счёта (итоги групп различают валюты с одним символом).
+    pub currency_code: String,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -207,11 +217,26 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     if old.split_id.is_some() {
         return invalid("это часть разбитого чека: измените чек целиком");
     }
+    let refund: bool =
+        conn.query_row("SELECT refund FROM transactions WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?;
+    if refund {
+        return invalid("это возврат: измените его в окне возврата");
+    }
     let previous: Vec<&str> = [Some(old.account_id.as_str()), old.to_account_id.as_deref()]
         .into_iter()
         .flatten()
         .collect();
     let c = validate(conn, input, &previous)?;
+    crate::refunds::purchase_edited(
+        conn,
+        id,
+        &input.kind,
+        input.amount,
+        &input.date,
+        c.category_id.as_deref(),
+    )?;
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,
                 to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11,
@@ -243,6 +268,29 @@ pub fn move_to(conn: &Connection, id: &str, date: &str) -> Result<()> {
     }
     if old.kind == "adjustment" {
         return invalid("корректировку нельзя перенести: сделайте сверку заново");
+    }
+    // То же правило, что и в форме возврата: возврат не раньше покупки
+    // (покупку позже её возврата не пускает refunds::purchase_moved ниже).
+    let refund_purchase: Option<String> = conn
+        .query_row(
+            "SELECT p.date FROM transactions r JOIN transactions p ON p.id = r.refund_of
+         WHERE r.id = ?1 AND r.refund = 1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if refund_purchase.is_some_and(|p| date < p.as_str()) {
+        return invalid("возврат не может быть раньше покупки");
+    }
+    let moved: Vec<String> = match &old.split_id {
+        Some(split) => conn
+            .prepare("SELECT id FROM transactions WHERE split_id = ?1")?
+            .query_map([split], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?,
+        None => vec![id.to_string()],
+    };
+    for m in &moved {
+        crate::refunds::purchase_moved(conn, m, date)?;
     }
     // Разбитый чек переносится целиком.
     conn.execute(
@@ -279,6 +327,9 @@ pub fn set_spread(conn: &Connection, id: &str, months: Option<i64>) -> Result<()
         }
         if old.debt_id.is_some() {
             return invalid("это платёж по долгу: его нельзя делить по месяцам");
+        }
+        if crate::refunds::has_refunds(conn, id)? {
+            return invalid("по этой покупке есть возврат: её нельзя делить по месяцам");
         }
     }
     conn.execute(
@@ -344,6 +395,11 @@ pub struct Filter {
     pub tag_id: Option<String>,
     /// Операции, добавленные одним импортом.
     pub import_id: Option<String>,
+    /// Получатель целиком, без учёта регистра и пробелов по краям (похожие операции).
+    pub payee: Option<String>,
+    /// Порядок списка (Г8): «date», «amount», «category», «account», «payee»
+    /// с «:asc» или «:desc». Пусто или незнакомое — новые сверху. Выгрузки идут по дате.
+    pub sort: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -362,7 +418,8 @@ const SELECT: &str =
         t.payee, t.note, t.debt_id, t.event_id, e.name, t.split_id, t.spread_months,
         (SELECT group_concat(name, char(31)) FROM
             (SELECT g.name FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
-             WHERE tt.transaction_id = t.id ORDER BY g.name))
+             WHERE tt.transaction_id = t.id ORDER BY g.name)),
+        t.refund, t.refund_of, t.count_date, a.currency_code
  FROM transactions t
  JOIN accounts a ON a.id = t.account_id
  JOIN currencies ca ON ca.code = a.currency_code
@@ -400,6 +457,10 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
             .get::<_, Option<String>>(22)?
             .map(|s| s.split('\u{1f}').map(str::to_string).collect())
             .unwrap_or_default(),
+        refund: r.get(23)?,
+        refund_of: r.get(24)?,
+        count_date: r.get(25)?,
+        currency_code: r.get(26)?,
     })
 }
 
@@ -433,6 +494,12 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     }
     if let Some(e) = &f.event_id {
         wh.push(format!("t.event_id = {}", arg(e.clone().into())));
+    }
+    if let Some(p) = f.payee.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        wh.push(format!(
+            "kz_lower(trim(t.payee)) = {}",
+            arg(p.to_lowercase().into())
+        ));
     }
     if let Some(i) = &f.import_id {
         wh.push(format!("t.import_id = {}", arg(i.clone().into())));
@@ -485,14 +552,147 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     )?;
     let limit = f.limit.unwrap_or(200).clamp(1, 5000);
     let offset = f.offset.unwrap_or(0).max(0);
-    let sql = format!(
-        "{SELECT} WHERE {where_sql} ORDER BY t.date DESC, t.id DESC LIMIT {limit} OFFSET {offset}"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let items = stmt
-        .query_map(params_from_iter(args.iter()), map)?
-        .collect::<rusqlite::Result<_>>()?;
+    let fetch = |sql: &str, args: &[Value]| -> Result<Vec<Txn>> {
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params_from_iter(args.iter()), map)?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    };
+    // По дате (обычный случай) части чека и так идут подряд: быстрый путь по индексу даты,
+    // без окна по всей выборке. Правило страницы то же, что в page_sql.
+    let by_date = match f.sort.as_deref() {
+        None | Some("") | Some("date:desc") => Some("DESC"),
+        Some("date:asc") => Some("ASC"),
+        Some(s) => match s.split_once(':') {
+            Some((by, "asc" | "desc"))
+                if ["amount", "category", "account", "payee"].contains(&by) =>
+            {
+                None
+            }
+            _ => Some("DESC"),
+        },
+    };
+    let Some(dir) = by_date else {
+        let items = fetch(
+            &page_sql(f.sort.as_deref(), &where_sql, limit, offset),
+            &args,
+        )?;
+        return Ok(Page { items, total });
+    };
+    // Даты на границах страницы берём по индексу (date, id): позиция по дате та же.
+    let date_at = |pos: i64| -> Result<Option<String>> {
+        let sql = format!(
+            "SELECT t.date FROM transactions t
+             JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+             LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}
+             ORDER BY t.date {dir}, t.id {dir} LIMIT 1 OFFSET {pos}"
+        );
+        Ok(conn
+            .query_row(&sql, params_from_iter(args.iter()), |r| r.get(0))
+            .optional()?)
+    };
+    let Some(first) = date_at(offset)? else {
+        return Ok(Page {
+            items: Vec::new(),
+            total,
+        });
+    };
+    let last = date_at(offset + limit - 1)?;
+    let (before, after) = if dir == "DESC" {
+        (">", "<")
+    } else {
+        ("<", ">")
+    };
+    let mut all = args.clone();
+    all.push(first.clone().into());
+    let pf = all.len();
+    let base: i64 = conn.query_row(
+        &format!(
+            "SELECT count(*) FROM transactions t
+             JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+             LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql} AND t.date {before} ?{pf}"
+        ),
+        params_from_iter(all.iter()),
+        |r| r.get(0),
+    )?;
+    // Все строки дней от первой до последней даты страницы, в порядке экрана: чек подряд.
+    let mut range = format!("t.date {after}= ?{pf}");
+    if let Some(l) = last {
+        all.push(l.into());
+        range.push_str(&format!(" AND t.date {before}= ?{}", all.len()));
+    }
+    let block = fetch(
+        &format!(
+            "{SELECT} WHERE {where_sql} AND {range}
+             ORDER BY t.date {dir}, coalesce(t.split_id, t.id) {dir}, t.id {dir}"
+        ),
+        &all,
+    )?;
+    // Строка экрана — на странице, где она начинается.
+    let mut starts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for (i, t) in block.iter().enumerate() {
+        let rk = t.split_id.clone().unwrap_or_else(|| t.id.clone());
+        starts.entry(rk).or_insert(base + i as i64);
+    }
+    let items = block
+        .into_iter()
+        .filter(|t| {
+            let rk = t.split_id.as_ref().unwrap_or(&t.id);
+            let gs = starts[rk];
+            gs >= offset && gs < offset + limit
+        })
+        .collect();
     Ok(Page { items, total })
+}
+
+/// Страница списка по строкам экрана: разбитый чек — одна строка (Г8).
+/// Чек сортируется по своей сумме, своей дате и т. д., его части всегда идут подряд
+/// и не разрываются границей страницы. `limit`/`offset` считаются в операциях: на страницу
+/// попадают строки, которые начинаются в [offset, offset + limit), поэтому страница может
+/// быть чуть длиннее, а следующая начинается ровно с `offset + items.len()`.
+/// Порядок — только из известных столбцов; при равенстве новые сверху.
+fn page_sql(sort: Option<&str>, where_sql: &str, limit: i64, offset: i64) -> String {
+    let (by, desc) = match sort.and_then(|s| s.split_once(':')) {
+        Some((by @ ("date" | "amount" | "category" | "account" | "payee"), "asc")) => (by, false),
+        Some((by @ ("date" | "amount" | "category" | "account" | "payee"), "desc")) => (by, true),
+        _ => ("date", true),
+    };
+    let dir = if desc { "DESC" } else { "ASC" };
+    // Ключ строки экрана (окно по чеку), признак «пусто — в конец» и порядок частей внутри чека.
+    let (key, empty, own) = match by {
+        "amount" => ("sum(t.amount)", "max(0)", "t.amount"),
+        "category" => (
+            "min(kz_lower(coalesce(p.name || ' → ' || c.name, c.name)))",
+            "min(c.name IS NULL)",
+            "kz_lower(coalesce(p.name || ' → ' || c.name, c.name))",
+        ),
+        "account" => ("min(kz_lower(a.name))", "max(0)", "t.id"),
+        "payee" => (
+            "min(kz_lower(trim(t.payee)))",
+            "min(coalesce(trim(t.payee), '') = '')",
+            "t.id",
+        ),
+        _ => ("max(t.date)", "max(0)", "t.id"),
+    };
+    let tail = if by == "date" && !desc {
+        "gd ASC, rk ASC, ow ASC, id ASC"
+    } else {
+        "gd DESC, rk DESC, ow DESC, id DESC"
+    };
+    let from = &SELECT[SELECT.find("\n FROM transactions t").unwrap_or(0)..];
+    format!(
+        "WITH pg_g AS (
+            SELECT t.id AS id, coalesce(t.split_id, t.id) AS rk,
+                   {key} OVER w AS gk, {empty} OVER w AS ge, max(t.date) OVER w AS gd, {own} AS ow
+            {from} WHERE {where_sql} WINDOW w AS (PARTITION BY coalesce(t.split_id, t.id))),
+         pg_o AS (SELECT id, rk, ow, row_number() OVER (ORDER BY ge, gk {dir}, {tail}) - 1 AS pos FROM pg_g),
+         pg_s AS (SELECT id, pos, min(pos) OVER (PARTITION BY rk) AS gs FROM pg_o)
+         {SELECT} JOIN pg_s ON pg_s.id = t.id
+         WHERE pg_s.gs >= {offset} AND pg_s.gs < {end}
+         ORDER BY pg_s.pos",
+        end = offset + limit
+    )
 }
 
 /// Все операции по фильтру одним запросом, новые сверху (выгрузки).
@@ -560,7 +760,9 @@ pub fn sum_ids(conn: &Connection, ids: &[String]) -> Result<Sums> {
     for chunk in unique.chunks(500) {
         let marks = vec!["?"; chunk.len()].join(", ");
         let mut stmt = conn.prepare(&format!(
-            "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+            "SELECT CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END, t.date,
+                    CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code
+             FROM transactions t
              JOIN accounts a ON a.id = t.account_id WHERE t.id IN ({marks})"
         ))?;
         let rows = stmt
@@ -579,7 +781,9 @@ pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
     };
     let (where_sql, args) = where_clause(conn, f)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END, t.date,
+                    CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code
+             FROM transactions t
          JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
          LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}"
     ))?;
@@ -703,10 +907,10 @@ mod tests {
             card: accounts::create(c, &acc("Карта", "debit", "RUB", 10_000_000)).unwrap(),
             cash: accounts::create(c, &acc("Наличные", "cash", "RUB", 0)).unwrap(),
             usd: accounts::create(c, &acc("Вклад USD", "savings", "USD", 0)).unwrap(),
-            food: cat(c, "Продукты"),
-            cafe: cat(c, "Кафе и рестораны"),
+            food: cat(c, "Питание"),
+            cafe: cat(c, "Общепит"),
             lunch: cat(c, "Обеды"),
-            salary: cat(c, "Зарплата"),
+            salary: cat(c, "Заработная плата"),
             db,
         }
     }
@@ -803,6 +1007,37 @@ mod tests {
     }
 
     #[test]
+    fn payee_filter_is_exact() {
+        // Р4 «Похожие»: получатель целиком, без учёта регистра и пробелов; комментарий не в счёт.
+        let f = fx();
+        let c = f.db.conn();
+        let mut a = txn("expense", "2026-10-20", &f.card, 100, Some(&f.food));
+        a.payee = Some(" Пятёрочка ".into());
+        create(c, &a).unwrap();
+        let mut b = txn("expense", "2026-10-21", &f.card, 200, Some(&f.food));
+        b.payee = Some("Пятёрочка у дома".into());
+        create(c, &b).unwrap();
+        let mut n = txn("expense", "2026-10-22", &f.card, 300, Some(&f.food));
+        n.note = Some("как в Пятёрочке".into());
+        create(c, &n).unwrap();
+        let by = |p: &str| {
+            list(
+                c,
+                &Filter {
+                    payee: Some(p.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let page = by("пятёрочка");
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].amount, 100);
+        assert_eq!(by("  ПЯТЁРОЧКА У ДОМА").total, 1);
+        assert_eq!(by("   ").total, 3, "пустой получатель не фильтрует");
+    }
+
+    #[test]
     fn archived_account_rejects_new_operations() {
         let f = fx();
         let c = f.db.conn();
@@ -823,6 +1058,160 @@ mod tests {
             &txn("expense", "2026-10-20", &f.cash, 200, Some(&f.food)),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn list_sorts_by_chosen_column() {
+        let f = fx();
+        let c = f.db.conn();
+        let mut a = txn("expense", "2026-10-01", &f.cash, 300, Some(&f.food));
+        a.payee = Some("Яблоко".into());
+        create(c, &a).unwrap();
+        let mut b = txn("expense", "2026-10-03", &f.card, 100, Some(&f.lunch));
+        b.payee = Some("ашан".into());
+        create(c, &b).unwrap();
+        create(
+            c,
+            &txn("income", "2026-10-02", &f.card, 200, Some(&f.salary)),
+        )
+        .unwrap();
+        let by = |sort: &str| -> Vec<i64> {
+            let page = list(
+                c,
+                &Filter {
+                    sort: Some(sort.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            page.items.iter().map(|t| t.amount).collect()
+        };
+        assert_eq!(by(""), vec![100, 200, 300]);
+        assert_eq!(by("date:asc"), vec![300, 200, 100]);
+        assert_eq!(by("amount:desc"), vec![300, 200, 100]);
+        assert_eq!(by("amount:asc"), vec![100, 200, 300]);
+        // Без учёта регистра; пустой получатель — в конце при любом направлении.
+        assert_eq!(by("payee:asc"), vec![100, 300, 200]);
+        assert_eq!(by("payee:desc"), vec![300, 100, 200]);
+        assert_eq!(by("account:desc"), vec![300, 100, 200]);
+        // Незнакомое не ломает запрос.
+        assert_eq!(by("rowid; DROP TABLE x:asc"), vec![100, 200, 300]);
+        assert_eq!(by("amount:sideways"), vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn receipt_is_whole_on_any_page() {
+        // Чек 600 + 100 при порядке по сумме: вторая часть дальше границы страницы.
+        let mut f = fx();
+        create(
+            f.db.conn(),
+            &txn("expense", "2026-10-02", &f.card, 300, Some(&f.food)),
+        )
+        .unwrap();
+        let input: crate::receipts::ReceiptInput = serde_json::from_value(serde_json::json!({
+            "date": "2026-10-01", "accountId": f.card, "total": 70000,
+            "parts": [{"categoryId": f.food, "amount": 60000}, {"categoryId": f.cafe, "amount": 10000}]
+        }))
+        .unwrap();
+        crate::receipts::create(f.db.conn_mut(), &input).unwrap();
+        let c = f.db.conn();
+        let page = list(
+            c,
+            &Filter {
+                sort: Some("amount:desc".into()),
+                limit: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let amounts: Vec<i64> = page.items.iter().map(|t| t.amount).collect();
+        assert_eq!(amounts, vec![60000, 10000]);
+        assert_eq!(page.total, 3);
+        assert_eq!(page.items[0].currency_code, "RUB");
+        // Чек 600 + 600 = 1 200 среди трат 700 и 500: по убыванию 1 200, 700, 500, 300.
+        let rec: crate::receipts::ReceiptInput = serde_json::from_value(serde_json::json!({
+            "date": "2026-10-03", "accountId": f.card, "total": 1200,
+            "parts": [{"categoryId": f.food, "amount": 600}, {"categoryId": f.cafe, "amount": 600}]
+        }))
+        .unwrap();
+        crate::receipts::create(f.db.conn_mut(), &rec).unwrap();
+        let c = f.db.conn();
+        create(
+            c,
+            &txn("expense", "2026-10-04", &f.card, 700, Some(&f.food)),
+        )
+        .unwrap();
+        create(
+            c,
+            &txn("expense", "2026-10-05", &f.card, 500, Some(&f.food)),
+        )
+        .unwrap();
+        let sorted = |offset: i64, limit: i64| -> Vec<i64> {
+            let f = Filter {
+                sort: Some("amount:desc".into()),
+                limit: Some(limit),
+                offset: Some(offset),
+                ..Default::default()
+            };
+            list(c, &f)
+                .unwrap()
+                .items
+                .iter()
+                .map(|t| t.amount)
+                .collect()
+        };
+        assert_eq!(sorted(0, 100), vec![60000, 10000, 600, 600, 700, 500, 300]);
+        // Страницы по offset не пересекаются и ничего не теряют: следующая — с offset + длина.
+        let mut got = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = sorted(offset, 1);
+            if page.is_empty() {
+                break;
+            }
+            offset += page.len() as i64;
+            got.extend(page);
+        }
+        assert_eq!(got, sorted(0, 100));
+        // То же по дате (быстрый путь): чек не режется, страницы не пересекаются.
+        for sort in [None, Some("date:asc")] {
+            let page = |offset: i64, limit: i64| -> Vec<String> {
+                let f = Filter {
+                    sort: sort.map(Into::into),
+                    limit: Some(limit),
+                    offset: Some(offset),
+                    ..Default::default()
+                };
+                list(c, &f)
+                    .unwrap()
+                    .items
+                    .into_iter()
+                    .map(|t| t.id)
+                    .collect()
+            };
+            let whole = page(0, 100);
+            assert_eq!(whole.len(), 7);
+            let (mut got, mut offset) = (Vec::new(), 0);
+            loop {
+                let p = page(offset, 1);
+                if p.is_empty() {
+                    break;
+                }
+                offset += p.len() as i64;
+                got.extend(p);
+            }
+            assert_eq!(got, whole, "{sort:?}");
+        }
+        // Фильтр по категории — только подходящая часть, без дописывания остальных.
+        let page = list(
+            c,
+            &Filter {
+                category_id: Some(f.cafe.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 2);
     }
 
     #[test]
@@ -867,7 +1256,7 @@ mod tests {
         assert!(page
             .items
             .iter()
-            .any(|t| t.category_name.as_deref() == Some("Кафе и рестораны → Обеды")));
+            .any(|t| t.category_name.as_deref() == Some("Общепит → Обеды")));
 
         let by_text = |q: &str| {
             list(

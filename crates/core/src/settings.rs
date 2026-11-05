@@ -53,13 +53,17 @@ fn validate(key: &str, value: &str) -> Result<()> {
             .parse::<i64>()
             .is_ok_and(|d| (0..=crate::reminders::MAX_LEAD_DAYS).contains(&d)),
         "cushion_goal_months" => value.parse::<u32>().is_ok_and(|m| (1..=60).contains(&m)),
+        "unusual_percent" => value.parse::<i64>().is_ok_and(|p| (5..=300).contains(&p)),
+        "checks_days" => value.parse::<i64>().is_ok_and(|d| (7..=180).contains(&d)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
-        "subscriptions_hidden" | "forecast_excluded_accounts" => {
+        "subscriptions_hidden" | "forecast_excluded_accounts" | "ui_modules" => {
             serde_json::from_str::<Vec<String>>(value).is_ok()
         }
         "subs_notified" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
-        "bank_accounts" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
+        "bank_accounts" | "ui_prefs" => {
+            serde_json::from_str::<BTreeMap<String, String>>(value).is_ok()
+        }
         _ => true,
     };
     if ok {
@@ -89,6 +93,17 @@ mod tests {
             set(db.conn(), "nope", "1"),
             Err(Error::UnknownSetting(_))
         ));
+    }
+
+    #[test]
+    fn ui_modules_and_prefs_are_json() {
+        let db = Storage::open_in_memory().unwrap();
+        assert_eq!(get(db.conn(), "ui_modules").unwrap().as_deref(), Some("[]"));
+        assert_eq!(get(db.conn(), "ui_prefs").unwrap().as_deref(), Some("{}"));
+        set(db.conn(), "ui_modules", r#"["debts","notes"]"#).unwrap();
+        set(db.conn(), "ui_prefs", r#"{"theme":"light"}"#).unwrap();
+        assert!(set(db.conn(), "ui_modules", "debts").is_err());
+        assert!(set(db.conn(), "ui_prefs", "[1]").is_err());
     }
 
     #[test]

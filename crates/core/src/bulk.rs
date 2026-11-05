@@ -80,6 +80,14 @@ fn with_whole_receipts(conn: &Connection, ids: &[String]) -> Result<Vec<String>>
     Ok(all)
 }
 
+/// Сколько частей разбитых чеков, не попавших в выделение, затронет действие над чеком
+/// целиком (удаление, счёт, получатель). Окно предупреждает об этом до подтверждения.
+pub fn receipt_extra(conn: &Connection, ids: &[String]) -> Result<usize> {
+    let picked: HashSet<&String> = ids.iter().collect();
+    let all = with_whole_receipts(conn, ids)?;
+    Ok(all.iter().filter(|id| !picked.contains(id)).count())
+}
+
 /// Поставить категорию. Переводы, корректировки, платежи по долгам и
 /// операции другого вида (доход для категории расходов) пропускаются.
 pub fn set_category(
@@ -96,9 +104,19 @@ pub fn set_category(
             res.skipped += 1;
             continue;
         }
-        tx.execute(
-            "UPDATE transactions SET category_id = ?2, updated_at = ?3 WHERE id = ?1",
+        // Возврат (0.29) остаётся в категории своей покупки.
+        if tx.execute(
+            "UPDATE transactions SET category_id = ?2, updated_at = ?3 WHERE id = ?1 AND refund = 0",
             params![r.id, category_id, now],
+        )? == 0
+        {
+            res.skipped += 1;
+            continue;
+        }
+        // …и следует за ней, когда меняют категорию покупки.
+        tx.execute(
+            "UPDATE transactions SET category_id = ?2 WHERE refund = 1 AND refund_of = ?1",
+            params![r.id, category_id],
         )?;
         res.changed += 1;
     }
@@ -203,6 +221,45 @@ pub fn delete(conn: &mut Connection, ids: &[String]) -> Result<BulkResult> {
 }
 
 #[cfg(test)]
+mod receipt_extra_tests {
+    use super::*;
+    use crate::accounts::tests::input;
+    use crate::storage::Storage;
+
+    #[test]
+    fn counts_hidden_receipt_parts() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let cat = |n: &str| -> String {
+            c.query_row("SELECT id FROM categories WHERE name = ?1", [n], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        let (food, cafe) = (cat("Питание"), cat("Общепит"));
+        let rec: crate::receipts::ReceiptInput = serde_json::from_value(serde_json::json!({
+            "date": "2026-10-01", "accountId": card, "total": 700,
+            "parts": [{"categoryId": food, "amount": 600}, {"categoryId": cafe, "amount": 100}]
+        }))
+        .unwrap();
+        let split = crate::receipts::create(db.conn_mut(), &rec).unwrap();
+        let c = db.conn();
+        let parts: Vec<String> = c
+            .prepare("SELECT id FROM transactions WHERE split_id = ?1 ORDER BY amount DESC")
+            .unwrap()
+            .query_map([&split], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(receipt_extra(c, &parts[..1]).unwrap(), 1);
+        assert_eq!(receipt_extra(c, &parts).unwrap(), 0);
+        assert_eq!(receipt_extra(c, &["нет".into()]).unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::accounts::tests::input;
@@ -247,14 +304,14 @@ mod tests {
             note: None,
         };
         let ids = vec![
+            transactions::create(c, &t("expense", Some(cat(c, "Магазины", "expense")), None))
+                .unwrap(),
+            transactions::create(c, &t("expense", Some(cat(c, "Такси", "expense")), None)).unwrap(),
             transactions::create(
                 c,
-                &t("expense", Some(cat(c, "Супермаркет", "expense")), None),
+                &t("income", Some(cat(c, "Заработная плата", "income")), None),
             )
             .unwrap(),
-            transactions::create(c, &t("expense", Some(cat(c, "Такси", "expense")), None)).unwrap(),
-            transactions::create(c, &t("income", Some(cat(c, "Зарплата", "income")), None))
-                .unwrap(),
             transactions::create(c, &t("transfer", None, Some(&cash))).unwrap(),
         ];
         Fx {
@@ -351,8 +408,8 @@ mod tests {
     #[test]
     fn receipt_parts_move_and_delete_together() {
         let mut f = fx();
-        let food = cat(f.db.conn(), "Супермаркет", "expense");
-        let drug = cat(f.db.conn(), "Аптека", "expense");
+        let food = cat(f.db.conn(), "Магазины", "expense");
+        let drug = cat(f.db.conn(), "Лекарства", "expense");
         let c = f.db.conn_mut();
         let split = receipts::create(
             c,

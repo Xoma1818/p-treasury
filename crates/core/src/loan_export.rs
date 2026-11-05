@@ -293,7 +293,7 @@ fn terms_lines(doc: &ScheduleDoc, symbol: &str) -> Vec<(String, String)> {
 
 // --- Excel ---
 
-/// Записать график в `.xlsx`: лист «График» и лист «Условия».
+/// Записать график в `.xlsx` или `.csv` (по расширению): лист «График» и лист «Условия».
 pub fn export_schedule_xlsx(path: &Path, doc: &ScheduleDoc) -> Result<()> {
     let mu = doc.terms.minor_units;
     let mut graph = Sheet {
@@ -366,7 +366,7 @@ pub fn export_schedule_xlsx(path: &Path, doc: &ScheduleDoc) -> Result<()> {
         Cell::Text("Дата составления".into()),
         Cell::Date(doc.created_on.clone()),
     ]);
-    export::write_xlsx(path, &[graph, terms])
+    export::write_book(path, &[graph, terms])
 }
 
 // --- PDF ---
@@ -691,6 +691,12 @@ mod tests {
         let all: Vec<String> = terms.rows().flatten().map(|c| c.to_string()).collect();
         assert!(all.iter().any(|c| c == "Петров Пётр Петрович"));
         assert!(all.iter().any(|c| c == "по дням"));
+
+        let csv = dir.path().join("график.csv");
+        export_schedule_xlsx(&csv, &doc).unwrap();
+        let text = String::from_utf8(fs::read(&csv).unwrap()[3..].to_vec()).unwrap();
+        assert!(text.lines().any(|l| l == "График") && text.lines().any(|l| l == "Условия"));
+        assert!(text.contains("Петров Пётр Петрович"));
 
         let pdf = dir.path().join("график.pdf");
         export_schedule_pdf(&pdf, &doc).unwrap();

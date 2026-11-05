@@ -358,7 +358,7 @@ mod tests {
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 0)).unwrap();
         let repair = cat(db.conn(), "Ремонт");
-        let food = cat(db.conn(), "Супермаркет");
+        let food = cat(db.conn(), "Магазины");
         let c = db.conn_mut();
         let a = spend(
             c,
@@ -431,7 +431,7 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 0)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
+        let food = cat(db.conn(), "Магазины");
         let c = db.conn_mut();
         let ids: Vec<String> = (1..=3)
             .map(|d| spend(c, &card, &food, &format!("2026-10-0{d}"), 100, &[]))

@@ -101,6 +101,21 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "spread_and_reimport",
         sql: include_str!("../../migrations/0017_spread_and_reimport.sql"),
     },
+    Migration {
+        version: 18,
+        name: "refunds_and_month_review",
+        sql: include_str!("../../migrations/0018_refunds_and_month_review.sql"),
+    },
+    Migration {
+        version: 19,
+        name: "ui_modules_and_prefs",
+        sql: include_str!("../../migrations/0019_ui_modules_and_prefs.sql"),
+    },
+    Migration {
+        version: 20,
+        name: "fine_settings",
+        sql: include_str!("../../migrations/0020_fine_settings.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

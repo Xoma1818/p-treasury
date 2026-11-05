@@ -18,7 +18,7 @@ use crate::money::format_amount;
 use crate::{accounts, categories, currencies, ids, time, Error, Result};
 
 const INTEREST_EXPENSE: &str = "Проценты по кредитам";
-const INTEREST_INCOME: &str = "Проценты по займам";
+const INTEREST_INCOME: &str = "Проценты по выданным займам";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -328,10 +328,16 @@ fn interest_category(conn: &Connection, direction: &str) -> Result<String> {
     } else {
         (INTEREST_INCOME, "income")
     };
+    // В базах до 0.28 категория называется по-старому («Проценты по займам»): ищем оба имени.
+    let legacy = categories::RENAMES
+        .iter()
+        .find(|r| r.0 == kind && r.3 == name)
+        .map_or(name, |r| r.2);
     let found: Option<String> = conn
         .query_row(
-            "SELECT id FROM categories WHERE name = ?1 AND kind = ?2 AND archived_at IS NULL ORDER BY parent_id IS NOT NULL LIMIT 1",
-            params![name, kind],
+            "SELECT id FROM categories WHERE name IN (?1, ?3) AND kind = ?2 AND archived_at IS NULL
+             ORDER BY parent_id IS NOT NULL, name <> ?1 LIMIT 1",
+            params![name, kind, legacy],
             |r| r.get(0),
         )
         .optional()?;
@@ -2452,6 +2458,33 @@ mod tests {
                 )
                 .unwrap();
         assert!(transactions::delete(f.db.conn(), &txn).is_err());
+    }
+
+    #[test]
+    fn interest_income_found_by_old_name_in_pre_028_database() {
+        let f = Fx::new();
+        let c = f.db.conn();
+        c.execute(
+            "UPDATE categories SET name = 'Проценты по займам' WHERE name = 'Проценты по выданным займам'",
+            [],
+        )
+        .unwrap();
+        let old: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Проценты по займам'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            interest_category(c, "lent").unwrap(),
+            old,
+            "не создаётся вторая категория"
+        );
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM categories WHERE kind = 'income' AND name LIKE 'Проценты по%займам'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]

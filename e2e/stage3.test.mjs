@@ -17,8 +17,8 @@ before(async () => {
     { name: "Карта", balance: "100000" },
   ]);
   for (const [type, amount, category] of [
-    ["income", "20000", "Зарплата"],
-    ["expense", "2800", "Продукты"],
+    ["income", "20000", "Заработная плата"],
+    ["expense", "2800", "Питание"],
     ["expense", "1500", "Транспорт"],
     ["expense", "5700", "Жильё"],
   ]) {
@@ -45,11 +45,11 @@ test("итоги месяца: доли категорий «Жильё 57 %», 
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-period"]', new RegExp(title(now)));
   await waitText(browser, '[data-testid="report-expense"]', money("10 000 ₽"));
-  await waitText(browser, `${catRow("Продукты")}//*[@data-testid="share"]`, /^28 %$/);
+  await waitText(browser, `${catRow("Питание")}//*[@data-testid="share"]`, /^28 %$/);
   const rows = await browser.$$('[data-testid="cat-row"]');
   const names = [];
   for (const r of rows) names.push(await r.getAttribute("data-category"));
-  assert.deepEqual(names, ["Жильё", "Продукты", "Транспорт"]);
+  assert.deepEqual(names, ["Жильё", "Питание", "Транспорт"]);
   assert.equal(await browser.$(`${catRow("Транспорт")}//*[@data-testid="share"]`).getText(), "15 %");
   assert.equal(await browser.$(`${catRow("Жильё")}//*[@data-testid="share"]`).getText(), "57 %");
 });
@@ -65,7 +65,7 @@ test("норма сбережений: половина дохода остал�
 test("доходы по категориям на второй вкладке структуры", async () => {
   await openSection(browser, "Отчёты");
   await click(browser, "Доходы", '//*[contains(@class,"tabs small")]');
-  await waitText(browser, `${catRow("Зарплата")}//*[@data-testid="share"]`, /^100 %$/);
+  await waitText(browser, `${catRow("Заработная плата")}//*[@data-testid="share"]`, /^100 %$/);
 });
 
 test("разобраться в цифре: клик по «Транспорт» открывает его операции за период", async () => {

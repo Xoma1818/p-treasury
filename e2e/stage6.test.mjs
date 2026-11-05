@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, choose, click, waitText, money, appPid, closeLikeUser } from "./app.mjs";
+import { start, stop, openSection, onboard, choose, click, waitText, money, appPid, closeLikeUser, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -33,18 +33,24 @@ const card = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" an
 
 const csv = (rows) => "\uFEFFДата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма;Счёт зачисления\n" + rows.map((r) => r.join(";")).join("\n") + "\n";
 const good = [
-  [ru(daysAgo(40)), "Доход", "Карта", "Зарплата", "", "", "85 000", ""],
-  [ru(daysAgo(39)), "Расход", "Карта", "Продукты", "Пятёрочка", "", "2340,50", ""],
+  [ru(daysAgo(40)), "Доход", "Карта", "Заработная плата", "", "", "85 000", ""],
+  [ru(daysAgo(39)), "Расход", "Карта", "Питание", "Пятёрочка", "", "2340,50", ""],
   [ru(daysAgo(38)), "Перевод", "Карта", "", "", "в кошелёк", "1000", "Наличные"],
-  [ru(daysAgo(2)), "Расход", "Наличные", "Кафе и рестораны", "", "", "450", ""],
+  [ru(daysAgo(2)), "Расход", "Наличные", "Общепит", "", "", "450", ""],
 ];
 
 test("импорт CSV: три строки с ошибкой в дате видны до загрузки, после исправления всё загружается", async () => {
   const path = join(files, "выписка.csv");
-  const broken = [...good, ["31.09.2026", "Расход", "Карта", "ЖКХ", "", "", "6230", ""], ["2026/10/07", "Расход", "Карта", "Такси", "", "", "350", ""], ["08.10.26", "Расход", "Карта", "Такси", "", "", "350", ""]];
+  const broken = [...good, ["31.09.2026", "Расход", "Карта", "Коммунальные платежи", "", "", "6230", ""], ["2026/10/07", "Расход", "Карта", "Такси", "", "", "350", ""], ["08.10.26", "Расход", "Карта", "Такси", "", "", "350", ""]];
   writeFileSync(path, csv(broken));
   await openSection(browser, "Настройки");
   await click(browser, "Импорт выписки или CSV");
+  // «Скачать шаблон CSV» сохраняет файл и говорит об этом (раньше молчал).
+  const tpl = join(files, "шаблон.csv");
+  await pick(tpl);
+  await click(browser, "Скачать шаблон CSV", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="template-saved"]', /Шаблон сохранён: шаблон\.csv/);
+  assert.match(readFileSync(tpl, "utf8"), /Дата;Тип;Счёт/);
   await pick(path);
   await click(browser, "Выбрать файл", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="import-summary"]', /строк 7, без ошибок 4, с ошибками 3/);
@@ -53,7 +59,7 @@ test("импорт CSV: три строки с ошибкой в дате вид
   assert.equal(await (await browser.$('//*[@role="dialog"]//button[normalize-space()="Загрузить 4"]')).isEnabled(), false, "с ошибками целиком не грузим");
 
   // Исправили даты в файле и проверили снова.
-  const fixed = [...good, [ru(daysAgo(30)), "Расход", "Карта", "ЖКХ", "", "", "6230", ""], [ru(daysAgo(29)), "Расход", "Карта", "Такси", "", "", "350", ""], [ru(daysAgo(28)), "Расход", "Карта", "Такси", "", "", "350", ""]];
+  const fixed = [...good, [ru(daysAgo(30)), "Расход", "Карта", "Коммунальные платежи", "", "", "6230", ""], [ru(daysAgo(29)), "Расход", "Карта", "Такси", "", "", "350", ""], [ru(daysAgo(28)), "Расход", "Карта", "Такси", "", "", "350", ""]];
   writeFileSync(path, csv(fixed));
   await click(browser, "Проверить снова", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="import-summary"]', /строк 7, без ошибок 7$/);
@@ -65,6 +71,31 @@ test("импорт CSV: три строки с ошибкой в дате вид
   await openSection(browser, "Счета");
   await waitText(browser, card("Карта"), money("174 729,50 ₽"));
   await waitText(browser, card("Наличные"), money("5 550 ₽"));
+});
+
+/** Файл из проводника, брошенный в окно: так Tauri сообщает о нём странице. */
+const dropFiles = (paths) =>
+  browser.execute(
+    (p) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "tauri://drag-drop", payload: { paths: p, position: { x: 400, y: 300 } } }),
+    paths,
+  );
+
+test("Операции: выписку можно загрузить кнопкой или перетащить файл в окно", async () => {
+  await openSection(browser, "Операции");
+  await click(browser, "Загрузить выписку");
+  await (await browser.$('//*[@role="dialog"]//button[normalize-space()="Выбрать файл"]')).waitForDisplayed({ timeout: 5000 });
+  await browser.keys("Escape");
+
+  // Чужой файл — понятная ошибка, а не тишина.
+  await dropFiles([join(files, "заметки.docx")]);
+  await waitText(browser, '//p[@role="alert"]', /не выписка/);
+
+  // Файл выписки — сразу предпросмотр.
+  const path = join(files, "перетащили.csv");
+  writeFileSync(path, csv([[ru(daysAgo(5)), "Расход", "Карта", "Такси", "", "", "300", ""]]));
+  await dropFiles(["/нет/такого.png", path]);
+  await waitText(browser, '[data-testid="import-summary"]', /перетащили\.csv: строк 1, без ошибок 1/);
+  await browser.keys("Escape");
 });
 
 test("напоминание о копии: операции старше месяца, а копий не было", async () => {
@@ -91,7 +122,7 @@ test("сводка в Excel: файл .xlsx с шестью листами", asy
   await click(browser, "Сводка в Excel");
   await click(browser, "Год", '//*[@role="dialog"]');
   await pick(path);
-  await click(browser, "Скачать", '//*[@role="dialog"]');
+  await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.xlsx/);
   await browser.keys("Escape");
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
@@ -103,17 +134,51 @@ test("выгрузка операций по фильтру в CSV: русски
   const path = join(files, "операции.csv");
   await openSection(browser, "Операции");
   await click(browser, "Сбросить");
+  await openFilters(browser);
   await choose(browser, "filterAccount", "Наличные (₽)");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в CSV");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.csv/);
   const text = readFileSync(path, "utf8");
   assert.ok(text.startsWith("\uFEFFДата;Тип;Счёт"), "BOM и разделитель «;»");
   const lines = text.trim().split(/\r?\n/);
   assert.equal(lines.length, 3, text);
-  assert.match(text, /Кафе и рестораны/);
+  assert.match(text, /Общепит/);
   assert.match(text, /-450,00|-450/);
+});
+
+test("выгрузка операций в OFX и сводки в CSV", async () => {
+  const ofx = join(files, "операции.ofx");
+  await openSection(browser, "Операции");
+  await click(browser, "Сбросить");
+  await pick(ofx);
+  await click(browser, "Выгрузить");
+  await browser.$('[data-testid="export-menu"]').waitForDisplayed({ timeout: 5000 });
+  const items = await browser.execute(() => [...document.querySelectorAll('[data-testid="export-menu"] [role="menuitem"]')].map((i) => i.textContent));
+  assert.deepEqual(items, ["Скачать в CSV", "Скачать в Excel", "Скачать в OFX"]);
+  await click(browser, "Скачать в OFX");
+  await waitText(browser, '[data-testid="export-done"]', /Выгружено: операции\.ofx/);
+  const text = readFileSync(ofx, "utf8");
+  assert.ok(text.startsWith("<?xml"), text.slice(0, 80));
+  assert.match(text, /<ACCTID>[0-9A-F]{22}<\/ACCTID>/, "номер счёта — постоянный, не название");
+  assert.match(text, /<TRNAMT>-450\.00<\/TRNAMT>/);
+
+  const csv = join(files, "сводка.csv");
+  await openSection(browser, "Настройки");
+  await click(browser, "Сводка в Excel");
+  await pick(csv);
+  await click(browser, "Скачать в CSV", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.csv/);
+  await browser.keys("Escape");
+  const book = readFileSync(csv, "utf8");
+  assert.ok(book.startsWith("﻿"), "BOM для русского Excel");
+  // Строка с названием каждого листа (перевод строки — \n или \r\n).
+  const rows = book.slice(1).split(/\r?\n/);
+  for (const sheet of ["Сводка", "По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]) {
+    assert.ok(rows.includes(sheet), `лист ${sheet}`);
+  }
 });
 
 test("выгрузка отчёта «По месяцам» в Excel", async () => {
@@ -122,6 +187,7 @@ test("выгрузка отчёта «По месяцам» в Excel", async () 
   await click(browser, "По месяцам");
   await pick(path);
   await click(browser, "Выгрузить");
+  await click(browser, "Скачать в Excel");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: по месяцам\.xlsx/);
   const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
   assert.match(workbook, /<sheet name="По месяцам"/);
@@ -198,7 +264,10 @@ test("обновление: при запуске приложение сооб�
         version: "9.9.9",
         notes: "Новые отчёты",
         pub_date: new Date().toISOString(),
-        platforms: { "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" } },
+        platforms: {
+          "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" },
+          "windows-x86_64": { signature: "test", url: "http://127.0.0.1/Kazna_9.9.9_x64-setup.exe" },
+        },
       }),
     );
   });

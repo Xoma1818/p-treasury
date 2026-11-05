@@ -31,7 +31,7 @@ test("чек из двух частей: «1890+455» даёт 2 345 ₽", async
   await fill(browser, "amount", "1890+455");
   await waitText(browser, '[data-testid="amount-calc"]', money("= 2 345"));
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Продукты");
+  await choose(browser, "category", "Питание");
   await save(browser);
   await cardBalance("7 655 ₽");
 });
@@ -41,7 +41,7 @@ test("утренний кофе: шаблон «Кофе 250 ₽» записы�
   await click(browser, "+ Расход");
   await fill(browser, "amount", "250");
   await choose(browser, "account", "Карта (₽)");
-  await choose(browser, "category", "Кафе и рестораны");
+  await choose(browser, "category", "Общепит");
   await fill(browser, "payee", "Кофейня");
   await click(browser, "Сохранить как шаблон", '//*[@role="dialog"]');
   await fill(browser, "templateName", "Кофе");
@@ -67,7 +67,7 @@ test("шаблон в форме операции подставляет сум�
   await openSection(browser, "Операции");
   await click(browser, "+ Операция");
   await (await browser.$('//*[@role="dialog"]//*[@data-testid="template" and @data-name="Кофе"]//button')).click();
-  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "250");
+  await browser.waitUntil(async () => (await (await browser.$('[role="dialog"] [name="amount"]')).getValue()) === "250", { timeout: 5000, timeoutMsg: "шаблон не подставил сумму 250" });
   assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "Кофейня");
   await click(browser, "Отмена", '//*[@role="dialog"]');
 });
@@ -109,7 +109,7 @@ test("Ctrl+Z в поле ввода отменяет набор текста, а
 
 test("при гостях: «Скрыть суммы» прячет все суммы, Ctrl+H возвращает", async () => {
   await openSection(browser, "Главная");
-  await click(browser, "Скрыть суммы", "//nav");
+  await (await browser.$('[data-testid="hide-amounts"]')).click();
   await waitText(browser, '[data-testid="total-balance"]', /•••/);
   await openSection(browser, "Календарь");
   const text = await browser.$("main").getText();

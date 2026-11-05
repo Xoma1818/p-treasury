@@ -1,3 +1,4 @@
+import { fine, weekdayIndex } from "./fine";
 // Даты операций в формате ядра: 'YYYY-MM-DD' по местному времени.
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -68,7 +69,7 @@ export function addDays(date: string, delta: number): string {
 /** Понедельник недели, в которую попадает дата. */
 export function weekStart(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
-  const wd = (new Date(y, m - 1, d).getDay() + 6) % 7;
+  const wd = weekdayIndex(new Date(y, m - 1, d).getDay());
   return addDays(date, -wd);
 }
 
@@ -79,3 +80,5 @@ export function formatDateTime(dt: string): string {
 }
 
 export const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+/** Дни недели с выбранного начала (Г12). */
+export const weekdays = () => (fine().week === "sun" ? ["Вс", ...WEEKDAYS.slice(0, 6)] : WEEKDAYS);

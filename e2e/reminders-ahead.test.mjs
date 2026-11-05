@@ -61,7 +61,7 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await choose(browser, "repeat", "Ежемесячно");
   await fill(browser, "reminderAmount", "150000");
   await choose(browser, "reminderAccount", "Карта (₽)");
-  await chooseLike(browser, "reminderCategory", "ЖКХ");
+  await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
   await save(browser);
   await waitText(browser, `${occ("Аренда")}//*[@data-testid="shortfall"]`, money("50 000 ₽"));
 

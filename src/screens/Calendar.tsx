@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useModules } from "../lib/modules";
 import { useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ErrorText } from "../components/Modal";
@@ -8,7 +9,8 @@ import { leadText, OccurrenceItem, parseLead, ReminderForm } from "../components
 import { TXN_DRAG, TxnTable } from "../components/TxnTable";
 import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
-import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, WEEKDAYS, weekStart } from "../lib/dates";
+import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, weekdays, weekStart } from "../lib/dates";
+import { useFine, weekdayIndex } from "../lib/fine";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -28,12 +30,12 @@ export function Calendar() {
       <div className="screen-head">
         <ScreenTitle id="calendar" />
         <div className="btn-group">
-          <button className="btn" onClick={() => setReminderDate(selected ?? today())}>
+          <button className="btn primary" onClick={() => setReminderDate(selected ?? today())}>
             + Напоминание
           </button>
         </div>
       </div>
-      <div className="tabs cal-tabs" role="tablist">
+      <div className="tabs fit cal-tabs" role="tablist">
         {(
           [
             ["month", "Месяц"],
@@ -132,14 +134,16 @@ function ForecastLine({ month }: { month: string }) {
 }
 
 function MonthView({ month, setMonth, selected, select }: { month: string; setMonth: (m: string) => void; selected: string | null; select: (d: string) => void }) {
+  const modules = useModules();
   const q = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) });
   const m = q.data;
   const t = today();
   // Перетаскивание операции из панели дня на другой день.
   const [over, setOver] = useState<string | null>(null);
   const move = useAction(api.moveTransaction, () => {});
-  // Пустые клетки до первого числа: неделя с понедельника.
-  const lead = m ? (new Date(`${month}-01T00:00`).getDay() + 6) % 7 : 0;
+  // Пустые клетки до первого числа: неделя с понедельника или воскресенья (Г12).
+  const fineView = useFine();
+  const lead = m ? weekdayIndex(new Date(`${month}-01T00:00`).getDay(), fineView) : 0;
   return (
     <>
       <div className="period-nav">
@@ -161,7 +165,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
       {m && (
         <>
           <div className="card cal-grid" data-testid="calendar">
-            {WEEKDAYS.map((w) => (
+            {weekdays().map((w) => (
               <div key={w} className="cal-weekday">
                 {w}
               </div>
@@ -207,7 +211,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
           </div>
           <ErrorText error={move.error} />
           <Totals m={m} />
-          <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />
+          {modules.on("habits") && <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />}
         </>
       )}
     </>
@@ -238,7 +242,7 @@ function WeekView({ start, selected, select }: { start: string; selected: string
             {m.days.map((d, i) => (
               <li key={d.date} className={d.date === selected ? "selected clickable" : "clickable"} onClick={() => select(d.date)} data-testid="week-day">
                 <span className="week-date">
-                  {WEEKDAYS[i]}, {formatDate(d.date)}
+                  {weekdays()[i]}, {formatDate(d.date)}
                 </span>
                 <DayChips day={d} m={m} />
               </li>
@@ -342,7 +346,7 @@ function RemindersView() {
                 <span className="sub">
                   {" "}
                   · {REPEATS[r.repeat].toLowerCase()}
-                  {r.nextAt ? `, следующее ${formatDateTime(r.nextAt)}` : r.active ? ", больше не повторится" : ", выключено"}
+                  {!r.active ? ", выключено" : r.nextAt ? `, следующее ${formatDateTime(r.nextAt)}` : ", больше не повторится"}
                   {r.leadDays != null && `, ${leadText(parseLead(r.leadDays))}`}
                   {(r.noteId || r.eventId) && (r.noteId ? ", из заметки" : ", у события")}
                 </span>

@@ -16,6 +16,7 @@ function testAnswer(): string | null | undefined {
 type Filter = { name: string; extensions: string[] };
 
 export const XLSX: Filter = { name: "Книга Excel", extensions: ["xlsx"] };
+export const OFX: Filter = { name: "OFX (для программ учёта)", extensions: ["ofx"] };
 export const CSV: Filter = { name: "CSV (разделитель ;)", extensions: ["csv"] };
 export const STATEMENT: Filter = { name: "Выписка банка или CSV", extensions: ["pdf", "csv", "xlsx", "xls"] };
 export const PDF: Filter = { name: "Документ PDF", extensions: ["pdf"] };

@@ -102,6 +102,15 @@ export interface Category {
   transactionCount: number;
 }
 
+/** Строка «было → стало» для переименования по новому списку категорий (0.28). */
+export interface CategoryRename {
+  id: string;
+  kind: CategoryKind;
+  parent: string | null;
+  from: string;
+  to: string;
+}
+
 export type TxnType = "expense" | "income" | "transfer" | "adjustment";
 
 export interface TxnInput {
@@ -123,6 +132,8 @@ export interface Txn {
   accountId: string;
   accountName: string;
   currencySymbol: string;
+  /** Код валюты счёта: у CNY и JPY один символ «¥». */
+  currencyCode: string;
   minorUnits: number;
   amount: number;
   toAccountId: string | null;
@@ -143,6 +154,11 @@ export interface Txn {
   spreadMonths: number | null;
   /** Теги операции по алфавиту. */
   tags: string[];
+  /** 0.29: возврат денег за покупку (приход, в бюджете — минус расход). */
+  refund: boolean;
+  refundOf: string | null;
+  /** Дата, по которой возврат попадает в месяц (дата покупки); null — своя. */
+  countDate: string | null;
 }
 
 export interface TxnFilter {
@@ -158,6 +174,10 @@ export interface TxnFilter {
   tagId?: string;
   /** Операции одного импорта (история импорта). */
   importId?: string;
+  /** Получатель целиком (похожие операции); без учёта регистра. */
+  payee?: string;
+  /** Г8: порядок «столбец:asc|desc»; без него новые сверху. */
+  sort?: string;
   limit?: number;
   offset?: number;
 }
@@ -1197,7 +1217,7 @@ export interface ImportRow {
   payee: string;
   error: string | null;
   duplicate: boolean;
-  /** Свяжется с записанной вручную операцией: «19.10 · Продукты». */
+  /** Свяжется с записанной вручную операцией: «19.10 · Питание». */
   linkedTo: string | null;
   /** Возможных совпадений, которые попросят подтверждения. */
   maybe: number;
@@ -1215,6 +1235,10 @@ export interface ImportPreview {
   /** «Сбер», «Т-Банк»; null — CSV по шаблону. */
   bank: string | null;
   accountId: string | null;
+  /** Строки «Между своими счетами» в выписке банка. */
+  selfTransfers: number;
+  /** Второй свой счёт для таких переводов (выбранный или запомненный). */
+  selfAccountId: string | null;
 }
 
 export interface BackupStatus {
@@ -1703,6 +1727,8 @@ export const api = {
     invoke<string>("create_category", { input }),
   updateCategory: (id: string, name: string, parentId: string | null) =>
     invoke<void>("update_category", { id, name, parentId }),
+  categoryRenamePreview: () => invoke<CategoryRename[]>("category_rename_preview"),
+  categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
@@ -1833,8 +1859,9 @@ export const api = {
     invoke<void>("export_report", { report, from, to, path }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
-  importPreview: (path: string, accountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null }),
-  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
+  importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
+  importCsv: (path: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
   importHistory: () => invoke<ImportBatch[]>("import_history"),
   importUndo: (id: string) => invoke<number>("import_undo", { id }),
   importSuggestions: () => invoke<ImportSuggestion[]>("import_suggestions"),
@@ -1870,6 +1897,13 @@ export const api = {
   undo: () => invoke<string | null>("undo"),
   listGoals: () => invoke<Goal[]>("list_goals"),
   freeUntilIncome: () => invoke<FreeMoney>("free_until_income"),
+  refundInfo: (of: string, except?: string | null) => invoke<RefundInfo>("refund_info", { of, except: except ?? null }),
+  createRefund: (input: RefundInput) => invoke<string>("create_refund", { input }),
+  updateRefund: (id: string, input: RefundInput) => invoke<void>("update_refund", { id, input }),
+  monthReview: (month: string) => invoke<MonthReview>("month_review", { month }),
+  suggestedMonthReview: () => invoke<string | null>("suggested_month_review"),
+  closeMonth: (month: string, note: string | null) => invoke<void>("close_month", { month, note }),
+  reopenMonth: (month: string) => invoke<void>("reopen_month", { month }),
   accountReserves: () => invoke<Record<string, number>>("account_reserves"),
   createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
   updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
@@ -1893,6 +1927,8 @@ export const api = {
   bulkSetAccount: (ids: string[], accountId: string) => invoke<BulkResult>("bulk_set_account", { ids, accountId }),
   bulkTag: (ids: string[], tag: string, add: boolean) => invoke<BulkResult>("bulk_tag", { ids, tag, add }),
   bulkDelete: (ids: string[]) => invoke<BulkResult>("bulk_delete", { ids }),
+  /** Сколько скрытых частей чеков затронет удаление, смена счёта или получателя. */
+  bulkReceiptExtra: (ids: string[]) => invoke<number>("bulk_receipt_extra", { ids }),
   createReceipt: (input: ReceiptInput) => invoke<string>("create_receipt", { input }),
   updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
   deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),
@@ -1933,3 +1969,51 @@ export const TXN_TYPES: Record<TxnType, string> = {
   transfer: "Перевод",
   adjustment: "Корректировка",
 };
+
+// 0.29 «Возвраты и итоги месяца».
+export interface RefundInput {
+  of: string;
+  date: string;
+  accountId: string | null;
+  amount: number;
+  /** true — учесть в месяце покупки, false — в месяце возврата. */
+  inPurchaseMonth: boolean;
+  note: string | null;
+}
+
+export interface RefundInfo {
+  purchase: Txn;
+  purchaseMonth: string;
+  refunded: number;
+  left: number;
+}
+
+export interface MonthForecastCheck {
+  income: number;
+  expense: number;
+  madeAt: string;
+  partial: boolean;
+  incomeDiff: number;
+  expenseDiff: number;
+}
+
+export interface MonthReview {
+  month: string;
+  start: string;
+  end: string;
+  baseCurrency: string;
+  ended: boolean;
+  closedAt: string | null;
+  note: string | null;
+  income: number;
+  expense: number;
+  saved: number;
+  savingsRate: number | null;
+  refunds: number;
+  forecast: MonthForecastCheck | null;
+  over: { categoryId: string; categoryName: string; limit: number; actual: number }[];
+  hasBudget: boolean;
+  openMatches: number;
+  plannedLeft: number;
+  missingRates: string[];
+}

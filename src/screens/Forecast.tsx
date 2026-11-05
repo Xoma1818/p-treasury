@@ -23,7 +23,7 @@ export function Forecast() {
   return (
     <section className="screen forecast-screen">
       <ScreenTitle id="forecast" />
-      <div className="tabs" role="tablist">
+      <div className="tabs fit forecast-tabs" role="tablist">
         <button role="tab" aria-selected={tab === "forecast"} className={tab === "forecast" ? "tab active" : "tab"} onClick={() => setTab("forecast")} data-testid="tab-forecast">
           Прогноз и «что если»
         </button>
@@ -451,6 +451,7 @@ function AccountsPicker() {
   const list = useQuery({ queryKey: ["forecastAccounts"], queryFn: api.forecastAccounts }).data;
   const save = useAction(api.setForecastExcluded);
   if (!list || list.length < 2) return null;
+  const left = list.filter((a) => a.included).length;
   const toggle = (id: string) => {
     const excluded = list.filter((a) => (a.id === id ? a.included : !a.included)).map((a) => a.id);
     if (excluded.length === list.length) return;
@@ -460,10 +461,21 @@ function AccountsPicker() {
     <div className="fc-accounts" data-testid="fc-accounts">
       <span className="hint">В прогнозе:</span>
       {list.map((a) => (
-        <button key={a.id} className={a.included ? "fc-chip active" : "fc-chip"} onClick={() => toggle(a.id)} aria-pressed={a.included} data-testid="fc-account">
+        <button
+          key={a.id}
+          className={a.included ? "fc-chip active" : "fc-chip"}
+          onClick={() => toggle(a.id)}
+          aria-pressed={a.included}
+          // Последний счёт убрать нельзя: прогнозу не из чего считать. Кнопка не молчит, а объясняет.
+          disabled={a.included && left === 1}
+          title={a.included && left === 1 ? "Хотя бы один счёт должен остаться в прогнозе" : undefined}
+          data-testid="fc-account"
+        >
           {a.name}
         </button>
       ))}
+      {left === 1 && <span className="hint">Хотя бы один счёт остаётся в прогнозе.</span>}
+      <ErrorText error={save.error} />
     </div>
   );
 }

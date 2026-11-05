@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
@@ -9,7 +10,6 @@ import { AheadCard } from "../components/Ahead";
 import { change, DaysCard, Delta, Sparkline, sparkSeries, SummaryCard, TrendCard, useDashboard } from "../components/Dashboard";
 import { InvestCard } from "../components/Invest";
 import { QuickEntry } from "../components/QuickEntry";
-import { HideAmountsButton } from "../components/Convenience";
 import { Money } from "../components/Money";
 import { TemplatesCard } from "../components/Templates";
 import { OccurrenceItem } from "../components/Reminders";
@@ -17,7 +17,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
@@ -26,10 +26,13 @@ import { Hint } from "../components/Hint";
 import { barClass, barLevel } from "../lib/budgetLevel";
 import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
 import { ExplainDialog, type ExplainKind } from "../components/Explain";
+import { MonthReviewBanner } from "../components/MonthReview";
+import { AddMenu } from "../components/AddMenu";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
 export function Home() {
+  const modules = useModules();
   const date = today();
   const [cbrUsed, setCbrUsed] = useState(false);
   // Месяц считается от настройки «первый день месяца», как в бюджете.
@@ -49,13 +52,14 @@ export function Home() {
   const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
   const accounts = useAccounts().data ?? [];
-  const { openTxnForm, showTransactions, go } = useUi();
+  const { showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
   const layout = parseLayout(useSettings().data?.home_layout);
   const setSetting = useAction(api.setSetting);
   const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
+  const half = (b: HomeBlock) => !!layout.half?.includes(b);
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
   const monthShort = monthName.replace(/ \d{4}$/, "");
@@ -190,52 +194,62 @@ export function Home() {
     ),
     plans: (
           <div className="columns home-bottom">
-          <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
-            <h2>Бюджет, {monthName}</h2>
-            {budget && !budget.id && <p className="muted">Бюджета на этот месяц нет. Нажмите, чтобы составить.</p>}
-            {budget?.id && (
-              <>
-                <p>
-                  Можно тратить сегодня:{" "}
-                  <b data-testid="home-safe-to-spend">
-                    {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
-                  </b>
-                </p>
-                <ul className="budget-brief">
-                  {budget.lines
-                    .filter((l) => l.kind === "expense" && !l.parentId)
-                    .sort((a, b) => b.percent - a.percent)
-                    .slice(0, 5)
-                    .map((l) => (
-                      <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
-                        <span>{l.categoryName}</span>
-                        <div className={barClass(l.percent)}>
-                          <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                        </div>
-                        <span className="percent">{l.percent} %</span>
-                      </li>
-                    ))}
-                </ul>
-              </>
-            )}
-          </div>
-          <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
-            <h2>
-              Ближайшие платежи по долгам
-              <Hint of="debts.upcoming" />
-            </h2>
-            {debts && debts.upcoming.length === 0 && <p className="muted">Платежей нет.</p>}
-            <ul className="account-list">
-              {debts?.upcoming.slice(0, 4).map((u) => (
-                <li key={u.scheduleId} className={u.overdue ? "over" : undefined}>
-                  <span>
-                    {formatDate(u.dueDate)} · {u.counterparty}
-                  </span>
-                  <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
-                </li>
-              ))}
-            </ul>
-          </div>
+          {budget && !budget.id ? (
+            <button type="button" className="card empty-line" data-testid="home-budget" onClick={() => go("budget")}>
+              Бюджета на {monthShort} нет <span className="go">Составить →</span>
+            </button>
+          ) : (
+            <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
+              <h2>Бюджет, {monthName}</h2>
+              {budget?.id && (
+                <>
+                  <p>
+                    Можно тратить сегодня:{" "}
+                    <b data-testid="home-safe-to-spend">
+                      {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
+                    </b>
+                  </p>
+                  <ul className="budget-brief">
+                    {budget.lines
+                      .filter((l) => l.kind === "expense" && !l.parentId)
+                      .sort((a, b) => b.percent - a.percent)
+                      .slice(0, 5)
+                      .map((l) => (
+                        <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
+                          <span>{l.categoryName}</span>
+                          <div className={barClass(l.percent)}>
+                            <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
+                          </div>
+                          <span className="percent">{l.percent} %</span>
+                        </li>
+                      ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+          {!modules.on("debts") ? null : debts && debts.upcoming.length === 0 ? (
+            <button type="button" className="card empty-line" data-testid="home-upcoming" onClick={() => go("debts")}>
+              Платежей по долгам нет <span className="go">Займы и долги →</span>
+            </button>
+          ) : (
+            <div className="card clickable" data-testid="home-upcoming" onClick={() => go("debts")}>
+              <h2>
+                Ближайшие платежи по долгам
+                <Hint of="debts.upcoming" />
+              </h2>
+              <ul className="account-list">
+                {debts?.upcoming.slice(0, 4).map((u) => (
+                  <li key={u.scheduleId} className={u.overdue ? "over" : undefined}>
+                    <span>
+                      {formatDate(u.dueDate)} · {u.counterparty}
+                    </span>
+                    <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           </div>
     ),
     reminders: (
@@ -261,23 +275,16 @@ export function Home() {
     <section className="screen wide">
       <div className="screen-head">
         <ScreenTitle id="home" />
-        <div className="btn-group">
-          <button className={editing ? "btn primary" : "btn"} onClick={() => setEditing(!editing)} data-testid="home-customize">
-            {editing ? "Готово" : "Настроить"}
+        {editing ? (
+          <button className="btn primary" onClick={() => setEditing(false)} data-testid="home-customize">
+            Готово
           </button>
-          <HideAmountsButton className="btn" />
-          <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "income" })}>
-            + Доход
-          </button>
-          <button className="btn" onClick={() => openTxnForm({ mode: "new", type: "transfer" })}>
-            Перевод
-          </button>
-          <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
-            + Расход
-          </button>
-        </div>
+        ) : (
+          <AddMenu />
+        )}
       </div>
 
+      <MonthReviewBanner />
       {backup?.reminderDue && (
         <div className="card banner warn" data-testid="backup-reminder">
           <span>
@@ -318,19 +325,20 @@ export function Home() {
 
       {editing && (
         <p className="hint home-edit-hint">
-          Перетащите карточку мышью или двигайте стрелками; «Скрыть» убирает её с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
+          Перетащите карточку мышью или двигайте стрелками; «Половина» ставит две карточки в ряд, «Скрыть» убирает карточку с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
           <button className="link" onClick={() => saveLayout(DEFAULT_LAYOUT)}>
             Вернуть по умолчанию
           </button>
         </p>
       )}
+      <div className="home-grid">
       {layout.order
-        .filter((b) => editing || !layout.hidden.includes(b))
+        .filter((b) => modules.blockOn(b) && (editing || !layout.hidden.includes(b)))
         .map((b) =>
           editing ? (
             <div
               key={b}
-              className={["home-block", "editing", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}
+              className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}
               data-testid="home-block"
               data-block={b}
               draggable
@@ -357,6 +365,11 @@ export function Home() {
                 <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, 1))}>
                   <ChevronDown size={16} />
                 </button>
+                {!layout.hidden.includes(b) && (
+                  <button className="link" data-testid="home-half" onClick={() => saveLayout(toggleHalf(layout, b))} title="Две половинные карточки встают в один ряд">
+                    {half(b) ? "Во всю ширину" : "Половина"}
+                  </button>
+                )}
                 <button className="link" onClick={() => saveLayout(toggleBlock(layout, b))}>
                   {layout.hidden.includes(b) ? "Показать" : "Скрыть"}
                 </button>
@@ -364,11 +377,19 @@ export function Home() {
               {!layout.hidden.includes(b) && <div className="home-block-body">{blocks[b]}</div>}
             </div>
           ) : (
-            <div key={b} className="home-block" data-block={b}>
+            <div key={b} className={half(b) ? "home-block half" : "home-block"} data-block={b}>
               {blocks[b]}
             </div>
           ),
         )}
+      </div>
+      {!editing && (
+        <p className="home-foot">
+          <button className="link quiet" onClick={() => setEditing(true)} data-testid="home-customize">
+            Настроить Главную
+          </button>
+        </p>
+      )}
       {explain && period && <ExplainDialog kind={explain} on={date} from={period.start} to={period.end} onClose={() => setExplain(null)} />}
     </section>
   );

@@ -52,6 +52,22 @@ fn data_dir_override() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("PTREASURY_DATA_DIR").map(PathBuf::from))
 }
 
+/// Сквозные тесты в окне Windows: msedgedriver открывает порт отладки WebView2
+/// через WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, но wry всегда задаёт аргументы
+/// браузера сам, и переменная не действует (DevToolsActivePort не появляется).
+/// Только под WebDriver (msedgedriver всегда добавляет `--test-type=webdriver`)
+/// аргументы из переменной передаются окнам явно, вместе с обычными
+/// аргументами wry. У всех окон аргументы одинаковые: WebView2 с общей папкой
+/// не открывает окна с разными аргументами.
+pub(crate) fn test_browser_args() -> Option<String> {
+    let extra = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+        .ok()
+        .filter(|a| a.contains("--test-type=webdriver"))?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"
+    ))
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
     // Одна копия программы (должен регистрироваться первым): второй запуск
@@ -106,6 +122,17 @@ pub fn run() {
             }
             *state.lock_db() = db;
             app.manage(state);
+            // Главное окно создаётся здесь, а не по tauri.conf.json ("create": false):
+            // так тестам можно передать аргументы WebView2 (см. test_browser_args).
+            if let Some(cfg) = app.config().app.windows.iter().find(|w| w.label == "main") {
+                let mut main = tauri::WebviewWindowBuilder::from_config(app.handle(), cfg)?;
+                if let Some(args) = test_browser_args() {
+                    main = main.additional_browser_args(&args);
+                }
+                main.build()?;
+            } else {
+                eprintln!("в tauri.conf.json нет окна \"main\": программа запущена без окна");
+            }
             if let Err(e) = background::build_tray(app.handle()) {
                 eprintln!("значок в трее недоступен: {e}");
             }
@@ -161,6 +188,8 @@ pub fn run() {
             commands::list_categories,
             commands::create_category,
             commands::update_category,
+            commands::category_rename_preview,
+            commands::category_rename_apply,
             commands::archive_category,
             commands::delete_category,
             commands::list_transactions,
@@ -304,6 +333,13 @@ pub fn run() {
             commands::undo,
             commands::redo,
             commands::list_goals,
+            commands::refund_info,
+            commands::create_refund,
+            commands::update_refund,
+            commands::month_review,
+            commands::suggested_month_review,
+            commands::close_month,
+            commands::reopen_month,
             commands::free_until_income,
             commands::account_reserves,
             commands::forecast,
@@ -341,6 +377,7 @@ pub fn run() {
             commands::bulk_set_account,
             commands::bulk_tag,
             commands::bulk_delete,
+            commands::bulk_receipt_extra,
             commands::create_receipt,
             commands::update_receipt,
             commands::delete_receipt,

@@ -68,11 +68,17 @@ fn migrate_default_with(
     let Some(old) = default.parent().map(|p| p.join(LEGACY_FOLDER)) else {
         return Ok(false);
     };
-    if default.file_name().and_then(|n| n.to_str()) != Some(FOLDER)
-        || default.exists()
-        || !old.is_dir()
-    {
+    if default.file_name().and_then(|n| n.to_str()) != Some(FOLDER) || !old.is_dir() {
         return Ok(false);
+    }
+    if default.exists() {
+        // Пустую «Kazna» (создал сам пользователь или прерванная установка) убираем,
+        // чтобы копии с историей переехали, а не остались в двух папках. Папку
+        // с файлами не трогаем: старая папка по-прежнему находится при переносе.
+        let empty = fs::read_dir(default).is_ok_and(|mut d| d.next().is_none());
+        if !empty || fs::remove_dir(default).is_err() {
+            return Ok(false);
+        }
     }
     if let Err(e) = rename(&old, default) {
         settings::set(conn, "vault_dir", &old.to_string_lossy())?;
@@ -220,6 +226,27 @@ pub fn sync(conn: &Connection, dir: &Path, name: &str) -> Result<SyncReport> {
     result
 }
 
+/// Кончилось место — сказать понятно (вместо «database or disk is full» или
+/// «os error 112»): прошлая копия при этом цела, недописанные файлы убраны.
+fn explain_disk_full(e: Error, dir: &Path) -> Error {
+    let full = match &e {
+        Error::Io(io) => {
+            io.kind() == std::io::ErrorKind::StorageFull
+                // Windows: ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL.
+                || matches!(io.raw_os_error(), Some(39 | 112))
+        }
+        Error::Db(rusqlite::Error::SqliteFailure(f, _)) => f.code == rusqlite::ErrorCode::DiskFull,
+        _ => false,
+    };
+    if !full {
+        return e;
+    }
+    Error::Validation(format!(
+        "на диске с папкой сохранности кончилось место ({}). Освободите место или выберите другую папку — прошлая копия цела",
+        dir.display()
+    ))
+}
+
 /// Записать итог обновления в статус папки (его видно в Настройках).
 pub fn record(conn: &Connection, result: &Result<SyncReport>) -> Result<()> {
     let error = match result {
@@ -236,6 +263,10 @@ pub fn record(conn: &Connection, result: &Result<SyncReport>) -> Result<()> {
 /// Первая часть обновления — копия базы, прошлые копии и «Прочти меня».
 /// Возвращает путь к свежей копии `.ptreasury`.
 pub fn sync_copy(conn: &Connection, dir: &Path, name: &str) -> Result<PathBuf> {
+    copy_now(conn, dir, name).map_err(|e| explain_disk_full(e, dir))
+}
+
+fn copy_now(conn: &Connection, dir: &Path, name: &str) -> Result<PathBuf> {
     let name = safe_name(name);
     let main = dir.join(format!("{name}.{EXT}"));
     // Новый компьютер, где ещё ничего не ввели: не затираем копию с данными
@@ -263,8 +294,10 @@ pub fn sync_copy(conn: &Connection, dir: &Path, name: &str) -> Result<PathBuf> {
     let stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
     let old = history.join(format!("{name} - {stamp}.{EXT}"));
     let part = history.join(format!("{name} - {stamp}.{EXT}.part"));
-    fs::copy(&main, &part)?;
-    fs::rename(&part, &old)?;
+    if let Err(e) = fs::copy(&main, &part).and_then(|_| fs::rename(&part, &old)) {
+        let _ = fs::remove_file(&part);
+        return Err(e.into());
+    }
     let keep: usize = settings::get(conn, "autobackup_keep")?
         .and_then(|v| v.parse().ok())
         .unwrap_or(10)
@@ -278,7 +311,7 @@ pub fn sync_copy(conn: &Connection, dir: &Path, name: &str) -> Result<PathBuf> {
 /// базе: на большой базе это секунды, и программа в это время не ждёт.
 pub fn sync_excel(copy: &Path, dir: &Path, name: &str) -> Result<()> {
     let conn = Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    write_excel(&conn, &excel_dir(dir, &safe_name(name)))
+    write_excel(&conn, &excel_dir(dir, &safe_name(name))).map_err(|e| explain_disk_full(e, dir))
 }
 
 /// Копии бюджета `name` в «Копии»: оставить `keep` самых новых.
@@ -299,6 +332,14 @@ fn prune_history(history: &Path, name: &str, keep: usize) -> Result<()> {
         })
         .collect();
     files.sort();
+    // Недописанные прошлые копии (сбой, выключение, кончилось место) не нужны.
+    for e in fs::read_dir(history)?.filter_map(|e| e.ok()) {
+        let n = e.file_name();
+        let n = n.to_string_lossy();
+        if n.starts_with(&prefix) && n.ends_with(&format!(".{EXT}.part")) {
+            let _ = fs::remove_file(e.path());
+        }
+    }
     let excess = files.len().saturating_sub(keep);
     for old in &files[..excess] {
         fs::remove_file(old)?;
@@ -827,7 +868,7 @@ mod tests {
         .unwrap();
         let cat: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Продукты'",
+                "SELECT id FROM categories WHERE name = 'Питание'",
                 [],
                 |r| r.get(0),
             )
@@ -1126,6 +1167,22 @@ mod tests {
         fs::create_dir_all(&old).unwrap();
         assert!(!migrate_default(db.conn(), &new).unwrap());
         assert!(old.exists());
+    }
+
+    #[test]
+    fn empty_new_folder_does_not_block_the_move() {
+        let db = Storage::open_in_memory().unwrap();
+        let docs = tempfile::tempdir().unwrap();
+        let old = docs.path().join(LEGACY_FOLDER);
+        fs::create_dir_all(old.join(HISTORY)).unwrap();
+        let new = docs.path().join(FOLDER);
+        fs::create_dir_all(&new).unwrap();
+        assert!(migrate_default(db.conn(), &new).unwrap());
+        assert!(new.join(HISTORY).is_dir() && !old.exists());
+        // «Kazna» с файлами не трогаем, старая папка остаётся как есть.
+        fs::create_dir_all(old.join(HISTORY)).unwrap();
+        assert!(!migrate_default(db.conn(), &new).unwrap());
+        assert!(old.join(HISTORY).is_dir() && new.join(HISTORY).is_dir());
     }
 
     #[test]

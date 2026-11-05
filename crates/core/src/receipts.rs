@@ -153,6 +153,24 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
     // повторная выписка добавит покупку второй раз.
     crate::import_log::carry_matches(&tx, &previous, &ids)?;
     for old in previous {
+        // Возвраты по части чека переходят к новой части той же категории (иначе к
+        // первой части): без этого ON DELETE SET NULL отвязал бы возврат, и
+        // вернуть можно было бы больше, чем куплено.
+        let target: String = tx
+            .query_row(
+                "SELECT n.id FROM transactions n, transactions o
+                 WHERE o.id = ?1 AND n.split_id = ?2 AND n.id <> o.id
+                   AND n.category_id IS o.category_id AND n.id IN (SELECT value FROM json_each(?3))
+                 ORDER BY n.amount DESC LIMIT 1",
+                params![old, split_id, serde_json::to_string(&ids).expect("строки")],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| anchor.clone());
+        tx.execute(
+            "UPDATE transactions SET refund_of = ?2 WHERE refund = 1 AND refund_of = ?1",
+            params![old, target],
+        )?;
         tx.execute(
             "UPDATE reminder_occurrences SET transaction_id = ?2 WHERE transaction_id = ?1",
             params![old, anchor],
@@ -162,6 +180,23 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
             params![old, anchor],
         )?;
         tx.execute("DELETE FROM transactions WHERE id = ?1", [old])?;
+    }
+    // Части с возвратами подчиняются тем же правилам, что обычная покупка: не меньше
+    // возвращённого, не позже возврата; месяц и категория возвратов следуют за частью.
+    for id in &ids {
+        let (amount, category): (i64, Option<String>) = tx.query_row(
+            "SELECT amount, category_id FROM transactions WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        crate::refunds::purchase_edited(
+            &tx,
+            id,
+            "expense",
+            amount,
+            &input.date,
+            category.as_deref(),
+        )?;
     }
     tx.commit()?;
     Ok(())
@@ -277,8 +312,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let data = receipt(&card, &[(&food, 100_000), (&drug, 50_000)], 150_000);
         let split = create(db.conn_mut(), &data).unwrap();
         let old_part = visible_part(db.conn(), &split);
@@ -310,8 +345,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let trip = event(db.conn(), "Поездка");
         let mut data = receipt(&card, &[(&food, 100_000), (&drug, 50_000)], 150_000);
         data.event_id = Some("нет такого события".into());
@@ -358,8 +393,8 @@ mod tests {
         let mut db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
-        let food = cat(db.conn(), "Супермаркет");
-        let drug = cat(db.conn(), "Аптека");
+        let food = cat(db.conn(), "Магазины");
+        let drug = cat(db.conn(), "Лекарства");
         let clothes = cat(db.conn(), "Одежда");
         let trip = event(db.conn(), "Поездка");
         let other_trip = event(db.conn(), "Другая поездка");
@@ -503,9 +538,9 @@ mod tests {
         categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
         let (food, kids, drug) = (
-            cat(db.conn(), "Супермаркет"),
+            cat(db.conn(), "Магазины"),
             cat(db.conn(), "Одежда"),
-            cat(db.conn(), "Аптека"),
+            cat(db.conn(), "Лекарства"),
         );
         let c = db.conn_mut();
         assert!(create(c, &receipt(&card, &[(&food, 300_000)], 300_000)).is_err());

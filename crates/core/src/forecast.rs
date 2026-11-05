@@ -1289,7 +1289,7 @@ mod tests {
                 &format!("2026-{m}-05"),
                 &card,
                 8_000_000,
-                "Зарплата",
+                "Заработная плата",
             );
             txn(
                 c,
@@ -1297,7 +1297,7 @@ mod tests {
                 &format!("2026-{m}-10"),
                 &card,
                 3_000_000,
-                "Продукты",
+                "Питание",
             );
             let cafe = if m == "08" { 1_600_000 } else { 1_000_000 };
             txn(
@@ -1306,7 +1306,7 @@ mod tests {
                 &format!("2026-{m}-12"),
                 &card,
                 cafe,
-                "Кафе и рестораны",
+                "Общепит",
             );
         }
         (db, card)
@@ -1339,16 +1339,16 @@ mod tests {
         let c = db.conn();
         // В октябре зарплата уже пришла, продуктов куплено на 20 000 ₽,
         // а на кафе — 15 000 ₽ (больше среднего: «ещё» по кафе 0, не минус).
-        txn(c, "income", "2026-10-05", &card, 8_000_000, "Зарплата");
-        txn(c, "expense", "2026-10-08", &card, 2_000_000, "Продукты");
         txn(
             c,
-            "expense",
-            "2026-10-09",
+            "income",
+            "2026-10-05",
             &card,
-            1_500_000,
-            "Кафе и рестораны",
+            8_000_000,
+            "Заработная плата",
         );
+        txn(c, "expense", "2026-10-08", &card, 2_000_000, "Питание");
+        txn(c, "expense", "2026-10-09", &card, 1_500_000, "Общепит");
         let f = forecast(c, "2026-10-15", None).unwrap();
         let m = &f.months[0];
         assert_eq!(m.start, "2026-10-15");
@@ -1380,7 +1380,7 @@ mod tests {
         )
         .unwrap();
         // Запланированная покупка 50 000 ₽ в декабре.
-        let id = txn(c, "expense", "2026-12-20", &card, 5_000_000, "Продукты");
+        let id = txn(c, "expense", "2026-12-20", &card, 5_000_000, "Питание");
         c.execute(
             "UPDATE transactions SET status = 'planned' WHERE id = ?1",
             [&id],
@@ -1534,7 +1534,7 @@ mod tests {
                 &format!("2026-{m}-20"),
                 &side,
                 2_000_000,
-                "Зарплата",
+                "Заработная плата",
             );
             txn(
                 c,
@@ -1542,10 +1542,17 @@ mod tests {
                 &format!("2026-{m}-21"),
                 &side,
                 500_000,
-                "Продукты",
+                "Питание",
             );
         }
-        let id = txn(c, "income", "2026-11-20", &side, 1_000_000, "Зарплата");
+        let id = txn(
+            c,
+            "income",
+            "2026-11-20",
+            &side,
+            1_000_000,
+            "Заработная плата",
+        );
         c.execute(
             "UPDATE transactions SET status = 'planned' WHERE id = ?1",
             [&id],
@@ -1572,10 +1579,10 @@ mod tests {
                 &format!("2026-{m}-28"),
                 &deposit,
                 300_000,
-                "Зарплата",
+                "Заработная плата",
             );
         }
-        let id = txn(c, "expense", "2026-11-20", &deposit, 1_000_000, "Продукты");
+        let id = txn(c, "expense", "2026-11-20", &deposit, 1_000_000, "Питание");
         c.execute(
             "UPDATE transactions SET status = 'planned' WHERE id = ?1",
             [&id],
@@ -1618,21 +1625,14 @@ mod tests {
                 &format!("{month}-05"),
                 &card,
                 8_000_000,
-                "Зарплата",
+                "Заработная плата",
             );
             let food = if month == "2025-12" {
                 6_000_000
             } else {
                 3_000_000
             };
-            txn(
-                c,
-                "expense",
-                &format!("{month}-10"),
-                &card,
-                food,
-                "Продукты",
-            );
+            txn(c, "expense", &format!("{month}-10"), &card, food, "Питание");
         }
         let f = forecast(c, "2026-10-01", None).unwrap();
         assert!(f.seasonal);
@@ -1733,10 +1733,17 @@ mod tests {
                 &format!("2026-{m}-20"),
                 &broker,
                 1_000_000,
-                "Зарплата",
+                "Заработная плата",
             );
         }
-        let id = txn(c, "income", "2026-11-20", &broker, 1_000_000, "Зарплата");
+        let id = txn(
+            c,
+            "income",
+            "2026-11-20",
+            &broker,
+            1_000_000,
+            "Заработная плата",
+        );
         c.execute(
             "UPDATE transactions SET status = 'planned' WHERE id = ?1",
             [&id],
@@ -1757,8 +1764,15 @@ mod tests {
         let mut card = input("Карта", "debit", "RUB", 0);
         card.opening_date = "2026-09-01".into();
         let card = accounts::create(c, &card).unwrap();
-        txn(c, "income", "2026-09-01", &card, 5_000_000, "Зарплата");
-        txn(c, "expense", "2026-09-02", &card, 4_000_000, "Продукты");
+        txn(
+            c,
+            "income",
+            "2026-09-01",
+            &card,
+            5_000_000,
+            "Заработная плата",
+        );
+        txn(c, "expense", "2026-09-02", &card, 4_000_000, "Питание");
         // Ипотека 30 000 ₽ с ноября: −20 000 ₽ в месяц, остаток 10 000 ₽.
         reminders::create(
             c,
@@ -1982,7 +1996,7 @@ mod tests {
         assert_eq!(f.invested, 1_500_000);
         assert_eq!(f.saved, 2_500_000);
         assert_eq!(f.income.len(), 1);
-        assert_eq!(f.expense[0].name, "Продукты");
+        assert_eq!(f.expense[0].name, "Питание");
         let y = flow(c, "year", "2026-09").unwrap();
         assert_eq!(y.period.start, "2026-01-01");
         assert_eq!(y.total_expense, 3 * 4_000_000 + 600_000);
@@ -2033,7 +2047,7 @@ mod tests {
         let mut side = input("Карта мамы", "debit", "RUB", 5_000_000);
         side.opening_date = "2026-07-01".into();
         let side = accounts::create(c, &side).unwrap();
-        let cafe = category(c, "Кафе и рестораны");
+        let cafe = category(c, "Общепит");
         // С карты мамы каждое 3-е число — кафе на 7 000 ₽ (напоминание с суммой).
         reminders::create(
             c,
@@ -2068,9 +2082,6 @@ mod tests {
         let back = forecast(c, "2026-10-01", None).unwrap();
         assert_eq!(back.liquid, base.liquid + 5_000_000);
         assert!(back.months[0].items.iter().any(|i| i.title == "Обеды мамы"));
-        assert_eq!(
-            back.excluded_categories,
-            vec!["Кафе и рестораны".to_string()]
-        );
+        assert_eq!(back.excluded_categories, vec!["Общепит".to_string()]);
     }
 }

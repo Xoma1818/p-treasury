@@ -15,7 +15,7 @@ export const APP_FILE = basename(APP_BIN);
 
 /** PID процессов (Windows), в командной строке которых есть `pattern`. */
 function winPids(pattern) {
-  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($p) } | ForEach-Object { $_.ProcessId }";
+  const ps = "$p=$env:KAZNA_E2E_PATTERN; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Replace([string][char]34, '').Contains($p) } | ForEach-Object { $_.ProcessId }";
   const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
     encoding: "utf8",
     env: { ...process.env, KAZNA_E2E_PATTERN: pattern },
@@ -145,7 +145,9 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       port: 4444,
       logLevel: "error",
       capabilities: WIN
-        ? { browserName: "webview2", "ms:edgeOptions": { binary: bin, args: appArgs } }
+        ? // Классический WebDriver, как с tauri-driver в Linux: через BiDi скрипт
+          // видел window.__TAURI_INTERNALS__ без invoke.
+          { browserName: "webview2", "wdio:enforceWebDriverClassic": true, "ms:edgeOptions": { binary: bin, args: appArgs } }
         : // `args: []` — запуск без своей папки данных (переносная версия).
           { "tauri:options": { application: bin, args: appArgs } },
     });
@@ -191,7 +193,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
 export async function showAllHomeCards(browser) {
-  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && !!window.__TAURI_INTERNALS__), { timeout: 15000 });
+  await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && typeof window.__TAURI_INTERNALS__?.invoke === "function"), { timeout: 15000 });
   const ok = await browser.executeAsync((done) => {
     window.__TAURI_INTERNALS__
       .invoke("set_setting", { key: "home_layout", value: JSON.stringify({ order: [], hidden: [] }) })
@@ -232,6 +234,10 @@ export function appPid(dataDir = currentDir) {
 /** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
 export function closeLikeUser(dataDir = currentDir) {
   const pid = appPid(dataDir);
+  if (!pid && WIN) {
+    const all = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${APP_FILE}'" | ForEach-Object { $_.CommandLine }`], { encoding: "utf8" }).stdout.trim();
+    throw new Error(`приложение не запущено: нет процесса с --data-dir=${dataDir}; запущены: ${all || "нет"}`);
+  }
   if (!pid) throw new Error("приложение не запущено");
   if (WIN) {
     // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
@@ -247,7 +253,12 @@ export function closeLikeUser(dataDir = currentDir) {
 /** Нажать пункт бокового меню по названию. */
 export async function openSection(browser, title) {
   // Если предыдущий тест упал с открытым диалогом, закрываем его, чтобы не ронять следующие.
-  if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+  if (await browser.$('[role="dialog"]').isExisting()) {
+    await browser.keys("Escape");
+    // Форма с введённым спрашивает «Закрыть без сохранения?» — закрываем.
+    const ask = await browser.$('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
+    if (await ask.isExisting()) await ask.click();
+  }
   const item = await browser.$(`//nav//button[normalize-space()="${title}"]`);
   await item.click();
   await browser.$(`//main//h1[normalize-space()="${title}"]`).waitForDisplayed({ timeout: 5000 });
@@ -314,6 +325,14 @@ export async function chooseLike(browser, name, text) {
 }
 
 export async function click(browser, text, scope = "") {
+  // С 0.30 часть кнопок лежит в меню: «+ Доход» и «Перевод» — в «+ Расход ▾» на Главной,
+  // редкие отчёты — в «Ещё ▾». Если кнопки не видно, открываем подходящее меню.
+  const menus = { "+ Доход": "add-menu-toggle", "Перевод": "add-menu-toggle" };
+  for (const t of ["Курсовая разница", "Подписки", "Итоги года", "По тегу", "Чистые активы"]) menus[t] = "more-tabs-toggle";
+  if (menus[text] && !(await browser.$(`${scope}//button[normalize-space()="${text}"]`).isExisting())) {
+    const toggle = await browser.$(`[data-testid="${menus[text]}"]`);
+    if ((await toggle.isExisting()) && (await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  }
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
   // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
   // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.
@@ -326,6 +345,9 @@ export async function click(browser, text, scope = "") {
     const bar = top?.closest('[data-testid="undo-bar"]');
     if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
   }, el);
+  // Мышь к кнопке, как у пользователя: кнопки строки видны под мышкой, а прокрутка
+  // выше могла увести строку из-под неё.
+  await el.moveTo().catch(() => {});
   await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
     throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
   });
@@ -346,10 +368,14 @@ export async function save(browser, button = "Сохранить") {
   await click(browser, button, '//*[@role="dialog"]');
   // Каждый раз ищем заново: сохранённая ссылка на закрывшийся диалог устаревает.
   const open = () => browser.$('[role="dialog"]').isExisting();
-  await browser.waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), {
-    timeout: 5000,
-  });
-  if (await open()) throw new Error(`Диалог не закрылся: ${await browser.$('[role="alert"]').getText()}`);
+  await browser
+    .waitUntil(async () => !(await open()) || (await browser.$('[role="alert"]').isExisting()), { timeout: 5000 })
+    .catch(() => {});
+  if (await open()) {
+    const alert = await browser.$('[role="alert"]');
+    const why = (await alert.isExisting()) ? await alert.getText() : `нет ошибки; в окне: ${(await browser.$('[role="dialog"]').getText()).slice(0, 400)}`;
+    throw new Error(`Диалог не закрылся: ${why}`);
+  }
 }
 
 export async function mainText(browser) {
@@ -473,4 +499,18 @@ export async function newDebt(browser, { counterparty, principal, rate, term, fi
   if (lent) await click(browser, "Я дал в долг", '//*[@role="dialog"]');
   await fill(browser, "counterparty", counterparty);
   if (account) await choose(browser, "account", account);
+}
+
+/** Операции (0.29): счёт, категория, тип и тег — в панели «Фильтры». Открывает её, если закрыта. */
+export async function openFilters(browser) {
+  const toggle = await browser.$('[data-testid="filters-toggle"]');
+  await toggle.waitForDisplayed({ timeout: 5000 });
+  if ((await toggle.getAttribute("data-open")) !== "true") await toggle.click();
+  await browser.$('[name="filterCategory"]').waitForDisplayed({ timeout: 5000 });
+}
+
+/** Форма операции (0.29): комментарий, теги, «по месяцам» и «с друзьями» — под строкой «Ещё». */
+export async function openMore(browser) {
+  const more = await browser.$('[role="dialog"] [data-testid="txn-more"]');
+  if (await more.isExisting()) await more.click();
 }

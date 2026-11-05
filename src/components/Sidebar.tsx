@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
+import { useModules } from "../lib/modules";
 import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
-import { Fragment, useState } from "react";
+import { useEffect, Fragment, useState } from "react";
 import { api } from "../lib/api";
-import { SECTIONS } from "../lib/sections";
 import { useUi } from "../lib/store";
-import { applyTheme, savedTheme, type Theme } from "../lib/theme";
+import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 
@@ -22,9 +23,14 @@ function Logo() {
   );
 }
 
-/** Тема: «Светлая» или «Тёмная», выбранная подсвечена. */
+/** Тема: два значка «Светлая» / «Тёмная», выбранная подсвечена. Подписи — в подсказке и для экранного диктора. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
+  useEffect(() => {
+    const on = (e: Event) => setTheme((e as CustomEvent<Theme>).detail);
+    window.addEventListener(THEME_EVENT, on);
+    return () => window.removeEventListener(THEME_EVENT, on);
+  }, []);
   // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
   // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
   const pick = (t: Theme) => {
@@ -38,13 +44,13 @@ function ThemeSwitch() {
   };
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
-      <button aria-pressed={theme === "light"} data-testid="theme-light" onClick={() => pick("light")}>
+      <button aria-pressed={theme === "light"} data-testid="theme-light" title="Светлая тема" onClick={() => pick("light")}>
         <Sun className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-        Светлая
+        <span className="sr-only">Светлая</span>
       </button>
-      <button aria-pressed={theme === "dark"} data-testid="theme-dark" onClick={() => pick("dark")}>
+      <button aria-pressed={theme === "dark"} data-testid="theme-dark" title="Тёмная тема" onClick={() => pick("dark")}>
         <Moon className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-        Тёмная
+        <span className="sr-only">Тёмная</span>
       </button>
     </div>
   );
@@ -74,6 +80,11 @@ function NavViews() {
 
 export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
+  const { sectionOn } = useModules();
+  // Г4: своё меню — порядок, скрытые разделы, «Мои виды» вверху. Подписи групп — только у меню как было.
+  const { nav } = useNavPrefs();
+  const shown = navSections(nav, sectionOn);
+  const groups = isDefaultNav(nav);
   return (
     <nav className="sidebar" aria-label="Разделы">
       <div className="brand">
@@ -85,12 +96,13 @@ export function Sidebar() {
         <span>Поиск</span>
         <kbd>Ctrl+K</kbd>
       </button>
-      <ul>
-        {SECTIONS.map((s, i) => (
+      <ul data-testid="nav-list">
+        {nav.viewsTop && <NavViews />}
+        {shown.map((s, i) => (
           <Fragment key={s.id}>
-            {s.id === "settings" && <NavViews />}
+            {s.id === "settings" && !nav.viewsTop && <NavViews />}
             <li className={s.id === "settings" ? "nav-settings" : undefined}>
-              {s.group && SECTIONS[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
+              {groups && s.group && shown[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
               <button
                 className={s.id === section ? "nav-item active" : "nav-item"}
                 aria-current={s.id === section ? "page" : undefined}
@@ -105,13 +117,13 @@ export function Sidebar() {
           </Fragment>
         ))}
       </ul>
+      {/* Нижний ряд (0.28): тема, скрыть суммы и горячие клавиши — одной строкой, чтобы меню помещалось в окно высотой 800 px. */}
       <div className="sidebar-foot">
         <ThemeSwitch />
+        <span className="foot-spacer" />
         <HideAmountsSwitch />
-        <button className="foot-row" onClick={() => setHelp(true)} title="F1" data-testid="hotkeys-open">
+        <button className="foot-btn" onClick={() => setHelp(true)} title="Горячие клавиши · F1" aria-label="Горячие клавиши" data-testid="hotkeys-open">
           <Keyboard className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
-          <span className="foot-label">Горячие клавиши</span>
-          <kbd>F1</kbd>
         </button>
       </div>
     </nav>

@@ -203,9 +203,9 @@ mod tests {
         let db = Storage::open_in_memory().unwrap();
         let c = db.conn();
         for (id, name, kind) in [
-            ("food", "Продукты", "expense"),
+            ("food", "Питание", "expense"),
             ("tech", "Техника", "expense"),
-            ("pay", "Зарплата", "income"),
+            ("pay", "Заработная плата", "income"),
         ] {
             c.execute(
                 "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES (?1, ?2, ?3, '', '')",

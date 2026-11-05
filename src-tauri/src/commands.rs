@@ -35,11 +35,13 @@ use budget_core::import_log::{self, Batch, Suggestion};
 use budget_core::invest::{self, MonthProgress};
 use budget_core::loan_calc::{self, Comparison, LoanInput, Schedule};
 use budget_core::loan_export;
+use budget_core::month_review::{self, MonthReview};
 use budget_core::net_worth::{self, History as NwHistory};
 use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
 use budget_core::quick::{self, Draft};
 use budget_core::receipts::{self, Receipt, ReceiptInput};
+use budget_core::refunds::{self, RefundInfo, RefundInput};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
 use budget_core::rules::{self, Rule, RuleInput};
@@ -330,6 +332,22 @@ pub fn update_category(
     })
 }
 
+/// Категории с прежними названиями набора по умолчанию (до 0.28) и их новые имена.
+#[tauri::command(async)]
+pub fn category_rename_preview(state: State<AppState>) -> CmdResult<Vec<categories::RenameItem>> {
+    with_db(&state, |db| categories::rename_preview(db.conn()))
+}
+
+/// Переименовать выбранные категории по новому списку; одним шагом отмены (Ctrl+Z).
+#[tauri::command(async)]
+pub fn category_rename_apply(state: State<AppState>, ids: Vec<String>) -> CmdResult<usize> {
+    with_undo(
+        &state,
+        "Переименование категорий",
+        |c| categories::rename_apply(c, &ids),
+    )
+}
+
 #[tauri::command(async)]
 pub fn archive_category(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
     with_undo(&state, "Архивация категории", |c| {
@@ -502,7 +520,12 @@ pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()>
 #[tauri::command(async)]
 pub fn forecast(state: State<AppState>, scenario_id: Option<String>) -> CmdResult<Forecast> {
     with_db(&state, |db| {
-        forecast::forecast(db.conn(), &time::today_local(), scenario_id.as_deref())
+        let today = time::today_local();
+        // 0.29: прогноз месяца запоминается для «Итогов месяца» (прогноз против факта).
+        if let Err(e) = month_review::remember_forecast(db.conn(), &today) {
+            eprintln!("прогноз месяца не запомнен: {e}");
+        }
+        forecast::forecast(db.conn(), &today, scenario_id.as_deref())
     })
 }
 
@@ -620,7 +643,8 @@ pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
     })
 }
 
-#[tauri::command]
+// async: окно, созданное из синхронной команды, в Windows подвешивает программу.
+#[tauri::command(async)]
 pub fn open_quick(app: AppHandle) -> CmdResult<()> {
     crate::quick_window::open(&app).map_err(|e| e.to_string())
 }
@@ -1378,15 +1402,27 @@ pub fn export_summary(
 ) -> CmdResult<()> {
     with_db(&state, |db| {
         let sheets = export::summary_workbook(db.conn(), &from, &to, &time::today_local())?;
-        export::write_xlsx(Path::new(&path), &sheets)
+        export::write_book(Path::new(&path), &sheets)
     })
 }
 
 #[tauri::command(async)]
 pub fn export_transactions(state: State<AppState>, filter: Filter, path: String) -> CmdResult<()> {
     with_db(&state, |db| {
+        let path = Path::new(&path);
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("ofx"))
+        {
+            return budget_core::ofx::write_transactions(
+                db.conn(),
+                &filter,
+                path,
+                &time::today_local(),
+            );
+        }
         let sheet = export::transactions_sheet(db.conn(), &filter)?;
-        export::write_one(Path::new(&path), &sheet)
+        export::write_one(path, &sheet)
     })
 }
 
@@ -1409,9 +1445,15 @@ pub fn import_preview(
     state: State<AppState>,
     path: String,
     account_id: Option<String>,
+    self_account_id: Option<String>,
 ) -> CmdResult<Preview> {
     with_db(&state, |db| {
-        csv_import::preview(db.conn(), Path::new(&path), account_id.as_deref())
+        csv_import::preview_with(
+            db.conn(),
+            Path::new(&path),
+            account_id.as_deref(),
+            self_account_id.as_deref(),
+        )
     })
 }
 
@@ -1421,9 +1463,16 @@ pub fn import_csv(
     path: String,
     skip_errors: bool,
     account_id: Option<String>,
+    self_account_id: Option<String>,
 ) -> CmdResult<import_log::Saved> {
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import(c, Path::new(&path), skip_errors, account_id.as_deref())
+        csv_import::import_with(
+            c,
+            Path::new(&path),
+            skip_errors,
+            account_id.as_deref(),
+            self_account_id.as_deref(),
+        )
     })
 }
 
@@ -1823,6 +1872,11 @@ pub fn bulk_tag(
 }
 
 #[tauri::command(async)]
+pub fn bulk_receipt_extra(state: State<AppState>, ids: Vec<String>) -> CmdResult<usize> {
+    with_db(&state, |db| bulk::receipt_extra(db.conn(), &ids))
+}
+
+#[tauri::command(async)]
 pub fn bulk_delete(state: State<AppState>, ids: Vec<String>) -> CmdResult<BulkResult> {
     with_undo(&state, "Удаление выбранных", |c| {
         bulk::delete(c, &ids)
@@ -2005,5 +2059,62 @@ pub fn import_accept(state: State<AppState>, id: String) -> CmdResult<String> {
 pub fn import_reject(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Это разные операции", |c| {
         import_log::reject(c, &id)
+    })
+}
+
+// 0.29 «Возвраты и итоги месяца».
+
+#[tauri::command(async)]
+pub fn refund_info(
+    state: State<AppState>,
+    of: String,
+    except: Option<String>,
+) -> CmdResult<RefundInfo> {
+    with_db(&state, |db| {
+        refunds::info(db.conn(), &of, except.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn create_refund(state: State<AppState>, input: RefundInput) -> CmdResult<String> {
+    with_undo(&state, "Возврат", |c| refunds::create(c, &input))
+}
+
+#[tauri::command(async)]
+pub fn update_refund(state: State<AppState>, id: String, input: RefundInput) -> CmdResult<()> {
+    with_undo(&state, "Изменение возврата", |c| {
+        refunds::update(c, &id, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn month_review(state: State<AppState>, month: String) -> CmdResult<MonthReview> {
+    with_db(&state, |db| {
+        let today = time::today_local();
+        if let Err(e) = month_review::remember_forecast(db.conn(), &today) {
+            eprintln!("прогноз месяца не запомнен: {e}");
+        }
+        month_review::get(db.conn(), &month, &today)
+    })
+}
+
+#[tauri::command(async)]
+pub fn suggested_month_review(state: State<AppState>) -> CmdResult<Option<String>> {
+    with_db(&state, |db| {
+        month_review::suggested(db.conn(), &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
+pub fn close_month(state: State<AppState>, month: String, note: Option<String>) -> CmdResult<()> {
+    with_undo(&state, "Месяц завершён", |c| {
+        month_review::close(c, &month, &time::today_local(), note.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn reopen_month(state: State<AppState>, month: String) -> CmdResult<()> {
+    with_undo(&state, "Месяц снова открыт", |c| {
+        month_review::reopen(c, &month)
     })
 }

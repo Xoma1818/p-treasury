@@ -64,12 +64,13 @@ try {
   await browser.pause(300);
   await shot(browser, "habits");
   await openSection(browser, "Главная");
-  await click(browser, "Настроить");
+  await click(browser, "Настроить Главную");
   await browser.pause(400);
   await shot(browser, "home-edit");
   await click(browser, "Готово");
   await click(browser, "+ Расход");
   await browser.$('[name="amount"]').setValue("3000");
+  await (await browser.$('[data-testid="txn-more"]')).click();
   await click(browser, "Разделить с друзьями");
   await browser.$('[name="friend0"]').setValue("Аня");
   await click(browser, "+ ещё человек");

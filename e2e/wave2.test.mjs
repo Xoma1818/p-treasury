@@ -62,7 +62,7 @@ test("SMS банка с незнакомым магазином: выбирае�
   await browser.$('[data-testid="quick-sms"]').waitForDisplayed({ timeout: 3000 });
   assert.equal(await browser.$('[name="quickAmount"]').getValue(), "2340,50");
   assert.equal(await picked("quickCategory"), "Выберите категорию");
-  await choose(browser, "quickCategory", "Продукты");
+  await choose(browser, "quickCategory", "Питание");
   await waitText(browser, '[data-testid="quick-draft"]', /запомнить: «MAGNIT[^»]*» → эта категория/);
   await click(browser, "Записать", '//*[@data-testid="quick-draft"]');
   await waitText(browser, '[data-testid="quick-saved"]', /Записано/);
@@ -71,7 +71,7 @@ test("SMS банка с незнакомым магазином: выбирае�
 test("следующее SMS из того же магазина получает категорию по правилу", async () => {
   await type("Оплата 799 RUB MAGNIT MM. Доступно 9 201 RUB");
   await waitText(browser, '[data-testid="quick-draft"]', /категория по правилу/);
-  assert.equal(await picked("quickCategory"), "Продукты");
+  assert.equal(await picked("quickCategory"), "Питание");
   await setDate(browser, "quickText", "");
 });
 

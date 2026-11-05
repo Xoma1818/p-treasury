@@ -125,9 +125,9 @@ try {
       await setValue('[role="dialog"] [name="payee"]', "Перекрёсток");
       await button("Разбить по категориям", '[role="dialog"]');
       await pause(300);
-      await selectByText('[role="dialog"] [name="partCategory0"]', "Супермаркет");
+      await selectByText('[role="dialog"] [name="partCategory0"]', "Магазины");
       await setValue('[role="dialog"] [name="partAmount0"]', "2200");
-      await selectByText('[role="dialog"] [name="partCategory1"]', "Аптека");
+      await selectByText('[role="dialog"] [name="partCategory1"]', "Лекарства");
       await setValue('[role="dialog"] [name="partAmount1"]', "500");
       await pause();
       await shot("forma-razbivka-cheka");
@@ -136,6 +136,7 @@ try {
       await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
       await setValue('[role="dialog"] [name="amount"]', "12000");
       await setValue('[role="dialog"] [name="payee"]', "Ингосстрах");
+      await js(() => document.querySelector('[role="dialog"] [data-testid="txn-more"]')?.click());
       await js(() => document.querySelector('[role="dialog"] [name="spreadOn"]').click());
       await pause(200);
       // Поле тегов перерисовывается после каждого тега: ищем его заново.

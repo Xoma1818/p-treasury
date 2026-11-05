@@ -1,3 +1,4 @@
+import { currencyLabel, shownAmount } from "./fine";
 // Деньги в UI: целые минимальные единицы (копейки), как в ядре.
 // Формат совпадает с budget_core::money::format_amount.
 
@@ -26,8 +27,9 @@ export function formatAmount(amount: number, minorUnits = 2, trimZeroFraction = 
   return out;
 }
 
+/** Сумма для экрана с учётом тонких настроек (Г12): без копеек и с кодом валюты по желанию. */
 export function formatMoney(amount: number, symbol: string, minorUnits = 2): string {
-  return `${formatAmount(amount, minorUnits)}${GROUP_SEP}${symbol}`;
+  return `${formatAmount(shownAmount(amount, minorUnits), minorUnits)}${GROUP_SEP}${currencyLabel(symbol)}`;
 }
 
 export const HIDDEN_AMOUNT = "•••";

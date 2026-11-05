@@ -242,7 +242,7 @@ mod tests {
         currencies::set_rate(c, "2026-07-01", "USD", "RUB", "90").unwrap();
         let cat: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Кафе и рестораны'",
+                "SELECT id FROM categories WHERE name = 'Общепит'",
                 [],
                 |r| r.get(0),
             )

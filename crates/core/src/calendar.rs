@@ -335,7 +335,12 @@ mod tests {
             &reminder("Подарок маме", "2026-11-20T10:00", "yearly", Some(500_000)),
         )
         .unwrap();
-        let mut zhkh = reminder("ЖКХ", "2026-09-10T10:00", "monthly", Some(600_000));
+        let mut zhkh = reminder(
+            "Коммунальные платежи",
+            "2026-09-10T10:00",
+            "monthly",
+            Some(600_000),
+        );
         zhkh.day_of_month = Some(10);
         reminders::create(c, &zhkh).unwrap();
         // Разовое напоминание 25-го: ремонт 14 250 ₽.
@@ -355,7 +360,7 @@ mod tests {
         .unwrap();
         let cat: String = c
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Продукты'",
+                "SELECT id FROM categories WHERE name = 'Питание'",
                 [],
                 |r| r.get(0),
             )
@@ -380,7 +385,7 @@ mod tests {
         assert_eq!(m.days.len(), 30);
         let day = |n: usize| &m.days[n - 1];
         assert_eq!(day(3).expense, 123_400);
-        assert_eq!(day(10).reminders[0].title, "ЖКХ");
+        assert_eq!(day(10).reminders[0].title, "Коммунальные платежи");
         assert_eq!(day(15).debts.len(), 1);
         assert_eq!(day(15).debts[0].counterparty, "Кредит");
         assert_eq!(day(15).debts[0].payment, 175_000);

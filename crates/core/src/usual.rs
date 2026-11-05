@@ -89,6 +89,11 @@ fn sums(
 /// отрезок с начала месяца по `today`, иначе — месяц целиком.
 pub fn compare(conn: &Connection, month: &str, today: &str) -> Result<UsualReport> {
     time::check_date(today)?;
+    // Г12: порог «Необычно» — настройка «unusual_percent» (5–300 %), по умолчанию 25 %.
+    let min_percent = crate::settings::get(conn, "unusual_percent")?
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|p| (5..=300).contains(p))
+        .unwrap_or(MIN_PERCENT);
     let sd = budgets::start_day(conn)?;
     let p = budgets::period(month, sd)?;
     let base = currencies::base_currency(conn)?;
@@ -148,7 +153,7 @@ pub fn compare(conn: &Connection, month: &str, today: &str) -> Result<UsualRepor
                 current,
                 usual,
                 diff,
-                notable: percent.is_some_and(|p| p.abs() >= MIN_PERCENT) && diff.abs() >= min_diff,
+                notable: percent.is_some_and(|p| p.abs() >= min_percent) && diff.abs() >= min_diff,
                 percent,
             });
         }
@@ -229,10 +234,10 @@ mod tests {
         categories::seed_defaults(c).unwrap();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
         let (cafe, lunch, taxi, food) = (
-            cat(c, "Кафе и рестораны"),
+            cat(c, "Общепит"),
             cat(c, "Обеды"),
             cat(c, "Такси"),
-            cat(c, "Супермаркет"),
+            cat(c, "Магазины"),
         );
         assert!(compare(c, "2026-10", "2026-10-15")
             .unwrap()
@@ -263,15 +268,28 @@ mod tests {
         assert!(!row(&taxi).notable, "разница меньше 1 000 ₽");
         let food_row = row(&food);
         assert_eq!((food_row.percent, food_row.notable), (Some(-40), true));
+        // Г12: порог 50 % — плюс 40 % уже не «необычно».
+        crate::settings::set(c, "unusual_percent", "50").unwrap();
+        let strict = compare(c, "2026-10", "2026-10-15").unwrap();
+        assert!(
+            !strict
+                .items
+                .iter()
+                .find(|x| x.category_id == cafe)
+                .unwrap()
+                .notable
+        );
+        crate::settings::set(c, "unusual_percent", "25").unwrap();
+        assert!(crate::settings::set(c, "unusual_percent", "1").is_err());
         let home: Vec<&str> = r.home.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(home, ["Продукты", "Кафе и рестораны"]);
+        assert_eq!(home, ["Питание", "Общепит"]);
         assert_eq!(
             text(cafe_row, "₽", 2),
-            "Кафе и рестораны: 8\u{a0}400 ₽, на 40 % больше обычного"
+            "Общепит: 8\u{a0}400 ₽, на 40 % больше обычного"
         );
         assert_eq!(
             text(food_row, "₽", 2),
-            "Супермаркет: 12\u{a0}000 ₽, на 40 % меньше обычного"
+            "Магазины: 12\u{a0}000 ₽, на 40 % меньше обычного"
         );
     }
 
@@ -281,7 +299,7 @@ mod tests {
         let c = db.conn();
         categories::seed_defaults(c).unwrap();
         let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
-        let cafe = cat(c, "Кафе и рестораны");
+        let cafe = cat(c, "Общепит");
         spend(c, &card, &cafe, "2026-09-03", 500_000);
         spend(c, &card, &cafe, "2026-10-03", 1_000_000);
         let r = compare(c, "2026-10", "2026-10-10").unwrap();

@@ -1,4 +1,5 @@
 import { EventsCard } from "../components/Events";
+import { useModules } from "../lib/modules";
 import { InvestBudgetCard } from "../components/Invest";
 import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useState } from "react";
@@ -16,14 +17,17 @@ import { Hint } from "../components/Hint";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
+import { MonthReviewDialog } from "../components/MonthReview";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
+  const modules = useModules();
   const current = useMonthOf(today()).data?.month;
   const [picked, setPicked] = useState<string | null>(null);
   const month = picked ?? current;
   const budget = useBudget(month);
   const b = budget.data;
+  const [review, setReview] = useState(false);
 
   return (
     <section className="screen wide">
@@ -52,13 +56,17 @@ export function Budget() {
                 Текущий
               </button>
             )}
+            <button className="btn" data-testid="month-review-open" onClick={() => setReview(true)} title="Сколько отложено, прогноз и факт, «Месяц завершён»">
+              Итоги месяца
+            </button>
           </div>
         )}
+        {review && month && <MonthReviewDialog month={month} onClose={() => setReview(false)} />}
       </div>
       {budget.error && <p className="error">{String(budget.error)}</p>}
       {b && (b.id ? <BudgetView key={b.id} b={b} /> : <NoBudget month={b.period.month} />)}
       {month && b && !b.id && <InvestBudgetCard month={month} />}
-      <EventsCard />
+      {modules.on("events") && <EventsCard />}
     </section>
   );
 }

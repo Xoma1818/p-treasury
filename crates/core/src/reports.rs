@@ -426,8 +426,16 @@ mod tests {
         };
         transactions::create(c, &t("expense", "2026-10-05", &eur, 4_500, "Путешествия")).unwrap();
         transactions::create(c, &t("expense", "2026-10-12", &eur, 1_000, "Путешествия")).unwrap();
-        transactions::create(c, &t("income", "2026-10-05", &rub, 8_500_000, "Зарплата")).unwrap();
-        transactions::create(c, &t("income", "2026-10-05", &usd, 1_000, "Подработка")).unwrap();
+        transactions::create(
+            c,
+            &t("income", "2026-10-05", &rub, 8_500_000, "Заработная плата"),
+        )
+        .unwrap();
+        transactions::create(
+            c,
+            &t("income", "2026-10-05", &usd, 1_000, "Дополнительный доход"),
+        )
+        .unwrap();
         accounts::adjust_balance(c, &rub, 8_400_000, "2026-10-20", None).unwrap();
 
         let s = period_summary(c, "2026-10-01", "2026-10-31").unwrap();
@@ -494,12 +502,12 @@ mod tests {
     fn month_totals_by_category() {
         // Сценарий «Итоги месяца»: «Продукты» 28 %, «Транспорт» 15 %.
         let f = Fx::new();
-        f.op("expense", "2026-10-03", 1_800_000, "Супермаркет");
-        f.op("expense", "2026-10-04", 1_000_000, "Продукты");
+        f.op("expense", "2026-10-03", 1_800_000, "Магазины");
+        f.op("expense", "2026-10-04", 1_000_000, "Питание");
         f.op("expense", "2026-10-05", 1_500_000, "Такси");
         f.op("expense", "2026-10-06", 5_700_000, "Аренда");
         f.op("expense", "2026-09-30", 999_900, "Такси"); // другой месяц
-        f.op("income", "2026-10-05", 15_000_000, "Зарплата");
+        f.op("income", "2026-10-05", 15_000_000, "Заработная плата");
         accounts::adjust_balance(f.db.conn(), &f.card, 0, "2026-10-20", None).unwrap();
 
         let r = by_category(f.db.conn(), "expense", "2026-10-01", "2026-10-31").unwrap();
@@ -509,7 +517,7 @@ mod tests {
             .iter()
             .map(|i| (i.name.as_str(), i.percent))
             .collect();
-        assert_eq!(names, [("Жильё", 57), ("Продукты", 28), ("Транспорт", 15)]);
+        assert_eq!(names, [("Жильё", 57), ("Питание", 28), ("Транспорт", 15)]);
         let food = &r.items[1];
         assert_eq!(food.amount, 2_800_000);
         let kids: Vec<_> = food
@@ -520,11 +528,11 @@ mod tests {
         assert_eq!(
             kids,
             [
-                ("Супермаркет", 1_800_000),
-                ("Продукты (без подкатегории)", 1_000_000)
+                ("Магазины", 1_800_000),
+                ("Питание (без подкатегории)", 1_000_000)
             ]
         );
-        assert_eq!(food.children[1].category_id, f.cat("Продукты"));
+        assert_eq!(food.children[1].category_id, f.cat("Питание"));
 
         let inc = by_category(f.db.conn(), "income", "2026-10-01", "2026-10-31").unwrap();
         assert_eq!(inc.total, 15_000_000);
@@ -536,11 +544,11 @@ mod tests {
     fn year_by_months_with_savings_rate() {
         // Сценарий «Динамика за год»: в каком месяце тратил больше, чем зарабатывал.
         let f = Fx::new();
-        f.op("income", "2026-01-10", 10_000_000, "Зарплата");
-        f.op("expense", "2026-01-15", 7_500_000, "Продукты");
-        f.op("income", "2026-02-10", 10_000_000, "Зарплата");
+        f.op("income", "2026-01-10", 10_000_000, "Заработная плата");
+        f.op("expense", "2026-01-15", 7_500_000, "Питание");
+        f.op("income", "2026-02-10", 10_000_000, "Заработная плата");
         f.op("expense", "2026-02-20", 12_000_000, "Путешествия");
-        f.op("expense", "2026-03-01", 100_000, "Продукты");
+        f.op("expense", "2026-03-01", 100_000, "Питание");
         let r = by_month(f.db.conn(), "2026-01", "2026-12").unwrap();
         assert_eq!(r.months.len(), 12);
         assert_eq!(r.months[0].balance, 2_500_000);
@@ -561,7 +569,7 @@ mod tests {
     fn months_follow_month_start_day() {
         let f = Fx::new();
         crate::settings::set(f.db.conn(), "month_start_day", "25").unwrap();
-        f.op("income", "2026-10-25", 10_000_000, "Зарплата"); // уже «ноябрь»
+        f.op("income", "2026-10-25", 10_000_000, "Заработная плата"); // уже «ноябрь»
         let r = by_month(f.db.conn(), "2026-10", "2026-11").unwrap();
         assert_eq!(r.months[0].period.start, "2026-09-25");
         assert_eq!(r.months[0].income, 0);
@@ -593,8 +601,8 @@ mod tests {
         let mut usd = input("Доллары", "cash", "USD", 100_000);
         usd.opening_date = "2026-06-01".into();
         let usd = accounts::create(c, &usd).unwrap();
-        f.op("income", "2026-05-10", 5_000_000, "Зарплата");
-        f.op("expense", "2026-07-10", 1_000_000, "Продукты");
+        f.op("income", "2026-05-10", 5_000_000, "Заработная плата");
+        f.op("expense", "2026-07-10", 1_000_000, "Питание");
         currencies::set_rate(c, "2026-06-01", "USD", "RUB", "90").unwrap();
 
         let may = balances_on(c, "2026-05-31").unwrap();

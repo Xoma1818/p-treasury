@@ -790,5 +790,7 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(14), "import_matching");
     assert_eq!(at(15), "reminders_ahead");
     assert_eq!(at(16), "free_and_reserves");
-    assert_eq!(LATEST_VERSION, 17);
+    assert_eq!(at(19), "ui_modules_and_prefs");
+    assert_eq!(at(20), "fine_settings");
+    assert_eq!(LATEST_VERSION, 20);
 }

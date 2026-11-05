@@ -282,8 +282,8 @@ mod tests {
         );
         assert_eq!(empty.goal_months, 6);
 
-        let food = category(c, "Продукты");
-        let salary = category(c, "Зарплата");
+        let food = category(c, "Питание");
+        let salary = category(c, "Заработная плата");
         let mut income = txn("income", "2026-08-01", &card, 50_000_000);
         income.category_id = Some(salary);
         transactions::create(c, &income).unwrap();

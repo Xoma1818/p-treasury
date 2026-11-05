@@ -410,7 +410,14 @@ fn parse_line(conn: &Connection, text: &str, today: NaiveDate) -> Result<Parsed>
                             .is_some_and(|w| w.starts_with(&word))
                     })
                 };
-                if let Some(c) = exact.or_else(prefix) {
+                // Привычные прежние названия («продукты», «зарплата») ведут к новым (0.28).
+                let legacy = || {
+                    categories::RENAMES
+                        .iter()
+                        .find(|r| normalize(r.2) == word)
+                        .and_then(|r| cats.iter().find(|c| c.kind == r.0 && c.name == r.3))
+                };
+                if let Some(c) = exact.or_else(prefix).or_else(legacy) {
                     category_id = Some(c.id.clone());
                     if c.kind == "income" {
                         kind = "income".into();
@@ -631,7 +638,7 @@ mod tests {
         assert_eq!(d.kind, "expense");
         assert_eq!(d.amount, Some(125_000));
         assert_eq!(d.account_id.as_deref(), Some(f.card.as_str()));
-        assert_eq!(d.category_id, Some(cat(c, "Продукты")));
+        assert_eq!(d.category_id, Some(cat(c, "Питание")));
         assert_eq!(d.payee.as_deref(), Some("Пятёрочка"));
         assert_eq!(d.date, TODAY);
         assert!(d.missing.is_empty(), "{:?}", d.missing);
@@ -647,7 +654,7 @@ mod tests {
         let d = parse(c, "+85к зарплата 05.10", TODAY).unwrap();
         assert_eq!((d.kind.as_str(), d.amount), ("income", Some(8_500_000)));
         assert_eq!(d.date, "2026-10-05");
-        assert_eq!(d.category_id, Some(cat(c, "Зарплата")));
+        assert_eq!(d.category_id, Some(cat(c, "Заработная плата")));
 
         let d = parse(c, "подарок маме", TODAY).unwrap();
         assert_eq!(
@@ -678,7 +685,7 @@ mod tests {
                 date: "2026-10-01".into(),
                 account_id: f.cash.clone(),
                 amount: 30_000,
-                category_id: Some(cat(c, "Кафе и рестораны")),
+                category_id: Some(cat(c, "Общепит")),
                 to_account_id: None,
                 to_amount: None,
                 payee: Some("Шоколадница".into()),
@@ -688,7 +695,7 @@ mod tests {
         .unwrap();
         let d = parse(c, "шоколадница 450", TODAY).unwrap();
         assert_eq!(d.payee.as_deref(), Some("Шоколадница"));
-        assert_eq!(d.category_id, Some(cat(c, "Кафе и рестораны")));
+        assert_eq!(d.category_id, Some(cat(c, "Общепит")));
         assert_eq!(d.account_id.as_deref(), Some(f.cash.as_str()));
     }
 
@@ -696,7 +703,7 @@ mod tests {
     fn bank_messages() {
         let f = fx();
         let c = f.db.conn();
-        remember(c, "PYATEROCHKA", &cat(c, "Супермаркет"), Some("Пятёрочка")).unwrap();
+        remember(c, "PYATEROCHKA", &cat(c, "Магазины"), Some("Пятёрочка")).unwrap();
         assert!(has_rule(c, "pyaterochka").unwrap());
         let cases = [
             // Сбер
@@ -715,7 +722,7 @@ mod tests {
             assert_eq!(d.amount, Some(125_000), "{text}");
             assert_eq!(d.account_id.as_deref(), Some(f.card.as_str()), "{text}");
             assert_eq!(d.payee.as_deref(), Some("Пятёрочка"), "{text}");
-            assert_eq!(d.category_id, Some(cat(c, "Супермаркет")), "{text}");
+            assert_eq!(d.category_id, Some(cat(c, "Магазины")), "{text}");
             assert!(d.rule_id.is_some(), "{text}");
             assert!(
                 d.merchant.as_deref().unwrap().starts_with("PYATEROCHKA"),

@@ -205,7 +205,7 @@ mod tests {
         let food: String = db
             .conn()
             .query_row(
-                "SELECT id FROM categories WHERE name = 'Продукты'",
+                "SELECT id FROM categories WHERE name = 'Питание'",
                 [],
                 |r| r.get(0),
             )

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
+import { rememberSection, startSection } from "./fine";
 
 /** Что подставить в новую операцию (например, из напоминания). */
 export interface TxnPrefill {
@@ -16,6 +17,8 @@ export interface TxnPrefill {
 export type TxnFormState =
   | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; onSaved?: (id: string) => Promise<unknown> }
   | { mode: "edit"; txn: Txn }
+  /** 0.29: возврат за покупку `purchase`. */
+  | { mode: "refund"; purchase: Txn }
   | null;
 
 /** Фильтр перехода в «Операции»; без дат — за всё время. */
@@ -31,6 +34,8 @@ export interface TxnJump {
   search?: string;
   /** Операции одного импорта. */
   importId?: string;
+  /** Получатель целиком (из панели операции «Все →»). */
+  payee?: string;
   /** Только эти типы (доходы или расходы из «Как посчитано»). */
   types?: TxnType[];
 }
@@ -63,10 +68,19 @@ interface UiState {
   /** Справка по горячим клавишам (F1). */
   help: boolean;
   setHelp: (open: boolean) => void;
+  /** Г1: переход к разделу Настроек (и полю) из Ctrl+K; `dialog` — сразу открыть окно раздела «Данные». */
+  settingsJump: SettingsJump | null;
+  openSettings: (j: SettingsJump) => void;
+}
+
+export interface SettingsJump {
+  section: string;
+  field?: string;
+  dialog?: "summary" | "import" | "history";
 }
 
 export const useUi = create<UiState>((set) => ({
-  section: "home",
+  section: startSection(),
   visit: 0,
   go: (section) => set((s) => ({ section, visit: s.visit + 1 })),
   txnFilter: null,
@@ -85,4 +99,9 @@ export const useUi = create<UiState>((set) => ({
   setPalette: (palette) => set({ palette }),
   help: false,
   setHelp: (help) => set({ help }),
+  settingsJump: null,
+  openSettings: (settingsJump) => set((s) => ({ settingsJump, section: "settings", visit: s.visit + 1 })),
 }));
+
+// Г12: «Экран при запуске — где закончили» помнит последний раздел, как бы в него ни пришли.
+useUi.subscribe((s, prev) => s.section !== prev.section && rememberSection(s.section as SectionId));
