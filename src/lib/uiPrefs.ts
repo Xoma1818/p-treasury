@@ -4,7 +4,7 @@
 import { api } from "./api";
 
 /** Ключи хранилища окна, которые копируются в базу. */
-export const MIRRORED_PREFS = ["p-treasury-theme", "p-treasury-scale", "kazna.txnOpen", "kazna.navLayout", "kazna.addMain", "kazna.txnForm"] as const;
+export const MIRRORED_PREFS = ["p-treasury-theme", "p-treasury-scale", "kazna.txnOpen", "kazna.navLayout", "kazna.addMain", "kazna.txnForm", "kazna.txnHead"] as const;
 
 let db: Record<string, string> | null = null;
 
