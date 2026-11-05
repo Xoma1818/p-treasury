@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { LookMark, useCategoryMap } from "../components/CategoryMark";
+import { colorVar, lookOf } from "../lib/categoryLook";
 import { useModules } from "../lib/modules";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -288,6 +290,7 @@ function Structure({ period }: { period: Period }) {
     queryFn: () => api.reportByCategory(kind, period.start, period.end),
   });
   const showTransactions = useUi((u) => u.showTransactions);
+  const catMap = useCategoryMap();
   const go = (c: CategoryItem) => showTransactions({ categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end });
   const r = report.data;
   const max = r?.items[0]?.amount ?? 0;
@@ -309,11 +312,15 @@ function Structure({ period }: { period: Period }) {
           <span className="icon-gap" />
         )}
         <button className="link cat-link" title="Показать операции" onClick={() => go(c)}>
+          <LookMark look={lookOf(c.categoryId, catMap)} />
           {c.name}
         </button>
       </span>
       <span className="cat-bar" title={`${c.name}: ${c.percent} %`}>
-        <span className={kind === "income" ? "bar-fill income" : "bar-fill"} style={{ width: `${max ? Math.max((c.amount / max) * 100, 0.5) : 0}%` }} />
+        <span
+          className={kind === "income" ? "bar-fill income" : "bar-fill"}
+          style={{ width: `${max ? Math.max((c.amount / max) * 100, 0.5) : 0}%`, ...(lookOf(c.categoryId, catMap).color ? { background: colorVar(lookOf(c.categoryId, catMap).color!) } : {}) }}
+        />
       </span>
       <span className="percent" data-testid="share">
         {c.percent} %

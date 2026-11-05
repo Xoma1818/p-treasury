@@ -15,7 +15,7 @@ import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, CornerDownRight } from "lucide-react";
 import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
 import { MonthReviewDialog } from "../components/MonthReview";
 
@@ -235,6 +235,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   // А2: пометка «+34 % к обычному» у категорий, где траты заметно не как обычно.
   const usual = useQuery({ queryKey: ["usual", b.period.month], queryFn: () => api.spendingVsUsual(b.period.month), enabled: !income }).data;
   const notable = new Map((usual?.monthsCounted ? usual.items : []).filter((u) => u.notable).map((u) => [u.categoryId, u]));
+  const rollover = useAction((categoryId: string, on: boolean) => api.setBudgetRollover(b.id!, categoryId, on));
   const fill = useAction(
     (mode: FillMode, categoryId: string | null) => api.fillBudget(b.id!, mode, categoryId),
     (n) => setFilled(n === 1 ? "Лимит обновлён по истории." : `Обновлено лимитов: ${n}.`),
@@ -304,6 +305,19 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                       {usualLabel(notable.get(l.categoryId)!.percent)}
                     </span>
                   )}
+                  {!income && (
+                    <button
+                      className="icon-btn row-action rollover-btn"
+                      aria-pressed={l.rollover}
+                      aria-label={`Переносить остаток «${l.categoryName}» на следующий месяц`}
+                      title={l.rollover ? "Остаток переносится на следующий месяц. Нажмите, чтобы не переносить" : "Переносить неистраченный остаток на следующий месяц"}
+                      data-testid="budget-rollover"
+                      onClick={() => rollover.run(l.categoryId, !l.rollover)}
+                      disabled={rollover.busy}
+                    >
+                      <CornerDownRight size={14} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  )}
                   {!l.parentId && (
                     <button
                       className="icon-btn row-action"
@@ -318,6 +332,11 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                 </td>
                 <td className="num">
                   <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} />
+                  {l.carried > 0 && (
+                    <span className="carried" data-testid="budget-carried" title="Остаток прошлого месяца">
+                      + <Money amount={l.carried} symbol={sym} minorUnits={minor} /> с прошлого месяца
+                    </span>
+                  )}
                 </td>
                 <td className="num">
                   <button
@@ -349,7 +368,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           Расходы по категориям без лимита: <Money amount={b.unbudgetedExpense} symbol={sym} minorUnits={minor} />
         </p>
       )}
-      <ErrorText error={fill.error} />
+      <ErrorText error={fill.error ?? rollover.error} />
       <div className="inline-form add-line">
         <CategorySelect
           name={`add-${kind}`}
@@ -372,14 +391,14 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
 
 /** Лимит редактируется на месте: сохраняется при уходе из поля или по Enter; пустое поле убирает строку. */
 function LimitInput({ budgetId, line, minor, focus }: { budgetId: string; line: BudgetLine; minor: number; focus?: boolean }) {
-  const [text, setText] = useState(amountText(line.limit, minor));
-  useEffect(() => setText(amountText(line.limit, minor)), [line.limit, minor]);
+  const [text, setText] = useState(amountText(line.baseLimit, minor));
+  useEffect(() => setText(amountText(line.baseLimit, minor)), [line.baseLimit, minor]);
   const save = useAction((limit: number | null) => api.setBudgetLimit(budgetId, line.categoryId, limit));
   const commit = () => {
     if (text.trim() === "") return save.run(null);
     const v = parseAmount(text, minor);
-    if (v === null || v < 0) return setText(amountText(line.limit, minor));
-    if (v !== line.limit) save.run(v);
+    if (v === null || v < 0) return setText(amountText(line.baseLimit, minor));
+    if (v !== line.baseLimit) save.run(v);
   };
   return (
     <span onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}>

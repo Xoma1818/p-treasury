@@ -546,3 +546,31 @@ test("тонкие настройки: суммы кодом валюты, не�
   }
   await browser.$('[data-testid="fine-reset"]').waitForExist({ reverse: true, timeout: 5000 });
 });
+
+test("значок и цвет категории: в дереве, у подкатегории и в операциях (Р22, 0.32)", async () => {
+  const row = (n) => `//ul[contains(@class,"tree")]/li[.//span[@class="name" and normalize-space()="${n}"]]`;
+  const edit = (n) => browser.execute((x) => document.evaluate(x, document, null, 9, null).singleNodeValue.click(), `${row(n)}//button[normalize-space()="Изменить"]`);
+  await openSection(browser, "Категории");
+  await browser.$(row("Питание")).waitForExist({ timeout: 5000 });
+  try {
+    await edit("Питание");
+    await tap('[data-testid="icon-pick"] [data-icon="shopping-cart"]');
+    await tap('[data-testid="color-pick"] [data-color="sky"]');
+    await save(browser);
+    await browser.$(`${row("Питание")}//*[@data-testid="cat-mark"]`).waitForExist({ timeout: 5000 });
+    // Подкатегория без своего значка берёт родительский.
+    await browser.$(`${row("Магазины")}//*[@data-testid="cat-mark"]`).waitForExist({ timeout: 5000 });
+    await openSection(browser, "Операции");
+    await browser.$('//tr[.//div[@class="main" and contains(normalize-space(), "Магазины")]]//*[@data-testid="cat-mark"]').waitForExist({ timeout: 8000 });
+  } finally {
+    await openSection(browser, "Категории");
+    await browser.$(row("Питание")).waitForExist({ timeout: 5000 });
+    if (await browser.$(`${row("Питание")}//*[@data-testid="cat-mark"]`).isExisting()) {
+      await edit("Питание");
+      await tap('[data-testid="icon-pick"] button[title="Без значка"]');
+      await tap('[data-testid="color-pick"] button[title="Без цвета"]');
+      await save(browser);
+    }
+  }
+  await browser.$(`${row("Питание")}//*[@data-testid="cat-mark"]`).waitForExist({ reverse: true, timeout: 5000 });
+});

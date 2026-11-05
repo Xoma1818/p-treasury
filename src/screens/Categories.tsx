@@ -9,6 +9,8 @@ import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { RulesCard } from "../components/Rules";
 import { TagsCard } from "../components/Tags";
+import { LookMark, useCategoryMap } from "../components/CategoryMark";
+import { CATEGORY_COLORS, CATEGORY_ICONS, COLOR_LABEL, colorVar, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -20,6 +22,7 @@ export function Categories() {
   const archive = useAction(api.archiveCategory);
   const showTransactions = useUi((s) => s.showTransactions);
   const visible = all.filter((c) => showArchived || !c.archived);
+  const byId = useCategoryMap();
 
   const column = (kind: CategoryKind, title: string) => (
     <div className="card" data-testid={`categories-${kind}`}>
@@ -34,7 +37,10 @@ export function Categories() {
           .filter((c) => c.kind === kind)
           .map((c) => (
             <li key={c.id} className={(c.parentId ? "child" : "parent") + (c.archived ? " archived" : "")}>
-              <span className="name">{c.name}</span>
+              <span className="name">
+                <LookMark look={lookOf(c.id, byId)} />
+                {c.name}
+              </span>
               {c.transactionCount > 0 && (
                 <button className="link count" onClick={() => showTransactions({ categoryId: c.id })} title="Операции категории">
                   {c.transactionCount}
@@ -88,8 +94,11 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
   const kind = current?.kind ?? (edit.mode === "new" ? edit.kind : "expense");
   const [name, setName] = useState(current?.name ?? "");
   const [parentId, setParentId] = useState(current?.parentId ?? (edit.mode === "new" ? edit.parentId : null) ?? "");
+  const [icon, setIcon] = useState<string | null>(current?.icon && CATEGORY_ICONS[current.icon] ? current.icon : null);
+  const [color, setColor] = useState<CategoryColor | null>(isColor(current?.color) ? (current!.color as CategoryColor) : null);
+  const look = { icon, color };
   const save = useAction(
-    () => (current ? api.updateCategory(current.id, name, parentId || null) : api.createCategory({ name, kind, parentId: parentId || null })),
+    () => (current ? api.updateCategory(current.id, name, parentId || null, look) : api.createCategory({ name, kind, parentId: parentId || null }, look)),
     onClose,
     { celebrate: true },
   );
@@ -110,6 +119,32 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
             </select>
           )}
         </Field>
+        <div className="field" role="group" aria-label="Значок">
+          <span className="label">Значок {parentId && !icon && <span className="muted small">— как у родителя</span>}</span>
+          <div className="look-pick" data-testid="icon-pick">
+            <button type="button" aria-pressed={!icon} title="Без значка" onClick={() => setIcon(null)}>
+              —
+            </button>
+            {Object.entries(CATEGORY_ICONS).map(([k, v]) => (
+              <button key={k} type="button" aria-pressed={icon === k} title={v.label} aria-label={v.label} data-icon={k} onClick={() => setIcon(k)}>
+                <v.icon size={16} strokeWidth={1.9} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field" role="group" aria-label="Цвет">
+          <span className="label">Цвет {parentId && !color && <span className="muted small">— как у родителя</span>}</span>
+          <div className="look-pick" data-testid="color-pick">
+            <button type="button" aria-pressed={!color} title="Без цвета" onClick={() => setColor(null)}>
+              —
+            </button>
+            {CATEGORY_COLORS.map((c) => (
+              <button key={c} type="button" className="swatch-btn" aria-pressed={color === c} title={COLOR_LABEL[c]} aria-label={COLOR_LABEL[c]} data-color={c} onClick={() => setColor(c)}>
+                <span style={{ background: colorVar(c) }} />
+              </button>
+            ))}
+          </div>
+        </div>
         <ErrorText error={save.error} />
         <div className="actions">
           <span className="spacer" />

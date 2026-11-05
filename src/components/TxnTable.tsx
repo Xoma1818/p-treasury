@@ -9,6 +9,8 @@ import { COL_LABEL, COL_SORT, COMPACT_COLS, DEFAULT_TABLE, groupRows, type Col, 
 import { isRowSelected, type SelState } from "../lib/selection";
 import { useUi } from "../lib/store";
 import { Money } from "./Money";
+import { LookMark, useCategoryMap } from "./CategoryMark";
+import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
 
 /** Тип данных перетаскивания операции (на другой день календаря). */
@@ -46,6 +48,7 @@ export function TxnTable({
   const showTransactions = useUi((s) => s.showTransactions);
   const openDebt = useUi((s) => s.openDebt);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
   const menuFor = (t: Txn): CtxItem[] => {
@@ -139,7 +142,10 @@ export function TxnTable({
                         <span data-testid="receipt-title">{receiptTitle(r.parts)}</span>
                       </>
                     ) : (
-                      describe(t)
+                      <>
+                        {(t.type === "expense" || t.type === "income") && <LookMark look={lookOf(t.categoryId, catMap)} />}
+                        {describe(t)}
+                      </>
                     )}
                     {t.refund && (
                       <span className="event-tag" title={t.countDate ? "Учтён в месяце покупки" : "Учтён в месяце возврата"} data-testid="txn-refund-tag">
@@ -191,7 +197,10 @@ export function TxnTable({
           {cols.map((c) =>
             c === "what" ? (
               <td key={c}>
-                <div className="main">{p.categoryName}</div>
+                <div className="main">
+                  <LookMark look={lookOf(p.categoryId, catMap)} />
+                  {p.categoryName}
+                </div>
                 {!compact && p.note && p.note !== t.note && <div className="sub">{p.note}</div>}
               </td>
             ) : c === "amount" ? (

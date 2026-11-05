@@ -6,6 +6,8 @@
   --text: #1c2430;
   --muted: #6b7380;
   --accent: #0e9f7a;
+  --cat-mint: #0e9f7a; --cat-teal: #0f8a96; --cat-sky: #2b8ccf; --cat-blue: #4f6bd8; --cat-violet: #8a5cc9;
+  --cat-pink: #c8559b; --cat-rose: #d24c5a; --cat-orange: #dd7a2c; --cat-amber: #c4951a; --cat-olive: #7f9134;
   --accent-soft: rgba(14, 159, 122, 0.12);
   --accent-hover: #0b8a6a;
   --accent-press: #08735a;
@@ -244,7 +246,7 @@ input.invalid { border-color: var(--over); }
 
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.field label { font-size: 12px; color: var(--muted); }
+.field label, .field > .label { font-size: 12px; color: var(--muted); }
 .hint { font-size: 12px; color: var(--muted); }
 .hint.warn { color: var(--over); margin-top: 4px; }
 .row { display: flex; gap: 12px; }
@@ -661,6 +663,8 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
   --text: #e6e9ef;
   --muted: #9aa1ae;
   --accent: #2dd4a7;
+  --cat-mint: #2dd4a7; --cat-teal: #38bfcc; --cat-sky: #5cb3ee; --cat-blue: #8199f0; --cat-violet: #b18ae6;
+  --cat-pink: #e584bd; --cat-rose: #f07b87; --cat-orange: #f2a15e; --cat-amber: #e3bb4f; --cat-olive: #a9bc5d;
   --accent-soft: rgba(45, 212, 167, 0.14);
   --accent-hover: #4ee0b9;
   --accent-press: #1fb18b;
@@ -1041,3 +1045,14 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .fine-card > summary h2::after { content: " ▸"; color: var(--muted); font-weight: 400; }
 .fine-card[open] > summary h2::after { content: " ▾"; }
 .fine-card[open] > summary { margin-bottom: 12px; }
+
+/* Р22: значок и цвет категории */
+.cat-mark { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; vertical-align: -4px; margin-right: 6px; }
+.cat-dot { width: 7px; height: 7px; border-radius: 50%; }
+.look-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.look-pick button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; }
+.look-pick button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); color: var(--text); }
+.look-pick .swatch-btn span { width: 16px; height: 16px; border-radius: 50%; }
+.rollover-btn { margin-left: 4px; }
+.rollover-btn[aria-pressed="true"] { color: var(--accent); visibility: visible; }
+.carried { display: block; font-size: 11px; color: var(--muted); }

@@ -204,6 +204,7 @@ pub fn run() {
             commands::month_of,
             commands::create_budget,
             commands::set_budget_limit,
+            commands::set_budget_rollover,
             commands::set_budget_note,
             commands::delete_budget,
             commands::fill_budget,

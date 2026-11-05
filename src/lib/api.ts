@@ -100,6 +100,9 @@ export interface Category {
   sortOrder: number;
   archived: boolean;
   transactionCount: number;
+  /** Р22: значок и цвет; null — как у родителя. */
+  icon: string | null;
+  color: string | null;
 }
 
 /** Строка «было → стало» для переименования по новому списку категорий (0.28). */
@@ -679,11 +682,18 @@ export interface BudgetLine {
   categoryName: string;
   parentId: string | null;
   kind: CategoryKind;
+  /** Лимит вместе с перенесённым остатком. */
   limit: number;
+  /** Лимит, заданный на этот месяц. */
+  baseLimit: number;
   actual: number;
   remaining: number;
   percent: number;
   over: boolean;
+  /** Р8: остаток переносится на следующий месяц. */
+  rollover: boolean;
+  /** Пришло с прошлого месяца. */
+  carried: number;
 }
 
 export interface Budget {
@@ -1723,10 +1733,10 @@ export const api = {
     invoke<string | null>("adjust_balance", { id, actualBalance, date, note }),
   totals: (date: string) => invoke<Totals>("totals", { date }),
   listCategories: (includeArchived = false) => invoke<Category[]>("list_categories", { includeArchived }),
-  createCategory: (input: { name: string; kind: CategoryKind; parentId: string | null }) =>
-    invoke<string>("create_category", { input }),
-  updateCategory: (id: string, name: string, parentId: string | null) =>
-    invoke<void>("update_category", { id, name, parentId }),
+  createCategory: (input: { name: string; kind: CategoryKind; parentId: string | null }, look: { icon: string | null; color: string | null } = { icon: null, color: null }) =>
+    invoke<string>("create_category", { input, icon: look.icon, color: look.color }),
+  updateCategory: (id: string, name: string, parentId: string | null, look: { icon: string | null; color: string | null }) =>
+    invoke<void>("update_category", { id, name, parentId, icon: look.icon, color: look.color }),
   categoryRenamePreview: () => invoke<CategoryRename[]>("category_rename_preview"),
   categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
@@ -1778,6 +1788,7 @@ export const api = {
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
   setBudgetLimit: (budgetId: string, categoryId: string, limit: number | null) =>
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
+  setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
