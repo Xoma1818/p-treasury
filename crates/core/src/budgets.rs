@@ -165,6 +165,9 @@ pub struct Budget {
     /// `None`, если бюджета нет или период не текущий.
     pub forecast_expense: Option<i64>,
     pub missing_rates: Vec<String>,
+    /// Р8: валюты без курса в прошлых месяцах цепочки переноса: из таких месяцев
+    /// остаток не переносится, пока курс не введён.
+    pub carry_missing_rates: Vec<String>,
 }
 
 fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, Option<String>)>> {
@@ -244,9 +247,6 @@ fn event_expense(
     Ok(total)
 }
 
-/// Сколько месяцев назад искать перенос остатков: дальше не идём.
-const CARRY_DEPTH: u32 = 12;
-
 /// Факт категории вместе с её подкатегориями.
 fn actual_with_children(
     by_cat: &HashMap<String, i64>,
@@ -263,49 +263,65 @@ fn actual_with_children(
 }
 
 /// Р8: что переходит в `month` с прошлого месяца по строкам расходов с переносом.
-/// Переносится только неистраченное (перерасход не переносится), цепочкой: остаток
-/// прошлого месяца считается вместе с тем, что пришло в него самого. Бюджет прошлого
-/// месяца в другой валюте ничего не переносит.
+/// Переносится только неистраченное (перерасход не переносится), по всей непрерывной
+/// цепочке: остаток прошлого месяца считается вместе с тем, что пришло в него самого.
+/// Цепочка обрывается на месяце без бюджета, без строк с переносом или в другой валюте.
+/// Если в месяце цепочки есть траты без курса, его остаток неизвестен: из него ничего
+/// не переносится, а валюта попадает в `missing`, чтобы бюджет предупредил о курсе.
 fn carries(
     conn: &Connection,
     month: &str,
     sd: u32,
     currency: &str,
     parent_of: &HashMap<String, Option<String>>,
-    depth: u32,
+    missing: &mut Vec<String>,
 ) -> Result<HashMap<String, i64>> {
-    let mut out = HashMap::new();
-    if depth == 0 {
-        return Ok(out);
-    }
-    let prev_month = shift_month(month, -1)?;
-    let pp = period(&prev_month, sd)?;
-    let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp.start)? else {
-        return Ok(out);
-    };
-    if prev_cur != currency {
-        return Ok(out);
-    }
-    let mut stmt = conn.prepare(
-        "SELECT bl.category_id, bl.limit_amount FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
-         WHERE bl.budget_id = ?1 AND bl.rollover = 1 AND c.kind = 'expense'",
-    )?;
-    let lines: Vec<(String, i64)> = stmt
-        .query_map([&prev_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    if lines.is_empty() {
-        return Ok(out);
-    }
-    let before = carries(conn, &prev_month, sd, currency, parent_of, depth - 1)?;
-    let (by_cat, _) = actuals(conn, &pp, currency)?;
-    for (cat, limit) in lines {
-        let left = limit + before.get(&cat).copied().unwrap_or(0)
-            - actual_with_children(&by_cat, parent_of, &cat);
-        if left > 0 {
-            out.insert(cat, left);
+    let mut chain = Vec::new();
+    let mut m = month.to_string();
+    loop {
+        let prev_month = shift_month(&m, -1)?;
+        let pp = period(&prev_month, sd)?;
+        let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp.start)? else {
+            break;
+        };
+        if prev_cur != currency {
+            break;
         }
+        let mut stmt = conn.prepare_cached(
+            "SELECT bl.category_id, bl.limit_amount FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
+             WHERE bl.budget_id = ?1 AND bl.rollover = 1 AND c.kind = 'expense'",
+        )?;
+        let lines: Vec<(String, i64)> = stmt
+            .query_map([&prev_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        if lines.is_empty() {
+            break;
+        }
+        chain.push((pp, lines));
+        m = prev_month;
     }
-    Ok(out)
+    let mut carry: HashMap<String, i64> = HashMap::new();
+    for (pp, lines) in chain.into_iter().rev() {
+        let (by_cat, miss) = actuals(conn, &pp, currency)?;
+        let mut next = HashMap::new();
+        if miss.is_empty() {
+            for (cat, limit) in lines {
+                let left = limit + carry.get(&cat).copied().unwrap_or(0)
+                    - actual_with_children(&by_cat, parent_of, &cat);
+                if left > 0 {
+                    next.insert(cat, left);
+                }
+            }
+        } else {
+            for cur in miss {
+                if !missing.contains(&cur) {
+                    missing.push(cur);
+                }
+            }
+        }
+        carry = next;
+    }
+    Ok(carry)
 }
 
 /// Бюджет месяца с фактом. Если бюджета нет, `id = None` и строк нет,
@@ -337,6 +353,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
     let actual_for = |cat: &str| actual_with_children(&by_cat, &parents, cat);
 
     let mut lines = Vec::new();
+    let mut carry_missing_rates = Vec::new();
     if let Some((id, _, _)) = &row {
         let mut stmt = conn.prepare(
             "SELECT bl.category_id, c.name, c.parent_id, c.kind, bl.limit_amount, bl.rollover
@@ -356,7 +373,14 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
                 r.get::<_, bool>(5)?,
             ))
         })?;
-        let carried_in = carries(conn, month, sd, &currency, &parents, CARRY_DEPTH)?;
+        let carried_in = carries(
+            conn,
+            month,
+            sd,
+            &currency,
+            &parents,
+            &mut carry_missing_rates,
+        )?;
         for row in rows {
             let (category_id, category_name, parent_id, kind, base, rollover) = row?;
             let actual = actual_for(&category_id);
@@ -482,6 +506,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         safe_to_spend_today,
         forecast_expense,
         missing_rates,
+        carry_missing_rates,
     })
 }
 
@@ -1010,6 +1035,43 @@ mod tests {
             0
         );
         let _ = nov;
+    }
+
+    #[test]
+    fn rollover_keeps_whole_chain_and_waits_for_rates() {
+        // Ревью 184d320: 13 месяцев по 100 ₽ без трат — в 14-й приходит 1 300 ₽, а не 1 200.
+        let mut f = fx();
+        let first = create(f.db.conn_mut(), "2025-01", false).unwrap();
+        {
+            let c = f.db.conn();
+            set_limit(c, &first, &cat(c, "Подарки"), Some(10_000)).unwrap();
+            set_rollover(c, &first, &cat(c, "Подарки"), true).unwrap();
+        }
+        let mut m = "2025-01".to_string();
+        for _ in 0..13 {
+            m = shift_month(&m, 1).unwrap();
+            create(f.db.conn_mut(), &m, true).unwrap();
+        }
+        let c = f.db.conn();
+        let gifts = |b: &Budget| {
+            b.lines
+                .iter()
+                .find(|l| l.category_name == "Подарки")
+                .unwrap()
+                .carried
+        };
+        assert_eq!(m, "2026-02");
+        assert_eq!(gifts(&get(c, &m, "2026-02-01").unwrap()), 130_000);
+
+        // Ревью 184d320: трата в долларах без курса — остаток месяца неизвестен.
+        spend(c, &f.eur, "2026-01-10", 1_000, "Подарки");
+        let b = get(c, &m, "2026-02-01").unwrap();
+        assert_eq!(gifts(&b), 0, "без курса из месяца ничего не переносится");
+        assert_eq!(b.carry_missing_rates, vec!["EUR".to_string()]);
+        currencies::set_rate(c, "2026-01-01", "EUR", "RUB", "100").unwrap();
+        let b = get(c, &m, "2026-02-01").unwrap();
+        assert_eq!(gifts(&b), 130_000 - 100_000);
+        assert!(b.carry_missing_rates.is_empty());
     }
 
     #[test]

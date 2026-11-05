@@ -126,6 +126,11 @@ function BudgetView({ b }: { b: BudgetData }) {
       {b.missingRates.length > 0 && (
         <div className="card hint warn">Нет курса для {b.missingRates.join(", ")}: такие операции не вошли в факт. Курс вводится в Настройках.</div>
       )}
+      {b.carryMissingRates.length > 0 && (
+        <div className="card hint warn" data-testid="carry-missing-rates">
+          В прошлых месяцах есть траты в {b.carryMissingRates.join(", ")} без курса: остаток из этих месяцев не перенесён, пока курс не введён в Настройках.
+        </div>
+      )}
       <div className="tiles">
         <div className="card tile" data-testid="budget-planned">
           <div className="tile-label">
