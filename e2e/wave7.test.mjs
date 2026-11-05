@@ -246,7 +246,9 @@ test("пачка: категория двум операциям, перевод
       const rows = [...document.querySelectorAll('tr[data-testid="txn-row"]:not([data-receipt])')];
       const isTransfer = (r) => r.querySelector(".main")?.textContent.startsWith("Перевод");
       rows.find(isTransfer).querySelector('[data-testid="txn-select"]').click();
-      rows.find((r) => !isTransfer(r) && !r.querySelector(".main")?.textContent.startsWith("Корректировка")).querySelector('[data-testid="txn-select"]').click();
+      // Второй — обычный расход: верхняя строка бывает доходом (зарплата 5-го числа), а доход
+      // расходную категорию тоже не получает.
+      rows.find((r) => r.querySelector(".main")?.textContent.includes("Магазины")).querySelector('[data-testid="txn-select"]').click();
     });
     // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
     if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();

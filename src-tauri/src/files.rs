@@ -172,6 +172,11 @@ pub fn switch(state: &AppState, path: &Path) -> Result<(), String> {
         return Ok(());
     }
     let next = Storage::open(path, &state.open_options()).map_err(|e| e.to_string())?;
+    // 0.26: если при запуске был открыт бюджет со своей папкой, «Документы\P-Treasury»
+    // ещё не переименована — переносим, когда открывают бюджет с папкой по умолчанию.
+    if let Err(e) = budget_core::vault::migrate_default(next.conn(), &state.vault_default) {
+        eprintln!("папка сохранности не переименована, остаётся прежняя: {e}");
+    }
     // Старое соединение закрывается здесь, когда его место занимает новое.
     *guard = Ok(next);
     drop(guard);

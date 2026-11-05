@@ -171,6 +171,9 @@ pub fn parse_date(s: &str) -> Option<String> {
 pub(crate) struct Lookup {
     /// имя счёта в нижнем регистре → (id, знаки после запятой)
     accounts: HashMap<String, (String, u32)>,
+    /// Счета долгов (имя в нижнем регистре → id, знаки): операции по ним вносят в
+    /// «Долгах», из файла они только узнаются как уже записанные.
+    debts: HashMap<String, (String, u32)>,
     /// (вид, «родитель → подкатегория» или имя) в нижнем регистре → id; `None` — имя неоднозначно
     categories: HashMap<(String, String), Option<String>>,
     /// Все категории (вид, id, имя) — для поиска похожей.
@@ -263,6 +266,21 @@ pub(crate) fn lookup(conn: &Connection) -> Result<Lookup> {
         let (id, name, mu) = r?;
         accounts.insert(name.trim().to_lowercase(), (id, mu));
     }
+    let mut debts = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, c.minor_units FROM accounts a JOIN currencies c ON c.code = a.currency_code
+         WHERE a.type = 'debt'",
+    )?;
+    for r in stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, u32>(2)?,
+        ))
+    })? {
+        let (id, name, mu) = r?;
+        debts.entry(name.trim().to_lowercase()).or_insert((id, mu));
+    }
     let mut categories: HashMap<(String, String), Option<String>> = HashMap::new();
     let mut names = Vec::new();
     let mut stmt = conn.prepare(
@@ -321,6 +339,7 @@ pub(crate) fn lookup(conn: &Connection) -> Result<Lookup> {
     }
     Ok(Lookup {
         accounts,
+        debts,
         categories,
         names,
     })
@@ -497,6 +516,11 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             let (account_id, mu) = lk
                 .accounts
                 .get(&row.account.to_lowercase())
+                .or_else(|| {
+                    (kind == "transfer")
+                        .then(|| lk.debts.get(&row.account.to_lowercase()))
+                        .flatten()
+                })
                 .cloned()
                 .ok_or_else(|| format!("нет счёта «{}»", row.account))?;
             let amount = money::parse_amount(&row.amount, mu)
@@ -518,17 +542,18 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             };
             if kind == "transfer" {
                 let to = get(c_to);
-                let (to_id, to_mu) =
-                    lk.accounts
-                        .get(&to.to_lowercase())
-                        .cloned()
-                        .ok_or_else(|| {
-                            if to.is_empty() {
-                                "для перевода нужен «Счёт зачисления»".to_string()
-                            } else {
-                                format!("нет счёта зачисления «{to}»")
-                            }
-                        })?;
+                let (to_id, to_mu) = lk
+                    .accounts
+                    .get(&to.to_lowercase())
+                    .or_else(|| lk.debts.get(&to.to_lowercase()))
+                    .cloned()
+                    .ok_or_else(|| {
+                        if to.is_empty() {
+                            "для перевода нужен «Счёт зачисления»".to_string()
+                        } else {
+                            format!("нет счёта зачисления «{to}»")
+                        }
+                    })?;
                 let to_amount = get(c_to_amount);
                 if !to_amount.is_empty() {
                     input.to_amount = Some(
@@ -626,8 +651,21 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         // Уже есть такая операция (файл загружают второй раз, например
         // выгрузку «Операций»): пропускается. Части разбитого чека — каждая сама по себе.
         let input = match input {
-            Some(i) if repeat(conn, &i, &mut seen)? => {
+            Some(i)
+                if repeat(conn, &i, &mut seen)? || repeat_as_debt(conn, &lk, &i, &mut seen)? =>
+            {
                 row.duplicate = true;
+                None
+            }
+            // Перевод с долгом (выдача, платёж) из своей же выгрузки узнаётся выше
+            // как записанный; новый так не вносят — иначе разойдётся график долга.
+            Some(i)
+                if lk.debts.values().any(|(id, _)| {
+                    *id == i.account_id || i.to_account_id.as_deref() == Some(id.as_str())
+                }) =>
+            {
+                row.error =
+                    Some("операция по долгу: выдачу и платежи вносите в разделе «Долги»".into());
                 None
             }
             other => other,
@@ -693,6 +731,34 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
 /// Строка — повтор уже записанной операции (дата, счёт, тип, сумма, получатель;
 /// у перевода и счёт зачисления). N-я одинаковая строка файла — повтор, только
 /// если таких операций уже не меньше N: две одинаковые покупки за день остаются.
+/// Обычный счёт и должник с одинаковым именем («Иван»): строка выгрузки могла быть
+/// выдачей или платежом по долгу. Если такая операция по долгу уже записана — это повтор,
+/// а не новый перевод на одноимённый счёт (иначе списание удвоится).
+fn repeat_as_debt(
+    conn: &Connection,
+    lk: &Lookup,
+    t: &TxnInput,
+    seen: &mut HashMap<String, usize>,
+) -> Result<bool> {
+    if t.kind != "transfer" {
+        return Ok(false);
+    }
+    let debt_for = |id: &str| -> Option<String> {
+        let (name, _) = lk.accounts.iter().find(|(_, (a, _))| a == id)?;
+        lk.debts.get(name).map(|(d, _)| d.clone())
+    };
+    let mut alt = t.clone();
+    let mut changed = false;
+    if let Some(d) = debt_for(&t.account_id) {
+        alt.account_id = d;
+        changed = true;
+    } else if let Some(d) = t.to_account_id.as_deref().and_then(debt_for) {
+        alt.to_account_id = Some(d);
+        changed = true;
+    }
+    Ok(changed && repeat(conn, &alt, seen)?)
+}
+
 fn repeat(conn: &Connection, t: &TxnInput, seen: &mut HashMap<String, usize>) -> Result<bool> {
     let key = format!(
         "{}|{}|{}|{}|{}|{}",

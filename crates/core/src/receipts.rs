@@ -181,6 +181,23 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
         )?;
         tx.execute("DELETE FROM transactions WHERE id = ?1", [old])?;
     }
+    // Части с возвратами подчиняются тем же правилам, что обычная покупка: не меньше
+    // возвращённого, не позже возврата; месяц и категория возвратов следуют за частью.
+    for id in &ids {
+        let (amount, category): (i64, Option<String>) = tx.query_row(
+            "SELECT amount, category_id FROM transactions WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        crate::refunds::purchase_edited(
+            &tx,
+            id,
+            "expense",
+            amount,
+            &input.date,
+            category.as_deref(),
+        )?;
+    }
     tx.commit()?;
     Ok(())
 }

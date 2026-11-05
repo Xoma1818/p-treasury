@@ -572,5 +572,27 @@ mod tests {
         );
         // Лимит работает: вернули 2 500 из 3 100, ещё 1 000 нельзя.
         assert!(create(db.conn(), &refund(&new_part, "2026-10-23", 100_000)).is_err());
+        // Ревью 04.11 (P1): часть нельзя уменьшить ниже возвращённого — чек не меняется.
+        assert!(receipts::update(db.conn_mut(), &split, &input(200_000, 300_000)).is_err());
+        assert_eq!(
+            transactions::get(db.conn(), &new_part).unwrap().amount,
+            310_000
+        );
+        // Перенос чека: возврат, учтённый в месяце покупки, переезжает с ним…
+        let mut moved = input(310_000, 190_000);
+        moved.date = "2026-10-21".into();
+        receipts::update(db.conn_mut(), &split, &moved).unwrap();
+        let count: Option<String> = db
+            .conn()
+            .query_row(
+                "SELECT count_date FROM transactions WHERE id = ?1",
+                [&r],
+                |x| x.get(0),
+            )
+            .unwrap();
+        assert_eq!(count.as_deref(), Some("2026-10-21"));
+        // …а позже возврата чек не уносится.
+        moved.date = "2026-10-23".into();
+        assert!(receipts::update(db.conn_mut(), &split, &moved).is_err());
     }
 }
