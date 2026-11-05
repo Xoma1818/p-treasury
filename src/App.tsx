@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
+import { LOOK_KEY, savedLook, showLook } from "./lib/look";
 import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
 import { loadPrefs, prefsToApply } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
@@ -77,6 +78,7 @@ export function App() {
     if (restored.some((k) => k === NAV_KEY || k === ADD_KEY)) notifyNav();
     if (restored.includes(FORM_KEY)) notifyForm();
     if (restored.includes(HEAD_KEY)) notifyHead();
+    if (restored.includes(LOOK_KEY)) showLook(savedLook());
   }, [settingsData]);
   // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
   const { sectionOn } = useModules();

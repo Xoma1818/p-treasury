@@ -68,3 +68,15 @@ describe("своя Главная", () => {
     expect(l.order).toContain("checks");
   });
 });
+
+describe("карточки в половину ширины (Г7)", () => {
+  it("переключаются и сохраняются, неизвестные отбрасываются", async () => {
+    const { toggleHalf } = await import("./homeLayout");
+    const l = toggleHalf(DEFAULT_LAYOUT, "tiles");
+    expect(l.half).toEqual(["tiles"]);
+    expect(parseLayout(toSetting(l)).half).toEqual(["tiles"]);
+    expect(toggleHalf(l, "tiles").half).toBeUndefined();
+    expect(parseLayout(JSON.stringify({ ...JSON.parse(toSetting(l)), half: ["tiles", "nope"] })).half).toEqual(["tiles"]);
+    expect(parseLayout(toSetting(DEFAULT_LAYOUT)).half).toBeUndefined();
+  });
+});

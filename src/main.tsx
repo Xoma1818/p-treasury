@@ -8,6 +8,7 @@ import { isTauri } from "./lib/api";
 import { installSeenSections } from "./lib/motion";
 import { installScale } from "./lib/scale";
 import { applyTheme, savedTheme } from "./lib/theme";
+import { savedLook, showLook } from "./lib/look";
 import "./styles.css";
 import "./features.css";
 import "./invest.css";
@@ -15,6 +16,7 @@ import "./loans.css";
 import "./forecast.css";
 
 applyTheme(savedTheme());
+showLook(savedLook());
 
 // Одна и та же страница служит главному окну и окну быстрого ввода.
 const quick = isTauri() && getCurrentWindow().label === "quick";

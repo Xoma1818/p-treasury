@@ -26,6 +26,8 @@ export interface HomeLayout {
   hidden: HomeBlock[];
   /** 2 — сохранено версией 0.21 и новее: новые карточки из обновлений приходят скрытыми. */
   v?: 2;
+  /** Г7: карточки в половину ширины (две в ряд); остальные — во всю строку. */
+  half?: HomeBlock[];
 }
 
 const ALL = Object.keys(HOME_BLOCKS) as HomeBlock[];
@@ -58,7 +60,9 @@ export function parseLayout(raw: string | undefined | null): HomeLayout {
     const prev = ALL.slice(0, ALL.indexOf(b)).reverse().find((p) => order.includes(p));
     order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, b);
   }
-  return v2 ? { order, hidden, v: 2 } : { order, hidden };
+  const half = known(v.half);
+  const out: HomeLayout = v2 ? { order, hidden, v: 2 } : { order, hidden };
+  return half.length ? { ...out, half } : out;
 }
 
 /** Передвинуть карточку на `delta` позиций (−1 — выше). */
@@ -84,7 +88,15 @@ export function toggleBlock(l: HomeLayout, block: HomeBlock): HomeLayout {
   return { ...l, hidden };
 }
 
+/** Половина ширины ↔ вся строка. */
+export function toggleHalf(l: HomeLayout, block: HomeBlock): HomeLayout {
+  const cur = l.half ?? [];
+  const half = cur.includes(block) ? cur.filter((b) => b !== block) : [...cur, block];
+  const { half: _, ...rest } = l;
+  return half.length ? { ...rest, half } : rest;
+}
+
 /** Раскладка к сохранению: всегда в новом виде. */
 export function toSetting(l: HomeLayout): string {
-  return JSON.stringify({ order: l.order, hidden: l.hidden, v: 2 });
+  return JSON.stringify({ order: l.order, hidden: l.hidden, v: 2, ...(l.half?.length ? { half: l.half } : {}) });
 }
