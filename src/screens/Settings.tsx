@@ -21,9 +21,9 @@ import { ModulesCard } from "../components/ModulesCard";
 import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
-import { formatDate, today } from "../lib/dates";
+import { formatDate, formatDateTime, today } from "../lib/dates";
 import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
-import { rateSource } from "../lib/rates";
+import { formatRate, rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 
@@ -410,21 +410,40 @@ function SettingsNav() {
 
 const RATES_SHOWN = 12;
 
+/** Сегодняшняя дата, которая сама меняется после полуночи, пока экран открыт. */
+function useToday(): string {
+  const [day, setDay] = useState(today);
+  useEffect(() => {
+    const timer = setInterval(() => setDay(today()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return day;
+}
+
 function Rates({ base }: { base: string }) {
   const currencies = useCurrencies().data ?? [];
+  const now = useToday();
   const rates = useQuery({ queryKey: ["rates"], queryFn: api.listRates });
-  const [cbrDate, setCbrDate] = useState(today());
-  const [date, setDate] = useState(today());
+  const overview = useQuery({ queryKey: ["ratesOverview", now], queryFn: () => api.ratesOverview(now) });
+  // null — «сегодня»: дата берётся в момент нажатия, а не при открытии экрана.
+  const [cbrDate, setCbrDate] = useState<string | null>(null);
+  const [date, setDate] = useState<string | null>(null);
   const [from, setFrom] = useState("USD");
   const [rate, setRate] = useState("");
+  const [history, setHistory] = useState(false);
   const [all, setAll] = useState(false);
   const autoRates = useSettings().data?.rates_auto !== "0";
   const toggleAuto = useAction(api.setSetting);
   const add = useAction(api.setRate, () => setRate(""));
   const remove = useAction(api.deleteRate);
   const symbol = (code: string) => currencies.find((c) => c.code === code)?.symbol ?? code;
+  const choices = currencies.filter((c) => c.code !== base);
+  // Основная валюта убрана из списка: если она была выбрана, берём первую из оставшихся.
+  const fromCode = choices.some((c) => c.code === from) ? from : (choices[0]?.code ?? "");
   const list = rates.data ?? [];
   const shown = all ? list : list.slice(0, RATES_SHOWN);
+  const current = overview.data?.rates ?? [];
+  const checkedAt = overview.data?.checkedAt;
 
   return (
     <div className="card" data-testid="rates-card">
@@ -433,13 +452,38 @@ function Rates({ base }: { base: string }) {
         <Hint of="rates" />
       </h2>
       <p className="muted">
-        Курс к основной валюте на дату. Для пересчёта берётся последний известный курс на день операции.
+        Курс к основной валюте. Для пересчёта операции берётся последний известный курс на её день, поэтому прежние курсы хранятся в истории.
+      </p>
+      {current.length > 0 && (
+        <table className="table compact rates-table rates-now" data-testid="rates-now">
+          <thead>
+            <tr>
+              <th>Валюта</th>
+              <th>Действующий курс</th>
+              <th>Действует с</th>
+              <th>Источник</th>
+            </tr>
+          </thead>
+          <tbody>
+            {current.map((r) => (
+              <tr key={r.code} data-code={r.code} data-source={r.source ?? undefined}>
+                <td>{r.code}</td>
+                <td className="num">{r.rate ? `1 ${r.code} = ${formatRate(r.rate)} ${symbol(base)}` : <span className="muted">нет курса</span>}</td>
+                <td className="date">{r.date ? formatDate(r.date) : "—"}</td>
+                <td>{r.source ? <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span> : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="hint" data-testid="rates-checked">
+        {checkedAt ? `Последняя проверка ЦБ РФ: ${formatDateTime(checkedAt)}` : "Курсы ЦБ РФ ещё не загружались."}
       </p>
       <div className="rates-block">
         <h3>Официальный курс ЦБ РФ</h3>
         <div className="inline-form">
-          <input type="date" aria-label="Дата курсов ЦБ" name="cbrDate" value={cbrDate} max={today()} onChange={(e) => setCbrDate(e.target.value)} />
-          <CbrButton date={cbrDate} />
+          <input type="date" aria-label="Дата курсов ЦБ" name="cbrDate" value={cbrDate ?? now} max={now} onChange={(e) => setCbrDate(e.target.value && e.target.value !== now ? e.target.value : null)} />
+          <CbrButton date={cbrDate ?? undefined} />
         </div>
         <p className="hint">Загружаются курсы доллара, евро, юаня, фунта, тенге и всех валют ваших счетов и долгов с сайта cbr.ru. Нужен интернет.</p>
         <label className="check small">
@@ -449,53 +493,61 @@ function Rates({ base }: { base: string }) {
       </div>
       <div className="rates-block">
         <h3>Ввести вручную</h3>
-        <form className="inline-form" onSubmit={(e) => (e.preventDefault(), add.run(date, from, base, rate))}>
-          <input type="date" aria-label="Дата курса" name="rateDate" value={date} onChange={(e) => setDate(e.target.value)} />
+        <form className="inline-form" onSubmit={(e) => (e.preventDefault(), add.run(date ?? today(), fromCode, base, rate))}>
+          <input type="date" aria-label="Дата курса" name="rateDate" value={date ?? now} onChange={(e) => setDate(e.target.value && e.target.value !== now ? e.target.value : null)} />
           <span>1</span>
-          <select aria-label="Валюта" name="rateFrom" value={from} onChange={(e) => setFrom(e.target.value)}>
-            {currencies
-              .filter((c) => c.code !== base)
-              .map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code}
-                </option>
-              ))}
+          <select aria-label="Валюта" name="rateFrom" value={fromCode} onChange={(e) => setFrom(e.target.value)}>
+            {choices.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code}
+              </option>
+            ))}
           </select>
           <span>=</span>
           <input aria-label="Курс" name="rate" className="amount" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="92,15" />
           <span>{symbol(base)}</span>
-          <button className="btn" type="submit" aria-busy={add.busy} data-done={add.done || undefined} disabled={add.busy || !rate.trim()}>
+          <button className="btn" type="submit" aria-busy={add.busy} data-done={add.done || undefined} disabled={add.busy || !rate.trim() || !fromCode}>
             Добавить
           </button>
         </form>
+        <p className="hint">Ручной курс на дату главнее курса ЦБ на ту же дату, в обе стороны пересчёта.</p>
         <ErrorText error={add.error ?? remove.error} />
       </div>
       {list.length > 0 && (
-        <table className="table compact rates-table" data-testid="rates">
-          <tbody>
-            {shown.map((r) => (
-              <tr key={`${r.date}-${r.fromCode}-${r.toCode}`} data-source={r.source}>
-                <td className="date">{formatDate(r.date)}</td>
-                <td>
-                  1 {r.fromCode} = {r.rate.replace(".", ",")} {symbol(r.toCode)}
-                </td>
-                <td>
-                  <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span>
-                </td>
-                <td className="row-actions">
-                  <button className="link danger" onClick={() => remove.run(r.date, r.fromCode, r.toCode)}>
-                    Удалить
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {list.length > RATES_SHOWN && (
-        <button className="link table-foot" onClick={() => setAll(!all)}>
-          {all ? "Свернуть" : `Показать все (${list.length})`}
-        </button>
+        <div className="rates-block">
+          <button type="button" className="link" data-testid="rates-history-toggle" aria-expanded={history} onClick={() => setHistory(!history)}>
+            {history ? "▾" : "▸"} История курсов ({list.length})
+          </button>
+          {history && (
+            <>
+              <table className="table compact rates-table" data-testid="rates">
+                <tbody>
+                  {shown.map((r) => (
+                    <tr key={`${r.date}-${r.fromCode}-${r.toCode}`} data-source={r.source}>
+                      <td className="date">{formatDate(r.date)}</td>
+                      <td>
+                        1 {r.fromCode} = {formatRate(r.rate)} {symbol(r.toCode)}
+                      </td>
+                      <td>
+                        <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span>
+                      </td>
+                      <td className="row-actions">
+                        <button className="link danger" onClick={() => remove.run(r.date, r.fromCode, r.toCode)}>
+                          Удалить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {list.length > RATES_SHOWN && (
+                <button className="link table-foot" onClick={() => setAll(!all)}>
+                  {all ? "Свернуть" : `Показать все (${list.length})`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   );

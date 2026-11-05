@@ -383,6 +383,14 @@ export async function mainText(browser) {
 }
 
 /** Дождаться, пока текст элемента станет подходящим. */
+/** Раскрыть «Историю курсов» в Настройках (с 0.32 она свёрнута под действующими курсами). */
+export async function rateHistory(browser) {
+  const toggle = await browser.$('[data-testid="rates-history-toggle"]');
+  await toggle.waitForExist({ timeout: 5000 });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await (await browser.$('[data-testid="rates"]')).waitForExist({ timeout: 5000 });
+}
+
 export async function waitText(browser, selector, re, timeout = 5000) {
   let last = "";
   await browser

@@ -188,7 +188,16 @@ pub async fn load_cbr_rates(
     date: String,
 ) -> CmdResult<cbr::ImportResult> {
     let daily = download_cbr(&date).await?;
-    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+    let result = with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))?;
+    // Время проверки — вне отмены: Ctrl+Z убирает курсы, а не факт проверки.
+    with_db(&state, |db| cbr::mark_checked(db.conn()))?;
+    Ok(result)
+}
+
+/// Действующие курсы по валютам и время последней проверки ЦБ (Настройки).
+#[tauri::command(async)]
+pub fn rates_overview(state: State<AppState>, date: String) -> CmdResult<cbr::RatesOverview> {
+    with_db(&state, |db| cbr::overview(db.conn(), &date))
 }
 
 /// Курсы ЦБ раз в день сами: при запуске и пока программа открыта.
