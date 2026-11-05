@@ -1033,3 +1033,11 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .menu-note { padding: 6px 12px 2px; margin: 4px 0 0; font-size: 12px; border-top: 1px solid var(--border); }
 .group-row .group-partial { font-weight: 400; font-size: 12px; }
 .table-menu { max-height: min(70vh, 640px); overflow-y: auto; }
+
+/* Г12: «Тонкие настройки» — свёрнутая карточка. */
+.fine-card > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.fine-card > summary::-webkit-details-marker { display: none; }
+.fine-card > summary h2 { margin: 0; }
+.fine-card > summary h2::after { content: " ▸"; color: var(--muted); font-weight: 400; }
+.fine-card[open] > summary h2::after { content: " ▾"; }
+.fine-card[open] > summary { margin-bottom: 12px; }

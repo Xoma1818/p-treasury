@@ -9,7 +9,8 @@ import { leadText, OccurrenceItem, parseLead, ReminderForm } from "../components
 import { TXN_DRAG, TxnTable } from "../components/TxnTable";
 import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
-import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, WEEKDAYS, weekStart } from "../lib/dates";
+import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, weekdays, weekStart } from "../lib/dates";
+import { useFine, weekdayIndex } from "../lib/fine";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -140,8 +141,9 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
   // Перетаскивание операции из панели дня на другой день.
   const [over, setOver] = useState<string | null>(null);
   const move = useAction(api.moveTransaction, () => {});
-  // Пустые клетки до первого числа: неделя с понедельника.
-  const lead = m ? (new Date(`${month}-01T00:00`).getDay() + 6) % 7 : 0;
+  // Пустые клетки до первого числа: неделя с понедельника или воскресенья (Г12).
+  const fineView = useFine();
+  const lead = m ? weekdayIndex(new Date(`${month}-01T00:00`).getDay(), fineView) : 0;
   return (
     <>
       <div className="period-nav">
@@ -163,7 +165,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
       {m && (
         <>
           <div className="card cal-grid" data-testid="calendar">
-            {WEEKDAYS.map((w) => (
+            {weekdays().map((w) => (
               <div key={w} className="cal-weekday">
                 {w}
               </div>
@@ -240,7 +242,7 @@ function WeekView({ start, selected, select }: { start: string; selected: string
             {m.days.map((d, i) => (
               <li key={d.date} className={d.date === selected ? "selected clickable" : "clickable"} onClick={() => select(d.date)} data-testid="week-day">
                 <span className="week-date">
-                  {WEEKDAYS[i]}, {formatDate(d.date)}
+                  {weekdays()[i]}, {formatDate(d.date)}
                 </span>
                 <DayChips day={d} m={m} />
               </li>

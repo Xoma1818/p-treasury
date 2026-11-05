@@ -336,8 +336,13 @@ fn large(conn: &Connection, list: &[Spend], since: &str) -> Result<Vec<Check>> {
 /// «Всё в порядке». Пусто — карточка показывает «Всё спокойно».
 pub fn list(conn: &Connection, today: &str) -> Result<Vec<Check>> {
     let today_d = time::parse_date(today)?;
-    let since = (today_d - Duration::days(WINDOW_DAYS - 1)).to_string();
-    let history_from = (today_d - Duration::days(WINDOW_DAYS + LARGE_HISTORY_DAYS)).to_string();
+    // Г12: за сколько дней смотреть — настройка «checks_days» (7–180), по умолчанию 30.
+    let window = crate::settings::get(conn, "checks_days")?
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|d| (7..=180).contains(d))
+        .unwrap_or(WINDOW_DAYS);
+    let since = (today_d - Duration::days(window - 1)).to_string();
+    let history_from = (today_d - Duration::days(window + LARGE_HISTORY_DAYS)).to_string();
     let all = spends(conn, &history_from, today)?;
     let mut out = duplicates(&all, &since)?;
     out.extend(large(conn, &all, &since)?);
