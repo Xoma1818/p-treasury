@@ -28,6 +28,7 @@ pub mod forecast;
 pub mod free_money;
 pub mod goals;
 pub mod habits;
+pub mod history;
 pub mod ids;
 pub mod import_log;
 pub mod invest;

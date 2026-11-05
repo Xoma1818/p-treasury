@@ -918,6 +918,9 @@ h2 { font-size: 16px; }
 /* 0.29: форма операции — второстепенное в строке «Ещё». */
 .form .more-toggle { align-self: flex-start; font-size: 13px; color: var(--muted); }
 .form .more-toggle:hover { color: var(--accent); }
+.txn-history { font-size: 13px; }
+.txn-history-list { margin: 6px 0 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+.txn-history-list s { text-decoration-thickness: 1px; }
 
 /* 0.30 (тред 27, этап 2в): Главная — «+ Расход ▾», тихая «Настроить Главную», пустые карточки одной строкой. */
 .split-btn { position: relative; display: inline-flex; }

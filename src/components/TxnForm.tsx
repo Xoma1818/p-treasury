@@ -18,6 +18,7 @@ import { savedTxnOpen } from "../lib/txnOpen";
 import { Hint } from "./Hint";
 import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
+import { TxnHistory } from "./TxnHistory";
 
 const TABS: [TxnType, string][] = [
   ["expense", "Расход"],
@@ -622,6 +623,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
           transactionIds={splitId ? receipt.data?.parts.map((p) => p.id) : undefined}
           disabled={!!splitId && (save.busy || remove.busy || receipt.isFetching)}
         />}
+        {editing && !splitId && <TxnHistory id={editing.id} />}
         {!editing &&
           (templateName === null ? (
             <div>

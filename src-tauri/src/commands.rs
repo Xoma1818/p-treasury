@@ -1934,6 +1934,14 @@ pub fn delete_receipt(state: State<AppState>, split_id: String) -> CmdResult<()>
 }
 
 #[tauri::command(async)]
+pub fn transaction_history(
+    state: State<AppState>,
+    id: String,
+) -> CmdResult<budget_core::history::TxnHistory> {
+    with_db(&state, |db| budget_core::history::get(db.conn(), &id))
+}
+
+#[tauri::command(async)]
 pub fn get_receipt(state: State<AppState>, split_id: String) -> CmdResult<Receipt> {
     with_db(&state, |db| receipts::get(db.conn(), &split_id))
 }

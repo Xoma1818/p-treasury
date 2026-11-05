@@ -1601,6 +1601,21 @@ export interface ReceiptPart {
   note: string | null;
 }
 
+/** Запись истории изменений операции. */
+export interface TxnChange {
+  /** Когда (UTC, ISO 8601). */
+  at: string;
+  kind: "update" | "delete";
+  fields: { field: string; before: string; after: string }[];
+}
+
+export interface TxnHistory {
+  /** Когда добавлена (UTC); null, если операции уже нет. */
+  createdAt: string | null;
+  imported: boolean;
+  changes: TxnChange[];
+}
+
 export interface Receipt {
   splitId: string;
   date: string;
@@ -1944,6 +1959,7 @@ export const api = {
   updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
   deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),
   getReceipt: (splitId: string) => invoke<Receipt>("get_receipt", { splitId }),
+  transactionHistory: (id: string) => invoke<TxnHistory>("transaction_history", { id }),
   listTags: () => invoke<Tag[]>("list_tags"),
   setTransactionTags: (id: string, tags: string[]) => invoke<void>("set_transaction_tags", { id, tags }),
   renameTag: (id: string, name: string) => invoke<void>("rename_tag", { id, name }),

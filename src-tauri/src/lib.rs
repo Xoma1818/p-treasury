@@ -383,6 +383,7 @@ pub fn run() {
             commands::update_receipt,
             commands::delete_receipt,
             commands::get_receipt,
+            commands::transaction_history,
             commands::list_tags,
             commands::set_transaction_tags,
             commands::rename_tag,
