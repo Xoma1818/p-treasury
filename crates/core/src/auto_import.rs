@@ -12,7 +12,7 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::bank_import::{self, is_repeat};
+use crate::bank_import;
 use crate::{csv_import, import_log, time, Result};
 
 /// Выписка банка, для которого ещё не выбран счёт. Такой файл берётся снова,
@@ -20,9 +20,10 @@ use crate::{csv_import, import_log, time, Result};
 const NO_ACCOUNT: &str = "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»";
 
 /// Чужой файл: не выписка и не шаблон. Больше не читается.
-const NOT_OURS: &str = "не выписка и не шаблон";
-/// Прежняя отметка чужого файла (до 0.30).
-const OLD_NOT_OURS: &str = "не выписка";
+const NOT_OURS: &str = "чужой файл";
+/// Прежние отметки чужого файла: до 0.30 и до новой выгрузки Т-Банка
+/// «Operations …» (столбец «Сумма в валюте счёта»). Такие файлы смотрим ещё раз.
+const OLD_NOT_OURS: [&str; 2] = ["не выписка", "не выписка и не шаблон"];
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,8 +136,8 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
             None => false,
             Some(Some(e)) if e == NO_ACCOUNT => true,
             // Отмечен до того, как программа научилась читать Excel по
-            // шаблону: смотрим ещё раз, один раз.
-            Some(Some(e)) if e == OLD_NOT_OURS => false,
+            // шаблону и новую выгрузку Т-Банка: смотрим ещё раз, один раз.
+            Some(Some(e)) if OLD_NOT_OURS.contains(&e.as_str()) => false,
             Some(_) => continue,
         };
         let name = path
@@ -149,11 +150,20 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
         };
         let template = looks_like_template(&path);
         let parsed = if template {
-            csv_import::parse(conn, &path).map(|(p, r)| Some((None, p, r)))
+            csv_import::parse(conn, &path).map(|(p, refunds)| {
+                Some((
+                    None,
+                    p,
+                    csv_import::Extra {
+                        refunds,
+                        ..Default::default()
+                    },
+                ))
+            })
         } else {
             match bank_import::read(&path) {
-                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None)
-                    .map(|p| Some((Some(bank), p, Vec::new()))),
+                Ok(Some((bank, ops))) => bank_import::to_parsed(conn, bank, &ops, None, None)
+                    .map(|(p, extra)| Some((Some(bank), p, extra))),
                 // Не выписка или не читается — чужой файл, молча пропускаем.
                 Ok(None) | Err(_) => Ok(None),
             }
@@ -161,15 +171,16 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
         let known = !matches!(parsed, Ok(None));
         match parsed {
             // Файл по шаблону: повторы и возвраты разобраны при чтении.
-            Ok(Some((None, parsed, refunds))) => {
+            Ok(Some((None, parsed, extra))) => {
                 res.skipped = parsed.iter().filter(|p| p.input.is_none()).count();
                 let tx = conn.transaction()?;
                 let s = csv_import::save_rows(
                     &tx,
                     import_log::Origin::Folder,
                     &res.name,
+                    None,
                     parsed,
-                    &refunds,
+                    &extra.refunds,
                     res.skipped,
                 )?;
                 tx.commit()?;
@@ -177,7 +188,7 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 res.linked = s.linked;
                 res.suggested = s.suggested;
             }
-            Ok(Some((bank, parsed, _))) => {
+            Ok(Some((bank, mut parsed, extra))) => {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
@@ -185,37 +196,22 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 if retry && no_account {
                     continue;
                 }
-                // Дубли ищутся среди операций, загруженных до этого файла: две
-                // одинаковые поездки в один день в самой выписке — две операции.
-                let (mut new, mut raws) = (Vec::new(), Vec::new());
-                let mut seen = std::collections::HashMap::new();
-                for p in parsed {
-                    match p.input {
-                        Some(input)
-                            if !is_repeat(conn, &input, p.raw_payee.as_deref(), &mut seen)? =>
-                        {
-                            new.push(input);
-                            raws.push(p.raw_payee);
-                        }
-                        _ => res.skipped += 1,
-                    }
-                }
-                let tx = conn.transaction()?;
-                let saved = if new.is_empty() {
-                    None
-                } else {
-                    Some(import_log::save_with_raw(
+                // Повторы уже отмечены при разборе: N-я одинаковая строка файла —
+                // повтор, только если таких операций записано не меньше N.
+                res.skipped = parsed.iter().filter(|p| p.input.is_none()).count();
+                if parsed.iter().any(|p| p.input.is_some()) {
+                    let tx = conn.transaction()?;
+                    csv_import::create_categories(&tx, &mut parsed, &extra.categories)?;
+                    let s = csv_import::save_rows(
                         &tx,
                         import_log::Origin::Folder,
                         &res.name,
                         bank.map(|b| b.title()),
-                        &new,
-                        &raws,
+                        parsed,
+                        &extra.refunds,
                         res.skipped,
-                    )?)
-                };
-                tx.commit()?;
-                if let Some(s) = saved {
+                    )?;
+                    tx.commit()?;
                     res.added = s.added;
                     res.linked = s.linked;
                     res.suggested = s.suggested;

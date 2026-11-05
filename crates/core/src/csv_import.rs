@@ -52,6 +52,10 @@ pub struct Preview {
     pub bank: Option<String>,
     /// Счёт, на который пойдёт выписка банка (выбранный или запомненный).
     pub account_id: Option<String>,
+    /// Строки выписки «Между своими счетами»: для них спрашивается второй счёт.
+    pub self_transfers: usize,
+    /// Второй свой счёт для таких переводов (выбранный или запомненный).
+    pub self_account_id: Option<String>,
 }
 
 pub(crate) struct Parsed {
@@ -164,7 +168,7 @@ pub fn parse_date(s: &str) -> Option<String> {
         .map(|d| d.to_string())
 }
 
-struct Lookup {
+pub(crate) struct Lookup {
     /// имя счёта в нижнем регистре → (id, знаки после запятой)
     accounts: HashMap<String, (String, u32)>,
     /// Счета долгов (имя в нижнем регистре → id, знаки): операции по ним вносят в
@@ -200,6 +204,17 @@ pub(crate) struct NewCategory {
     name: String,
 }
 
+impl NewCategory {
+    /// Категория верхнего уровня (из выписки банка).
+    pub(crate) fn top(kind: &str, name: &str) -> Self {
+        NewCategory {
+            kind: kind.to_string(),
+            parent: None,
+            name: name.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Parent {
     Existing(String),
@@ -217,7 +232,7 @@ fn stems(s: &str) -> Vec<String> {
 
 /// Похожая категория того же вида: больше всего общих основ слов
 /// («Продукты питания» → «Питание», «Кафе и рестораны» → «Рестораны»).
-fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
+pub(crate) fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
     let want = stems(name);
     if want.is_empty() {
         return None;
@@ -235,7 +250,7 @@ fn similar(lk: &Lookup, kind: &str, name: &str) -> Option<(String, String)> {
         .map(|(_, id, n)| (id.clone(), n.clone()))
 }
 
-fn lookup(conn: &Connection) -> Result<Lookup> {
+pub(crate) fn lookup(conn: &Connection) -> Result<Lookup> {
     let mut accounts = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT a.id, a.name, c.minor_units FROM accounts a JOIN currencies c ON c.code = a.currency_code
@@ -777,7 +792,7 @@ fn repeat(conn: &Connection, t: &TxnInput, seen: &mut HashMap<String, usize>) ->
 /// Покупка, к которой относится возврат: обычный проведённый расход той же
 /// категории и получателя, где осталось вернуть не меньше суммы возврата; в дату
 /// для бюджета, если она есть, иначе последняя не позже возврата.
-fn purchase_for(
+pub(crate) fn purchase_for(
     conn: &Connection,
     category: &str,
     t: &TxnInput,
@@ -799,13 +814,14 @@ fn purchase_for(
         .optional()?)
 }
 
-/// Записать разобранные строки файла по шаблону: операции — через историю
+/// Записать разобранные строки файла по шаблону или выписки банка (`bank`): операции — через историю
 /// импорта, возвраты — возвратами своих покупок (они могли загрузиться этим же
 /// файлом). Всё в транзакции вызывающего.
 pub(crate) fn save_rows(
     conn: &Connection,
     origin: import_log::Origin,
     file_name: &str,
+    bank: Option<&str>,
     parsed: Vec<Parsed>,
     refunds: &Refunds,
     skipped: usize,
@@ -823,7 +839,7 @@ pub(crate) fn save_rows(
         }
     }
     let mut saved =
-        import_log::save_with_raw(conn, origin, file_name, None, &plain.0, &plain.1, skipped)?;
+        import_log::save_with_raw(conn, origin, file_name, bank, &plain.0, &plain.1, skipped)?;
     for (line, t, budget) in back {
         let of = t
             .category_id
@@ -860,13 +876,18 @@ type Statement = (bank_import::Bank, Vec<bank_import::Op>);
 type Parsed3 = (Vec<Parsed>, Extra, Option<Statement>);
 
 /// Выписка банка или CSV по шаблону. В базу ничего не пишет.
-fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Parsed3> {
+fn parse_any(
+    conn: &Connection,
+    path: &Path,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<Parsed3> {
     if let Some((bank, ops)) = bank_import::read(path)? {
         if ops.is_empty() {
             return invalid("в выписке нет проведённых операций");
         }
-        let parsed = bank_import::to_parsed(conn, bank, &ops, account_id)?;
-        return Ok((parsed, Extra::default(), Some((bank, ops))));
+        let (parsed, extra) = bank_import::to_parsed(conn, bank, &ops, account_id, self_id)?;
+        return Ok((parsed, extra, Some((bank, ops))));
     }
     let is_csv = path
         .extension()
@@ -881,13 +902,35 @@ fn parse_any(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result
 /// Предпросмотр: каждая строка с ошибкой или без. Для выписки банка
 /// `account_id` — выбранный счёт (без него — запомненный).
 pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Result<Preview> {
-    let (mut parsed, _, bank) = parse_any(conn, path, account_id)?;
+    preview_with(conn, path, account_id, None)
+}
+
+/// Предпросмотр с выбранным вторым счётом для переводов «Между своими
+/// счетами» (`self_id`: `None` — запомненный, `Some("")` — не переводить).
+pub fn preview_with(
+    conn: &Connection,
+    path: &Path,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<Preview> {
+    let (mut parsed, extra, bank) = parse_any(conn, path, account_id, self_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
-    let inputs: Vec<TxnInput> = parsed.iter().filter_map(|p| p.input.clone()).collect();
+    // Возвраты пишутся возвратами своих покупок и с ручными записями не связываются.
+    let is_refund = |i: usize| extra.refunds.iter().any(|(r, _)| *r == i);
+    let inputs: Vec<TxnInput> = parsed
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !is_refund(*i))
+        .filter_map(|(_, p)| p.input.clone())
+        .collect();
     let mut marks = import_log::marks(conn, bank.is_some(), &inputs)?.into_iter();
     let (mut linked, mut doubtful) = (0, 0);
-    for p in parsed.iter_mut().filter(|p| p.input.is_some()) {
+    for (_, p) in parsed
+        .iter_mut()
+        .enumerate()
+        .filter(|(i, p)| p.input.is_some() && !is_refund(*i))
+    {
         match marks.next() {
             Some(import_log::Mark::Link(what)) => {
                 p.row.linked_to = Some(what);
@@ -906,6 +949,13 @@ pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Resu
             .or_else(|| bank_import::remembered(conn).ok()?.get(b.key()).cloned()),
         None => None,
     };
+    let (self_transfers, self_account_id) = match &bank {
+        Some((b, ops)) => (
+            ops.iter().filter(|o| bank_import::own_transfer(o)).count(),
+            bank_import::self_account(conn, *b, self_id)?,
+        ),
+        None => (0, None),
+    };
     Ok(Preview {
         valid: parsed.iter().filter(|p| p.input.is_some()).count() - linked,
         errors,
@@ -914,6 +964,8 @@ pub fn preview(conn: &Connection, path: &Path, account_id: Option<&str>) -> Resu
         doubtful,
         bank: bank.map(|(b, _)| b.title().to_string()),
         account_id,
+        self_transfers,
+        self_account_id,
         rows: parsed.into_iter().map(|p| p.row).collect(),
     })
 }
@@ -929,7 +981,19 @@ pub fn import(
     skip_errors: bool,
     account_id: Option<&str>,
 ) -> Result<import_log::Saved> {
-    let (mut parsed, extra, bank) = parse_any(conn, path, account_id)?;
+    import_with(conn, path, skip_errors, account_id, None)
+}
+
+/// Загрузка с выбранным вторым счётом для переводов себе (см. [`preview_with`]);
+/// выбор запоминается для следующих выписок этого банка.
+pub fn import_with(
+    conn: &mut Connection,
+    path: &Path,
+    skip_errors: bool,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<import_log::Saved> {
+    let (mut parsed, extra, bank) = parse_any(conn, path, account_id, self_id)?;
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
@@ -944,33 +1008,20 @@ pub fn import(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    if bank.is_none() {
-        let saved = save_rows(
-            &tx,
-            import_log::Origin::Manual,
-            &name,
-            parsed,
-            &extra.refunds,
-            skipped,
-        )?;
-        tx.commit()?;
-        return Ok(saved);
-    }
-    let (inputs, raws): (Vec<TxnInput>, Vec<Option<String>>) = parsed
-        .into_iter()
-        .filter_map(|p| p.input.map(|i| (i, p.raw_payee)))
-        .unzip();
-    let saved = import_log::save_with_raw(
+    let saved = save_rows(
         &tx,
         import_log::Origin::Manual,
         &name,
         bank.as_ref().map(|(b, _)| b.title()),
-        &inputs,
-        &raws,
+        parsed,
+        &extra.refunds,
         skipped,
     )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
         bank_import::remember(&tx, *bank, ops, id)?;
+    }
+    if let (Some((bank, _)), Some(id)) = (&bank, self_id) {
+        bank_import::remember_self(&tx, *bank, Some(id).filter(|id| !id.is_empty()))?;
     }
     tx.commit()?;
     Ok(saved)

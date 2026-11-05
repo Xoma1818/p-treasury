@@ -89,6 +89,8 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
+  // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
+  const [selfId, setSelfId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<ImportSaved | null>(null);
   const [next, setNext] = useState<"history" | "matches" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,11 +98,12 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
   const qc = useQueryClient();
 
-  const load = async (p: string, account: string | null = accountId) => {
+  const load = async (p: string, account: string | null = accountId, self: string | null = selfId) => {
     setError(null);
     setLoaded(null);
+    setSelfId(self);
     try {
-      const r = await api.importPreview(p, account);
+      const r = await api.importPreview(p, account, self);
       setPreview(r);
       setAccountId(r.accountId);
       setPath(p);
@@ -111,11 +114,11 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   };
   // Файл, брошенный в окно: сразу предпросмотр.
   useEffect(() => {
-    if (initialPath) void load(initialPath, null);
+    if (initialPath) void load(initialPath, null, null);
   }, [initialPath]);
   const choose = async () => {
     const p = await pickOpen([STATEMENT, CSV]);
-    if (p) await load(p, null);
+    if (p) await load(p, null, null);
   };
   const template = async () => {
     setSaved(null);
@@ -130,7 +133,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   };
   const commit = async (skipErrors: boolean) => {
     try {
-      setLoaded(await api.importCsv(path!, skipErrors, preview?.bank ? accountId : null));
+      setLoaded(await api.importCsv(path!, skipErrors, preview?.bank ? accountId : null, preview?.bank ? selfId : null));
       setPreview(null);
       await qc.invalidateQueries();
     } catch (e) {
@@ -143,7 +146,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   return (
     <Modal title="Импорт выписки или CSV" onClose={onClose} wide>
       <p className="muted">
-        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета) или таблица по шаблону приложения (CSV или Excel, подойдёт и выгрузка «Операций»). Категории подберутся по правилам и по категориям банка. Если в файле есть категория, которой нет в программе, возьмётся похожая, а если похожей нет, создастся новая: в таблице ниже она помечена «(новая)», поправить можно потом в «Категориях». Уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
+        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета, в том числе «Operations …») или таблица по шаблону приложения (CSV или Excel, подойдёт и выгрузка «Операций»). Категории подберутся по правилам и по категориям банка. Если в файле есть категория, которой нет в программе, возьмётся похожая, а если похожей нет, создастся новая: в таблице ниже она помечена «(новая)», поправить можно потом в «Категориях». Возврат покупки (деньги от того же магазина после покупки) записывается возвратом, а не доходом. Уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
       </p>
       <div className="btn-group">
         <button className="btn primary" onClick={choose}>
@@ -169,6 +172,11 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
           <Field label="На какой счёт" hint="Запомним для следующих выписок этого банка. Карта, чьи цифры есть в названии счёта, попадёт на свой счёт.">
             {(id) => <AccountSelect id={id} name="importAccount" accounts={accounts} value={accountId ?? ""} onChange={(v) => load(path!, v || null)} />}
           </Field>
+          {preview.selfTransfers > 0 && (
+            <Field label={`Переводы «Между своими счетами» (${preview.selfTransfers}) — второй счёт`} hint="Куда уходят и откуда приходят деньги в этих строках: копилка, накопительный счёт, другой банк. Тогда это переводы, а не расходы и доходы. Если вторая сторона есть в этой же выписке, перевод найдётся сам. Запомним для следующих выписок.">
+              {(id) => <AccountSelect id={id} name="importSelfAccount" placeholder="Не знаю — записать расходом и доходом" accounts={accounts} exclude={accountId ?? undefined} value={preview.selfAccountId ?? ""} onChange={(v) => load(path!, accountId, v)} />}
+            </Field>
+          )}
         </div>
       )}
       {preview && (

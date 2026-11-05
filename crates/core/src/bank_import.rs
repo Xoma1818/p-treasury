@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use regex::Regex;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 
 use crate::csv_import::{Parsed, Row};
 use crate::transactions::TxnInput;
@@ -53,6 +53,11 @@ pub(crate) struct Op {
     pub payee: String,
     /// Последние 4 цифры карты.
     pub card: Option<String>,
+    /// Имя счёта в банке («Premium»), если выписка его называет.
+    pub account: Option<String>,
+    /// Категорию задал сам человек в банке («Ваша категория»): она главнее
+    /// догадок по получателю.
+    pub own: bool,
 }
 
 /// Крупнее не разбираем: выписка за год — десятки килобайт, а в «Загрузках»
@@ -98,9 +103,35 @@ fn decode(bytes: &[u8]) -> String {
 
 // ---------- Т-Банк ----------
 
+/// Суммы и валюты в порядке предпочтения: сначала то, что списано со счёта.
+/// Старая выписка — «Сумма платежа», новая «Operations …» — «Сумма в валюте счёта».
+const TBANK_SUMS: &[(&str, &str)] = &[
+    ("сумма в валюте счёта", "валюта счёта"),
+    ("сумма в валюте счета", "валюта счета"),
+    ("сумма платежа", "валюта платежа"),
+    ("сумма операции", "валюта операции"),
+];
+
 fn tbank_header(line: &str) -> bool {
     let l = line.to_lowercase();
-    l.contains("дата операции") && l.contains("сумма платежа") && l.contains("описание")
+    l.contains("дата операции")
+        && l.contains("описание")
+        && TBANK_SUMS.iter().any(|(sum, _)| l.contains(sum))
+}
+
+/// «OK», «Ok» и «Ок» (кириллицей, как в выгрузке «Operations …»).
+fn tbank_ok(status: &str) -> bool {
+    let s: String = status
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'о' => 'o',
+            'к' => 'k',
+            c => c,
+        })
+        .collect();
+    s == "ok"
 }
 
 /// Строки таблицы Т-Банка (первая — заголовок) → операции.
@@ -113,19 +144,26 @@ fn tbank_rows(rows: Vec<Vec<String>>, first_line: usize) -> Result<Vec<Op>> {
         .map(|h| h.trim().to_lowercase())
         .collect();
     let col = |name: &str| head.iter().position(|h| h == name);
-    let (Some(c_date), Some(c_sum), Some(c_desc)) =
-        (col("дата операции"), col("сумма платежа"), col("описание"))
+    let any = |names: &[&str]| names.iter().find_map(|n| col(n));
+    let sum = TBANK_SUMS
+        .iter()
+        .find_map(|(sum, cur)| col(sum).map(|c| (c, col(cur))));
+    let (Some(c_date), Some((c_sum, c_cur)), Some(c_desc)) =
+        (col("дата операции"), sum, col("описание"))
     else {
         return Err(Error::Validation(
-            "в выписке Т-Банка нет столбцов «Дата операции», «Сумма платежа», «Описание»".into(),
+            "в выписке Т-Банка нет столбцов «Дата операции», «Сумма в валюте счёта» (или «Сумма платежа»), «Описание»".into(),
         ));
     };
-    let (c_cur, c_status, c_cat, c_card) = (
-        col("валюта платежа"),
-        col("статус"),
-        col("категория"),
-        col("номер карты"),
-    );
+    let (c_status, c_card) = (col("статус"), col("номер карты"));
+    // Своя категория человека в банке главнее категории банка.
+    let c_own = col("ваша категория");
+    let c_cat = any(&[
+        "категория",
+        "категория по-умолчанию",
+        "категория по умолчанию",
+    ]);
+    let c_account = any(&["имя счёта", "имя счета"]);
     let mut out = Vec::new();
     for (i, r) in rows.enumerate() {
         let get = |c: Option<usize>| {
@@ -138,7 +176,7 @@ fn tbank_rows(rows: Vec<Vec<String>>, first_line: usize) -> Result<Vec<Op>> {
         }
         // Отклонённые и ещё не проведённые операции денег не двигали.
         let status = get(c_status);
-        if !status.is_empty() && !status.eq_ignore_ascii_case("ok") {
+        if !status.is_empty() && !tbank_ok(&status) {
             continue;
         }
         let sum = get(Some(c_sum));
@@ -151,9 +189,13 @@ fn tbank_rows(rows: Vec<Vec<String>>, first_line: usize) -> Result<Vec<Op>> {
             income: !sum.starts_with(['-', '−']),
             amount: sum.trim_start_matches(['-', '−', '+']).to_string(),
             currency: Some(get(c_cur)).filter(|c| !c.is_empty()),
-            category: get(c_cat),
+            own: !get(c_own).is_empty(),
+            category: Some(get(c_own))
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| get(c_cat)),
             payee: get(Some(c_desc)),
             card: (digits.len() >= 4).then(|| digits[digits.len() - 4..].to_string()),
+            account: Some(get(c_account)).filter(|a| !a.is_empty()),
         });
     }
     Ok(out)
@@ -384,6 +426,8 @@ pub(crate) fn sber_pdf(lines: &[Line]) -> Option<Vec<Op>> {
                 category: c[3].to_string(),
                 payee: String::new(),
                 card: card.clone(),
+                account: None,
+                own: false,
             });
             desc_x = None;
             continue;
@@ -520,6 +564,76 @@ pub fn remembered(conn: &Connection) -> Result<BTreeMap<String, String>> {
         .unwrap_or_default())
 }
 
+/// Ключ запомненного второго счёта для переводов «Между своими счетами».
+fn self_key(bank: Bank) -> String {
+    format!("{}:self", bank.key())
+}
+
+/// Запомнить (или забыть, `None`) второй свой счёт для переводов
+/// «Между своими счетами» в выписках банка.
+pub(crate) fn remember_self(conn: &Connection, bank: Bank, account_id: Option<&str>) -> Result<()> {
+    let mut map = remembered(conn)?;
+    match account_id {
+        Some(id) => map.insert(self_key(bank), id.into()),
+        None => map.remove(&self_key(bank)),
+    };
+    settings::set(
+        conn,
+        "bank_accounts",
+        &serde_json::to_string(&map).expect("json"),
+    )
+}
+
+/// Второй свой счёт для переводов: выбранный (`Some("")` — «не знаю») или запомненный.
+pub(crate) fn self_account(
+    conn: &Connection,
+    bank: Bank,
+    chosen: Option<&str>,
+) -> Result<Option<String>> {
+    Ok(match chosen {
+        Some("") => None,
+        Some(id) => Some(id.to_string()),
+        None => remembered(conn)?.get(&self_key(bank)).cloned(),
+    })
+}
+
+/// Перевод между своими счетами, как его называет банк: «Между своими счетами».
+pub(crate) fn own_transfer(op: &Op) -> bool {
+    op.payee.to_lowercase().contains("между своими")
+}
+
+/// Перевод — повтор уже записанного: перевод той же суммы в ту же дату между
+/// теми же двумя счетами (в любую сторону) или эта строка банка, записанная
+/// раньше обычной операцией. N-я такая строка файла — повтор, только если
+/// таких записей не меньше N.
+fn transfer_repeat(
+    conn: &Connection,
+    t: &TxnInput,
+    plain: &TxnInput,
+    raw: &str,
+    seen: &mut HashMap<String, usize>,
+) -> Result<bool> {
+    let to = t.to_account_id.as_deref().unwrap_or("");
+    let (a, b) = if t.account_id.as_str() <= to {
+        (t.account_id.as_str(), to)
+    } else {
+        (to, t.account_id.as_str())
+    };
+    let nth = seen
+        .entry(format!("transfer|{}|{a}|{b}|{}", t.date, t.amount))
+        .or_insert(0);
+    let transfers: i64 = conn.query_row(
+        "SELECT count(*) FROM transactions WHERE type = 'transfer' AND date = ?1 AND amount = ?4
+           AND ((account_id = ?2 AND to_account_id = ?3) OR (account_id = ?3 AND to_account_id = ?2))",
+        params![t.date, a, b, t.amount],
+        |r| r.get(0),
+    )?;
+    let n = (transfers as usize).max(existing_count(conn, plain, Some(raw))?);
+    let repeat = n > *nth;
+    *nth += 1;
+    Ok(repeat)
+}
+
 /// Запомнить счёт для выписок банка (и для каждой карты из этой выписки).
 pub(crate) fn remember(conn: &Connection, bank: Bank, ops: &[Op], account_id: &str) -> Result<()> {
     let mut map = remembered(conn)?;
@@ -534,58 +648,94 @@ pub(crate) fn remember(conn: &Connection, bank: Bank, ops: &[Op], account_id: &s
     )
 }
 
+/// Куда отнести операцию выписки.
+enum Cat {
+    /// Готовая категория: id и получатель из правила.
+    Found(String, Option<String>),
+    /// Категории банка нет в программе и похожей тоже: её создаст загрузка.
+    New(String),
+}
+
+/// Категории банка «ни о чём»: по ним новую категорию не заводим.
+const VAGUE: &[&str] = &["другое", "остальное", "прочее", "разное", "без категории"];
+
 fn category(
     conn: &Connection,
     cats: &HashMap<(String, String), (String, String)>,
+    lk: &crate::csv_import::Lookup,
     kind: &str,
     op: &Op,
-) -> Result<Option<(String, String, Option<String>)>> {
+) -> Result<Option<Cat>> {
     if let Some(rule) = rules::find(conn, &op.payee, kind)? {
-        let name: Option<String> = conn
-            .query_row(
-                "SELECT name FROM categories WHERE id = ?1",
-                [&rule.category_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        return Ok(Some((
-            rule.category_id,
-            name.unwrap_or_default(),
-            rule.payee,
-        )));
+        return Ok(Some(Cat::Found(rule.category_id, rule.payee)));
     }
-    let hay = format!("{} {}", op.category, op.payee).to_lowercase();
-    for (k, words, names) in ALIASES {
-        if *k != kind || !words.iter().any(|w| hay.contains(w)) {
-            continue;
+    let hay = if op.own {
+        op.category.to_lowercase()
+    } else {
+        format!("{} {}", op.category, op.payee).to_lowercase()
+    };
+    // Каждое имя ищем и по-новому, и по-старому (базы до 0.28 не переименованы).
+    let legacy = |n: &str| {
+        crate::categories::RENAMES
+            .iter()
+            .find(|r| r.0 == kind && r.3 == n)
+            .map(|r| r.2)
+    };
+    let alias = |catch_all: bool| {
+        ALIASES
+            .iter()
+            .filter(|(k, words, _)| *k == kind && (words == &[""]) == catch_all)
+            .filter(|(_, words, _)| words.iter().any(|w| hay.contains(w)))
+            .find_map(|(_, _, names)| {
+                names.iter().find_map(|n| {
+                    cats.get(&(kind.to_string(), n.to_lowercase())).or_else(|| {
+                        legacy(n).and_then(|o| cats.get(&(kind.to_string(), o.to_lowercase())))
+                    })
+                })
+            })
+            .map(|(id, _)| Cat::Found(id.clone(), None))
+    };
+    if let Some(found) = alias(false) {
+        return Ok(Some(found));
+    }
+    // Незнакомая категория банка — в похожую или новую, как при загрузке по шаблону.
+    let bank = op.category.trim();
+    if !bank.is_empty() && !VAGUE.contains(&bank.to_lowercase().as_str()) {
+        if let Some((id, _)) = crate::csv_import::similar(lk, kind, bank) {
+            return Ok(Some(Cat::Found(id, None)));
         }
-        // Каждое имя ищем и по-новому, и по-старому (базы до 0.28 не переименованы).
-        let legacy = |n: &str| {
-            crate::categories::RENAMES
-                .iter()
-                .find(|r| r.0 == kind && r.3 == n)
-                .map(|r| r.2)
-        };
-        if let Some((id, name)) = names.iter().find_map(|n| {
-            cats.get(&(kind.to_string(), n.to_lowercase()))
-                .or_else(|| legacy(n).and_then(|o| cats.get(&(kind.to_string(), o.to_lowercase()))))
-        }) {
-            return Ok(Some((id.clone(), name.clone(), None)));
+        if !bank.to_lowercase().starts_with("прочие") {
+            return Ok(Some(Cat::New(bank.to_string())));
         }
     }
-    Ok(None)
+    Ok(alias(true))
 }
 
-/// Операции выписки → строки предпросмотра и готовые операции. `account_id` —
+/// Перевод между своими счетами или пополнение — не возврат покупки.
+fn transfer_like(op: &Op) -> bool {
+    let cat = op.category.to_lowercase();
+    cat.contains("перевод")
+        || cat.contains("пополн")
+        || op.payee.to_lowercase().contains("между своими")
+}
+
+/// Операции выписки → строки предпросмотра, готовые операции и то, что
+/// добавит загрузка: новые категории и возвраты покупок. `account_id` —
 /// счёт, выбранный для этой выписки; без него — запомненный.
+///
+/// Возврат — поступление от того же получателя в той же категории банка,
+/// что и покупка не дороже него и не позже его (в этой выписке или уже в
+/// программе). Он записывается возвратом покупки, а не доходом.
 pub(crate) fn to_parsed(
     conn: &Connection,
     bank: Bank,
     ops: &[Op],
     account_id: Option<&str>,
-) -> Result<Vec<Parsed>> {
+    self_id: Option<&str>,
+) -> Result<(Vec<Parsed>, crate::csv_import::Extra)> {
     let accounts = accounts(conn)?;
     let saved = remembered(conn)?;
+    let lk = crate::csv_import::lookup(conn)?;
     let mut cats: HashMap<(String, String), (String, String)> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT id, kind, name FROM categories WHERE archived_at IS NULL ORDER BY parent_id IS NOT NULL, sort_order",
@@ -605,14 +755,10 @@ pub(crate) fn to_parsed(
     let chosen = account_id
         .and_then(by_id)
         .or_else(|| saved.get(bank.key()).and_then(|id| by_id(id)));
-
-    let mut out = Vec::new();
-    let mut seen = HashMap::new();
-    for op in ops {
-        let kind = if op.income { "income" } else { "expense" };
-        // Карта в названии счёта («Т-Банк *1140») или запомненная для неё.
-        let account = op
-            .card
+    // Счёт операции: карта в названии счёта («Т-Банк *1140») или запомненная
+    // для неё, затем счёт с тем же именем, что в банке, затем выбранный.
+    let account_of = |op: &Op| {
+        op.card
             .as_ref()
             .and_then(|card| {
                 accounts
@@ -624,7 +770,54 @@ pub(crate) fn to_parsed(
                             .and_then(|id| by_id(id))
                     })
             })
-            .or(chosen);
+            .or_else(|| {
+                op.account
+                    .as_ref()
+                    .map(|n| n.trim().to_lowercase())
+                    .and_then(|n| accounts.iter().find(|a| a.lower == n))
+            })
+            .or(chosen)
+    };
+    let amount_of = |op: &Op, minor: u32| money::parse_amount(&op.amount, minor).map(i64::abs);
+    let self_acc = self_account(conn, bank, self_id)?.and_then(|id| by_id(&id));
+
+    // Обе стороны перевода себе в одной выписке (выгрузка со всех счетов):
+    // списание с одного счёта и поступление той же суммы в тот же день на
+    // другой — один перевод. `pair[i] = j`: строка `j` — его вторая сторона.
+    let accs: Vec<Option<&Account>> = ops.iter().map(account_of).collect();
+    let amounts: Vec<Option<i64>> = ops
+        .iter()
+        .zip(&accs)
+        .map(|(op, a)| a.and_then(|a| amount_of(op, a.minor).ok()))
+        .collect();
+    let mut pair: HashMap<usize, usize> = HashMap::new();
+    let mut second: HashMap<usize, usize> = HashMap::new();
+    for (i, op) in ops.iter().enumerate() {
+        let (Some(from), Some(amount)) = (accs[i], amounts[i]) else {
+            continue;
+        };
+        if op.income || !own_transfer(op) || op.date.is_empty() {
+            continue;
+        }
+        let found = ops.iter().enumerate().position(|(j, other)| {
+            other.income
+                && own_transfer(other)
+                && !second.contains_key(&j)
+                && other.date == op.date
+                && amounts[j] == Some(amount)
+                && accs[j].is_some_and(|to| to.id != from.id && to.currency == from.currency)
+        });
+        if let Some(j) = found {
+            pair.insert(i, j);
+            second.insert(j, i);
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut extra = crate::csv_import::Extra::default();
+    let mut seen = HashMap::new();
+    for (i, op) in ops.iter().enumerate() {
+        let account = accs[i];
         let mut row = Row {
             line: op.line,
             date: op.date.clone(),
@@ -643,6 +836,20 @@ pub(crate) fn to_parsed(
             linked_to: None,
             maybe: 0,
         };
+        if let Some(&first) = second.get(&i) {
+            row.kind = "Перевод".into();
+            row.category = format!("вторая сторона строки {}", ops[first].line);
+            row.duplicate = true;
+            out.push(Parsed {
+                row,
+                input: None,
+                raw_payee: Some(op.payee.clone()),
+            });
+            continue;
+        }
+        let mut new_cat: Option<String> = None;
+        let mut refund = false;
+        let mut transfer: Option<String> = None;
         let checked = (|| -> std::result::Result<TxnInput, String> {
             if op.date.is_empty() {
                 return Err("не удалось прочитать дату".into());
@@ -654,38 +861,142 @@ pub(crate) fn to_parsed(
                     account.name, account.currency
                 ));
             }
-            let amount = money::parse_amount(&op.amount, account.minor)
-                .map_err(|_| format!("сумма «{}»", op.amount))?
-                .abs();
+            let amount =
+                amount_of(op, account.minor).map_err(|_| format!("сумма «{}»", op.amount))?;
             if amount == 0 {
                 return Err("сумма равна нулю".into());
             }
-            let (category_id, _, payee) = category(conn, &cats, kind, op)
-                .map_err(|e| e.to_string())?
-                .ok_or("нет подходящей категории: добавьте «Прочие расходы» или правило")?;
-            Ok(TxnInput {
+            let input = |kind: &str, cat: &Cat| TxnInput {
                 kind: kind.into(),
                 date: op.date.clone(),
                 account_id: account.id.clone(),
                 amount,
-                category_id: Some(category_id),
+                category_id: match cat {
+                    Cat::Found(id, ..) => Some(id.clone()),
+                    Cat::New(_) => None,
+                },
                 to_account_id: None,
                 to_amount: None,
-                payee: payee.or_else(|| Some(op.payee.clone()).filter(|p| !p.is_empty())),
+                payee: match cat {
+                    Cat::Found(_, Some(p)) => Some(p.clone()),
+                    _ => None,
+                }
+                .or_else(|| Some(op.payee.clone()).filter(|p| !p.is_empty())),
                 note: None,
-            })
+            };
+            // Перевод себе: вторая сторона в этой же выписке или выбранный второй счёт.
+            if own_transfer(op) {
+                let ends = match pair.get(&i) {
+                    Some(&j) => accs[j].map(|to| (account, to)),
+                    None => self_acc
+                        .filter(|s| s.id != account.id && s.currency == account.currency)
+                        .map(|s| {
+                            if op.income {
+                                (s, account)
+                            } else {
+                                (account, s)
+                            }
+                        }),
+                };
+                if let Some((from, to)) = ends {
+                    transfer = Some(if op.income {
+                        format!("из «{}»", from.name)
+                    } else {
+                        format!("на «{}»", to.name)
+                    });
+                    return Ok(TxnInput {
+                        kind: "transfer".into(),
+                        date: op.date.clone(),
+                        account_id: from.id.clone(),
+                        amount,
+                        category_id: None,
+                        to_account_id: Some(to.id.clone()),
+                        to_amount: None,
+                        payee: None,
+                        note: None,
+                    });
+                }
+            }
+            // Возврат покупки: та же категория банка и тот же получатель.
+            if op.income && !transfer_like(op) && !op.category.trim().is_empty() {
+                if let Some(cat) =
+                    category(conn, &cats, &lk, "expense", op).map_err(|e| e.to_string())?
+                {
+                    let as_purchase = input("expense", &cat);
+                    let in_file = ops.iter().any(|p| {
+                        !p.income
+                            && p.payee == op.payee
+                            && p.category == op.category
+                            && p.card == op.card
+                            && p.account == op.account
+                            && p.currency == op.currency
+                            && !p.date.is_empty()
+                            && p.date <= op.date
+                            && amount_of(p, account.minor).is_ok_and(|a| a >= amount)
+                    });
+                    let in_db = || match &cat {
+                        Cat::Found(id, ..) => {
+                            crate::csv_import::purchase_for(conn, id, &as_purchase, None)
+                                .map(|p| p.is_some())
+                                .unwrap_or(false)
+                        }
+                        Cat::New(_) => false,
+                    };
+                    if in_file || in_db() {
+                        refund = true;
+                        let mut t = as_purchase;
+                        // Повтор возврата ищется среди поступлений: так он записан.
+                        t.kind = "income".into();
+                        if let Cat::New(name) = cat {
+                            new_cat = Some(name);
+                        }
+                        return Ok(t);
+                    }
+                }
+            }
+            let kind = if op.income { "income" } else { "expense" };
+            let cat = category(conn, &cats, &lk, kind, op)
+                .map_err(|e| e.to_string())?
+                .ok_or("нет подходящей категории: добавьте «Прочие расходы» или правило")?;
+            let t = input(kind, &cat);
+            if let Cat::New(name) = cat {
+                new_cat = Some(name);
+            }
+            Ok(t)
         })();
         let input = match checked {
             Ok(input) => {
-                row.category = cats
-                    .values()
-                    .find(|(id, _)| Some(id) == input.category_id.as_ref())
-                    .map(|c| c.1.clone())
-                    .unwrap_or_default();
+                row.category = match &new_cat {
+                    Some(name) => format!("{name} (новая)"),
+                    None => cats
+                        .values()
+                        .find(|(id, _)| Some(id) == input.category_id.as_ref())
+                        .map(|c| c.1.clone())
+                        .unwrap_or_default(),
+                };
+                if refund {
+                    row.kind = "Возврат".into();
+                }
                 if let Some(p) = &input.payee {
                     row.payee = p.clone();
                 }
-                if is_repeat(conn, &input, Some(&op.payee), &mut seen)? {
+                let repeat = match &transfer {
+                    Some(to) => {
+                        row.kind = "Перевод".into();
+                        row.category = to.clone();
+                        // Та же строка банка, записанная раньше расходом или доходом.
+                        let plain = TxnInput {
+                            kind: if op.income { "income" } else { "expense" }.into(),
+                            account_id: account.map(|a| a.id.clone()).unwrap_or_default(),
+                            to_account_id: None,
+                            payee: Some(op.payee.clone()),
+                            ..input.clone()
+                        };
+                        transfer_repeat(conn, &input, &plain, &op.payee, &mut seen)?
+                    }
+                    None => is_repeat(conn, &input, Some(&op.payee), &mut seen)?,
+                };
+                if repeat {
                     row.duplicate = true;
                     None
                 } else {
@@ -697,13 +1008,28 @@ pub(crate) fn to_parsed(
                 None
             }
         };
+        if input.is_some() {
+            let kind = if op.income && !refund {
+                "income"
+            } else {
+                "expense"
+            };
+            if let Some(name) = new_cat {
+                extra
+                    .categories
+                    .push((out.len(), crate::csv_import::NewCategory::top(kind, &name)));
+            }
+            if refund {
+                extra.refunds.push((out.len(), None));
+            }
+        }
         out.push(Parsed {
             row,
             input,
             raw_payee: Some(op.payee.clone()),
         });
     }
-    Ok(out)
+    Ok((out, extra))
 }
 
 /// Такая операция уже есть: та же дата, счёт, тип, сумма и получатель —
@@ -890,7 +1216,7 @@ mod tests {
         let (bank, ops) = read(&testdata("tbank.csv")).unwrap().unwrap();
 
         // Без выбранного счёта загрузится только операция по карте из названия счёта.
-        let parsed = to_parsed(c, bank, &ops, None).unwrap();
+        let parsed = to_parsed(c, bank, &ops, None, None).unwrap().0;
         let errors: Vec<_> = parsed.iter().map(|p| p.row.error.as_deref()).collect();
         assert_eq!(
             errors,
@@ -903,7 +1229,7 @@ mod tests {
         );
         assert_eq!(parsed[3].input.as_ref().unwrap().account_id, taxi_card);
 
-        let parsed = to_parsed(c, bank, &ops, Some(&main)).unwrap();
+        let parsed = to_parsed(c, bank, &ops, Some(&main), None).unwrap().0;
         let rows: Vec<_> = parsed
             .iter()
             .map(|p| {
@@ -927,14 +1253,14 @@ mod tests {
 
         // Выбор запоминается: в следующий раз счёт подставится сам.
         remember(c, bank, &ops, &main).unwrap();
-        let again = to_parsed(c, bank, &ops, None).unwrap();
+        let again = to_parsed(c, bank, &ops, None, None).unwrap().0;
         assert!(again.iter().all(|p| p.row.error.is_none()));
 
         // Уже загруженные операции помечаются повтором.
         for p in &again {
             crate::transactions::create(c, p.input.as_ref().unwrap()).unwrap();
         }
-        let third = to_parsed(c, bank, &ops, None).unwrap();
+        let third = to_parsed(c, bank, &ops, None, None).unwrap().0;
         assert!(third.iter().all(|p| p.row.duplicate && p.input.is_none()));
     }
 
@@ -961,7 +1287,7 @@ mod tests {
         )
         .unwrap();
         let (bank, ops) = read(&testdata("sber-card.pdf")).unwrap().unwrap();
-        let parsed = to_parsed(c, bank, &ops, Some(&acc)).unwrap();
+        let parsed = to_parsed(c, bank, &ops, Some(&acc), None).unwrap().0;
         let rows: Vec<_> = parsed
             .iter()
             .map(|p| (p.row.category.as_str(), p.row.payee.as_str()))
@@ -983,7 +1309,9 @@ mod tests {
         crate::categories::seed_defaults(db.conn()).unwrap();
         let main = account(db.conn(), "Т-Банк");
         let (bank, ops) = read(&testdata("tbank.csv")).unwrap().unwrap();
-        let first = to_parsed(db.conn(), bank, &ops, Some(&main)).unwrap();
+        let first = to_parsed(db.conn(), bank, &ops, Some(&main), None)
+            .unwrap()
+            .0;
         let mut ids = Vec::new();
         for p in &first {
             if let Some(i) = &p.input {
@@ -1035,7 +1363,9 @@ mod tests {
             },
         )
         .unwrap();
-        let again = to_parsed(db.conn(), bank, &ops, Some(&main)).unwrap();
+        let again = to_parsed(db.conn(), bank, &ops, Some(&main), None)
+            .unwrap()
+            .0;
         let fresh: Vec<_> = again
             .iter()
             .filter(|p| p.input.is_some())
@@ -1050,5 +1380,241 @@ mod tests {
         let mut other = shop.clone();
         other.amount = 80_000;
         assert!(!exists(db.conn(), &other).unwrap());
+    }
+    /// Выгрузка Т-Банка «Operations …» (Excel, OTTO 04.11): столбцы «Сумма в
+    /// валюте счёта» и «Категория по-умолчанию», статус «Ок» кириллицей. Данные
+    /// обезличены: суммы и порядок строк как в настоящей выгрузке.
+    #[test]
+    fn reads_tbank_operations_xlsx() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let path = testdata("tbank-operations.xlsx");
+        let (bank, ops) = read(&path).unwrap().unwrap();
+        assert_eq!(bank, Bank::Tbank);
+        // Строка со статусом «Отказ» денег не двигала.
+        assert_eq!(ops.len(), 14);
+        assert_eq!(ops[2].date, "2026-11-04");
+        assert_eq!((ops[2].amount.as_str(), ops[2].income), ("4454,18", false));
+        assert_eq!(ops[0].card.as_deref(), Some("2222"));
+        assert_eq!(ops[0].account.as_deref(), Some("Premium"));
+        // «Ваша категория» главнее категории банка.
+        assert_eq!(ops[11].category, "Обеды");
+
+        // Счёт с тем же именем, что в банке, находится сам.
+        let premium = account(c, "Premium");
+        let parsed = to_parsed(c, bank, &ops, None, None).unwrap().0;
+        let rows: Vec<_> = parsed
+            .iter()
+            .map(|p| {
+                (
+                    p.row.kind.as_str(),
+                    p.row.category.as_str(),
+                    p.row.error.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(rows[0], ("Доход", "Переводы (новая)", None));
+        assert_eq!(rows[1], ("Расход", "Сервис (новая)", None));
+        assert_eq!(rows[2], ("Расход", "Магазины", None));
+        // Поступление от «Доставки еды» после такой же покупки — возврат.
+        assert_eq!(rows[6], ("Возврат", "Общепит", None));
+        assert_eq!(rows[7], ("Расход", "Общепит", None));
+        // Пополнение и перевод себе — не возвраты.
+        assert_eq!(rows[9], ("Доход", "Пополнения (новая)", None));
+        assert_eq!(rows[11], ("Расход", "Обеды", None));
+        assert!(parsed
+            .iter()
+            .all(|p| p.input.as_ref().is_some_and(|i| i.account_id == premium)));
+
+        // Загрузка: возврат — возвратом покупки, новые категории созданы один раз.
+        let mut db = db;
+        let saved = crate::csv_import::import(db.conn_mut(), &path, false, None).unwrap();
+        assert_eq!(saved.added, 14);
+        let c = db.conn();
+        let (refund_of, payee): (String, String) = c
+            .query_row(
+                "SELECT r.refund_of, p.payee FROM transactions r JOIN transactions p ON p.id = r.refund_of
+                 WHERE r.refund = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(!refund_of.is_empty());
+        assert_eq!(payee, "Доставка еды");
+        let n = |sql: &str| -> i64 { c.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            n("SELECT count(*) FROM categories WHERE name = 'Переводы' AND kind = 'expense'"),
+            1
+        );
+        assert_eq!(
+            n("SELECT count(*) FROM categories WHERE name = 'Сервис'"),
+            1
+        );
+        // Баланс: сумма всех проведённых строк выписки.
+        assert_eq!(
+            n(&format!(
+                "SELECT sum(CASE WHEN type = 'income' THEN amount ELSE -amount END)
+                 FROM transactions WHERE account_id = '{premium}'"
+            )),
+            1_000_000 - 85_000 - 445_418 - 25_000 - 20_000 - 9_700 + 108_100 - 108_100 - 2_000_000
+                + 2_030_691
+                - 6_900
+                - 20_000
+                - 60_000
+                - 4_000_000
+        );
+
+        // Повторная загрузка того же файла ничего не удваивает.
+        let preview = crate::csv_import::preview(c, &path, None).unwrap();
+        assert_eq!((preview.valid, preview.duplicates), (0, 14));
+        let again = crate::csv_import::import(db.conn_mut(), &path, false, None).unwrap();
+        assert_eq!(again.added, 0);
+    }
+
+    /// Та же выгрузка через «Импорт из папки»: читается, а повтор не удваивается.
+    #[test]
+    fn folder_reads_tbank_operations_xlsx() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::copy(
+            testdata("tbank-operations.xlsx"),
+            dir.path()
+                .join("Operations Sun Nov 01 2026-Wed Nov 04 2026.xlsx"),
+        )
+        .unwrap();
+        let first = crate::auto_import::scan(db.conn_mut(), dir.path()).unwrap();
+        assert_eq!(first.added, 14, "{first:?}");
+        let c = db.conn();
+        let refunds: i64 = c
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE refund = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(refunds, 1);
+    }
+    /// Переводы «Между своими счетами»: с выбранным вторым счётом — переводы,
+    /// а не расходы и доходы; выбор запоминается, повтор не удваивает.
+    #[test]
+    fn own_transfers_go_to_chosen_account() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let premium = account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let path = testdata("tbank-operations.xlsx");
+
+        // Без второго счёта — как раньше: расход и доход «Переводы».
+        let p = crate::csv_import::preview(db.conn(), &path, None).unwrap();
+        assert_eq!((p.self_transfers, p.self_account_id.as_deref()), (3, None));
+        assert_eq!(p.rows[13].kind, "Расход");
+
+        let p = crate::csv_import::preview_with(db.conn(), &path, None, Some(&savings)).unwrap();
+        let kinds: Vec<_> = [0, 8, 9, 12, 13]
+            .iter()
+            .map(|&i| (p.rows[i].kind.as_str(), p.rows[i].category.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("Перевод", "из «Накопительный»"),
+                ("Перевод", "на «Накопительный»"),
+                // Пополнение из другого банка и перевод человеку — не переводы себе.
+                ("Доход", "Пополнения (новая)"),
+                ("Расход", "Переводы (новая)"),
+                ("Перевод", "на «Накопительный»"),
+            ]
+        );
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some(&savings))
+                .unwrap();
+        assert_eq!(saved.added, 14);
+        let c = db.conn();
+        let n = |sql: &str| -> i64 { c.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            n("SELECT count(*) FROM transactions WHERE type = 'transfer'"),
+            3
+        );
+        assert_eq!(
+            n(&format!(
+                "SELECT coalesce(sum(CASE WHEN to_account_id = '{savings}' THEN amount ELSE -amount END), 0)
+                 FROM transactions WHERE type = 'transfer'"
+            )),
+            4_000_000 + 2_000_000 - 1_000_000
+        );
+        // Переводы себе не ждут подтверждения «это перевод?».
+        assert_eq!(
+            n("SELECT count(*) FROM import_suggestions WHERE kind = 'transfer'"),
+            0
+        );
+        // Запомнено: следующая выписка сразу с переводами, повтор — ничего.
+        let p = crate::csv_import::preview(c, &path, None).unwrap();
+        assert_eq!(p.self_account_id.as_deref(), Some(savings.as_str()));
+        assert_eq!((p.valid, p.duplicates), (0, 14));
+        assert_eq!(
+            crate::csv_import::import(db.conn_mut(), &path, false, None)
+                .unwrap()
+                .added,
+            0
+        );
+        let _ = premium;
+    }
+
+    /// Записанные раньше расходом и доходом переводы себе не удваиваются,
+    /// когда второй счёт выбрали позже.
+    #[test]
+    fn own_transfers_chosen_later_are_not_doubled() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let path = testdata("tbank-operations.xlsx");
+        crate::csv_import::import(db.conn_mut(), &path, false, None).unwrap();
+        let p = crate::csv_import::preview_with(db.conn(), &path, None, Some(&savings)).unwrap();
+        assert_eq!((p.valid, p.duplicates), (0, 14));
+    }
+
+    /// Обе стороны перевода себе в одной выписке (карты на разных счетах) —
+    /// один перевод, вторая строка не записывается.
+    #[test]
+    fn both_sides_in_one_statement_make_one_transfer() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = account(db.conn(), "Карта *1111");
+        let deposit = account(db.conn(), "Вклад *2222");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("operations.csv");
+        std::fs::write(
+            &path,
+            "\"Дата операции\";\"Номер карты\";\"Статус\";\"Сумма операции\";\"Валюта операции\";\"Сумма платежа\";\"Валюта платежа\";\"Категория\";\"Описание\"\n\
+             \"03.11.2026 10:00:00\";\"*1111\";\"OK\";\"-500,00\";\"RUB\";\"-500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n\
+             \"03.11.2026 10:00:01\";\"*2222\";\"OK\";\"500,00\";\"RUB\";\"500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n",
+        )
+        .unwrap();
+        let p = crate::csv_import::preview(db.conn(), &path, None).unwrap();
+        assert_eq!(p.rows[0].kind, "Перевод");
+        assert_eq!(p.rows[0].category, "на «Вклад *2222»");
+        assert!(p.rows[1].duplicate);
+        assert_eq!(p.errors, 0);
+        let saved = crate::csv_import::import(db.conn_mut(), &path, false, Some(&card)).unwrap();
+        assert_eq!(saved.added, 1);
+        let (from, to): (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT account_id, to_account_id FROM transactions WHERE type = 'transfer'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((from, to), (card.clone(), deposit));
+        assert_eq!(
+            crate::csv_import::import(db.conn_mut(), &path, false, Some(&card))
+                .unwrap()
+                .added,
+            0
+        );
     }
 }
