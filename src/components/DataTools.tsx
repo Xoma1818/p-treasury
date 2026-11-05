@@ -348,7 +348,7 @@ export function UpdatesCard() {
 }
 
 export type ExportFormat = "csv" | "xlsx" | "ofx";
-const FORMATS: Record<ExportFormat, { label: string; filter: typeof XLSX }> = {
+export const FORMATS: Record<ExportFormat, { label: string; filter: typeof XLSX }> = {
   csv: { label: "Скачать в CSV", filter: CSV },
   xlsx: { label: "Скачать в Excel", filter: XLSX },
   ofx: { label: "Скачать в OFX", filter: OFX },

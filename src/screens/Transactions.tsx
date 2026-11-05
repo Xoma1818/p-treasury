@@ -7,7 +7,8 @@ import { isTyping } from "../lib/hotkeys";
 import { groupReceipts, rowIds } from "../lib/receipt";
 import { clickRow, EMPTY_SEL, keepExisting, selectAll, type SelState } from "../lib/selection";
 import { loadAllTransactionIds } from "../lib/transactionSelection";
-import { ExportButton, ImportDialog, useExport } from "../components/DataTools";
+import { ImportDialog, useExport } from "../components/DataTools";
+import { TxnHeadBar } from "../components/TxnHeadBar";
 import { onFileDrop, statementOf } from "../lib/fileDrop";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
@@ -208,10 +209,7 @@ export function Transactions() {
       <div className="screen-head">
         <ScreenTitle id="transactions" />
         <span className="spacer" />
-        <button className="btn" data-testid="txn-import" onClick={() => setImportFile(null)} title="Выписка банка (Excel, CSV, PDF) или таблица по шаблону. Файл можно просто перетащить в окно">
-          Загрузить выписку
-        </button>
-        <ExportButton exp={exp} title="Операции по текущему фильтру в CSV, Excel или OFX" />
+        <TxnHeadBar onImport={() => setImportFile(null)} exp={exp} />
         <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
           + Операция
         </button>

@@ -313,6 +313,65 @@ test("своё меню и главная кнопка «+»: скрыть, пе
   await openSection(browser, "Настройки");
 });
 
+test("форма операции: комментарий без «Ещё», свой счёт по умолчанию (0.31)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="txn-form-card"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[name="pinNote"]');
+    // Счёт по умолчанию — последний в списке (не тот, что подставился бы сам).
+    const want = await browser.execute(() => {
+      const sel = document.querySelector('[name="formAccount"]');
+      const opt = sel.options[sel.options.length - 1];
+      return opt.value;
+    });
+    const sel = await browser.$('[name="formAccount"]');
+    await sel.selectByAttribute("value", want);
+    await openSection(browser, "Главная");
+    await click(browser, "+ Расход");
+    await browser.$('[role="dialog"] [name="note"]').waitForDisplayed({ timeout: 5000 });
+    assert.equal(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), want, "счёт из настройки");
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    await openSection(browser, "Настройки");
+    const reset = await browser.$('[data-testid="txn-form-reset"]');
+    if (await reset.isExisting()) await tap('[data-testid="txn-form-reset"]');
+  }
+  await browser.$('[data-testid="txn-form-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});
+
+test("своя шапка «Операций»: выписку в «⋯», шаблон в шапку, как было (0.32)", async () => {
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-import"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[data-testid="head-more"]');
+    await tap('[data-head="import"]');
+    await browser.$('[data-testid="txn-import"]').waitForExist({ reverse: true, timeout: 5000 });
+    // Скрытая кнопка не пропала: она в «⋯» и открывает то же окно.
+    await tap('//*[@data-testid="head-menu"]//button[@role="menuitem" and normalize-space()="Загрузить выписку"]');
+    await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+    // Шаблон из примера — кнопкой в шапке.
+    await tap('[data-testid="head-more"]');
+    const tpl = await browser.$('[data-testid="head-menu"] [data-head^="tpl:"]');
+    if (await tpl.isExisting()) {
+      await tpl.click();
+      await browser.$('[data-testid="head-template"]').waitForExist({ timeout: 5000 });
+    }
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    if (!(await browser.$('[data-testid="head-menu"]').isExisting())) await tap('[data-testid="head-more"]');
+    const reset = await browser.$('[data-testid="head-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="txn-import"]').waitForExist({ timeout: 5000 });
+  assert.equal(await browser.$('[data-testid="head-template"]').isExisting(), false);
+  await browser.keys("Escape");
+  await openSection(browser, "Настройки");
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });

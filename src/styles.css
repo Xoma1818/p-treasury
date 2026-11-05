@@ -986,3 +986,8 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .nav-order-move .icon-btn:disabled { opacity: 0.3; cursor: default; }
 #set-menu .field { max-width: 320px; margin-top: 12px; }
 .form-prefs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+/* Г5: «⋯» в шапке «Операций»: действия и галочки «Видно в шапке». */
+.head-menu { min-width: 240px; }
+.menu-label { padding: 8px 12px 4px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
+.menu-item.check-item { display: flex; align-items: center; gap: 8px; }
+.check-mark { width: 14px; display: inline-flex; color: var(--accent); }
