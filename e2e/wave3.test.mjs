@@ -436,8 +436,15 @@ test("своя Главная: скрыть карточку, перестави
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
   await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
-  await browser.$('button[aria-label="Ниже: Быстрый ввод"]').click();
-  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", { timeout: 5000 });
+  // Щёлкаем «Ниже», когда скрытие уже применилось (кнопка сменилась на «Показать»).
+  await browser.$('//*[@data-block="templates"]//button[normalize-space()="Показать"]').waitForExist({ timeout: 5000 });
+  const lower = await browser.$('button[aria-label="Ниже: Быстрый ввод"]');
+  await lower.waitForClickable({ timeout: 5000 });
+  await lower.click();
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "summary", {
+    timeout: 5000,
+    timeoutMsg: "«Быстрый ввод» не опустился ниже",
+  });
   // Перетаскивание карточки: «Напоминания» — в самый верх.
   await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="summary"]');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
