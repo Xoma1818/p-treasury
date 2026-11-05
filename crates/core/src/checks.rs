@@ -206,7 +206,16 @@ fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
     let all = units(list);
     let mut out = Vec::new();
     for (i, a) in all.iter().enumerate() {
+        // Список упорядочен по дате: второй не позже следующего дня, иначе дальше
+        // сравнивать незачем (на годах учёта перебор всех пар занимал полсекунды).
+        let next_day = (time::parse_date(a.date)? + Duration::days(1)).to_string();
+        if next_day.as_str() < since {
+            continue;
+        }
         for b in &all[i + 1..] {
+            if b.date > next_day.as_str() {
+                break;
+            }
             if b.date < since || a.account_id != b.account_id || a.amount != b.amount {
                 continue;
             }
@@ -417,6 +426,30 @@ mod tests {
     }
 
     const TODAY: &str = "2026-10-20";
+
+    /// Перебор пар останавливается на следующем дне: пара на стыке окна
+    /// находится, пара через день — нет, даже с другими тратами между ними.
+    #[test]
+    fn duplicate_scan_stops_after_next_day() {
+        let db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 1_000_000)).unwrap();
+        let food = cat(db.conn(), "Магазины");
+        let c = db.conn();
+        // Окно — 30 дней до 20.10: с 21.09. Первая трата за день до окна.
+        spend(c, &card, &food, "2026-09-20", 70_000, "Лента");
+        spend(c, &card, &food, "2026-09-21", 70_000, "Лента");
+        spend(c, &card, &food, "2026-10-01", 30_000, "Ашан");
+        spend(c, &card, &food, "2026-10-02", 1_000, "Кофе");
+        spend(c, &card, &food, "2026-10-03", 30_000, "Ашан");
+        // Совсем старая пара — вне окна.
+        spend(c, &card, &food, "2026-08-01", 5_000, "Аптека");
+        spend(c, &card, &food, "2026-08-01", 5_000, "Аптека");
+        let checks = list(c, TODAY).unwrap();
+        let titles: Vec<_> = checks.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, ["Похоже на дубль: Лента"], "{checks:?}");
+        assert_eq!(checks[0].date, "2026-09-20");
+    }
 
     #[test]
     fn receipt_parts_are_not_deletable_duplicate_candidates() {
