@@ -3,7 +3,7 @@ import type { Txn } from "./api";
 import { clickSort, DEFAULT_TABLE, groupRows, isDefaultTable, moveCol, orderedRows, parseTable, sortParam, toggleCol } from "./txnTable";
 
 const t = (id: string, p: Partial<Txn>): Txn =>
-  ({ id, type: "expense", date: "2026-11-01", accountId: "a1", accountName: "Карта", currencySymbol: "₽", minorUnits: 2, amount: 100, categoryId: "c1", categoryName: "Еда", ...p }) as Txn;
+  ({ id, type: "expense", date: "2026-11-01", accountId: "a1", accountName: "Карта", currencySymbol: "₽", currencyCode: "RUB", minorUnits: 2, amount: 100, categoryId: "c1", categoryName: "Еда", ...p }) as Txn;
 
 describe("Г8: таблица операций", () => {
   it("разбирает сохранённое и возвращает обязательные столбцы", () => {
@@ -39,7 +39,7 @@ describe("Г8: таблица операций", () => {
     const items = [
       t("1", { date: "2026-11-03", amount: 100 }),
       t("2", { date: "2026-11-02", type: "income", categoryId: "c2", categoryName: "Зарплата", amount: 500 }),
-      t("3", { date: "2026-11-03", accountId: "a2", accountName: "USD", currencySymbol: "$", amount: 7 }),
+      t("3", { date: "2026-11-03", accountId: "a2", accountName: "USD", currencySymbol: "$", currencyCode: "USD", amount: 7 }),
       t("4", { date: "2026-11-01", splitId: "s", amount: 30 }),
       t("5", { date: "2026-11-01", splitId: "s", categoryId: "c3", amount: 20 }),
       t("6", { date: "2026-11-01", type: "transfer", categoryId: undefined, categoryName: undefined, amount: 999 }),
@@ -54,5 +54,8 @@ describe("Г8: таблица операций", () => {
     expect(groupRows(items, "account").map((g) => g.label)).toEqual(["Карта", "USD"]);
     expect(orderedRows(items, "category").map((r) => r.key)).toEqual(["1", "3", "2", "split:s", "6"]);
     expect(groupRows(items, "none")).toHaveLength(1);
+    // Один символ «¥» у юаня и иены: итог не складывается.
+    const yen = [t("y1", { currencySymbol: "¥", currencyCode: "CNY", amount: 10000 }), t("y2", { currencySymbol: "¥", currencyCode: "JPY", minorUnits: 0, amount: 100 })];
+    expect(groupRows(yen, "category")[0].total).toBeNull();
   });
 });

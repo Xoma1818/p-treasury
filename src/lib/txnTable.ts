@@ -99,7 +99,7 @@ export interface RowGroup {
   key: string;
   label: string;
   rows: TxnRow[];
-  /** Итог группы со знаком, если в ней одна валюта; переводы не считаются. */
+  /** Итог группы со знаком, если в ней одна валюта (по коду, не по символу); переводы не считаются. */
   total: { amount: number; symbol: string; minorUnits: number } | null;
 }
 
@@ -135,7 +135,7 @@ export function groupRows(items: Txn[], g: Group): RowGroup[] {
     }
     grp.rows.push(r);
     for (const t of r.kind === "txn" ? [r.txn] : r.parts) {
-      grp.symbols.add(t.currencySymbol);
+      grp.symbols.add(t.currencyCode);
       if (grp.total) grp.total.amount += signed(t);
     }
   }

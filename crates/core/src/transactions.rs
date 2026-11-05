@@ -63,6 +63,8 @@ pub struct Txn {
     /// Дата, по которой возврат попадает в бюджетный месяц (дата покупки);
     /// `None` — по дате самого возврата.
     pub count_date: Option<String>,
+    /// Код валюты счёта (итоги групп различают валюты с одним символом).
+    pub currency_code: String,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -417,7 +419,7 @@ const SELECT: &str =
         (SELECT group_concat(name, char(31)) FROM
             (SELECT g.name FROM transaction_tags tt JOIN tags g ON g.id = tt.tag_id
              WHERE tt.transaction_id = t.id ORDER BY g.name)),
-        t.refund, t.refund_of, t.count_date
+        t.refund, t.refund_of, t.count_date, a.currency_code
  FROM transactions t
  JOIN accounts a ON a.id = t.account_id
  JOIN currencies ca ON ca.code = a.currency_code
@@ -458,6 +460,7 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
         refund: r.get(23)?,
         refund_of: r.get(24)?,
         count_date: r.get(25)?,
+        currency_code: r.get(26)?,
     })
 }
 
@@ -552,10 +555,60 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     let order = order_sql(f.sort.as_deref());
     let sql = format!("{SELECT} WHERE {where_sql} ORDER BY {order} LIMIT {limit} OFFSET {offset}");
     let mut stmt = conn.prepare(&sql)?;
-    let items = stmt
+    let mut items: Vec<Txn> = stmt
         .query_map(params_from_iter(args.iter()), map)?
         .collect::<rusqlite::Result<_>>()?;
+    complete_receipts(conn, &where_sql, &args, &mut items)?;
     Ok(Page { items, total })
+}
+
+/// Чек на странице всегда целиком: части того же чека (подходящие под фильтр), не попавшие
+/// на страницу из-за порядка или границы, добавляются сразу за его последней частью.
+/// Иначе чек показал бы неполную сумму, а удаление задело бы и невидимые части.
+fn complete_receipts(
+    conn: &Connection,
+    where_sql: &str,
+    args: &[Value],
+    items: &mut Vec<Txn>,
+) -> Result<()> {
+    let mut splits: Vec<String> = Vec::new();
+    for t in items.iter() {
+        if let Some(s) = &t.split_id {
+            if !splits.contains(s) {
+                splits.push(s.clone());
+            }
+        }
+    }
+    if splits.is_empty() {
+        return Ok(());
+    }
+    let mut all: Vec<Value> = args.to_vec();
+    let marks: Vec<String> = splits
+        .iter()
+        .map(|s| {
+            all.push(s.clone().into());
+            format!("?{}", all.len())
+        })
+        .collect();
+    let sql = format!(
+        "{SELECT} WHERE {where_sql} AND t.split_id IN ({}) ORDER BY t.id",
+        marks.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let parts: Vec<Txn> = stmt
+        .query_map(params_from_iter(all.iter()), map)?
+        .collect::<rusqlite::Result<_>>()?;
+    for p in parts {
+        if items.iter().any(|t| t.id == p.id) {
+            continue;
+        }
+        let at = items
+            .iter()
+            .rposition(|t| t.split_id == p.split_id)
+            .map_or(items.len(), |i| i + 1);
+        items.insert(at, p);
+    }
+    Ok(())
 }
 
 /// ORDER BY для списка: только известные столбцы, при равенстве — новые сверху.
@@ -985,6 +1038,47 @@ mod tests {
         // Незнакомое не ломает запрос.
         assert_eq!(by("rowid; DROP TABLE x:asc"), vec![100, 200, 300]);
         assert_eq!(by("amount:sideways"), vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn receipt_is_whole_on_any_page() {
+        // Чек 600 + 100 при порядке по сумме: вторая часть дальше границы страницы.
+        let mut f = fx();
+        create(
+            f.db.conn(),
+            &txn("expense", "2026-10-02", &f.card, 300, Some(&f.food)),
+        )
+        .unwrap();
+        let input: crate::receipts::ReceiptInput = serde_json::from_value(serde_json::json!({
+            "date": "2026-10-01", "accountId": f.card, "total": 70000,
+            "parts": [{"categoryId": f.food, "amount": 60000}, {"categoryId": f.cafe, "amount": 10000}]
+        }))
+        .unwrap();
+        crate::receipts::create(f.db.conn_mut(), &input).unwrap();
+        let c = f.db.conn();
+        let page = list(
+            c,
+            &Filter {
+                sort: Some("amount:desc".into()),
+                limit: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let amounts: Vec<i64> = page.items.iter().map(|t| t.amount).collect();
+        assert_eq!(amounts, vec![60000, 10000]);
+        assert_eq!(page.total, 3);
+        assert_eq!(page.items[0].currency_code, "RUB");
+        // Фильтр по категории — только подходящая часть, без дописывания остальных.
+        let page = list(
+            c,
+            &Filter {
+                category_id: Some(f.cafe.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 1);
     }
 
     #[test]

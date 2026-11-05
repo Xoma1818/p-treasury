@@ -132,6 +132,8 @@ export interface Txn {
   accountId: string;
   accountName: string;
   currencySymbol: string;
+  /** Код валюты счёта: у CNY и JPY один символ «¥». */
+  currencyCode: string;
   minorUnits: number;
   amount: number;
   toAccountId: string | null;
