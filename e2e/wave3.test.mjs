@@ -120,15 +120,17 @@ test("общая трата за троих: своя доля — расход,
 
 test("календарь: дни без трат отмечены, итог недели, операция перетаскивается на другой день", async () => {
   await openSection(browser, "Календарь");
-  // В примере траты идут каждый день с 1-го по 4-е: в начале месяца дней без трат ещё нет,
-  // тогда отметки проверяем в прошлом месяце и возвращаемся.
-  if (Number(today.slice(8, 10)) <= 4) {
+  // В примере траты идут каждый день в начале месяца: дней без трат может ещё не быть
+  // (1–5-е число), тогда отметки проверяем в прошлом месяце и возвращаемся.
+  const noSpendNow = await browser
+    .$('[data-testid="no-spend"]')
+    .waitForExist({ timeout: 3000 })
+    .then(() => true, () => false);
+  if (!noSpendNow) {
     await (await browser.$('button[aria-label="Предыдущий месяц"]')).click();
     await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
     await (await browser.$('button[aria-label="Следующий месяц"]')).click();
     await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
-  } else {
-    await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
   }
   await waitText(browser, '[data-testid="no-spend-card"]', /\d+ (день|дня|дней) в этом месяце/);
   await waitText(browser, '[data-testid="week-summary"]', /Итог прошлой недели[\s\S]*Расходы/);
