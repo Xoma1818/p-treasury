@@ -8,9 +8,6 @@ on:
       ref:
         description: Ветка, тег или коммит для проверки (по умолчанию — выбранная ветка)
         required: false
-  push:
-    branches: [claude/project-thread-qfjnd1]
-    paths: [".github/workflows/windows-e2e.yml", "e2e/**"]
 
 permissions:
   contents: read
