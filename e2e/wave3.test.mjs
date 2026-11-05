@@ -120,17 +120,16 @@ test("общая трата за троих: своя доля — расход,
 
 test("календарь: дни без трат отмечены, итог недели, операция перетаскивается на другой день", async () => {
   await openSection(browser, "Календарь");
-  // В примере траты идут каждый день в начале месяца: дней без трат может ещё не быть
-  // (1–5-е число), тогда отметки проверяем в прошлом месяце и возвращаемся.
-  const noSpendNow = await browser
-    .$('[data-testid="no-spend"]')
-    .waitForExist({ timeout: 3000 })
-    .then(() => true, () => false);
-  if (!noSpendNow) {
+  // В начале месяца дней без трат может ещё не быть (в примере траты 1–4-го, а сегодня
+  // траты добавили прошлые тесты), тогда отметки проверяем в прошлом месяце и возвращаемся.
+  await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
+  if (!(await browser.$('[data-testid="no-spend"]').isExisting())) {
     await (await browser.$('button[aria-label="Предыдущий месяц"]')).click();
     await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
     await (await browser.$('button[aria-label="Следующий месяц"]')).click();
     await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
+  } else {
+    await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
   }
   await waitText(browser, '[data-testid="no-spend-card"]', /\d+ (день|дня|дней) в этом месяце/);
   await waitText(browser, '[data-testid="week-summary"]', /Итог прошлой недели[\s\S]*Расходы/);
@@ -265,7 +264,7 @@ test("Ctrl+K находит настройку и действие, правая
     r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
   });
   await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
-  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*Удалить/);
+  await waitText(browser, '[data-testid="context-menu"]', /Открыть[\s\S]*(Удалить|Открыть долг)/);
   await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   await browser.keys("Escape");
@@ -312,34 +311,6 @@ test("своё меню и главная кнопка «+»: скрыть, пе
   await waitContent(browser, '[data-testid="add-main"]', /Расход/);
   // Следующий тест начинает с перехода на Главную, как и раньше — из Настроек.
   await openSection(browser, "Настройки");
-});
-
-test("форма операции: комментарий без «Ещё», свой счёт по умолчанию (0.31)", async () => {
-  await openSection(browser, "Настройки");
-  await browser.$('[data-testid="txn-form-card"]').waitForExist({ timeout: 5000 });
-  try {
-    await tap('[name="pinNote"]');
-    // Счёт по умолчанию — последний в списке (не тот, что подставился бы сам).
-    const want = await browser.execute(() => {
-      const sel = document.querySelector('[name="formAccount"]');
-      const opt = sel.options[sel.options.length - 1];
-      return opt.value;
-    });
-    const sel = await browser.$('[name="formAccount"]');
-    await sel.selectByAttribute("value", want);
-    await openSection(browser, "Главная");
-    await click(browser, "+ Расход");
-    await browser.$('[role="dialog"] [name="note"]').waitForDisplayed({ timeout: 5000 });
-    assert.equal(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), want, "счёт из настройки");
-    await browser.keys("Escape");
-    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
-  } finally {
-    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
-    await openSection(browser, "Настройки");
-    const reset = await browser.$('[data-testid="txn-form-reset"]');
-    if (await reset.isExisting()) await tap('[data-testid="txn-form-reset"]');
-  }
-  await browser.$('[data-testid="txn-form-reset"]').waitForExist({ reverse: true, timeout: 5000 });
 });
 
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {

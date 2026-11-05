@@ -21,7 +21,7 @@ pub fn backup_to(conn: &Connection, dest: &Path) -> Result<()> {
     let tmp = Path::new(&tmp_name);
     // Остатки копии, прерванной падением или выключением компьютера.
     remove_part(tmp)?;
-    {
+    let written = (|| -> Result<()> {
         let mut target = Connection::open(tmp)?;
         let backup = Backup::new(conn, &mut target)?;
         backup.run_to_completion(256, Duration::from_millis(10), None)?;
@@ -29,9 +29,15 @@ pub fn backup_to(conn: &Connection, dest: &Path) -> Result<()> {
         // Копия — один самостоятельный файл: без режима WAL её открытие (проверка
         // перед восстановлением) не оставит рядом файлов -wal и -shm.
         target.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))?;
+        Ok(())
+    })()
+    .and_then(|()| fs::rename(tmp, dest).map_err(Into::into));
+    if written.is_err() {
+        // Кончилось место или пропал диск: недописанный файл только занимает место,
+        // а прошлая копия `dest` остаётся нетронутой.
+        let _ = remove_part(tmp);
     }
-    fs::rename(tmp, dest)?;
-    Ok(())
+    written
 }
 
 /// Удалить недописанную копию вместе со служебными файлами SQLite.

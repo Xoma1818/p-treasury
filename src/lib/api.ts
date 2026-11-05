@@ -1231,6 +1231,10 @@ export interface ImportPreview {
   /** «Сбер», «Т-Банк»; null — CSV по шаблону. */
   bank: string | null;
   accountId: string | null;
+  /** Строки «Между своими счетами» в выписке банка. */
+  selfTransfers: number;
+  /** Второй свой счёт для таких переводов (выбранный или запомненный). */
+  selfAccountId: string | null;
 }
 
 export interface BackupStatus {
@@ -1851,8 +1855,9 @@ export const api = {
     invoke<void>("export_report", { report, from, to, path }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
-  importPreview: (path: string, accountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null }),
-  importCsv: (path: string, skipErrors: boolean, accountId?: string | null) => invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null }),
+  /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
+  importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
+  importCsv: (path: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
   importHistory: () => invoke<ImportBatch[]>("import_history"),
   importUndo: (id: string) => invoke<number>("import_undo", { id }),
   importSuggestions: () => invoke<ImportSuggestion[]>("import_suggestions"),

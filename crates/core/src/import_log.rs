@@ -284,7 +284,8 @@ pub fn save_with_raw(
             suggest(conn, &import_id, "same", &id, &c.id, &now)?;
             out.suggested += 1;
         }
-        if list.is_empty() && bank.is_some() {
+        // Перевод уже записан переводом: вторую сторону искать не нужно.
+        if list.is_empty() && bank.is_some() && t.kind != "transfer" {
             new_ids.push((id, t));
         }
     }

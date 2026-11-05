@@ -339,6 +339,22 @@ test("операция долга: вместо молчащего «Удали�
   await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "«Открыть долг» не открыл карточку" });
 });
 
+test("операция долга, правая кнопка: вместо молчащего «Удалить» — «Открыть долг»", async () => {
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Сбер");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await browser.execute(() => {
+    const r = document.querySelector('[data-testid="txn-row"] td.date');
+    const b = r.getBoundingClientRect();
+    r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
+  });
+  await browser.$('[data-testid="context-menu"]').waitForDisplayed({ timeout: 3000 });
+  const menu = await (await browser.$('[data-testid="context-menu"]')).getText();
+  assert.doesNotMatch(menu, /Удалить/);
+  await (await browser.$('//*[@data-testid="context-menu"]//button[normalize-space()="Открыть долг"]')).click();
+  await browser.$('//main//h1[contains(., "Сбер ипотека")]').waitForDisplayed({ timeout: 5000, timeoutMsg: "«Открыть долг» из меню не открыл карточку" });
+});
+
 test("тема хранится в базе: после восстановления копии берётся тема из неё", async () => {
   const theme = () => browser.execute(() => document.documentElement.dataset.theme);
   await (await browser.$('[data-testid="theme-light"]')).click();
@@ -351,6 +367,21 @@ test("тема хранится в базе: после восстановлен
   await browser.refresh();
   await browser.waitUntil(async () => (await theme()) === "dark", { timeout: 10000, timeoutMsg: "тема из базы не применилась" });
   assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-pressed"), "true");
+});
+
+test("тема из восстановленной копии применяется в открытой программе, без перезапуска", async () => {
+  const theme = () => browser.execute(() => document.documentElement.dataset.theme);
+  const prefs = () => browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("get_settings").then((s) => done(JSON.parse(s.ui_prefs || "{}"))));
+  await (await browser.$('[data-testid="theme-light"]')).click();
+  await browser.waitUntil(async () => (await prefs())["p-treasury-theme"] === "light", { timeout: 5000, timeoutMsg: "выбор темы не записан в базу" });
+  // Копию восстановили: в базе другая тема, и программа перечитывает все данные — как после
+  // кнопки «Восстановить» (любое действие через useAction; здесь Ctrl+H дважды).
+  const dark = JSON.stringify({ ...(await prefs()), "p-treasury-theme": "dark" });
+  await browser.executeAsync((v, done) => window.__TAURI_INTERNALS__.invoke("set_setting", { key: "ui_prefs", value: v }).then(done), dark);
+  await browser.keys(["Control", "h"]);
+  await browser.pause(300);
+  await browser.keys(["Control", "h"]);
+  await browser.waitUntil(async () => (await theme()) === "dark", { timeout: 10000, timeoutMsg: "тема из копии не применилась без перезапуска" });
 });
 
 test("сценарий «что если»: правка сохраняется", async () => {

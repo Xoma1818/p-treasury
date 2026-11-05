@@ -1445,9 +1445,15 @@ pub fn import_preview(
     state: State<AppState>,
     path: String,
     account_id: Option<String>,
+    self_account_id: Option<String>,
 ) -> CmdResult<Preview> {
     with_db(&state, |db| {
-        csv_import::preview(db.conn(), Path::new(&path), account_id.as_deref())
+        csv_import::preview_with(
+            db.conn(),
+            Path::new(&path),
+            account_id.as_deref(),
+            self_account_id.as_deref(),
+        )
     })
 }
 
@@ -1457,9 +1463,16 @@ pub fn import_csv(
     path: String,
     skip_errors: bool,
     account_id: Option<String>,
+    self_account_id: Option<String>,
 ) -> CmdResult<import_log::Saved> {
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import(c, Path::new(&path), skip_errors, account_id.as_deref())
+        csv_import::import_with(
+            c,
+            Path::new(&path),
+            skip_errors,
+            account_id.as_deref(),
+            self_account_id.as_deref(),
+        )
     })
 }
 
