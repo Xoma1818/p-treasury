@@ -3,7 +3,8 @@ import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../lib/api";
-import { HOTKEYS, isTyping } from "../lib/hotkeys";
+import { hotkeyList, isTyping } from "../lib/hotkeys";
+import { useKeyMap } from "../lib/keymap";
 import { useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { Modal } from "./Modal";
@@ -98,11 +99,12 @@ export function HideAmountsSwitch() {
 
 /** Справка по горячим клавишам (F1). */
 export function HotkeysHelp({ onClose }: { onClose: () => void }) {
+  const keyMap = useKeyMap();
   return (
     <Modal title="Горячие клавиши" onClose={onClose}>
       <table className="table compact hotkeys" data-testid="hotkeys">
         <tbody>
-          {HOTKEYS.map(([keys, action]) => (
+          {hotkeyList(keyMap).map(([keys, action]) => (
             <tr key={keys}>
               <td>
                 <kbd>{keys}</kbd>

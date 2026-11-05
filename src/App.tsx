@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
 import { LOOK_KEY, savedLook, showLook } from "./lib/look";
+import { actionFor, comboOf, KEYS_KEY, notifyKeys, usable, useKeyMap } from "./lib/keymap";
 import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
 import { loadPrefs, prefsToApply } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
@@ -79,6 +80,7 @@ export function App() {
     if (restored.includes(FORM_KEY)) notifyForm();
     if (restored.includes(HEAD_KEY)) notifyHead();
     if (restored.includes(LOOK_KEY)) showLook(savedLook());
+    if (restored.includes(KEYS_KEY)) notifyKeys();
   }, [settingsData]);
   // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
   const { sectionOn } = useModules();
@@ -87,41 +89,35 @@ export function App() {
     if (sectionHidden) go("home");
   }, [sectionHidden, go]);
 
-  // Ctrl+1…9: разделы меню; Ctrl+N: новая операция; Ctrl+T: перевод; Ctrl+F: поиск;
-  // Ctrl+K: поиск по всему; Ctrl+H: скрыть суммы; F1: справка. Полный список — lib/hotkeys.ts.
+  // Ctrl+1…9: разделы меню (закреплены). Остальное — по своим клавишам (Г10, lib/keymap.ts):
+  // по умолчанию Ctrl+N расход, Ctrl+T перевод, Ctrl+K поиск по всему, Ctrl+F поиск, Ctrl+H суммы, F1 справка.
+  const keyMap = useKeyMap();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "F1") {
-        e.preventDefault();
-        setHelp(true);
-        return;
+      if (e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const n = Number(e.key);
+        const menu = navSections(savedNav(), sectionOn);
+        if (n >= 1 && n <= 9 && menu[n - 1]) {
+          e.preventDefault();
+          go(menu[n - 1].id);
+          return;
+        }
       }
-      if (!e.ctrlKey || e.altKey || e.shiftKey) return;
-      const n = Number(e.key);
-      const menu = navSections(savedNav(), sectionOn);
-      if (n >= 1 && n <= 9 && menu[n - 1]) {
-        e.preventDefault();
-        go(menu[n - 1].id);
-      } else if (e.code === "KeyN") {
-        e.preventDefault();
-        openTxnForm({ mode: "new", type: "expense" });
-      } else if (e.code === "KeyT") {
-        e.preventDefault();
-        openTxnForm({ mode: "new", type: "transfer" });
-      } else if (e.code === "KeyH") {
-        e.preventDefault();
-        setSetting.run("hide_amounts", hidden ? "0" : "1");
-      } else if (e.code === "KeyK") {
-        e.preventDefault();
-        setPalette(true);
-      } else if (e.code === "KeyF") {
-        e.preventDefault();
-        focusSearch(go);
-      }
+      const combo = comboOf(e);
+      const action = combo && usable(combo) ? actionFor(keyMap, combo) : null;
+      if (!action) return;
+      e.preventDefault();
+      if (action === "help") setHelp(true);
+      else if (action === "newExpense") openTxnForm({ mode: "new", type: "expense" });
+      else if (action === "newIncome") openTxnForm({ mode: "new", type: "income" });
+      else if (action === "newTransfer") openTxnForm({ mode: "new", type: "transfer" });
+      else if (action === "hideAmounts") setSetting.run("hide_amounts", hidden ? "0" : "1");
+      else if (action === "palette") setPalette(true);
+      else if (action === "search") focusSearch(go);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, openTxnForm, setHelp, setPalette, hidden, setSetting.run]);
+  }, [go, openTxnForm, setHelp, setPalette, hidden, setSetting.run, keyMap]);
 
   if (!isTauri()) {
     return <div className="wizard"><div className="card wizard-card">Kazna работает как приложение для ПК. Откройте его через установленную программу.</div></div>;

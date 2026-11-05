@@ -1013,3 +1013,5 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .accent-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; transition: transform var(--fast) var(--ease); }
 .accent-dot:hover { transform: scale(1.08); }
 .accent-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
+.keys-table .btn.active { border-color: var(--accent); color: var(--accent); }
+.keys-table td.num { text-align: right; white-space: nowrap; }

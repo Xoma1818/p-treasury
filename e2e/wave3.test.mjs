@@ -407,6 +407,30 @@ test("Главная: карточка в половину ширины и об�
   }
 });
 
+test("свои клавиши: доход на Ctrl+I, занятое не принимается, как было (0.32)", async () => {
+  await openSection(browser, "Настройки");
+  await browser.$('[data-testid="keys-card"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[data-testid="key-newIncome"]');
+    await waitText(browser, '[data-testid="key-newIncome"]', /Нажмите/);
+    await browser.keys(["Control", "t"]);
+    await waitText(browser, '[data-testid="keys-msg"]', /Ctrl\+T уже занято: «Новый перевод»/);
+    await browser.keys(["Control", "i"]);
+    await waitContent(browser, '[data-testid="key-newIncome"]', /Ctrl\+I/);
+    await browser.execute(() => document.activeElement?.blur());
+    await browser.keys(["Control", "i"]);
+    await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
+    assert.match(await browser.execute(() => document.querySelector('[role="dialog"] [role="tab"][aria-selected="true"]')?.textContent ?? ""), /Доход/);
+    await browser.keys("Escape");
+    await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  } finally {
+    if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
+    const reset = await browser.$('[data-testid="keys-reset"]');
+    if (await reset.isExisting()) await reset.click();
+  }
+  await browser.$('[data-testid="keys-reset"]').waitForExist({ reverse: true, timeout: 5000 });
+});
+
 test("своя Главная: скрыть карточку, переставить, вернуть как было", async () => {
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
