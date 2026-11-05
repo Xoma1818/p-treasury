@@ -120,9 +120,10 @@ test("общая трата за троих: своя доля — расход,
 
 test("календарь: дни без трат отмечены, итог недели, операция перетаскивается на другой день", async () => {
   await openSection(browser, "Календарь");
-  // В примере траты идут каждый день с 1-го по 4-е: в начале месяца дней без трат ещё нет,
-  // тогда отметки проверяем в прошлом месяце и возвращаемся.
-  if (Number(today.slice(8, 10)) <= 4) {
+  // В начале месяца дней без трат может ещё не быть (в примере траты 1–4-го, а сегодня
+  // траты добавили прошлые тесты), тогда отметки проверяем в прошлом месяце и возвращаемся.
+  await browser.$(`[data-testid="cal-day"][data-date="${today}"]`).waitForExist({ timeout: 5000 });
+  if (!(await browser.$('[data-testid="no-spend"]').isExisting())) {
     await (await browser.$('button[aria-label="Предыдущий месяц"]')).click();
     await browser.$('[data-testid="no-spend"]').waitForExist({ timeout: 5000 });
     await (await browser.$('button[aria-label="Следующий месяц"]')).click();
