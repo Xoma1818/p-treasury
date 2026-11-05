@@ -115,14 +115,8 @@ pub fn for_txn(conn: &Connection, txn_id: &str) -> Result<Vec<Change>> {
     for_ids(conn, &[txn_id.to_string()])
 }
 
-/// Строка с одними тегами (её пишет `record_tags`).
-fn is_tag(r: &Row) -> bool {
-    r.before.len() == 1 && r.before.contains_key("tags")
-}
-
 struct Row {
     id: i64,
-    txn: String,
     at: String,
     kind: String,
     before: Map<String, Value>,
@@ -130,19 +124,18 @@ struct Row {
 }
 
 fn for_ids(conn: &Connection, ids: &[String]) -> Result<Vec<Change>> {
-    let mut stmt = conn
-        .prepare("SELECT id, txn_id, at, kind, before, after FROM txn_history WHERE txn_id = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT id, at, kind, before, after FROM txn_history WHERE txn_id = ?1")?;
     let mut rows = Vec::new();
     for id in ids {
         let found = stmt
             .query_map([id], |r| {
                 Ok(Row {
                     id: r.get(0)?,
-                    txn: r.get(1)?,
-                    at: r.get(2)?,
-                    kind: r.get(3)?,
-                    before: parse(&r.get::<_, String>(4)?),
-                    after: r.get::<_, Option<String>>(5)?.as_deref().map(parse),
+                    at: r.get(1)?,
+                    kind: r.get(2)?,
+                    before: parse(&r.get::<_, String>(3)?),
+                    after: r.get::<_, Option<String>>(4)?.as_deref().map(parse),
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -150,73 +143,85 @@ fn for_ids(conn: &Connection, ids: &[String]) -> Result<Vec<Change>> {
     }
     rows.sort_by_key(|r| std::cmp::Reverse(r.id));
 
-    // Одно сохранение — одна запись: теги, снятые и поставленные в ту же
-    // секунду, присоединяются к правке полей этой операции.
-    let mut groups: Vec<Vec<Row>> = Vec::new();
+    // Одна строка — одно действие: правку полей и тегов одного сохранения
+    // `record_tags` сам дописывает в строку этого действия.
+    let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let same = groups.last().is_some_and(|g| {
-            let last = &g[0];
-            row.kind == "update"
-                && last.kind == "update"
-                && row.txn == last.txn
-                && row.at.get(..19) == last.at.get(..19)
-                // Две правки полей не склеиваются (правка и быстрая отмена).
-                && (is_tag(&row) || g.iter().all(is_tag))
-        });
-        if same {
-            groups.last_mut().expect("есть").push(row);
-        } else {
-            groups.push(vec![row]);
-        }
-    }
-
-    let mut out = Vec::with_capacity(groups.len());
-    for g in groups {
-        let first = &g[0];
-        let (at, kind) = (first.at.clone(), first.kind.clone());
-        if kind != "update" {
+        if row.kind != "update" {
             out.push(Change {
-                at,
-                kind,
+                at: row.at,
+                kind: row.kind,
                 fields: Vec::new(),
             });
             continue;
         }
-        let mut fields = Vec::new();
-        // Внутри группы строки новые сверху; поля разбираем в порядке записи.
-        for row in g.iter().rev() {
-            let after = row.after.clone().unwrap_or_default();
-            fields.extend(diff(conn, &row.before, &after)?);
-        }
-        // Правка без видимой разницы (например, тег снят и поставлен снова)
-        // не показывается.
+        let after = row.after.clone().unwrap_or_default();
+        let fields = diff(conn, &row.before, &after)?;
+        // Правка без видимой разницы не показывается.
         if !fields.is_empty() {
-            out.push(Change { at, kind, fields });
+            out.push(Change {
+                at: row.at,
+                kind: row.kind,
+                fields,
+            });
         }
     }
     Ok(out)
 }
 
+/// Номер последней строки истории: метка начала действия для `record_tags`.
+pub(crate) fn last_id(conn: &Connection) -> Result<i64> {
+    Ok(
+        conn.query_row("SELECT coalesce(max(id), 0) FROM txn_history", [], |r| {
+            r.get(0)
+        })?,
+    )
+}
+
 /// Записать смену тегов существующей операции (форма, «Теги операции»,
-/// массовое действие). Теги при создании операции сюда не попадают.
+/// массовое действие, отмена и повтор). Теги при создании операции сюда не
+/// попадают. Если то же действие (строки после метки `since`) уже записало
+/// правку полей этой операции, теги дописываются в ту же строку: одно
+/// сохранение — одна запись.
 pub(crate) fn record_tags(
     conn: &Connection,
     txn_id: &str,
     before: &[String],
     after: &[String],
+    since: Option<i64>,
 ) -> Result<()> {
     if before == after {
         return Ok(());
     }
-    conn.execute(
-        "INSERT INTO txn_history (txn_id, at, kind, before, after)
-         VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'update', ?2, ?3)",
-        params![
-            txn_id,
-            serde_json::json!({ "tags": before }).to_string(),
-            serde_json::json!({ "tags": after }).to_string()
-        ],
-    )?;
+    let (b, a) = (
+        serde_json::json!(before).to_string(),
+        serde_json::json!(after).to_string(),
+    );
+    let same_action: Option<i64> = match since {
+        Some(since) => conn
+            .query_row(
+                "SELECT id FROM txn_history WHERE id > ?1 AND txn_id = ?2 AND kind = 'update'
+                 ORDER BY id DESC LIMIT 1",
+                params![since, txn_id],
+                |r| r.get(0),
+            )
+            .optional()?,
+        None => None,
+    };
+    match same_action {
+        Some(row) => conn.execute(
+            "UPDATE txn_history SET before = json_set(before, '$.tags', json(?2)),
+                                    after = json_set(after, '$.tags', json(?3))
+             WHERE id = ?1",
+            params![row, b, a],
+        )?,
+        None => conn.execute(
+            "INSERT INTO txn_history (txn_id, at, kind, before, after)
+             VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'update',
+                     json_object('tags', json(?2)), json_object('tags', json(?3)))",
+            params![txn_id, b, a],
+        )?,
+    };
     Ok(())
 }
 
@@ -242,6 +247,100 @@ pub(crate) fn record_receipt(
     Ok(())
 }
 
+/// Что было с операциями до отмены или повтора (см. `undo`): теги и чеки.
+/// Правки полей при отмене пишут триггеры, а теги и состав чека — вот это.
+pub(crate) struct UndoSnapshot {
+    mark: i64,
+    /// Операция и её теги (`None` — операции не было).
+    tags: Vec<(String, Option<Vec<String>>)>,
+    /// Чек: его части и снимок до отмены.
+    receipts: Vec<(String, Vec<String>, Value)>,
+}
+
+fn split_of(conn: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT split_id FROM transactions WHERE id = ?1",
+            [id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+fn parts_of(conn: &Connection, split: &str) -> Result<Vec<String>> {
+    let mut ids: Vec<String> = conn
+        .prepare("SELECT id FROM transactions WHERE split_id = ?1")?
+        .query_map([split], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    ids.sort();
+    Ok(ids)
+}
+
+fn exists(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT 1 FROM transactions WHERE id = ?1", [id], |_| Ok(()))
+        .optional()?
+        .is_some())
+}
+
+pub(crate) fn before_undo(conn: &Connection, ids: &[String]) -> Result<UndoSnapshot> {
+    let mut snap = UndoSnapshot {
+        mark: last_id(conn)?,
+        tags: Vec::new(),
+        receipts: Vec::new(),
+    };
+    for id in ids {
+        let tags = if exists(conn, id)? {
+            Some(crate::tags::names_of(conn, id)?)
+        } else {
+            None
+        };
+        snap.tags.push((id.clone(), tags));
+        if let Some(split) = split_of(conn, id)? {
+            if !snap.receipts.iter().any(|r| r.0 == split) {
+                let parts = parts_of(conn, &split)?;
+                let value = receipt_snapshot(conn, &parts)?;
+                snap.receipts.push((split, parts, value));
+            }
+        }
+    }
+    Ok(snap)
+}
+
+/// Записать в историю то, что отмена или повтор изменили помимо полей.
+pub(crate) fn after_undo(conn: &Connection, snap: &UndoSnapshot) -> Result<()> {
+    let mut rebuilt = Vec::new();
+    for (split, parts, before) in &snap.receipts {
+        let now = parts_of(conn, split)?;
+        // Состав частей сменился — это отмена или повтор пересборки чека.
+        if now.is_empty() || parts.is_empty() || now == *parts {
+            continue;
+        }
+        let after = receipt_snapshot(conn, &now)?;
+        if after != *before {
+            conn.execute(
+                "INSERT INTO txn_history (txn_id, at, kind, before, after)
+                 VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'update', ?2, ?3)",
+                params![split, before.to_string(), after.to_string()],
+            )?;
+        }
+        rebuilt.push(split.clone());
+    }
+    for (id, before) in &snap.tags {
+        let Some(before) = before else { continue };
+        if !exists(conn, id)? {
+            continue;
+        }
+        if split_of(conn, id)?.is_some_and(|s| rebuilt.contains(&s)) {
+            continue;
+        }
+        let after = crate::tags::names_of(conn, id)?;
+        record_tags(conn, id, before, &after, Some(snap.mark))?;
+    }
+    Ok(())
+}
+
 fn receipt_snapshot(conn: &Connection, ids: &[String]) -> Result<Value> {
     let mut stmt = conn.prepare(
         "SELECT date, account_id, payee, event_id, category_id, amount, note
@@ -249,9 +348,7 @@ fn receipt_snapshot(conn: &Connection, ids: &[String]) -> Result<Value> {
     )?;
     let mut head = Map::new();
     let mut parts = Vec::new();
-    let mut sorted = ids.to_vec();
-    sorted.sort();
-    for id in &sorted {
+    for id in ids {
         let row = stmt
             .query_row([id], |r| {
                 Ok((
@@ -276,6 +373,9 @@ fn receipt_snapshot(conn: &Connection, ids: &[String]) -> Result<Value> {
         head.insert("tags".into(), crate::tags::names_of(conn, id)?.into());
         parts.push(serde_json::json!([category, amount, note]));
     }
+    // Порядок частей — по содержимому, а не по идентификаторам: форма может
+    // вернуть те же части в другом порядке, это не изменение.
+    parts.sort_by_key(|p| p.to_string());
     head.insert("parts".into(), Value::Array(parts));
     Ok(Value::Object(head))
 }
@@ -547,7 +647,7 @@ mod tests {
             .iter()
             .any(|f| f.field == "Теги" && f.after == "отпуск, работа"));
         // Сохранение тех же тегов ничего не пишет.
-        tags::edit_for(db.conn(), &id, &["отпуск".into(), "работа".into()]).unwrap();
+        tags::edit_for(db.conn(), &id, &["отпуск".into(), "работа".into()], None).unwrap();
         let rows: i64 = db
             .conn()
             .query_row(
@@ -556,7 +656,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(rows, 3);
+        assert_eq!(
+            rows, 2,
+            "правка формы — одна строка, массовое действие — вторая"
+        );
 
         // Разбитый чек.
         let receipt = |a: i64, b: i64, tag: &str, note: Option<&str>| ReceiptInput {
@@ -642,6 +745,113 @@ mod tests {
         assert!(
             parts.after.contains("к празднику") && parts.money,
             "{parts:?}"
+        );
+    }
+
+    #[test]
+    fn undo_order_and_separate_actions() {
+        use crate::receipts::{self, PartInput, ReceiptInput};
+        use crate::transactions::TxnExtra;
+        use crate::{bulk, undo};
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let card = accounts::create(c, &acc("Карта", "debit", "RUB", 0)).unwrap();
+        let food = cat(c, "Питание");
+        let cafe = cat(c, "Общепит");
+        let extra = |t: &str| TxnExtra {
+            spread_months: None,
+            tags: vec![t.into()],
+        };
+        let id =
+            transactions::create_with(db.conn_mut(), &input(&card, 50_000, &food), &extra("А"))
+                .unwrap();
+
+        // Две отдельные правки тегов в одну секунду — две записи.
+        bulk::tag(db.conn_mut(), std::slice::from_ref(&id), "Б", true).unwrap();
+        bulk::tag(db.conn_mut(), std::slice::from_ref(&id), "В", true).unwrap();
+        assert_eq!(for_txn(db.conn(), &id).unwrap().len(), 2);
+
+        // Ctrl+Z правки тегов и суммы: история показывает возврат.
+        let mut j = undo::Journal::default();
+        j.record(db.conn_mut(), "Правка", |c| {
+            transactions::update_with(c, &id, &input(&card, 40_000, &food), &extra("Г"))
+        })
+        .unwrap();
+        j.undo(db.conn()).unwrap();
+        let h = for_txn(db.conn(), &id).unwrap();
+        assert_eq!(h.len(), 4, "{h:?}");
+        let tags = h[0].fields.iter().find(|f| f.field == "Теги").unwrap();
+        assert_eq!(
+            (tags.before.as_str(), tags.after.as_str()),
+            ("Г", "А, Б, В")
+        );
+        assert!(h[0]
+            .fields
+            .iter()
+            .any(|f| f.field == "Сумма" && f.after == "500 ₽"));
+        j.redo(db.conn()).unwrap();
+        let h = for_txn(db.conn(), &id).unwrap();
+        assert_eq!(
+            h[0].fields
+                .iter()
+                .find(|f| f.field == "Теги")
+                .unwrap()
+                .after,
+            "Г"
+        );
+
+        // Чек: тот же состав в другом порядке — не изменение; отмена пересборки видна.
+        let receipt = |parts: &[(&str, i64)]| ReceiptInput {
+            date: "2026-11-05".into(),
+            account_id: card.clone(),
+            payee: None,
+            note: None,
+            total: parts.iter().map(|p| p.1).sum(),
+            parts: parts
+                .iter()
+                .map(|(cat, a)| PartInput {
+                    category_id: (*cat).into(),
+                    amount: *a,
+                    note: None,
+                })
+                .collect(),
+            tags: vec![],
+            event_id: None,
+        };
+        let split =
+            receipts::create(db.conn_mut(), &receipt(&[(&food, 10_000), (&cafe, 30_000)])).unwrap();
+        receipts::update(
+            db.conn_mut(),
+            &split,
+            &receipt(&[(&cafe, 30_000), (&food, 10_000)]),
+        )
+        .unwrap();
+        let first = |c: &Connection| {
+            c.query_row(
+                "SELECT id FROM transactions WHERE split_id = ?1 LIMIT 1",
+                [&split],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap()
+        };
+        assert!(get(db.conn(), &first(db.conn()), Some(&split))
+            .unwrap()
+            .changes
+            .is_empty());
+        let mut j = undo::Journal::default();
+        j.record(db.conn_mut(), "Чек", |c| {
+            receipts::update(c, &split, &receipt(&[(&food, 10_000), (&cafe, 40_000)]))
+        })
+        .unwrap();
+        j.undo(db.conn()).unwrap();
+        let h = get(db.conn(), &first(db.conn()), Some(&split))
+            .unwrap()
+            .changes;
+        assert_eq!(h.len(), 2, "{h:?}");
+        assert!(
+            h[0].fields[0].after.contains("300 ₽") && h[0].fields[0].before.contains("400 ₽"),
+            "{h:?}"
         );
     }
 }

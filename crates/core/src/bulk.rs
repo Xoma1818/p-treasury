@@ -200,7 +200,7 @@ pub fn tag(conn: &mut Connection, ids: &[String], tag_name: &str, add: bool) -> 
         }
     };
     for (id, before) in existing.iter().zip(&before) {
-        crate::history::record_tags(&tx, id, before, &tags::names_of(&tx, id)?)?;
+        crate::history::record_tags(&tx, id, before, &tags::names_of(&tx, id)?, None)?;
     }
     tx.commit()?;
     Ok(BulkResult {
