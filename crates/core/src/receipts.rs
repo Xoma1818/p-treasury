@@ -187,7 +187,18 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
             "UPDATE notes SET transaction_id = ?2 WHERE transaction_id = ?1",
             params![old, anchor],
         )?;
-        tx.execute("DELETE FROM transactions WHERE id = ?1", [old])?;
+        tx.execute("DELETE FROM transactions WHERE id = ?1", [&old])?;
+        // История прежней части остаётся у чека: удаление при пересборке —
+        // не событие для пользователя, а правки части переходят к split_id.
+        tx.execute(
+            "DELETE FROM txn_history WHERE txn_id = ?1 AND kind = 'delete'
+             AND id = (SELECT max(id) FROM txn_history WHERE txn_id = ?1)",
+            [&old],
+        )?;
+        tx.execute(
+            "UPDATE txn_history SET txn_id = ?2 WHERE txn_id = ?1",
+            params![old, split_id],
+        )?;
     }
     // Части с возвратами подчиняются тем же правилам, что обычная покупка: не меньше
     // возвращённого, не позже возврата; месяц и категория возвратов следуют за частью.

@@ -184,6 +184,10 @@ pub fn set_account(conn: &mut Connection, ids: &[String], account_id: &str) -> R
 pub fn tag(conn: &mut Connection, ids: &[String], tag_name: &str, add: bool) -> Result<BulkResult> {
     let tx = conn.transaction()?;
     let existing: Vec<String> = rows(&tx, ids)?.into_iter().map(|r| r.id).collect();
+    let before = existing
+        .iter()
+        .map(|id| tags::names_of(&tx, id))
+        .collect::<Result<Vec<_>>>()?;
     let n = if add {
         let tag = tags::ensure(&tx, tag_name)?;
         tags::add_to(&tx, &tag, &existing)?
@@ -195,6 +199,9 @@ pub fn tag(conn: &mut Connection, ids: &[String], tag_name: &str, add: bool) -> 
             None => 0,
         }
     };
+    for (id, before) in existing.iter().zip(&before) {
+        crate::history::record_tags(&tx, id, before, &tags::names_of(&tx, id)?)?;
+    }
     tx.commit()?;
     Ok(BulkResult {
         changed: n,

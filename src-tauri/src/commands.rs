@@ -1936,7 +1936,7 @@ pub fn set_transaction_tags(
     tags: Vec<String>,
 ) -> CmdResult<()> {
     with_undo(&state, "Теги операции", |c| {
-        budget_core::tags::set_for(c, &id, &tags)
+        budget_core::tags::edit_for(c, &id, &tags)
     })
 }
 

@@ -371,7 +371,9 @@ pub fn update_with(
 ) -> Result<()> {
     let tx = conn.transaction()?;
     update(&tx, id, input)?;
-    apply_extra(&tx, id, extra)?;
+    set_spread(&tx, id, extra.spread_months)?;
+    // Правка тегов существующей операции попадает в историю изменений.
+    crate::tags::edit_for(&tx, id, &extra.tags)?;
     tx.commit()?;
     Ok(())
 }
