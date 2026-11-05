@@ -580,38 +580,69 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
         )?;
         return Ok(Page { items, total });
     };
-    let start = (offset - 1).max(0);
-    let mut items = fetch(
+    // Даты на границах страницы берём по индексу (date, id): позиция по дате та же.
+    let date_at = |pos: i64| -> Result<Option<String>> {
+        let sql = format!(
+            "SELECT t.date FROM transactions t
+             JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+             LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}
+             ORDER BY t.date {dir}, t.id {dir} LIMIT 1 OFFSET {pos}"
+        );
+        Ok(conn
+            .query_row(&sql, params_from_iter(args.iter()), |r| r.get(0))
+            .optional()?)
+    };
+    let Some(first) = date_at(offset)? else {
+        return Ok(Page {
+            items: Vec::new(),
+            total,
+        });
+    };
+    let last = date_at(offset + limit - 1)?;
+    let (before, after) = if dir == "DESC" {
+        (">", "<")
+    } else {
+        ("<", ">")
+    };
+    let mut all = args.clone();
+    all.push(first.clone().into());
+    let pf = all.len();
+    let base: i64 = conn.query_row(
         &format!(
-            "{SELECT} WHERE {where_sql}
-             ORDER BY t.date {dir}, coalesce(t.split_id, t.id) {dir}, t.id {dir}
-             LIMIT {} OFFSET {start}",
-            limit + offset.min(1)
+            "SELECT count(*) FROM transactions t
+             JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+             LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql} AND t.date {before} ?{pf}"
         ),
-        &args,
+        params_from_iter(all.iter()),
+        |r| r.get(0),
     )?;
-    // Строка перед offset принадлежит прошлой странице, с ней — и продолжение её чека.
-    if offset > 0 && !items.is_empty() {
-        let prev = items.remove(0).split_id;
-        let cont = items
-            .iter()
-            .take_while(|t| prev.is_some() && t.split_id == prev)
-            .count();
-        items.drain(..cont);
+    // Все строки дней от первой до последней даты страницы, в порядке экрана: чек подряд.
+    let mut range = format!("t.date {after}= ?{pf}");
+    if let Some(l) = last {
+        all.push(l.into());
+        range.push_str(&format!(" AND t.date {before}= ?{}", all.len()));
     }
-    // Последний чек страницы — до конца.
-    if let Some(split) = items.last().and_then(|t| t.split_id.clone()) {
-        let mut all = args.clone();
-        all.push(split.into());
-        let n = all.len();
-        let rest = fetch(
-            &format!("{SELECT} WHERE {where_sql} AND t.split_id = ?{n} ORDER BY t.id {dir}"),
-            &all,
-        )?;
-        let last = items.last().map(|t| t.id.clone()).unwrap_or_default();
-        let after = rest.iter().position(|t| t.id == last).map_or(0, |i| i + 1);
-        items.extend(rest.into_iter().skip(after));
+    let block = fetch(
+        &format!(
+            "{SELECT} WHERE {where_sql} AND {range}
+             ORDER BY t.date {dir}, coalesce(t.split_id, t.id) {dir}, t.id {dir}"
+        ),
+        &all,
+    )?;
+    // Строка экрана — на странице, где она начинается.
+    let mut starts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for (i, t) in block.iter().enumerate() {
+        let rk = t.split_id.clone().unwrap_or_else(|| t.id.clone());
+        starts.entry(rk).or_insert(base + i as i64);
     }
+    let items = block
+        .into_iter()
+        .filter(|t| {
+            let rk = t.split_id.as_ref().unwrap_or(&t.id);
+            let gs = starts[rk];
+            gs >= offset && gs < offset + limit
+        })
+        .collect();
     Ok(Page { items, total })
 }
 
