@@ -308,6 +308,7 @@ test("кредит: каникулы и смена ставки записыва
   const before = await next();
 
   await click(browser, "Каникулы");
+  await waitContent(browser, '[role="dialog"]', /Станет/);
   await save(browser);
   await waitText(browser, '[data-testid="loan-changes"]', /Каникулы:/);
   await browser.waitUntil(async () => (await next()) !== before, { timeout: 5000, timeoutMsg: "каникулы не сдвинули ближайший платёж" });
@@ -316,6 +317,8 @@ test("кредит: каникулы и смена ставки записыва
 
   await click(browser, "Ставка изменилась");
   await fill(browser, "newRate", "8");
+  // Сравнение «Было → Станет» появляется под полями и сдвигает кнопку: ждём его, иначе щелчок мимо.
+  await waitContent(browser, '[role="dialog"]', /Станет[\s\S]*8\s*%/);
   await save(browser);
   await waitText(browser, '[data-testid="loan-changes"]', /Ставка 8 % годовых/);
   await (await browser.$('button[aria-label="Удалить изменение ставки"]')).click();
