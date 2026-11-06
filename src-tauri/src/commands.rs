@@ -188,7 +188,16 @@ pub async fn load_cbr_rates(
     date: String,
 ) -> CmdResult<cbr::ImportResult> {
     let daily = download_cbr(&date).await?;
-    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+    let result = with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))?;
+    // Время проверки — вне отмены: Ctrl+Z убирает курсы, а не факт проверки.
+    with_db(&state, |db| cbr::mark_checked(db.conn()))?;
+    Ok(result)
+}
+
+/// Действующие курсы по валютам и время последней проверки ЦБ (Настройки).
+#[tauri::command(async)]
+pub fn rates_overview(state: State<AppState>, date: String) -> CmdResult<cbr::RatesOverview> {
+    with_db(&state, |db| cbr::overview(db.conn(), &date))
 }
 
 /// Курсы ЦБ раз в день сами: при запуске и пока программа открыта.
@@ -1937,8 +1946,11 @@ pub fn delete_receipt(state: State<AppState>, split_id: String) -> CmdResult<()>
 pub fn transaction_history(
     state: State<AppState>,
     id: String,
+    split_id: Option<String>,
 ) -> CmdResult<budget_core::history::TxnHistory> {
-    with_db(&state, |db| budget_core::history::get(db.conn(), &id))
+    with_db(&state, |db| {
+        budget_core::history::get(db.conn(), &id, split_id.as_deref())
+    })
 }
 
 #[tauri::command(async)]
@@ -1958,7 +1970,7 @@ pub fn set_transaction_tags(
     tags: Vec<String>,
 ) -> CmdResult<()> {
     with_undo(&state, "Теги операции", |c| {
-        budget_core::tags::set_for(c, &id, &tags)
+        budget_core::tags::edit_for(c, &id, &tags, None)
     })
 }
 
