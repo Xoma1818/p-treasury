@@ -86,3 +86,8 @@
 .ahead-card .ahead-warn { color: var(--over-strong); margin-top: 6px; font-size: 13px; }
 .ahead-card .ahead-ok { color: var(--ok); margin-top: 6px; font-size: 13px; }
 .fc-accounts .fc-chip.active::before { content: "✓"; margin-right: 4px; }
+
+/* Р16: второй сценарий — третьей линией; Р15: выбор горизонта. */
+.fc-key.second { border-top: 2.5px dotted var(--cat-violet); }
+.fc-second-line { fill: none; stroke: var(--cat-violet); stroke-width: 2.5; stroke-dasharray: 2 4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.nw-tip-row.second span:first-child { color: var(--cat-violet); }

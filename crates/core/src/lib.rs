@@ -40,6 +40,7 @@ pub mod net_worth;
 pub mod notes;
 pub mod ofx;
 pub mod onboarding;
+pub mod payoff;
 pub mod pdf;
 pub mod quick;
 pub mod receipts;

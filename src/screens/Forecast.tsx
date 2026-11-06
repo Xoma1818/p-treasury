@@ -40,31 +40,66 @@ export function Forecast() {
 // Прогноз
 
 const SCENARIO_KEY = "pt.forecast.scenario";
+/** Р16: второй сценарий — третьей линией на том же графике. */
+const SECOND_KEY = "pt.forecast.scenario2";
+/** Р15: горизонт прогноза. */
+const MONTHS_KEY = "pt.forecast.months";
+const HORIZONS = [3, 6, 12, 24, 60] as const;
 
-function storedScenario(): string | null {
+function stored(key: string): string | null {
   try {
-    return localStorage.getItem(SCENARIO_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
+}
+
+function store(key: string, v: string | null) {
+  try {
+    if (v) localStorage.setItem(key, v);
+    else localStorage.removeItem(key);
+  } catch {
+    /* без запоминания */
+  }
+}
+
+const storedScenario = () => stored(SCENARIO_KEY);
+
+function storedMonths(): number {
+  const v = Number(stored(MONTHS_KEY));
+  return (HORIZONS as readonly number[]).includes(v) ? v : 12;
+}
+
+/** «12 месяцев», «3 месяца», «5 лет». */
+export function horizonText(n: number): string {
+  if (n === 60) return "5 лет";
+  if (n === 24) return "2 года";
+  return `${n} ${n === 3 ? "месяца" : "месяцев"}`;
 }
 
 function ForecastTab() {
   const [scenarioId, setScenarioIdState] = useState<string | null>(storedScenario);
   const setScenarioId = (id: string | null) => {
     setScenarioIdState(id);
-    try {
-      if (id) localStorage.setItem(SCENARIO_KEY, id);
-      else localStorage.removeItem(SCENARIO_KEY);
-    } catch {
-      /* без запоминания */
-    }
+    store(SCENARIO_KEY, id);
+  };
+  const [secondId, setSecondIdState] = useState<string | null>(() => stored(SECOND_KEY));
+  const setSecondId = (id: string | null) => {
+    setSecondIdState(id);
+    store(SECOND_KEY, id);
+  };
+  const [months, setMonthsState] = useState(storedMonths);
+  const setMonths = (n: number) => {
+    setMonthsState(n);
+    store(MONTHS_KEY, String(n));
   };
   const scenarios = useQuery({ queryKey: ["scenarios"], queryFn: api.listScenarios });
   // Удалённый сценарий больше не выбран.
   const known = scenarios.data?.some((s) => s.id === scenarioId) ?? true;
   const active = known ? scenarioId : null;
-  const q = useQuery({ queryKey: ["forecast", active], queryFn: () => api.forecast(active) });
+  const second = active && secondId && secondId !== active && scenarios.data?.some((s) => s.id === secondId) ? secondId : null;
+  const q = useQuery({ queryKey: ["forecast", active, months], queryFn: () => api.forecast(active, months) });
+  const q2 = useQuery({ queryKey: ["forecast", second, months], queryFn: () => api.forecast(second, months), enabled: !!second });
   const [editing, setEditing] = useState<Scenario | "new" | null>(null);
   const f = q.data;
 
@@ -93,10 +128,32 @@ function ForecastTab() {
             + Сценарий
           </button>
         </div>
+        {active && (scenarios.data?.length ?? 0) > 1 && (
+          <label className="inline-field" title="Второй сценарий — ещё одной линией на графике">
+            <span className="muted">и сравнить с</span>
+            <select name="scenario2" data-testid="scenario-second" value={second ?? ""} onChange={(e) => setSecondId(e.target.value || null)}>
+              <option value="">—</option>
+              {scenarios.data
+                ?.filter((s) => s.id !== active)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <div className="tabs small" role="group" aria-label="На сколько вперёд" data-testid="fc-horizon">
+          {HORIZONS.map((n) => (
+            <button key={n} type="button" className={months === n ? "tab active" : "tab"} aria-pressed={months === n} onClick={() => setMonths(n)} data-testid={`fc-horizon-${n}`}>
+              {n === 60 ? "5 лет" : n === 24 ? "2 года" : `${n} мес.`}
+            </button>
+          ))}
+        </div>
       </div>
 
       {q.error && <p className="error">{String(q.error)}</p>}
-      {f && <ForecastView f={f} />}
+      {f && <ForecastView f={f} second={second ? (q2.data ?? null) : null} />}
       {editing && f && (
         <ScenarioForm
           scenario={editing === "new" ? null : editing}
@@ -110,7 +167,7 @@ function ForecastTab() {
   );
 }
 
-function ForecastView({ f }: { f: ForecastData }) {
+function ForecastView({ f, second }: { f: ForecastData; second: ForecastData | null }) {
   const last = f.months[f.months.length - 1];
   const withScenario = f.scenarioId != null;
   const end = withScenario && last.scenario ? last.scenario.closing : last.closing;
@@ -130,7 +187,7 @@ function ForecastView({ f }: { f: ForecastData }) {
           <div className="hint">наличные, карты и вклады</div>
         </div>
         <div className="card tile" data-testid="fc-end">
-          <div className="tile-label">Через 12 месяцев</div>
+          <div className="tile-label">Через {horizonText(f.months.length)}</div>
           <div className={end < 0 ? "tile-value over" : "tile-value"}>
             <M amount={end} />
           </div>
@@ -161,7 +218,7 @@ function ForecastView({ f }: { f: ForecastData }) {
         </div>
       ) : (
         <div className="card fc-alert ok" data-testid="fc-ok">
-          Денег хватает на все 12 месяцев{withScenario ? ` и в сценарии «${f.scenarioName}»` : ""}.
+          Денег хватает на все {horizonText(f.months.length)}{withScenario ? ` и в сценарии «${f.scenarioName}»` : ""}.
         </div>
       )}
 
@@ -174,10 +231,15 @@ function ForecastView({ f }: { f: ForecastData }) {
           {withScenario && (
             <div className="fc-legend">
               <span className="fc-key base" /> как сейчас <span className="fc-key scenario" /> {f.scenarioName}
+              {second?.scenarioName && (
+                <>
+                  <span className="fc-key second" /> {second.scenarioName}
+                </>
+              )}
             </div>
           )}
         </div>
-        <ForecastChart f={f} />
+        <ForecastChart f={f} second={second} />
         {f.goals.length > 0 && (
           <ul className="fc-goals" data-testid="fc-goals">
             {f.goals.map((g) => (
@@ -213,11 +275,19 @@ const PAD_R = 12;
 const PAD_T = 12;
 const PAD_B = 24;
 
-function ForecastChart({ f }: { f: ForecastData }) {
+function ForecastChart({ f, second }: { f: ForecastData; second: ForecastData | null }) {
   const [hover, setHover] = useState<number | null>(null);
   const hidden = useSettings().data?.hide_amounts === "1";
   const points = chartPoints(f);
-  const values = [...points.flatMap((p) => (p.scenario == null ? [p.base] : [p.base, p.scenario])), ...f.goals.map((g) => g.need)];
+  // Р16: второй сценарий — по тем же месяцам (прогноз тот же, другой сценарий поверх).
+  const secondAt = (i: number): number | null => (!second ? null : i === 0 ? second.liquid : (second.months[i - 1]?.scenario?.closing ?? null));
+  const values = [
+    ...points.flatMap((p) => (p.scenario == null ? [p.base] : [p.base, p.scenario])),
+    ...points.map((_, i) => secondAt(i)).filter((v): v is number => v != null),
+    ...f.goals.map((g) => g.need),
+  ];
+  // Р15: при длинном горизонте подписываем не каждый месяц.
+  const every = Math.ceil(points.length / 13);
   const { min, max, step } = netWorthScale(values);
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
@@ -232,6 +302,7 @@ function ForecastChart({ f }: { f: ForecastData }) {
   const base = path((i) => points[i].base);
   const area = `${base} L${x(points.length - 1).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} L${x(0).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} Z`;
   const scenario = f.scenarioId != null ? path((i) => points[i].scenario ?? points[i].base) : null;
+  const secondLine = second ? path((i) => secondAt(i) ?? points[i].base) : null;
   const m: ForecastMonth | null = hover != null && hover > 0 ? f.months[hover - 1] : null;
 
   return (
@@ -248,6 +319,7 @@ function ForecastChart({ f }: { f: ForecastData }) {
         <path d={area} className="nw-area" />
         <path d={base} className="nw-line" pathLength={1} />
         {scenario && <path d={scenario} className="fc-scenario-line" />}
+        {secondLine && <path d={secondLine} className="fc-second-line" data-testid="fc-second-line" />}
         {f.goals.map((g) => {
           const i = f.months.findIndex((m) => m.month === g.month) + 1;
           return (
@@ -260,11 +332,13 @@ function ForecastChart({ f }: { f: ForecastData }) {
         {points.map((p, i) => (
           <g key={i} onMouseEnter={() => setHover(i)}>
             <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
-            <circle cx={x(i)} cy={y(p.base)} r={hover === i ? 5 : 3} className={p.base < 0 ? "nw-dot neg" : "nw-dot"} />
-            {p.scenario != null && i > 0 && <circle cx={x(i)} cy={y(p.scenario)} r={hover === i ? 5 : 3} className={p.scenario < 0 ? "fc-dot neg" : "fc-dot"} />}
-            <text x={x(i)} y={H - 6} className="axis" textAnchor="middle">
-              {p.label}
-            </text>
+            {(every === 1 || hover === i) && <circle cx={x(i)} cy={y(p.base)} r={hover === i ? 5 : 3} className={p.base < 0 ? "nw-dot neg" : "nw-dot"} />}
+            {(every === 1 || hover === i) && p.scenario != null && i > 0 && <circle cx={x(i)} cy={y(p.scenario)} r={hover === i ? 5 : 3} className={p.scenario < 0 ? "fc-dot neg" : "fc-dot"} />}
+            {i % every === 0 && (
+              <text x={x(i)} y={H - 6} className="axis" textAnchor="middle">
+                {every > 1 && i > 0 ? `${p.label} ${f.months[i - 1].month.slice(2, 4)}` : p.label}
+              </text>
+            )}
           </g>
         ))}
       </svg>
@@ -284,6 +358,12 @@ function ForecastChart({ f }: { f: ForecastData }) {
                 <div className="nw-tip-row scenario">
                   <span>{f.scenarioName}</span>
                   <M amount={m.scenario.closing} />
+                </div>
+              )}
+              {hover != null && secondAt(hover) != null && (
+                <div className="nw-tip-row second">
+                  <span>{second?.scenarioName}</span>
+                  <M amount={secondAt(hover)!} />
                 </div>
               )}
               {f.goals

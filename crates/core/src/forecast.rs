@@ -33,6 +33,8 @@ use crate::{
 
 /// На сколько месяцев вперёд строится прогноз (текущий месяц входит).
 pub const HORIZON: usize = 12;
+/// Р15: горизонты прогноза на выбор, в месяцах. Сезонность за год повторяется.
+pub const HORIZONS: [usize; 5] = [3, 6, 12, 24, 60];
 /// Сколько прошлых полных месяцев берётся для обычных доходов и трат.
 const HISTORY_MONTHS: i32 = 3;
 /// Сколько прошлых полных месяцев нужно для сезонности: тот же месяц год назад.
@@ -520,7 +522,23 @@ fn season_split(level: i64, year: &[i64; HORIZON]) -> [i64; HORIZON] {
 /// Прогноз на [`HORIZON`] месяцев от `today`. С `scenario_id` поверх обычного
 /// прогноза считается линия сценария.
 pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Result<Forecast> {
+    forecast_for(conn, today, scenario_id, HORIZON)
+}
+
+/// Р15: прогноз на `horizon` месяцев (один из [`HORIZONS`]). Обычные доходы и
+/// траты за горизонтом года повторяют сезонность того же месяца года.
+pub fn forecast_for(
+    conn: &Connection,
+    today: &str,
+    scenario_id: Option<&str>,
+    horizon: usize,
+) -> Result<Forecast> {
     time::check_date(today)?;
+    if !HORIZONS.contains(&horizon) {
+        return Err(crate::Error::Validation(format!(
+            "горизонт прогноза — 3, 6, 12, 24 или 60 месяцев, а не {horizon}"
+        )));
+    }
     let base = currencies::base_currency(conn)?;
     let bc = currencies::get(conn, &base)?;
     let mut missing = Vec::new();
@@ -530,7 +548,7 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     let current = budgets::month_of(conn, today)?;
     let sd = budgets::start_day(conn)?;
     let mut periods: Vec<Period> = vec![current.clone()];
-    for i in 1..HORIZON as i32 {
+    for i in 1..horizon as i32 {
         periods.push(budgets::period(
             &budgets::shift_month(&current.month, i)?,
             sd,
@@ -629,7 +647,7 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
             .filter(|((k, _), _)| k == kind)
             .map(|(key, level)| {
                 let mut v = match seasonal_split.get(key) {
-                    Some(split) if with_season => split[i],
+                    Some(split) if with_season => split[i % HORIZON],
                     _ => *level,
                 };
                 if i == 0 {
@@ -640,10 +658,10 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
             .sum()
     };
 
-    let last = &periods[HORIZON - 1].end;
+    let last = &periods[horizon - 1].end;
     let known = known_items(conn, &base, today, last, &skip, &mut missing)?;
 
-    let mut months = Vec::with_capacity(HORIZON);
+    let mut months = Vec::with_capacity(horizon);
     let mut balance = liquid;
     for (i, p) in periods.iter().enumerate() {
         let items: Vec<Item> = known
@@ -698,7 +716,7 @@ pub fn forecast(conn: &Connection, today: &str, scenario_id: Option<&str>) -> Re
     let lowest = months
         .iter()
         .min_by_key(|m| m.closing)
-        .expect("месяцев прогноза 12");
+        .expect("в прогнозе есть месяцы");
     let (lowest_month, lowest_balance) = (lowest.month.clone(), lowest.closing);
     let short_month = months
         .iter()
@@ -1310,6 +1328,28 @@ mod tests {
             );
         }
         (db, card)
+    }
+
+    #[test]
+    fn horizon_from_three_to_sixty_months() {
+        // Р15: горизонт на выбор; первые месяцы совпадают с прогнозом на год.
+        let (db, _) = setup();
+        let c = db.conn();
+        let year = forecast(c, "2026-10-01", None).unwrap();
+        for h in HORIZONS {
+            let f = forecast_for(c, "2026-10-01", None, h).unwrap();
+            assert_eq!(f.months.len(), h);
+            let n = h.min(HORIZON);
+            assert_eq!(f.months[n - 1].closing, year.months[n - 1].closing);
+        }
+        let five = forecast_for(c, "2026-10-01", None, 60).unwrap();
+        assert_eq!(five.months[59].month, "2031-09");
+        // Без разовых платежей каждый следующий год идёт так же: +38 000 ₽ в месяц.
+        assert_eq!(
+            five.months[59].closing - five.months[47].closing,
+            12 * 3_800_000
+        );
+        assert!(forecast_for(c, "2026-10-01", None, 7).is_err());
     }
 
     #[test]

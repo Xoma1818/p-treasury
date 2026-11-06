@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
-import { colorVar, lookOf } from "../lib/categoryLook";
+import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
 import { useModules } from "../lib/modules";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -10,10 +10,10 @@ import { FxGain } from "./FxGain";
 import { parseView, SavedViews } from "../components/SavedViews";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
-import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportPeriodKind, type Period } from "../lib/api";
+import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportFilter, type ReportPeriodKind, type Period } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount } from "../lib/money";
-import { useMonthOf, useSettings } from "../lib/queries";
+import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { SubscriptionsReport } from "../components/Subscriptions";
@@ -282,16 +282,87 @@ export function Reports() {
   );
 }
 
+/** Р12: вид графика в отчётах запоминается в окне. */
+const CHART_KEY = "kazna.reportCharts";
+type ChartKinds = { structure: "bars" | "donut"; months: "bars" | "line" };
+
+function loadCharts(): ChartKinds {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHART_KEY) || "{}");
+    return { structure: v.structure === "donut" ? "donut" : "bars", months: v.months === "line" ? "line" : "bars" };
+  } catch {
+    return { structure: "bars", months: "bars" };
+  }
+}
+
+function useChartKind<K extends keyof ChartKinds>(key: K): [ChartKinds[K], (v: ChartKinds[K]) => void] {
+  const [v, setV] = useState<ChartKinds[K]>(() => loadCharts()[key]);
+  return [
+    v,
+    (next) => {
+      setV(next);
+      try {
+        localStorage.setItem(CHART_KEY, JSON.stringify({ ...loadCharts(), [key]: next }));
+      } catch {
+        /* без запоминания */
+      }
+    },
+  ];
+}
+
+/** Р12: выбор вида графика — несколько кнопок. */
+function ChartKindTabs<T extends string>({ value, options, onChange, testid }: { value: T; options: [T, string][]; onChange: (v: T) => void; testid: string }) {
+  return (
+    <div className="tabs small" role="group" aria-label="Вид графика" data-testid={testid}>
+      {options.map(([k, label]) => (
+        <button key={k} type="button" className={value === k ? "tab active" : "tab"} aria-pressed={value === k} onClick={() => onChange(k)} data-testid={`${testid}-${k}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Р12: отбор отчёта по счёту и тегу. */
+function ReportFilterBar({ value, onChange }: { value: ReportFilter; onChange: (f: ReportFilter) => void }) {
+  const accounts = useAccounts().data ?? [];
+  const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data ?? [];
+  return (
+    <div className="filters-row report-filter" data-testid="report-filter">
+      <select name="reportAccount" aria-label="Счёт" value={value.accountId ?? ""} onChange={(e) => onChange({ ...value, accountId: e.target.value || undefined })}>
+        <option value="">Все счета</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name}
+          </option>
+        ))}
+      </select>
+      {tags.length > 0 && (
+        <select name="reportTag" aria-label="Тег" value={value.tagId ?? ""} onChange={(e) => onChange({ ...value, tagId: e.target.value || undefined })}>
+          <option value="">Все теги</option>
+          {tags.map((t) => (
+            <option key={t.id} value={t.id}>
+              #{t.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 function Structure({ period }: { period: Period }) {
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<ReportFilter>({});
+  const [chart, setChart] = useChartKind("structure");
   const report = useQuery({
-    queryKey: ["reportByCategory", kind, period.start, period.end],
-    queryFn: () => api.reportByCategory(kind, period.start, period.end),
+    queryKey: ["reportByCategory", kind, period.start, period.end, filter],
+    queryFn: () => api.reportByCategory(kind, period.start, period.end, filter),
   });
   const showTransactions = useUi((u) => u.showTransactions);
   const catMap = useCategoryMap();
-  const go = (c: CategoryItem) => showTransactions({ categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end });
+  const go = (c: CategoryItem) => showTransactions({ categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end, ...filter });
   const r = report.data;
   const max = r?.items[0]?.amount ?? 0;
   const toggle = (id: string) => setOpen((o) => {
@@ -343,10 +414,16 @@ function Structure({ period }: { period: Period }) {
           ))}
         </div>
       </div>
+      <div className="filters-row">
+        <ReportFilterBar value={filter} onChange={setFilter} />
+        <span className="spacer" />
+        <ChartKindTabs value={chart} onChange={setChart} testid="structure-chart" options={[["bars", "Полосы"], ["donut", "Доли"]]} />
+      </div>
       {report.error && <p className="error">{String(report.error)}</p>}
       {r && r.items.length === 0 && <p className="muted">За этот период операций нет.</p>}
       {r && r.items.length > 0 && (
         <>
+          {chart === "donut" && <Donut items={r.items} total={r.total} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
           <ul className="cat-report" data-testid="structure">
             {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, true)) : [])])}
           </ul>
@@ -355,6 +432,56 @@ function Structure({ period }: { period: Period }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** Р12 «Доли»: кольцо по категориям верхнего уровня; щелчок — операции категории. */
+function Donut({ items, total, colorOf, onPick }: { items: CategoryItem[]; total: number; colorOf: (c: CategoryItem, i: number) => string; onPick: (c: CategoryItem) => void }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const R = 70;
+  const r0 = 44;
+  const C = 90;
+  let acc = 0;
+  const arcs = items.map((c, i) => {
+    const a0 = (acc / (total || 1)) * Math.PI * 2;
+    acc += c.amount;
+    const a1 = (acc / (total || 1)) * Math.PI * 2;
+    const pt = (a: number, rad: number) => `${(C + rad * Math.sin(a)).toFixed(2)} ${(C - rad * Math.cos(a)).toFixed(2)}`;
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    // Полный круг одной категорией — два полукруга.
+    const d =
+      items.length === 1
+        ? `M${pt(0, R)} A${R} ${R} 0 1 1 ${pt(Math.PI, R)} A${R} ${R} 0 1 1 ${pt(0, R)} M${pt(0, r0)} A${r0} ${r0} 0 1 0 ${pt(Math.PI, r0)} A${r0} ${r0} 0 1 0 ${pt(0, r0)}Z`
+        : `M${pt(a0, R)} A${R} ${R} 0 ${large} 1 ${pt(a1, R)} L${pt(a1, r0)} A${r0} ${r0} 0 ${large} 0 ${pt(a0, r0)}Z`;
+    return { c, i, d };
+  });
+  const h = hover != null ? items[hover] : null;
+  return (
+    <div className="share-donut" data-testid="structure-donut" onMouseLeave={() => setHover(null)}>
+      <svg viewBox="0 0 180 180" role="img" aria-label="Доли категорий">
+        {arcs.map(({ c, i, d }) => (
+          <path key={c.categoryId} d={d} fill={colorOf(c, i)} fillRule="evenodd" className={hover === i ? "donut-arc active" : "donut-arc"} onMouseEnter={() => setHover(i)} onClick={() => onPick(c)}>
+            <title>
+              {c.name}: {c.percent} %
+            </title>
+          </path>
+        ))}
+        <text x={C} y={C - 2} textAnchor="middle" className="donut-main">
+          {h ? `${h.percent} %` : "100 %"}
+        </text>
+        <text x={C} y={C + 14} textAnchor="middle" className="donut-sub">
+          {h ? h.name.slice(0, 16) : "всего"}
+        </text>
+      </svg>
+      <ul className="share-legend">
+        {arcs.slice(0, 8).map(({ c, i }) => (
+          <li key={c.categoryId} onMouseEnter={() => setHover(i)}>
+            <i className="swatch" style={{ background: colorOf(c, i) }} /> {c.name} <span className="muted">{c.percent} %</span>
+          </li>
+        ))}
+        {items.length > 8 && <li className="muted">и ещё {items.length - 8}</li>}
+      </ul>
     </div>
   );
 }
@@ -372,7 +499,9 @@ function monthsRange(kind: Kind, period: Period): [string, string] {
 
 function Months({ period, kind }: { period: Period; kind: Kind }) {
   const [from, to] = monthsRange(kind, period);
-  const report = useQuery({ queryKey: ["reportByMonth", from, to], queryFn: () => api.reportByMonth(from, to) });
+  const [filter, setFilter] = useState<ReportFilter>({});
+  const [chart, setChart] = useChartKind("months");
+  const report = useQuery({ queryKey: ["reportByMonth", from, to, filter], queryFn: () => api.reportByMonth(from, to, filter) });
   const showTransactions = useUi((u) => u.showTransactions);
   const r = report.data;
   return (
@@ -380,10 +509,15 @@ function Months({ period, kind }: { period: Period; kind: Kind }) {
       <h2>
         Доходы и расходы по месяцам: {monthTitle(from).toLowerCase()} – {monthTitle(to).toLowerCase()}
       </h2>
+      <div className="filters-row">
+        <ReportFilterBar value={filter} onChange={setFilter} />
+        <span className="spacer" />
+        <ChartKindTabs value={chart} onChange={setChart} testid="months-chart" options={[["bars", "Столбцы"], ["line", "Линия"]]} />
+      </div>
       {report.error && <p className="error">{String(report.error)}</p>}
       {r && (
         <>
-          <MonthsChart r={r} />
+          <MonthsChart r={r} line={chart === "line"} />
           <table className="table months-table" data-testid="months">
             <thead>
               <tr>
@@ -402,7 +536,7 @@ function Months({ period, kind }: { period: Period; kind: Kind }) {
                   data-testid="month-row"
                   data-month={m.period.month}
                   title="Показать операции месяца"
-                  onClick={() => showTransactions({ dateFrom: m.period.start, dateTo: m.period.end })}
+                  onClick={() => showTransactions({ dateFrom: m.period.start, dateTo: m.period.end, ...filter })}
                 >
                   <td className="main">{monthTitle(m.period.month)}</td>
                   <td className="num plus">
@@ -446,7 +580,7 @@ const PAD_L = 56;
 const PAD_B = 24;
 
 /** Столбцы «доходы / расходы» по месяцам; ось одна, подписи в тексте, подсказка при наведении. */
-export function MonthsChart({ r }: { r: MonthsReport }) {
+export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const hidden = useSettings().data?.hide_amounts === "1";
   const max = Math.max(...r.months.map((m) => Math.max(m.income, m.expense)), 1);
@@ -479,13 +613,21 @@ export function MonthsChart({ r }: { r: MonthsReport }) {
             </text>
           </g>
         ))}
+        {line && (
+          <>
+            <path d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.income).toFixed(1)}`).join(" ")} className="line-income" data-testid="months-line" />
+            <path d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.expense).toFixed(1)}`).join(" ")} className="line-expense" />
+          </>
+        )}
         {r.months.map((m, i) => {
           const cx = PAD_L + slot * i + slot / 2;
           return (
             <g key={m.period.month} onMouseEnter={() => setHover(i)}>
               <rect x={cx - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
-              <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />
-              <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i } as React.CSSProperties} />
+              {!line && <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />}
+              {!line && <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i } as React.CSSProperties} />}
+              {line && <circle cx={cx} cy={y(m.income)} r={hover === i ? 4.5 : 3} className="dot-income" />}
+              {line && <circle cx={cx} cy={y(m.expense)} r={hover === i ? 4.5 : 3} className="dot-expense" />}
               <text x={cx} y={H - 6} className="axis" textAnchor="middle">
                 {monthTitle(m.period.month).slice(0, 3)}
               </text>

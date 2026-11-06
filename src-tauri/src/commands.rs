@@ -552,14 +552,23 @@ pub fn delete_budget(state: State<AppState>, budget_id: String) -> CmdResult<()>
 
 /// «Взгляд вперёд»: прогноз на 12 месяцев, со сценарием — и его линия.
 #[tauri::command(async)]
-pub fn forecast(state: State<AppState>, scenario_id: Option<String>) -> CmdResult<Forecast> {
+pub fn forecast(
+    state: State<AppState>,
+    scenario_id: Option<String>,
+    months: Option<usize>,
+) -> CmdResult<Forecast> {
     with_db(&state, |db| {
         let today = time::today_local();
         // 0.29: прогноз месяца запоминается для «Итогов месяца» (прогноз против факта).
         if let Err(e) = month_review::remember_forecast(db.conn(), &today) {
             eprintln!("прогноз месяца не запомнен: {e}");
         }
-        forecast::forecast(db.conn(), &today, scenario_id.as_deref())
+        forecast::forecast_for(
+            db.conn(),
+            &today,
+            scenario_id.as_deref(),
+            months.unwrap_or(forecast::HORIZON),
+        )
     })
 }
 
@@ -897,9 +906,10 @@ pub fn report_by_category(
     kind: String,
     from: String,
     to: String,
+    filter: Option<reports::ReportFilter>,
 ) -> CmdResult<CategoryReport> {
     with_db(&state, |db| {
-        reports::by_category(db.conn(), &kind, &from, &to)
+        reports::by_category_in(db.conn(), &kind, &from, &to, &filter.unwrap_or_default())
     })
 }
 
@@ -962,9 +972,15 @@ pub fn report_by_month(
     state: State<AppState>,
     from_month: String,
     to_month: String,
+    filter: Option<reports::ReportFilter>,
 ) -> CmdResult<MonthsReport> {
     with_db(&state, |db| {
-        reports::by_month(db.conn(), &from_month, &to_month)
+        reports::by_month_in(
+            db.conn(),
+            &from_month,
+            &to_month,
+            &filter.unwrap_or_default(),
+        )
     })
 }
 
@@ -988,6 +1004,18 @@ pub fn compare_loans(input: LoanInput) -> CmdResult<Comparison> {
 #[tauri::command(async)]
 pub fn list_debts(state: State<AppState>) -> CmdResult<Vec<DebtCard>> {
     with_db(&state, |db| debts::list(db.conn(), &time::today_local()))
+}
+
+/// Р17: стратегия досрочного погашения взятых долгов.
+#[tauri::command(async)]
+pub fn debt_payoff(
+    state: State<AppState>,
+    extra: i64,
+    strategy: String,
+) -> CmdResult<budget_core::payoff::Payoff> {
+    with_db(&state, |db| {
+        budget_core::payoff::for_debts(db.conn(), &time::today_local(), extra, &strategy)
+    })
 }
 
 #[tauri::command(async)]

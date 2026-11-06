@@ -115,6 +115,28 @@ test("корректировка видна отдельной строкой и
   await waitText(browser, '[data-testid="report-expense"]', money("10 000 ₽"));
 });
 
+test("Р12: доли кольцом, линия по месяцам и отбор по счёту", async () => {
+  await openSection(browser, "Отчёты");
+  await click(browser, "Структура", "//main");
+  await (await browser.$('[data-testid="structure-chart-donut"]')).click();
+  await waitText(browser, '[data-testid="structure-donut"]', /Жильё/);
+  // Все расходы — с «Карты»: по «Наличным» расходов нет, перевод не считается.
+  await choose(browser, "reportAccount", "Наличные");
+  await waitText(browser, "main", /За этот период операций нет/);
+  await choose(browser, "reportAccount", "Все счета");
+  await waitText(browser, '[data-testid="report-expense"]', money("10 000 ₽"));
+  await (await browser.$('[data-testid="structure-chart-bars"]')).click();
+  await waitCount(browser, '[data-testid="structure-donut"]', 0);
+
+  await click(browser, "По месяцам", "//main");
+  await (await browser.$('[data-testid="months-chart-line"]')).click();
+  await browser.$('[data-testid="months-line"]').waitForExist({ timeout: 5000 });
+  await waitCount(browser, ".chart path.bar-income", 0);
+  await (await browser.$('[data-testid="months-chart-bars"]')).click();
+  await waitCount(browser, ".chart path.bar-income", 12);
+  await click(browser, "Структура", "//main");
+});
+
 test("переход к прошлому периоду: там операций нет", async () => {
   await openSection(browser, "Отчёты");
   await choose(browser, "periodKind", "Месяц");

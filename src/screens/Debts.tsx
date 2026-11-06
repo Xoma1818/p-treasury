@@ -6,7 +6,7 @@ import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { api, REPAYMENTS, type DebtCard, type ScheduleRow } from "../lib/api";
-import { formatDate } from "../lib/dates";
+import { formatDate, monthTitle } from "../lib/dates";
 import { METHODS, PAY_EVERY, paymentsText, rateLabel, rateShort } from "../lib/loan";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -153,7 +153,81 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
           )}
         </div>
       </div>
+      {list.filter((d) => d.direction === "borrowed" && d.status !== "closed").length >= 2 && <PayoffCard />}
     </>
+  );
+}
+
+/** Р17: как быстрее расплатиться с несколькими долгами — лишняя сумма каждый месяц
+ *  в один долг по очереди, «сначала дорогие» или «сначала маленькие». */
+function PayoffCard() {
+  const [extra, setExtra] = useState(500_000);
+  const [strategy, setStrategy] = useState<"costly" | "small">("costly");
+  const q = useQuery({ queryKey: ["debtPayoff", extra, strategy], queryFn: () => api.debtPayoff(extra, strategy) });
+  const p = q.data;
+  const m = (v: number) => <Money amount={v} symbol={p?.currencySymbol ?? "₽"} minorUnits={p?.minorUnits ?? 2} />;
+  return (
+    <div className="card payoff" data-testid="payoff">
+      <h2>
+        Как быстрее расплатиться
+        <Hint of="debts.payoff" />
+      </h2>
+      <div className="filters-row">
+        <label className="inline-field">
+          <span>Сверх платежей в месяц</span>
+          <input
+            type="number"
+            name="payoffExtra"
+            min={0}
+            step={1000}
+            defaultValue={extra / 100}
+            onChange={(e) => {
+              const v = Math.round(Number(e.target.value) * 100);
+              if (v >= 0) setExtra(v);
+            }}
+          />
+        </label>
+        <div className="tabs small" role="group" aria-label="Порядок" data-testid="payoff-strategy">
+          {(
+            [
+              ["costly", "Сначала дорогие", "Лишнее — в долг с самой высокой ставкой: меньше переплата"],
+              ["small", "Сначала маленькие", "Лишнее — в самый маленький долг: быстрее уходят долги из списка"],
+            ] as const
+          ).map(([k, label, hint]) => (
+            <button key={k} type="button" className={strategy === k ? "tab active" : "tab"} aria-pressed={strategy === k} title={hint} onClick={() => setStrategy(k)} data-testid={`payoff-${k}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {q.error && <p className="error">{String(q.error)}</p>}
+      {p && (
+        <>
+          <div className="tiles payoff-tiles">
+            <div className="tile" data-testid="payoff-free">
+              <div className="tile-label">Свободны от долгов</div>
+              <div className="tile-value">{p.freeMonth ? monthTitle(p.freeMonth) : "больше 50 лет"}</div>
+              <div className="hint">обычными платежами — {p.baseFreeMonth ? monthTitle(p.baseFreeMonth) : "не закрываются"}</div>
+            </div>
+            <div className="tile" data-testid="payoff-saved">
+              <div className="tile-label">Экономия на процентах</div>
+              <div className="tile-value plus">{m(p.saved)}</div>
+              <div className="hint">проценты {m(p.interest)} вместо {m(p.baseInterest)}</div>
+            </div>
+          </div>
+          <ol className="payoff-order" data-testid="payoff-order">
+            {p.order.map((o) => (
+              <li key={o.id}>
+                <span className="main">{o.name}</span> — {monthTitle(o.month).toLowerCase()}
+                {o.baseMonth && o.baseMonth !== o.month && <span className="muted"> (без плана — {monthTitle(o.baseMonth).toLowerCase()})</span>}
+              </li>
+            ))}
+          </ol>
+          {p.missingRates.length > 0 && <p className="hint warn">Нет курса для {p.missingRates.join(", ")}: такие долги не вошли.</p>}
+          <p className="hint">Расчёт примерный: проценты раз в месяц на остаток, платёж — как ближайший по графику. Закрытый долг отдаёт свой платёж следующему.</p>
+        </>
+      )}
+    </div>
   );
 }
 
