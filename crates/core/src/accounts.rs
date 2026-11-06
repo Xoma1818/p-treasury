@@ -345,6 +345,66 @@ pub fn totals(conn: &Connection, on: &str) -> Result<Totals> {
     })
 }
 
+/// Общий баланс, как [`totals`], на конец каждой из дат `dates` (по возрастанию).
+/// Список счетов и баланс на первую дату считаются один раз, дальше к балансу
+/// прибавляются движения по дням: календарь со слоем «Остаток на конец дня»
+/// на 50 000 операций строился 1,2 с (по запросу на каждый день и счёт).
+pub fn totals_on_days(conn: &Connection, dates: &[String]) -> Result<Vec<i64>> {
+    let (Some(first), Some(last)) = (dates.first(), dates.last()) else {
+        return Ok(Vec::new());
+    };
+    let base = currencies::base_currency(conn)?;
+    let mut out = vec![0i64; dates.len()];
+    let mut moves = conn.prepare_cached(
+        "SELECT date, sum(v) FROM (
+             SELECT t.date, CASE t.type WHEN 'income' THEN t.amount
+                                        WHEN 'adjustment' THEN t.amount
+                                        ELSE -t.amount END AS v
+             FROM transactions t
+             WHERE t.account_id = ?1 AND t.status = 'cleared' AND t.date > ?2 AND t.date <= ?3
+             UNION ALL
+             SELECT t.date, t.to_amount FROM transactions t
+             WHERE t.to_account_id = ?1 AND t.type = 'transfer' AND t.status = 'cleared'
+               AND t.date > ?2 AND t.date <= ?3)
+         GROUP BY date",
+    )?;
+    for a in list(conn, false)?
+        .into_iter()
+        .filter(|a| a.include_in_total)
+    {
+        let mut per_day: Vec<i64> = Vec::with_capacity(dates.len());
+        if a.kind == "investment" {
+            for d in dates {
+                per_day.push(crate::invest::value_on(conn, &a.id, d)?.0);
+            }
+        } else {
+            let mut bal = balance(conn, &a.id, Some(first))?;
+            let delta: std::collections::HashMap<String, i64> = moves
+                .query_map(params![a.id, first, last], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            for (i, d) in dates.iter().enumerate() {
+                if i > 0 {
+                    // Все дни между соседними датами (даты могут идти с пропусками).
+                    bal += delta
+                        .iter()
+                        .filter(|(k, _)| {
+                            k.as_str() > dates[i - 1].as_str() && k.as_str() <= d.as_str()
+                        })
+                        .map(|(_, v)| *v)
+                        .sum::<i64>();
+                }
+                per_day.push(bal);
+            }
+        }
+        for (i, d) in dates.iter().enumerate() {
+            if let Some(v) = currencies::convert(conn, per_day[i], &a.currency_code, &base, d)? {
+                out[i] += v;
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

@@ -345,6 +345,120 @@ fn ten_years_of_records_stay_fast() {
     timed("Прогноз на 12 месяцев", sec, || {
         budget_core::forecast::forecast(c, &today, None).unwrap()
     });
+    // 7б/7в (тред 35): горизонт 5 лет, отбор отчётов, «Год», остатки дня,
+    // готовые фильтры, погашение долгов. Тег — на каждой десятой операции.
+    timed("Прогноз на 60 месяцев", sec, || {
+        budget_core::forecast::forecast_for(c, &today, None, 60).unwrap()
+    });
+    c.execute_batch(
+        "INSERT INTO tags (id, name) VALUES ('t-vol', 'объём');
+         INSERT INTO transaction_tags (transaction_id, tag_id)
+         SELECT id, 't-vol' FROM transactions WHERE rowid % 10 = 0;",
+    )
+    .unwrap();
+    let card_id: String = c
+        .query_row("SELECT id FROM accounts ORDER BY rowid LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let tag_filter = reports::ReportFilter {
+        account_id: None,
+        tag_id: Some("t-vol".into()),
+    };
+    let acc_filter = reports::ReportFilter {
+        account_id: Some(card_id.clone()),
+        tag_id: None,
+    };
+    timed(
+        "Отчёт: структура за год по тегу",
+        sec,
+        || reports::by_category_in(c, "expense", &year_ago, &today, &tag_filter).unwrap(),
+    );
+    timed(
+        "Отчёт: по месяцам за 10 лет по счёту",
+        sec,
+        || reports::by_month_in(c, &first_month, &month, &acc_filter).unwrap(),
+    );
+    timed(
+        "Отчёт: по месяцам за 10 лет по тегу",
+        sec,
+        || reports::by_month_in(c, &first_month, &month, &tag_filter).unwrap(),
+    );
+    timed(
+        "Вид «Год» (тепловая карта)",
+        sec,
+        || calendar::year_heat(c, today[..4].parse().unwrap()).unwrap(),
+    );
+    timed(
+        "Календарь: остаток на конец каждого дня",
+        sec,
+        || {
+            let last = chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap();
+            calendar::balances(c, last - chrono::Days::new(41), last, &today).unwrap()
+        },
+    );
+    for quick in ["uncategorized", "recurring", "note", "foreign"] {
+        timed(
+            &format!("Операции: готовый фильтр «{quick}»"),
+            sec,
+            || {
+                transactions::list(
+                    c,
+                    &Filter {
+                        quick: vec![quick.into()],
+                        limit: Some(100),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+            },
+        );
+    }
+    timed(
+        "Операции: «Крупные» от 10 000 ₽",
+        sec,
+        || {
+            transactions::list(
+                c,
+                &Filter {
+                    min_amount: Some(1_000_000),
+                    limit: Some(100),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        },
+    );
+    for (i, rate) in [3_000i64, 1_500, 0].iter().enumerate() {
+        budget_core::debts::create_in(
+            c,
+            &budget_core::debts::DebtInput {
+                direction: "borrowed".into(),
+                counterparty: format!("Долг {i}"),
+                note: None,
+                currency_code: "RUB".into(),
+                principal: 50_000_000,
+                issue_date: today.clone(),
+                rate_bp: *rate,
+                repayment_type: "annuity".into(),
+                term_months: Some(60),
+                first_payment_date: None,
+                maturity_date: None,
+                account_id: None,
+                interest_method: None,
+                rate_period: None,
+                pay_every: None,
+                rate_changes: vec![],
+                planned_early: vec![],
+            },
+        )
+        .unwrap();
+    }
+    timed(
+        "Долги: «Как быстрее расплатиться»",
+        sec,
+        || budget_core::payoff::for_debts(c, &today, 1_000_000, "costly").unwrap(),
+    );
     timed(
         "Главная: «проверьте» (checks)",
         sec,

@@ -145,8 +145,8 @@ impl ReportFilter {
         if let Some(tag) = self.tag_id.as_deref().filter(|t| !t.is_empty()) {
             args.push(tag.to_string());
             cond.push_str(&format!(
-                " AND EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?{})",
-                first + args.len() - 1
+                " AND {}",
+                crate::tags::has_tag_sql(first + args.len() - 1)
             ));
         }
         (cond, args)

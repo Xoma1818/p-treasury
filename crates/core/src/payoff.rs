@@ -163,6 +163,15 @@ pub fn plan(list: &[PayoffDebt], extra: i64, strategy: &str, first_month: &str) 
     })
 }
 
+/// Платёж по графику в пересчёте на месяц (модель погашения помесячная).
+fn monthly_payment(payment: i64, pay_every: &str) -> i64 {
+    match pay_every {
+        "quarter" => (payment + 2) / 3,
+        "two_weeks" => (payment * 26 + 11) / 12,
+        _ => payment,
+    }
+}
+
 /// Р17 по своим долгам: взятые и не закрытые, суммы в основной валюте.
 pub fn for_debts(conn: &Connection, today: &str, extra: i64, strategy: &str) -> Result<Payoff> {
     let base = currencies::base_currency(conn)?;
@@ -173,11 +182,13 @@ pub fn for_debts(conn: &Connection, today: &str, extra: i64, strategy: &str) -> 
         if d.direction != "borrowed" || d.status == "closed" || d.outstanding <= 0 {
             continue;
         }
-        // Обычный платёж — ближайший по графику; без графика — только проценты.
+        // Обычный платёж — ближайший по графику, пересчитанный на месяц: раз в
+        // квартал — треть, раз в две недели — 26 платежей в год на 12 месяцев.
+        // Без графика — только проценты.
         let payment = d
             .next_payment
             .as_ref()
-            .map(|p| p.payment)
+            .map(|p| monthly_payment(p.payment, &d.pay_every))
             .unwrap_or_else(|| month_interest(d.outstanding, d.rate_bp));
         let conv = |v: i64| currencies::convert(conn, v, &d.currency_code, &base, today);
         let (Some(balance), Some(payment)) = (conv(d.outstanding)?, conv(payment)?) else {
