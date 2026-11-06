@@ -163,6 +163,8 @@ pub struct Status {
     pub verified: Option<backups::Verified>,
     /// Ошибка последней проверки восстановления.
     pub verify_error: Option<String>,
+    /// Когда была эта ошибка: проверка относится к копиям, сделанным до неё.
+    pub verify_failed_at: Option<String>,
 }
 
 pub fn status(conn: &Connection, default: &Path) -> Result<Status> {
@@ -186,6 +188,7 @@ pub fn status(conn: &Connection, default: &Path) -> Result<Status> {
             .unwrap_or_else(|| "10".into()),
         verified,
         verify_error,
+        verify_failed_at: backups::verify_failed_at(conn)?,
     })
 }
 

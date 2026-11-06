@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SavedView, Txn, TxnType } from "./api";
+import type { QuickFilter, SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 import { rememberSection, startSection } from "./fine";
 
@@ -41,6 +41,8 @@ export interface TxnJump {
   currency?: string;
   /** Только эти типы (доходы или расходы из «Как посчитано»). */
   types?: TxnType[];
+  /** Р3: готовые фильтры («Без категории» из «Состояния данных»). */
+  quick?: QuickFilter[];
 }
 
 interface UiState {
