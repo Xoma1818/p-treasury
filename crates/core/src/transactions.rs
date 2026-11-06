@@ -519,10 +519,8 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
         wh.push(format!("t.import_id = {}", arg(i.clone().into())));
     }
     if let Some(tag) = &f.tag_id {
-        wh.push(format!(
-            "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = {})",
-            arg(tag.clone().into())
-        ));
+        // С возвратами покупок с этим тегом, как в отчёте «По тегу».
+        wh.push(crate::tags::has_tag_sql(&arg(tag.clone().into())));
     }
     for q in &f.quick {
         match q.as_str() {

@@ -244,6 +244,17 @@ pub struct TagReport {
     pub missing_rates: Vec<String>,
 }
 
+/// Условие «у строки `t` (txn_by_month) есть тег `param`» (`?1`). Возврат несёт теги
+/// своей покупки: иначе в отчётах по тегу купленное и возвращённое оставалось тратой.
+/// Годится и для `transactions t`: так же отбирают «Операции» с фильтром по тегу.
+pub(crate) fn has_tag_sql(param: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.tag_id = {param}
+           AND tt.transaction_id IN (t.id, (SELECT r.refund_of FROM transactions r
+                                           WHERE r.id = t.id AND r.refund = 1)))"
+    )
+}
+
 /// Отчёт «По тегу» за период: итог, разбивка по категориям и месяцам.
 /// Траты на несколько месяцев делятся по месяцам, как в других отчётах.
 pub fn report(conn: &Connection, tag_id: &str, from: &str, to: &str) -> Result<TagReport> {
@@ -254,21 +265,26 @@ pub fn report(conn: &Connection, tag_id: &str, from: &str, to: &str) -> Result<T
     }
     let name = name_of(conn, tag_id)?;
     let base = currencies::base_currency(conn)?;
+    // Считаются те же операции, что входят в суммы: с возвратами покупок с этим
+    // тегом и по той же дате (возврат — в месяце покупки, если так выбрано).
     let count: i64 = conn.query_row(
-        "SELECT count(*) FROM transactions t JOIN transaction_tags tt ON tt.transaction_id = t.id
-         WHERE tt.tag_id = ?1 AND t.status = 'cleared' AND t.date BETWEEN ?2 AND ?3",
+        &format!(
+            "SELECT count(DISTINCT t.id) FROM txn_by_month t
+             WHERE {} AND t.status = 'cleared' AND t.date BETWEEN ?2 AND ?3",
+            has_tag_sql("?1")
+        ),
         params![tag_id, from, to],
         |r| r.get(0),
     )?;
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT t.type, t.date, t.amount, a.currency_code, COALESCE(c.parent_id, c.id)
          FROM txn_by_month t
-         JOIN transaction_tags tt ON tt.transaction_id = t.id
          JOIN accounts a ON a.id = t.account_id
          LEFT JOIN categories c ON c.id = t.category_id
-         WHERE tt.tag_id = ?1 AND t.status = 'cleared' AND t.type IN ('expense', 'income')
+         WHERE {} AND t.status = 'cleared' AND t.type IN ('expense', 'income')
            AND t.date BETWEEN ?2 AND ?3",
-    )?;
+        has_tag_sql("?1")
+    ))?;
     let rows: Vec<(String, String, i64, String, Option<String>)> = stmt
         .query_map(params![tag_id, from, to], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))

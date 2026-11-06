@@ -21,8 +21,25 @@ pub struct PayoffDebt {
     /// Остаток долга в основной валюте.
     pub balance: i64,
     pub rate_bp: i64,
-    /// Обычный ежемесячный платёж в основной валюте.
+    /// Обычный ежемесячный платёж в основной валюте; по нему же платится после
+    /// конца `schedule`, если долг ещё не закрыт.
     pub payment: i64,
+    /// Платежи оставшегося графика по месяцам плана (0 — первый месяц): у
+    /// квартального графика между взносами нули. Пусто — каждый месяц `payment`.
+    pub schedule: Vec<i64>,
+}
+
+impl PayoffDebt {
+    /// Обычный платёж в месяце `m` плана (с 1).
+    fn due(&self, m: u32) -> i64 {
+        if self.schedule.is_empty() {
+            return self.payment;
+        }
+        self.schedule
+            .get(m as usize - 1)
+            .copied()
+            .unwrap_or(self.payment)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,17 +94,18 @@ fn simulate(list: &[PayoffDebt], extra: Option<i64>, strategy: &str) -> Run {
             if closed[i].is_some() {
                 // Закрытый долг отдаёт свой платёж остальным (только в плане).
                 if extra.is_some() {
-                    pool += d.payment;
+                    pool += d.due(m);
                 }
                 continue;
             }
             let pct = month_interest(bal[i], d.rate_bp);
             interest += pct;
             bal[i] += pct;
-            let p = d.payment.min(bal[i]);
+            let due = d.due(m);
+            let p = due.min(bal[i]);
             bal[i] -= p;
             if extra.is_some() {
-                pool += d.payment - p;
+                pool += due - p;
             }
         }
         // Лишнее — в долги по очереди стратегии.
@@ -163,38 +181,58 @@ pub fn plan(list: &[PayoffDebt], extra: i64, strategy: &str, first_month: &str) 
     })
 }
 
+/// Номер месяца `m` (`YYYY-MM`) от `first`, просроченные — в первом (0).
+fn month_index(first: &str, m: &str) -> usize {
+    let n = |s: &str| s[..4].parse::<i64>().unwrap_or(0) * 12 + s[5..7].parse::<i64>().unwrap_or(0);
+    (n(m) - n(first)).max(0) as usize
+}
+
 /// Р17 по своим долгам: взятые и не закрытые, суммы в основной валюте.
 pub fn for_debts(conn: &Connection, today: &str, extra: i64, strategy: &str) -> Result<Payoff> {
     let base = currencies::base_currency(conn)?;
     let bc = currencies::get(conn, &base)?;
     let mut missing = Vec::new();
     let mut list = Vec::new();
+    let first = budgets::month_of(conn, today)?.month;
     for d in debts::list(conn, today)? {
         if d.direction != "borrowed" || d.status == "closed" || d.outstanding <= 0 {
             continue;
         }
-        // Обычный платёж — ближайший по графику; без графика — только проценты.
+        // Обычные платежи — по оставшемуся графику, каждый в своём месяце плана
+        // (квартальный — раз в три месяца, просроченные — в первом). После графика
+        // и без графика — ближайший платёж или только проценты.
+        let detail = debts::get(conn, &d.id, today)?;
+        let conv = |v: i64| currencies::convert(conn, v, &d.currency_code, &base, today);
+        let mut due: Vec<(usize, i64)> = Vec::new();
+        for r in detail.schedule.iter().filter(|r| r.status != "paid") {
+            let k = month_index(&first, &budgets::month_of(conn, &r.due_date)?.month);
+            due.push((k, r.payment));
+        }
         let payment = d
             .next_payment
             .as_ref()
             .map(|p| p.payment)
+            .or_else(|| due.last().map(|x| x.1))
             .unwrap_or_else(|| month_interest(d.outstanding, d.rate_bp));
-        let conv = |v: i64| currencies::convert(conn, v, &d.currency_code, &base, today);
         let (Some(balance), Some(payment)) = (conv(d.outstanding)?, conv(payment)?) else {
             if !missing.contains(&d.currency_code) {
                 missing.push(d.currency_code.clone());
             }
             continue;
         };
+        let mut schedule = vec![0i64; due.iter().map(|x| x.0 + 1).max().unwrap_or(0)];
+        for (k, v) in due {
+            schedule[k] += conv(v)?.unwrap_or(0);
+        }
         list.push(PayoffDebt {
             id: d.id,
             name: d.counterparty,
             balance,
             rate_bp: d.rate_bp,
             payment,
+            schedule,
         });
     }
-    let first = budgets::month_of(conn, today)?.month;
     let mut out = plan(&list, extra, strategy, &first)?;
     out.currency_symbol = bc.symbol;
     out.minor_units = bc.minor_units;
@@ -213,6 +251,7 @@ mod tests {
             balance,
             rate_bp: rate_pct * 100,
             payment,
+            schedule: Vec::new(),
         }
     }
 

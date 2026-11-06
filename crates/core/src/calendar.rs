@@ -295,19 +295,26 @@ pub fn balances(
     if last < first || (last - first).num_days() > 62 {
         return invalid("календарь строится не больше чем на два месяца");
     }
-    let mut out = Vec::new();
+    let mut all = Vec::new();
     let mut d = first;
     while d <= last {
-        let date = d.to_string();
-        let balance = if date.as_str() <= today {
-            Some(crate::accounts::totals(conn, &date)?.total)
-        } else {
-            None
-        };
-        out.push(DayBalance { date, balance });
+        all.push(d.to_string());
         d += Duration::days(1);
     }
-    Ok(out)
+    let past: Vec<String> = all
+        .iter()
+        .filter(|d| d.as_str() <= today)
+        .cloned()
+        .collect();
+    let totals = crate::accounts::totals_on_days(conn, &past)?;
+    Ok(all
+        .into_iter()
+        .enumerate()
+        .map(|(i, date)| DayBalance {
+            balance: totals.get(i).copied(),
+            date,
+        })
+        .collect())
 }
 
 /// Р7 вид «Год»: траты по дням года в основной валюте (тепловая карта).
@@ -348,15 +355,17 @@ pub fn year_heat(conn: &Connection, year: i32) -> Result<YearHeat> {
         d += Duration::days(1);
     }
     let mut missing: Vec<String> = Vec::new();
-    // Суммы одной валюты за день складываются в ядре SQLite, курс — на эту дату.
+    // Траты в основной валюте складываются за день в SQLite. Другие валюты
+    // пересчитываются каждая отдельно, как в календаре и отчётах: сумма
+    // округлённых пересчётов, иначе день «Года» и календаря расходился на копейку.
     let mut stmt = conn.prepare(
         "SELECT t.date, a.currency_code, sum(t.amount) FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = 'expense' AND t.date BETWEEN ?1 AND ?2
-         GROUP BY t.date, a.currency_code",
+         GROUP BY t.date, a.currency_code, CASE WHEN a.currency_code = ?3 THEN '' ELSE t.id END",
     )?;
     let rows: Vec<(String, String, i64)> = stmt
-        .query_map(params![first.to_string(), last.to_string()], |r| {
+        .query_map(params![first.to_string(), last.to_string(), base], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
