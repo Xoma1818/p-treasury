@@ -54,6 +54,37 @@ test("сценарий «Ипотека» −45 000 ₽ в месяц: на че
   await waitCount(browser, '[data-testid="scenario-chip"]', 0);
 });
 
+test("горизонт 5 лет и два сценария на одном графике (Р15, Р16)", async () => {
+  await openSection(browser, "Взгляд вперёд");
+  try {
+    await (await browser.$('[data-testid="fc-horizon-60"]')).click();
+    await waitText(browser, '[data-testid="fc-end"]', /Через 5 лет/);
+    await waitCount(browser, '[data-testid="fc-row"]', 60);
+    await waitText(browser, '[data-testid="fc-ok"]', /хватает на все 5 лет/);
+    // Два сценария: второй выбирается в «и сравнить с» и рисуется третьей линией.
+    for (const name of ["Ипотека", "Ипотека 2"]) {
+      await click(browser, "+ Сценарий");
+      await click(browser, "Ипотека или кредит", '//*[@role="dialog"]');
+      await fill(browser, "scenario-name", name);
+      await save(browser);
+      await browser.waitUntil(async () => !(await browser.$('[role="dialog"]').isExisting()), { timeout: 5000 });
+    }
+    await choose(browser, "scenario2", "Ипотека");
+    await browser.$('[data-testid="fc-second-line"]').waitForExist({ timeout: 5000 });
+  } finally {
+    for (const name of ["Ипотека 2", "Ипотека"]) {
+      const edit = await browser.$(`button[aria-label="Изменить сценарий «${name}»"]`);
+      if (!(await edit.isExisting())) continue;
+      await edit.click();
+      await click(browser, "Удалить", '//*[@role="dialog"]');
+      await browser.waitUntil(async () => !(await browser.$('[role="dialog"]').isExisting()), { timeout: 5000 });
+    }
+    await (await browser.$('[data-testid="fc-horizon-12"]')).click();
+  }
+  await waitCount(browser, '[data-testid="fc-row"]', 12);
+  await waitCount(browser, '[data-testid="scenario-chip"]', 0);
+});
+
 test("поток денег за месяц: продукты справа, недостающее — «Из накоплений» слева", async () => {
   await openSection(browser, "Главная");
   await click(browser, "+ Расход");

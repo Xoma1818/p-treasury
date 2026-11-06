@@ -287,6 +287,7 @@ pub fn run() {
             commands::calendar_range,
             commands::calendar_balances,
             commands::calendar_year,
+            commands::debt_payoff,
             commands::reminders_overview,
             commands::missed_reminders,
             commands::create_reminder,

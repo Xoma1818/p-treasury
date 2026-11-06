@@ -189,6 +189,27 @@ export const QUICK_FILTERS: { key: QuickFilter; label: string; hint: string }[] 
   { key: "foreign", label: "Валютные", hint: "По счетам не в основной валюте" },
 ];
 
+/** Р12: отбор отчёта по счёту и тегу. */
+export interface ReportFilter {
+  accountId?: string;
+  tagId?: string;
+}
+
+/** Р17: план досрочного погашения нескольких долгов. */
+export interface Payoff {
+  strategy: "costly" | "small";
+  extra: number;
+  currencySymbol: string;
+  minorUnits: number;
+  order: { id: string; name: string; month: string; baseMonth: string | null }[];
+  freeMonth: string | null;
+  baseFreeMonth: string | null;
+  interest: number;
+  baseInterest: number;
+  saved: number;
+  missingRates: string[];
+}
+
 export interface TxnFilter {
   dateFrom?: string;
   dateTo?: string;
@@ -1802,13 +1823,16 @@ export const api = {
   transactionDefaults: (kind: TxnType) => invoke<Defaults>("transaction_defaults", { kind }),
   periodSummary: (from: string, to: string) => invoke<PeriodSummary>("period_summary", { from, to }),
   reportPeriod: (kind: ReportPeriodKind, month: string) => invoke<Period>("report_period", { kind, month }),
-  reportByCategory: (kind: CategoryKind, from: string, to: string) => invoke<CategoryReport>("report_by_category", { kind, from, to }),
+  /** Р12: filter — отбор по счёту и тегу. */
+  reportByCategory: (kind: CategoryKind, from: string, to: string, filter?: ReportFilter) => invoke<CategoryReport>("report_by_category", { kind, from, to, filter: filter ?? null }),
   comparePeriods: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods) => invoke<Comparison>("compare_periods", { kind, by, periods }),
-  reportByMonth: (fromMonth: string, toMonth: string) => invoke<MonthsReport>("report_by_month", { fromMonth, toMonth }),
+  reportByMonth: (fromMonth: string, toMonth: string, filter?: ReportFilter) => invoke<MonthsReport>("report_by_month", { fromMonth, toMonth, filter: filter ?? null }),
   reportBalances: (date: string) => invoke<BalancesReport>("report_balances", { date }),
   calcLoan: (input: LoanInput) => invoke<Schedule>("calc_loan", { input }),
   compareLoans: (input: LoanInput) => invoke<{ annuity: Schedule; differentiated: Schedule }>("compare_loans", { input }),
   listDebts: () => invoke<DebtCard[]>("list_debts"),
+  /** Р17: «сначала дорогие» (costly) или «сначала маленькие» (small), extra — лишнее в месяц. */
+  debtPayoff: (extra: number, strategy: "costly" | "small") => invoke<Payoff>("debt_payoff", { extra, strategy }),
   getDebt: (id: string) => invoke<DebtDetail>("get_debt", { id }),
   debtSummary: () => invoke<DebtSummary>("debt_summary"),
   createDebt: (input: DebtInput) => invoke<string>("create_debt", { input }),
@@ -1845,7 +1869,8 @@ export const api = {
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
     invoke<number>("fill_budget", { budgetId, mode, categoryId }),
   cushion: () => invoke<Cushion>("cushion"),
-  forecast: (scenarioId: string | null) => invoke<Forecast>("forecast", { scenarioId }),
+  /** Р15: months — горизонт 3, 6, 12, 24 или 60 месяцев (по умолчанию 12). */
+  forecast: (scenarioId: string | null, months?: number) => invoke<Forecast>("forecast", { scenarioId, months: months ?? null }),
   listScenarios: () => invoke<Scenario[]>("list_scenarios"),
   forecastAccounts: () => invoke<ForecastAccount[]>("forecast_accounts"),
   setForecastExcluded: (ids: string[]) => invoke<void>("set_forecast_excluded", { ids }),

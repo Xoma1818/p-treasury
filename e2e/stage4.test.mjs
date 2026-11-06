@@ -146,3 +146,24 @@ test("удаление долга убирает его операции", async
   await openSection(browser, "Счета");
   await waitText(browser, card, money("285 022,77 ₽"));
 });
+
+test("Р17: два своих долга — карточка «Как быстрее расплатиться»", async () => {
+  await openSection(browser, "Займы и долги");
+  await click(browser, "+ Новый долг");
+  await choose(browser, "repayment", "Разовый возврат в конце");
+  await fill(browser, "principal", "10000");
+  await setDate(browser, "maturity", march);
+  await waitText(browser, '[data-testid="loan-payment"]', /К возврату\s*10[\s\u00A0]000[\s\u00A0]₽/);
+  await click(browser, "Записать заём");
+  await fill(browser, "counterparty", "Сосед");
+  await choose(browser, "account", "Карта (₽)");
+  await save(browser);
+  await waitText(browser, '[data-testid="debt-outstanding"]', money("10 000 ₽"));
+  await openSection(browser, "Займы и долги");
+  await waitText(browser, '[data-testid="payoff-free"]', /Свободны от долгов/);
+  await waitText(browser, '[data-testid="payoff-saved"]', /₽/);
+  await waitCount(browser, '[data-testid="payoff-order"] li', 2);
+  // «Сначала маленькие»: первым уходит сосед.
+  await (await browser.$('[data-testid="payoff-small"]')).click();
+  await waitText(browser, '[data-testid="payoff-order"] li:first-child', /^Сосед/);
+});

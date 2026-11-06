@@ -125,20 +125,62 @@ pub struct CategoryReport {
     pub missing_rates: Vec<String>,
 }
 
+/// Р12: отбор отчёта по счёту и тегу; пусто — все операции.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReportFilter {
+    pub account_id: Option<String>,
+    pub tag_id: Option<String>,
+}
+
+impl ReportFilter {
+    /// Условие на `t` (строки txn_by_month) с параметрами начиная с `?{first}`.
+    fn sql(&self, first: usize) -> (String, Vec<String>) {
+        let mut cond = String::new();
+        let mut args = Vec::new();
+        if let Some(a) = self.account_id.as_deref().filter(|a| !a.is_empty()) {
+            args.push(a.to_string());
+            cond.push_str(&format!(" AND t.account_id = ?{}", first + args.len() - 1));
+        }
+        if let Some(tag) = self.tag_id.as_deref().filter(|t| !t.is_empty()) {
+            args.push(tag.to_string());
+            cond.push_str(&format!(
+                " AND EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?{})",
+                first + args.len() - 1
+            ));
+        }
+        (cond, args)
+    }
+}
+
 /// Расходы или доходы по категориям за период, подкатегории внутри родителя.
 pub fn by_category(conn: &Connection, kind: &str, from: &str, to: &str) -> Result<CategoryReport> {
+    by_category_in(conn, kind, from, to, &ReportFilter::default())
+}
+
+/// То же с отбором по счёту и тегу (Р12).
+pub fn by_category_in(
+    conn: &Connection,
+    kind: &str,
+    from: &str,
+    to: &str,
+    filter: &ReportFilter,
+) -> Result<CategoryReport> {
     if !matches!(kind, "expense" | "income") {
         return invalid(format!(
             "отчёт по категориям строится для расходов или доходов, не для {kind}"
         ));
     }
     let base = currencies::base_currency(conn)?;
-    let mut stmt = conn.prepare(
+    let (cond, extra) = filter.sql(4);
+    let mut stmt = conn.prepare(&format!(
         "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'cleared' AND t.type = ?1 AND t.date BETWEEN ?2 AND ?3",
-    )?;
-    let rows = stmt.query_map(params![kind, from, to], |r| {
+         WHERE t.status = 'cleared' AND t.type = ?1 AND t.date BETWEEN ?2 AND ?3{cond}"
+    ))?;
+    let mut args: Vec<String> = vec![kind.into(), from.into(), to.into()];
+    args.extend(extra);
+    let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -232,6 +274,16 @@ pub struct MonthsReport {
 
 /// Доходы, расходы и сальдо по месяцам от `from_month` до `to_month` включительно.
 pub fn by_month(conn: &Connection, from_month: &str, to_month: &str) -> Result<MonthsReport> {
+    by_month_in(conn, from_month, to_month, &ReportFilter::default())
+}
+
+/// То же с отбором по счёту и тегу (Р12).
+pub fn by_month_in(
+    conn: &Connection,
+    from_month: &str,
+    to_month: &str,
+    filter: &ReportFilter,
+) -> Result<MonthsReport> {
     let day = budgets::start_day(conn)?;
     let mut periods = Vec::new();
     let mut month = from_month.to_string();
@@ -248,13 +300,16 @@ pub fn by_month(conn: &Connection, from_month: &str, to_month: &str) -> Result<M
     let mut sums = vec![PeriodSummary::default(); periods.len()];
     if let (Some(first), Some(last)) = (periods.first(), periods.last()) {
         let base = currencies::base_currency(conn)?;
-        let mut stmt = conn.prepare(
+        let (cond, extra) = filter.sql(3);
+        let mut stmt = conn.prepare(&format!(
             "SELECT t.type, t.date, t.amount, a.currency_code FROM txn_by_month t
              JOIN accounts a ON a.id = t.account_id
              WHERE t.status = 'cleared' AND t.type IN ('income', 'expense', 'adjustment')
-               AND t.date BETWEEN ?1 AND ?2",
-        )?;
-        let rows = stmt.query_map(params![first.start, last.end], |r| {
+               AND t.date BETWEEN ?1 AND ?2{cond}"
+        ))?;
+        let mut args: Vec<String> = vec![first.start.clone(), last.end.clone()];
+        args.extend(extra);
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -395,6 +450,63 @@ mod tests {
     use crate::storage::Storage;
     use crate::transactions::{self, TxnInput};
     use crate::{categories, currencies};
+
+    #[test]
+    fn report_filter_by_account_and_tag() {
+        // Р12: отчёты «Структура» и «По месяцам» по одному счёту или тегу.
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let food: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Питание'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let cash = accounts::create(c, &input("Наличные", "cash", "RUB", 0)).unwrap();
+        let spend = |acc: &str, amount: i64| {
+            transactions::create(
+                c,
+                &TxnInput {
+                    kind: "expense".into(),
+                    date: "2026-10-05".into(),
+                    account_id: acc.into(),
+                    amount,
+                    category_id: Some(food.clone()),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap()
+        };
+        spend(&card, 10_000);
+        let trip = spend(&cash, 3_000);
+        crate::tags::set_for(c, &trip, &["дача".to_string()]).unwrap();
+        let tag: String = c
+            .query_row("SELECT id FROM tags WHERE name = 'дача'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let f = |account: Option<&str>, tag: Option<&str>| ReportFilter {
+            account_id: account.map(Into::into),
+            tag_id: tag.map(Into::into),
+        };
+        let total = |flt: &ReportFilter| {
+            by_category_in(c, "expense", "2026-10-01", "2026-10-31", flt)
+                .unwrap()
+                .total
+        };
+        assert_eq!(total(&f(None, None)), 13_000);
+        assert_eq!(total(&f(Some(&card), None)), 10_000);
+        assert_eq!(total(&f(None, Some(&tag))), 3_000);
+        assert_eq!(total(&f(Some(&card), Some(&tag))), 0);
+        let m = by_month_in(c, "2026-10", "2026-10", &f(Some(&cash), None)).unwrap();
+        assert_eq!(m.expense, 3_000);
+    }
 
     #[test]
     fn summary_in_base_currency_by_operation_date() {
