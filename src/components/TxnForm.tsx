@@ -623,7 +623,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
           transactionIds={splitId ? receipt.data?.parts.map((p) => p.id) : undefined}
           disabled={!!splitId && (save.busy || remove.busy || receipt.isFetching)}
         />}
-        {editing && !splitId && <TxnHistory id={editing.id} />}
+        {editing && <TxnHistory id={editing.id} splitId={splitId} />}
         {!editing &&
           (templateName === null ? (
             <div>
