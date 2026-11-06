@@ -1328,6 +1328,8 @@ export interface VaultStatus {
   verified: VerifiedBackup | null;
   /** Ошибка последней проверки восстановления. */
   verifyError: string | null;
+  /** Когда была эта ошибка (UTC): она относится к копиям, сделанным до неё. */
+  verifyFailedAt: string | null;
 }
 
 export interface VerifiedBackup {

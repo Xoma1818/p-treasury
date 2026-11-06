@@ -87,9 +87,22 @@ pub fn record_verify(conn: &Connection, result: &Result<Verified>) -> Result<()>
             )?;
             settings::set(conn, "backup_verify_error", "")?;
         }
-        Err(e) => settings::set(conn, "backup_verify_error", &e.to_string())?,
+        Err(e) => {
+            settings::set(conn, "backup_verify_error", &e.to_string())?;
+            // Когда не прошла: так ошибку можно отнести к копии, сделанной до неё,
+            // а не к более новой. Ключа нет в старых базах — без миграции.
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('backup_verify_failed_at', ?1)",
+                [time::now_utc()],
+            )?;
+        }
     }
     Ok(())
+}
+
+/// Когда последний раз не прошла проверка восстановления (UTC, RFC 3339).
+pub fn verify_failed_at(conn: &Connection) -> Result<Option<String>> {
+    Ok(settings::get(conn, "backup_verify_failed_at")?.filter(|v| !v.is_empty()))
 }
 
 /// Записать итог проверки в тот бюджет, копию которого проверяли (`origin` —
@@ -325,6 +338,7 @@ mod tests {
         assert_eq!((v.accounts, v.schema_version), (1, LATEST_VERSION));
         record_verify(db.conn(), &ok).unwrap();
         assert_eq!(last_verified(db.conn()).unwrap(), (Some(v.clone()), None));
+        assert_eq!(verify_failed_at(db.conn()).unwrap(), None);
 
         // Испорченная копия: проверка не проходит, дата прошлой удачной остаётся.
         let mut bytes = std::fs::read(&copy).unwrap();
@@ -340,6 +354,8 @@ mod tests {
         let (kept, error) = last_verified(db.conn()).unwrap();
         assert_eq!(kept, Some(v));
         assert!(error.is_some());
+        // Время неудачи помнится, чтобы не приписывать её более новой копии.
+        assert!(verify_failed_at(db.conn()).unwrap().is_some());
 
         // Не файл программы.
         let txt = dir.path().join("notes.txt");

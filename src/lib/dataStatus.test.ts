@@ -7,23 +7,35 @@ const TODAY = "2026-11-06";
 
 const backup = (o: Partial<BackupStatus> = {}): BackupStatus => ({ lastBackupAt: null, autobackupDir: "", autobackupKeep: "10", reminderDue: false, defaultName: "x.db", ...o });
 const vault = (o: Partial<VaultStatus> = {}): VaultStatus =>
-  ({ on: true, dir: "", defaultDir: "", custom: false, syncedAt: null, error: null, keep: "10", verified: null, verifyError: null, ...o }) as VaultStatus;
+  ({ on: true, dir: "", defaultDir: "", custom: false, syncedAt: null, error: null, keep: "10", verified: null, verifyError: null, verifyFailedAt: null, ...o }) as VaultStatus;
+const checked = (at: string) => ({ checkedAt: at }) as VaultStatus["verified"];
 const rate = (code: string, r: string | null, date: string | null): CurrentRate => ({ code, rate: r, date, source: r ? "cbr" : null });
 
 describe("состояние данных: копия", () => {
   it("свежая проверенная копия — в порядке, время местное", () => {
-    const row = backupRow(backup(), vault({ syncedAt: "2026-11-06T10:15", verified: { checkedAt: "2026-11-06T10:15" } as VaultStatus["verified"] }), TODAY, fmt)!;
+    const row = backupRow(backup(), vault({ syncedAt: "2026-11-06T10:15", verified: checked("2026-11-06T10:15") }), TODAY, fmt)!;
     expect(row.level).toBe("ok");
     expect(row.text).toBe("Копия: сегодня в 10:15, восстановление проверено");
   });
   it("берёт самую свежую из ручной копии и папки сохранности", () => {
     const row = backupRow(backup({ lastBackupAt: "2026-11-05T09:00" }), vault({ syncedAt: "2026-11-01T09:00" }), TODAY, fmt)!;
-    expect(row.text).toBe("Копия: вчера в 09:00");
+    expect(row.text).toBe("Копия: вчера в 09:00, восстановление ещё не проверялось");
   });
   it("нет копии, давняя копия и неудачная проверка — внимание", () => {
     expect(backupRow(backup(), vault(), TODAY, fmt)!.level).toBe("warn");
     expect(backupRow(backup({ lastBackupAt: "2026-09-01T09:00", reminderDue: true }), vault({ on: false }), TODAY, fmt)!.text).toBe("Копия: 01.09.2026 в 09:00, больше месяца назад");
-    expect(backupRow(backup({ lastBackupAt: "2026-11-06T09:00" }), vault({ verifyError: "битый файл" }), TODAY, fmt)!.level).toBe("warn");
+    expect(backupRow(backup({ lastBackupAt: "2026-11-06T09:00" }), vault({ verifyError: "битый файл", verifyFailedAt: "2026-11-06T09:05" }), TODAY, fmt)!.text).toBe("Копия: сегодня в 09:00; проверка восстановления не прошла");
+  });
+  it("проверка прежнего файла не относится к новой копии (ревью №84)", () => {
+    // Успешно проверяли вчерашнюю копию, сегодня сделана новая: она ещё не проверена.
+    const fresh = backupRow(backup({ lastBackupAt: "2026-11-06T09:00" }), vault({ verified: checked("2026-11-05T09:05") }), TODAY, fmt)!;
+    expect(fresh).toEqual({ key: "backup", level: "ok", text: "Копия: сегодня в 09:00, восстановление ещё не проверялось" });
+    // Вчера проверка не прошла, сегодня новая копия: старая ошибка ей не приписывается.
+    const after = backupRow(backup({ lastBackupAt: "2026-11-06T09:00" }), vault({ verifyError: "битый файл", verifyFailedAt: "2026-11-05T09:05", verified: checked("2026-11-01T09:00") }), TODAY, fmt)!;
+    expect(after.level).toBe("ok");
+    expect(after.text).toBe("Копия: сегодня в 09:00, восстановление ещё не проверялось");
+    // Ошибка из базы до этой версии (без времени) тоже не приписывается новой копии.
+    expect(backupRow(backup({ lastBackupAt: "2026-11-06T09:00" }), vault({ verifyError: "битый файл" }), TODAY, fmt)!.level).toBe("ok");
   });
   it("пока сведения не загрузились — строки нет", () => {
     expect(backupRow(undefined, vault(), TODAY, fmt)).toBeNull();

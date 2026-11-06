@@ -44,16 +44,28 @@ function latest(...at: (string | null | undefined)[]): string | null {
   return best;
 }
 
+/** Метка `at` не раньше `copy`: проверка была уже после этой копии. */
+function notBefore(at: string | null | undefined, copy: string): boolean {
+  return !!at && !Number.isNaN(Date.parse(at)) && Date.parse(at) >= Date.parse(copy);
+}
+
+/**
+ * Итог проверки восстановления относится к самой свежей копии, только если проверка
+ * была после неё: иначе новую копию ещё никто не проверял, а старый успех или старая
+ * ошибка говорят о прежнем файле.
+ */
 export function backupRow(backup: BackupStatus | undefined, vault: VaultStatus | undefined, today: string, formatDate: (d: string) => string): StatusRow | null {
   if (!backup || !vault) return null;
   const last = latest(backup.lastBackupAt, vault.on ? vault.syncedAt : null);
-  if (vault.verifyError) return { key: "backup", level: "warn", text: "Копия: последняя не прошла проверку восстановления" };
   if (!last) return { key: "backup", level: "warn", text: "Копия: ещё не делалась" };
   const lastText = `Копия: ${when(last, today, formatDate)}`;
+  const failed = !!vault.verifyError && notBefore(vault.verifyFailedAt, last);
+  const checked = !failed && notBefore(vault.verified?.checkedAt, last);
+  if (failed) return { key: "backup", level: "warn", text: `${lastText}; проверка восстановления не прошла` };
   if (backup.reminderDue) return { key: "backup", level: "warn", text: `${lastText}, больше месяца назад` };
   if (vault.on && vault.error) return { key: "backup", level: "warn", text: `${lastText}; папка сохранности не обновляется` };
   if (!vault.on) return { key: "backup", level: "ok", text: `${lastText}; папка сохранности выключена` };
-  return { key: "backup", level: "ok", text: vault.verified ? `${lastText}, восстановление проверено` : lastText };
+  return { key: "backup", level: "ok", text: checked ? `${lastText}, восстановление проверено` : `${lastText}, восстановление ещё не проверялось` };
 }
 
 /**
