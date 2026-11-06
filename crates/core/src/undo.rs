@@ -114,9 +114,13 @@ impl Journal {
         let Some(step) = self.undo.pop() else {
             return Ok(None);
         };
+        // Теги и состав чека отмена меняет мимо триггеров истории:
+        // запоминаем их до и записываем разницу после.
+        let snap = crate::history::before_undo(conn, &touched(&step.changes)?)?;
         if let Err(e) = apply(conn, &step.changes, true) {
             return Err(blocked("отменить", &step.label, e));
         }
+        crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
         self.redo.push(step);
         Ok(Some(label))
@@ -127,9 +131,13 @@ impl Journal {
         let Some(step) = self.redo.pop() else {
             return Ok(None);
         };
+        // Теги и состав чека отмена меняет мимо триггеров истории:
+        // запоминаем их до и записываем разницу после.
+        let snap = crate::history::before_undo(conn, &touched(&step.changes)?)?;
         if let Err(e) = apply(conn, &step.changes, false) {
             return Err(blocked("повторить", &step.label, e));
         }
+        crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
         self.undo.push(step);
         Ok(Some(label))
@@ -148,6 +156,33 @@ fn blocked(verb: &str, label: &str, e: Error) -> Error {
         }
         other => other,
     }
+}
+
+/// Операции, которых касается набор изменений: строки `transactions` и их теги.
+fn touched(changes: &[u8]) -> Result<Vec<String>> {
+    use rusqlite::fallible_streaming_iterator::FallibleStreamingIterator;
+    use rusqlite::hooks::Action;
+    let mut input: &[u8] = changes;
+    let reader: &mut dyn std::io::Read = &mut input;
+    let mut it = rusqlite::session::ChangesetIter::start_strm(&reader)?;
+    let mut ids = Vec::new();
+    while let Some(item) = it.next()? {
+        let op = item.op()?;
+        if !matches!(op.table_name(), "transactions" | "transaction_tags") {
+            continue;
+        }
+        let v = match op.code() {
+            Action::SQLITE_INSERT => item.new_value(0)?,
+            _ => item.old_value(0)?,
+        };
+        if let rusqlite::types::ValueRef::Text(t) = v {
+            let id = String::from_utf8_lossy(t).into_owned();
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    Ok(ids)
 }
 
 /// Любой конфликт (строка изменилась, исчезла, от неё зависят новые) — отказ.

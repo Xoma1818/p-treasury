@@ -113,6 +113,32 @@ pub fn set_for(conn: &Connection, txn_id: &str, names: &[String]) -> Result<()> 
     Ok(())
 }
 
+/// Имена тегов операции по алфавиту (для истории изменений).
+pub fn names_of(conn: &Connection, txn_id: &str) -> Result<Vec<String>> {
+    Ok(conn
+        .prepare(
+            "SELECT t.name FROM transaction_tags x JOIN tags t ON t.id = x.tag_id
+             WHERE x.transaction_id = ?1 ORDER BY t.name",
+        )?
+        .query_map([txn_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+/// Изменить теги уже существующей операции и записать это в историю.
+/// При создании операции теги ставит [`set_for`] — без записи в историю.
+/// `since` — метка начала действия (`history::last_id`): правка полей того же
+/// сохранения и теги попадают в одну запись истории.
+pub fn edit_for(
+    conn: &Connection,
+    txn_id: &str,
+    names: &[String],
+    since: Option<i64>,
+) -> Result<()> {
+    let before = names_of(conn, txn_id)?;
+    set_for(conn, txn_id, names)?;
+    crate::history::record_tags(conn, txn_id, &before, &names_of(conn, txn_id)?, since)
+}
+
 /// Добавить тег операциям; возвращает, скольким он добавлен впервые.
 pub fn add_to(conn: &Connection, tag_id: &str, txn_ids: &[String]) -> Result<usize> {
     name_of(conn, tag_id)?;

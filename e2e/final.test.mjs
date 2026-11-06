@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt, rateHistory } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -116,6 +116,7 @@ test("месяц жизни: от первого запуска до сводк�
   await choose(browser, "rateFrom", "USD");
   await fill(browser, "rate", "90");
   await click(browser, "Добавить");
+  await rateHistory(browser);
   await waitText(browser, '[data-testid="rates"]', /1 USD = 90 ₽/);
 
   // 2. Месяц операций: из таблицы (CSV) и вручную.

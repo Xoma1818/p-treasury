@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 1 «Учёт»: сценарии из product/mvp-features.md, разделы 1–4.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, mainText, money, field, openFilters } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, mainText, money, field, openFilters, rateHistory } from "./app.mjs";
 
 let app;
 let browser;
@@ -98,6 +98,7 @@ test("валютный вклад попадает в общий баланс п
   await choose(browser, "rateFrom", "USD");
   await fill(browser, "rate", "92");
   await click(browser, "Добавить");
+  await rateHistory(browser);
   await waitText(browser, '[data-testid="rates"]', /1 USD = 92 ₽/);
   await openSection(browser, "Главная");
   // Карта 85 660 + Наличные 4 500 + 2 000 $ × 92 = 274 160 ₽

@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type TxnChange } from "../lib/api";
 import { formatDate, formatDateTime, isoDateTime } from "../lib/dates";
+import { HIDDEN_AMOUNT } from "../lib/money";
+import { useSettings } from "../lib/queries";
 
 /** Метка UTC из базы → местные «05.11.2026 14:02». */
 const when = (at: string) => formatDateTime(isoDateTime(new Date(at)));
@@ -19,9 +21,10 @@ function times(n: number) {
  * История изменений операции внизу карточки: одна строка «Добавлена … · изменена N раз»,
  * по нажатию — когда и что поменялось.
  */
-export function TxnHistory({ id }: { id: string }) {
+export function TxnHistory({ id, splitId }: { id: string; splitId?: string | null }) {
   const [open, setOpen] = useState(false);
-  const { data } = useQuery({ queryKey: ["txnHistory", id], queryFn: () => api.transactionHistory(id) });
+  const hidden = useSettings().data?.hide_amounts === "1";
+  const { data } = useQuery({ queryKey: ["txnHistory", id, splitId ?? null], queryFn: () => api.transactionHistory(id, splitId ?? null) });
   if (!data?.createdAt) return null;
   const n = data.changes.length;
   const added = `${data.imported ? "Загружена из выписки" : "Добавлена"} ${when(data.createdAt)}`;
@@ -37,7 +40,7 @@ export function TxnHistory({ id }: { id: string }) {
       {open && n > 0 && (
         <ol className="txn-history-list" data-testid="txn-history-list">
           {data.changes.map((c, i) => (
-            <Entry key={i} change={c} />
+            <Entry key={i} change={c} hidden={hidden} />
           ))}
         </ol>
       )}
@@ -45,7 +48,9 @@ export function TxnHistory({ id }: { id: string }) {
   );
 }
 
-function Entry({ change }: { change: TxnChange }) {
+function Entry({ change, hidden }: { change: TxnChange; hidden: boolean }) {
+  // «Скрыть суммы» прячет и прежние, и новые суммы.
+  const show = (v: string, money: boolean) => (hidden && money ? HIDDEN_AMOUNT : value(v));
   return (
     <li>
       <span className="muted">{when(change.at)}</span>
@@ -54,7 +59,7 @@ function Entry({ change }: { change: TxnChange }) {
       ) : (
         change.fields.map((f) => (
           <div key={f.field}>
-            {f.field}: <s className="muted">{value(f.before)}</s> → {value(f.after)}
+            {f.field}: <s className="muted">{show(f.before, f.money)}</s> → {show(f.after, f.money)}
           </div>
         ))
       )}

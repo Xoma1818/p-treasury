@@ -2,7 +2,7 @@
 // счёт, категория, заметка, курс. Каждый тест проверяет результат на экране, а не только нажатие.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose, newDebt } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose, newDebt, rateHistory } from "./app.mjs";
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const today = iso(new Date());
@@ -86,6 +86,7 @@ test("курс валюты: добавить и удалить", async () => {
   await openSection(browser, "Настройки");
   await fill(browser, "rate", "91,5");
   await click(browser, "Добавить", '//form[.//input[@name="rate"]]');
+  await rateHistory(browser);
   await waitText(browser, '[data-testid="rates"]', /91,5/);
   await click(browser, "Удалить", '//*[@data-testid="rates"]//tr[contains(., "91,5")]');
   await browser.waitUntil(async () => !(await browser.$('//*[@data-testid="rates"]//tr[contains(., "91,5")]').isExisting()), { timeout: 5000, timeoutMsg: "курс не удалился" });

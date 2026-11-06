@@ -3,7 +3,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { start, stop, openSection, onboard, fill, click, setDate, waitText, money } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, click, setDate, waitText, money, rateHistory } from "./app.mjs";
 
 // Ответ ЦБ приходит в windows-1251: русские названия здесь заменены байтами этой кодировки.
 const xml = (date, usd) =>
@@ -70,6 +70,10 @@ test("на главной кнопка «Загрузить курс ЦБ» вк
 test("в Настройках курс ЦБ на выбранную дату с подписью «ЦБ РФ»; ручной курс не затирается", async () => {
   const { browser } = app;
   await openSection(browser, "Настройки");
+  // Сверху — одна строка на валюту с действующим курсом; прежние курсы — в «Истории курсов».
+  await waitText(browser, '[data-testid="rates-now"]', /USD\s*1 USD = 92,15 ₽\s*\d\d\.\d\d\.\d{4}\s*ЦБ РФ/);
+  await waitText(browser, '[data-testid="rates-checked"]', /Последняя проверка ЦБ РФ: \d\d\.\d\d\.\d{4} \d{1,2}:\d\d/);
+  await rateHistory(browser);
   await waitText(browser, '[data-testid="rates"]', /1 USD = 92,15 ₽\s*ЦБ РФ/);
 
   // Воскресенье: ЦБ присылает субботний курс, он и записывается на субботу.
