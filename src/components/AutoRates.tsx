@@ -13,9 +13,14 @@ const CHECK_EVERY_MS = 60 * 60 * 1000;
  */
 export function AutoRates() {
   const qc = useQueryClient();
-  const enabled = useSettings().data?.rates_auto !== "0";
+  const settings = useSettings().data;
+  const enabled = settings?.rates_auto !== "0";
+  // Смена основной валюты сразу запускает проверку: нужны пары к новой валюте.
+  const base = settings?.base_currency;
+  // До загрузки настроек не проверяем: иначе при запуске ушло бы два запроса (без валюты и с ней).
+  const loaded = settings !== undefined;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !loaded) return;
     const check = () =>
       api
         .autoCbrRates(today())
@@ -24,6 +29,6 @@ export function AutoRates() {
     check();
     const timer = setInterval(check, CHECK_EVERY_MS);
     return () => clearInterval(timer);
-  }, [enabled, qc]);
+  }, [enabled, loaded, base, qc]);
   return null;
 }
