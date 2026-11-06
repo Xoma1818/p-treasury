@@ -397,3 +397,14 @@ fieldset.choice legend { font-size: 12px; color: var(--muted); margin-bottom: 4p
 .home-grid > .home-block { grid-column: 1 / -1; min-width: 0; }
 .home-grid > .home-block.half { grid-column: auto; }
 @media (max-width: 900px) { .home-grid > .home-block.half { grid-column: 1 / -1; } }
+
+/* «Состояние данных» внизу карточки «Проверьте»: строка на копию, курсы и операции без категории. */
+.data-status { border-top: 1px solid var(--border); margin-top: 12px; }
+.data-status .sub-head { display: flex; align-items: center; margin: 12px 0 6px; }
+.data-status ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.data-status li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.data-status li .link { margin-left: auto; white-space: nowrap; }
+.data-status .qw-ok, :root .data-status .qw-ok { width: 20px; height: 20px; padding: 3px; flex: none; }
+.data-status .ds-warn { flex: none; width: 20px; color: var(--over); }
+.data-status li[data-level="warn"] > span { color: var(--text); }
+.data-status li[data-level="ok"] > span { color: var(--muted); }

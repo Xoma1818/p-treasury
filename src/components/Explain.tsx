@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { useAccounts, useCurrencies } from "../lib/queries";
+import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
+import { formatRate, rateSource } from "../lib/rates";
 import { useUi } from "../lib/store";
 import { Modal } from "./Modal";
 import { Money } from "./Money";
@@ -35,6 +36,24 @@ export function ExplainDialog({ kind, on, from, to, onClose }: { kind: ExplainKi
 
 function useBaseSymbol(code?: string) {
   return useCurrencies().data?.find((c) => c.code === code)?.symbol ?? "₽";
+}
+
+/** Какими курсами пересчитано: «1 $ = 90,50 ₽ (ЦБ РФ, с 05.11.2026)». */
+function RatesUsed({ codes, on, lead }: { codes: string[]; on: string; lead: string }) {
+  const overview = useQuery({ queryKey: ["ratesOverview", on], queryFn: () => api.ratesOverview(on), enabled: codes.length > 0 }).data;
+  const currencies = useCurrencies().data ?? [];
+  if (codes.length === 0 || !overview) return null;
+  const sym = (code: string) => currencies.find((c) => c.code === code)?.symbol ?? code;
+  const parts = codes
+    .map((code) => overview.rates.find((r) => r.code === code))
+    .filter((r): r is NonNullable<typeof r> => !!r?.rate && !!r.date)
+    .map((r) => `1 ${sym(r.code)} = ${formatRate(r.rate)} ${sym(overview.base)} (${rateSource(r.source ?? "")}, с ${formatDate(r.date!)})`);
+  if (parts.length === 0) return null;
+  return (
+    <p className="hint" data-testid="explain-rates">
+      {lead} {parts.join("; ")}.
+    </p>
+  );
 }
 
 function BalanceParts({ on, onClose }: { on: string; onClose: () => void }) {
@@ -75,6 +94,7 @@ function BalanceParts({ on, onClose }: { on: string; onClose: () => void }) {
           </tr>
         </tfoot>
       </table>
+      <RatesUsed codes={[...new Set(data.accounts.filter((a) => a.status !== "excluded" && a.currency !== data.baseCurrency).map((a) => a.currency))].sort()} on={on} lead={`Курсы на ${formatDate(on)}:`} />
     </>
   );
 }
@@ -83,8 +103,12 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
   const data = useQuery({ queryKey: ["explainPeriod", from, to, kind], queryFn: () => api.explainPeriod(from, to, kind) }).data;
   const base = useBaseSymbol(data?.baseCurrency);
   const showTransactions = useUi((s) => s.showTransactions);
+  const outside = (useAccounts().data ?? []).filter((a) => !a.includeInTotal).map((a) => `«${a.name}»`);
+  const startDay = useSettings().data?.month_start_day ?? "1";
   if (!data) return null;
   const notes: string[] = [];
+  if (startDay !== "1") notes.push(`Месяц считается с ${startDay}-го числа (Настройки → «Первый день месяца»).`);
+  if (outside.length > 0) notes.push(`Счета вне общего баланса (${outside.join(", ")}) здесь учтены: их ${kind === "income" ? "доходы" : "расходы"} тоже ваши.`);
   if (data.spreadParts > 0) notes.push(`Траты «по месяцам»: в этот месяц вошли их части (${data.spreadParts}), а не полные суммы.`);
   if (data.splitParts > 0) notes.push(`Разбитые чеки: каждая часть (${data.splitParts}) — в своей категории.`);
   if (data.transfers > 0) notes.push(`Переводы между своими счетами (${data.transfers}) не доход и не расход — не вошли.`);
@@ -129,6 +153,7 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
           ))}
         </ul>
       )}
+      <RatesUsed codes={data.currencies} on={to < today() ? to : today()} lead={`Операции в ${data.currencies.join(", ")} пересчитаны по курсу своего дня. Последний курс:`} />
     </>
   );
 }

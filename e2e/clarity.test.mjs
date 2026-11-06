@@ -99,3 +99,41 @@ test("«Как посчитано»: расходы месяца расклад�
   await waitText(browser, '[data-testid="explain-row"]', /Карта/);
   await browser.keys("Escape");
 });
+
+test("«Состояние данных» и курсы в «Как посчитано»: копия, курсы, операции без категории", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const [first, last] = [`${day.slice(0, 8)}01`, `${day.slice(0, 8)}31`];
+  const other = (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Прочие расходы").id;
+  await invoke("create_transaction", {
+    input: { type: "expense", date: day, accountId: card, amount: 7_000, categoryId: other, toAccountId: null, toAmount: null, payee: "Неразобранное", note: null },
+    eventId: null,
+  });
+  const usd = await invoke("create_account", {
+    input: { name: "Доллары", type: "debit", currencyCode: "USD", openingBalance: 10_000, openingDate: day, creditLimit: null, includeInTotal: true },
+  });
+  assert.ok(usd);
+  await invoke("set_rate", { date: day, from: "USD", to: "RUB", rate: "90" });
+  const page = await invoke("list_transactions", { filter: { dateFrom: first, dateTo: last, quick: ["uncategorized"], limit: 1 } });
+  assert.ok(page.total >= 1);
+
+  await openSection(browser, "Главная");
+  await waitCount(browser, '[data-testid="data-status-row"]', 3, 10000);
+  await waitText(browser, '[data-testid="data-status-row"][data-key="uncategorized"]', new RegExp(`Без категории в этом месяце: ${page.total}`));
+  await waitText(browser, '[data-testid="data-status-row"][data-key="rates"]', /Курс/);
+  assert.equal(await (await browser.$('[data-testid="data-status-row"][data-key="rates"]')).getAttribute("data-level"), "ok");
+  await waitText(browser, '[data-testid="data-status-row"][data-key="backup"]', /Копия/);
+
+  // «Как посчитано» у баланса называет курс, которым пересчитан долларовый счёт.
+  await (await browser.$('[data-testid="explain-balance"]')).click();
+  await waitText(browser, '[data-testid="explain-rates"]', /1 \$ = [\d\s,]+ ₽/);
+  await browser.keys("Escape");
+
+  // «Разобрать» открывает операции месяца без категории.
+  await (await browser.$('//*[@data-key="uncategorized"]//button[normalize-space()="Разобрать"]')).click();
+  await browser.waitUntil(() => browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"]')].some((r) => r.textContent.includes("Неразобранное"))), {
+    timeout: 5000,
+    timeoutMsg: "в «Без категории» нет операции «Неразобранное»",
+  });
+  // В отфильтрованном списке нет операций с обычной категорией.
+  assert.equal(await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"]')].some((r) => r.textContent.includes("Рынки"))), false);
+});

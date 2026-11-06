@@ -93,6 +93,8 @@ pub struct PeriodExplain {
     pub split_parts: i64,
     /// Не вошли: валюты без курса.
     pub missing_rates: Vec<String>,
+    /// Вошли с пересчётом: валюты операций, отличные от основной (по алфавиту).
+    pub currencies: Vec<String>,
     /// Не вошли: запланированные операции этого типа.
     pub planned: i64,
     /// Не вошли: переводы между своими счетами.
@@ -167,6 +169,9 @@ pub fn period(conn: &Connection, from: &str, to: &str, kind: &str) -> Result<Per
         };
         out.total += v;
         out.count += 1;
+        if currency != base && !out.currencies.contains(&currency) {
+            out.currencies.push(currency);
+        }
         if spread {
             out.spread_parts += 1;
             out.spread_amount += v;
@@ -184,6 +189,7 @@ pub fn period(conn: &Connection, from: &str, to: &str, kind: &str) -> Result<Per
         part.amount += v;
         part.count += 1;
     }
+    out.currencies.sort();
     out.categories = by_cat.into_values().collect();
     out.categories
         .sort_by(|a, b| b.amount.cmp(&a.amount).then(a.name.cmp(&b.name)));
@@ -282,5 +288,45 @@ mod tests {
         assert_eq!(b.total, t.total);
         let st: Vec<_> = b.accounts.iter().map(|a| a.status.as_str()).collect();
         assert_eq!(st, ["in", "excluded", "no_rate"]);
+    }
+
+    #[test]
+    fn period_lists_converted_currencies() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let rub = acc(c, "Карта", "RUB", true);
+        let usd = acc(c, "Доллары", "USD", false);
+        let eur = acc(c, "Евро", "EUR", true);
+        currencies::set_rate(c, "2026-10-01", "USD", "RUB", "90").unwrap();
+        let cat: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Питание'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        for (account, amount) in [(&rub, 10_000), (&usd, 1_000), (&eur, 500)] {
+            transactions::create(
+                c,
+                &TxnInput {
+                    kind: "expense".into(),
+                    date: "2026-10-05".into(),
+                    account_id: account.clone(),
+                    amount,
+                    category_id: Some(cat.clone()),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap();
+        }
+        let e = period(c, "2026-10-01", "2026-10-31", "expense").unwrap();
+        // Счёт «не учитывать в балансе» в доходы и расходы входит; EUR без курса — нет.
+        assert_eq!(e.currencies, ["USD"]);
+        assert_eq!(e.missing_rates, ["EUR"]);
+        assert_eq!(e.total, 10_000 + 90_000);
     }
 }

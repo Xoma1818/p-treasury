@@ -1598,6 +1598,8 @@ export interface PeriodExplain {
   spreadAmount: number;
   splitParts: number;
   missingRates: string[];
+  /** Валюты операций, пересчитанные в основную (кроме неё самой). */
+  currencies: string[];
   planned: number;
   transfers: number;
   adjustments: number;
