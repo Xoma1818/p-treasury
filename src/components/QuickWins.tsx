@@ -1,11 +1,12 @@
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Check as CheckIcon } from "lucide-react";
+import { Check as CheckIcon, CircleAlert } from "lucide-react";
 import { api, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
-import { useMonthOf, useSettings } from "../lib/queries";
+import { backupRow, ratesRow, uncategorizedRow, type StatusRow } from "../lib/dataStatus";
+import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { Hint } from "./Hint";
@@ -185,6 +186,58 @@ export function ChecksCard() {
         </button>
       )}
       <ErrorText error={dismiss.error ?? removeSecond.error ?? openError} />
+      <DataStatus />
+    </div>
+  );
+}
+
+/** Состояние данных: когда была копия, свежи ли курсы, есть ли операции без категории. */
+export function DataStatus() {
+  const date = today();
+  const settings = useSettings().data;
+  const period = useMonthOf(date).data;
+  const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
+  const vault = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus }).data;
+  const rates = useQuery({ queryKey: ["ratesOverview", date], queryFn: () => api.ratesOverview(date) }).data;
+  const accounts = useAccounts().data;
+  const uncategorized = useQuery({
+    queryKey: ["transactions", "uncategorized", period?.start, period?.end],
+    queryFn: () => api.listTransactions({ dateFrom: period!.start, dateTo: period!.end, quick: ["uncategorized"], limit: 1 }),
+    enabled: !!period,
+  }).data?.total;
+  const { showTransactions, openSettings } = useUi();
+  const base = rates?.base ?? settings?.base_currency;
+  const used = [...new Set((accounts ?? []).map((a) => a.currencyCode).filter((c) => c !== base))].sort();
+  const rows = [
+    backupRow(backup, vault, date, formatDate),
+    accounts && base ? ratesRow(used, rates?.rates, rates?.checkedAt, settings?.rates_auto !== "0", date, formatDate) : null,
+    uncategorizedRow(uncategorized),
+  ].filter((r): r is StatusRow => r !== null);
+  const action: Record<StatusRow["key"], { label: string; run: () => void }> = {
+    backup: { label: "Копии", run: () => openSettings({ section: "vault" }) },
+    rates: { label: "Курсы", run: () => openSettings({ section: "rates" }) },
+    uncategorized: { label: "Разобрать", run: () => period && showTransactions({ dateFrom: period.start, dateTo: period.end, quick: ["uncategorized"] }) },
+  };
+  if (rows.length === 0) return null;
+  return (
+    <div className="data-status" data-testid="data-status">
+      <h3 className="sub-head">
+        Состояние данных
+        <Hint of="home.dataStatus" />
+      </h3>
+      <ul>
+        {rows.map((r) => (
+          <li key={r.key} data-testid="data-status-row" data-key={r.key} data-level={r.level}>
+            {r.level === "ok" ? <CheckIcon className="qw-ok" size={16} aria-hidden /> : <CircleAlert className="ds-warn" size={16} aria-hidden />}
+            <span>{r.text}</span>
+            {(r.level === "warn" || r.key !== "uncategorized") && (
+              <button type="button" className="link" onClick={action[r.key].run}>
+                {action[r.key].label}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

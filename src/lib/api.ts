@@ -1328,6 +1328,8 @@ export interface VaultStatus {
   verified: VerifiedBackup | null;
   /** Ошибка последней проверки восстановления. */
   verifyError: string | null;
+  /** Когда была эта ошибка (UTC): она относится к копиям, сделанным до неё. */
+  verifyFailedAt: string | null;
 }
 
 export interface VerifiedBackup {
@@ -1598,6 +1600,8 @@ export interface PeriodExplain {
   spreadAmount: number;
   splitParts: number;
   missingRates: string[];
+  /** Валюты операций, пересчитанные в основную (кроме неё самой). */
+  currencies: string[];
   planned: number;
   transfers: number;
   adjustments: number;
