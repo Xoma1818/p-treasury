@@ -146,7 +146,7 @@ impl ReportFilter {
             args.push(tag.to_string());
             cond.push_str(&format!(
                 " AND {}",
-                crate::tags::has_tag_sql(first + args.len() - 1)
+                crate::tags::has_tag_sql(&format!("?{}", first + args.len() - 1))
             ));
         }
         (cond, args)

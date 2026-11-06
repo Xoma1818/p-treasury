@@ -161,10 +161,17 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
 /** Р17: как быстрее расплатиться с несколькими долгами — лишняя сумма каждый месяц
  *  в один долг по очереди, «сначала дорогие» или «сначала маленькие». */
 function PayoffCard() {
-  const [extra, setExtra] = useState(500_000);
+  // Сумма в основной валюте как её ввели (5 000 ₽); в минимальные единицы — по
+  // знакам основной валюты из прошлого ответа (у иены их нет, у рубля два).
+  const [extraMajor, setExtraMajor] = useState(5000);
+  const [minorUnits, setMinorUnits] = useState(2);
+  const extra = Math.round(extraMajor * 10 ** minorUnits);
   const [strategy, setStrategy] = useState<"costly" | "small">("costly");
   const q = useQuery({ queryKey: ["debtPayoff", extra, strategy], queryFn: () => api.debtPayoff(extra, strategy) });
   const p = q.data;
+  useEffect(() => {
+    if (p && p.minorUnits !== minorUnits) setMinorUnits(p.minorUnits);
+  }, [p, minorUnits]);
   const m = (v: number) => <Money amount={v} symbol={p?.currencySymbol ?? "₽"} minorUnits={p?.minorUnits ?? 2} />;
   return (
     <div className="card payoff" data-testid="payoff">
@@ -180,10 +187,10 @@ function PayoffCard() {
             name="payoffExtra"
             min={0}
             step={1000}
-            defaultValue={extra / 100}
+            defaultValue={extraMajor}
             onChange={(e) => {
-              const v = Math.round(Number(e.target.value) * 100);
-              if (v >= 0) setExtra(v);
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && v >= 0) setExtraMajor(v);
             }}
           />
         </label>

@@ -490,3 +490,91 @@ fn undo_redo_chain_with_refund_receipt_and_debt() {
         assert_eq!(state(w.db.conn()), after, "шаг {i}: повтор");
     }
 }
+
+/// Ревью Codex к #85, п.3: беспроцентный долг с одним квартальным взносом 120 000 ₽.
+/// В день взноса долг закрывается в этом же месяце, а не через три.
+#[test]
+fn last_quarterly_payment_closes_in_its_month() {
+    let mut db = Storage::open_in_memory().unwrap();
+    categories::seed_defaults(db.conn()).unwrap();
+    acc(db.conn(), "Карта", "RUB");
+    let card: String = db
+        .conn()
+        .query_row(
+            "SELECT id FROM accounts WHERE name = 'Карта'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let id = debts::create(
+        db.conn_mut(),
+        &DebtInput {
+            direction: "borrowed".into(),
+            counterparty: "Друг".into(),
+            note: None,
+            currency_code: "RUB".into(),
+            principal: 12_000_000,
+            issue_date: "2026-07-15".into(),
+            rate_bp: 0,
+            repayment_type: "annuity".into(),
+            term_months: Some(1),
+            first_payment_date: None,
+            maturity_date: None,
+            account_id: Some(card),
+            interest_method: None,
+            rate_period: None,
+            pay_every: Some("quarter".into()),
+            rate_changes: vec![],
+            planned_early: vec![],
+        },
+    )
+    .unwrap();
+    let c = db.conn();
+    let row = debts::get(c, &id, "2026-07-15").unwrap().schedule[0].clone();
+    assert_eq!(row.payment, 12_000_000);
+    let p = payoff::for_debts(c, &row.due_date, 0, "costly").unwrap();
+    assert_eq!(p.base_free_month.as_deref(), Some(&row.due_date[..7]));
+    assert_eq!(p.free_month.as_deref(), Some(&row.due_date[..7]));
+}
+
+/// Ревью Codex к #85, п.2: покупка с тегом в октябре, возврат 1 200 ₽ в ноябре.
+/// В ноябре у тега −1 200 ₽, одна операция, и «Операции» по тегу её показывают.
+#[test]
+fn refund_of_tagged_purchase_is_counted_and_listed() {
+    let db = Storage::open_in_memory().unwrap();
+    let c = db.conn();
+    categories::seed_defaults(c).unwrap();
+    let card = acc(c, "Карта", "RUB");
+    let buy = spend(c, &card, "2026-10-10", 500_000, &cat(c, "Жильё"));
+    tags::set_for(c, &buy, &["дача".to_string()]).unwrap();
+    let refund = refunds::create(
+        c,
+        &RefundInput {
+            of: buy,
+            date: "2026-11-03".into(),
+            account_id: None,
+            amount: 120_000,
+            in_purchase_month: false,
+            note: None,
+        },
+    )
+    .unwrap();
+    let tag = tag_id(c, "дача");
+    let nov = tags::report(c, &tag, "2026-11-01", "2026-11-30").unwrap();
+    assert_eq!(nov.expense, -120_000);
+    assert_eq!(nov.count, 1);
+    let list = transactions::list(
+        c,
+        &transactions::Filter {
+            tag_id: Some(tag.clone()),
+            date_from: Some("2026-11-01".into()),
+            date_to: Some("2026-11-30".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(list.items.len(), 1);
+    assert_eq!(list.items[0].id, refund);
+    let oct = tags::report(c, &tag, "2026-10-01", "2026-10-31").unwrap();
+    assert_eq!((oct.expense, oct.count), (500_000, 1));
+}
