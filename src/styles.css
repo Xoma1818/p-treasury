@@ -1059,3 +1059,34 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .rollover-btn { margin-left: 4px; }
 .rollover-btn[aria-pressed="true"] { color: var(--accent); visibility: visible; }
 .carried { display: block; font-size: 11px; color: var(--muted); }
+
+/* Р3: готовые фильтры и порог «Крупные». */
+.inline-field { display: inline-flex; align-items: center; gap: 6px; }
+.inline-field input { width: 120px; }
+
+/* Р6: слои дня; Р7: тепловая карта года. */
+.period-nav .spacer { flex: 1; }
+.cal-layers { flex-wrap: wrap; }
+.cal-balance { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.cal-balance .money { font-size: 11px; }
+.heat-card { padding: 14px; }
+.heat-scroll { overflow-x: auto; padding-bottom: 4px; }
+.heat-months { display: flex; gap: 3px; margin-left: 26px; font-size: 11px; color: var(--muted); height: 16px; }
+.heat-months span { width: 13px; flex: none; overflow: visible; white-space: nowrap; }
+.heat-body { display: flex; gap: 4px; }
+.heat-weekdays { display: grid; grid-template-rows: repeat(7, 13px); gap: 3px; width: 22px; font-size: 10px; color: var(--muted); line-height: 13px; }
+.heat-grid { display: flex; gap: 3px; }
+.heat-week { display: grid; grid-template-rows: repeat(7, 13px); gap: 3px; }
+.heat-day { width: 13px; height: 13px; border-radius: 3px; border: 0; padding: 0; background: var(--border); cursor: pointer; display: inline-block; }
+.heat-day.empty { background: transparent; cursor: default; }
+.heat-day.l1 { background: color-mix(in srgb, var(--accent) 25%, var(--card)); }
+.heat-day.l2 { background: color-mix(in srgb, var(--accent) 50%, var(--card)); }
+.heat-day.l3 { background: color-mix(in srgb, var(--accent) 75%, var(--card)); }
+.heat-day.l4 { background: var(--accent); }
+.heat-day.future { opacity: 0.45; }
+.heat-day.today { outline: 1.5px solid var(--text); outline-offset: 1px; }
+.heat-day.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+.heat-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.heat-foot { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-top: 10px; }
+.heat-legend { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+.heat-legend .heat-day { cursor: default; }

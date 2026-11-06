@@ -12,6 +12,7 @@ import { Money } from "./Money";
 import { LookMark, useCategoryMap } from "./CategoryMark";
 import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
+import { FindSimilar } from "./FindSimilar";
 
 /** Тип данных перетаскивания операции (на другой день календаря). */
 export const TXN_DRAG = "application/x-p-treasury-txn";
@@ -48,6 +49,7 @@ export function TxnTable({
   const showTransactions = useUi((s) => s.showTransactions);
   const openDebt = useUi((s) => s.openDebt);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [similar, setSimilar] = useState<Txn | null>(null);
   const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
@@ -65,6 +67,7 @@ export function TxnTable({
       });
     if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
     if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
+    if (t.type !== "adjustment") items.push({ text: "Найти похожие…", onClick: () => setSimilar(t) });
     // Платёж по долгу удаляется в карточке долга (ядро здесь откажет): вместо «Удалить» — «Открыть долг».
     if (t.debtId) items.push({ text: "Открыть долг", onClick: () => openDebt(t.debtId!) });
     else if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => remove.run(t) });
@@ -220,6 +223,7 @@ export function TxnTable({
     <>
       {/* Отказ удаления из меню правой кнопки виден, а не теряется молча. */}
       <ErrorText error={remove.error} />
+      {similar && <FindSimilar txn={similar} onClose={() => setSimilar(null)} />}
       <table className={selection ? "table txn-table selectable" : "table txn-table"}>
         {onSort && !compact && (
           <thead>

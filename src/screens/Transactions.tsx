@@ -16,13 +16,16 @@ import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
-import { api, TXN_TYPES, type TxnFilter, type TxnType } from "../lib/api";
+import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 
 const PAGE = 100;
+
+/** Р3 «Крупные» по умолчанию: от 10 000 в основной валюте. */
+const LARGE_DEFAULT = 1_000_000;
 
 export function Transactions() {
   const accounts = useAccounts(true).data ?? [];
@@ -197,7 +200,12 @@ export function Transactions() {
       /* без запоминания */
     }
   };
-  const activeCount = [f.accountId, f.categoryId, f.types?.length, f.tagId].filter(Boolean).length;
+  const activeCount = [f.accountId, f.categoryId, f.types?.length, f.tagId, f.minAmount].filter(Boolean).length + (f.quick?.length ?? 0);
+  const toggleQuick = (q: QuickFilter) => {
+    const now = f.quick ?? [];
+    const next = now.includes(q) ? now.filter((x) => x !== q) : [...now, q];
+    set({ quick: next.length ? next : undefined });
+  };
   const showPanel = panelOpen || activeCount > 0;
   // Включённые фильтры — плашками с крестиком, видны и при свёрнутой панели.
   const chips: { id: string; label: string; clear: () => void }[] = [];
@@ -207,6 +215,12 @@ export function Transactions() {
   if (f.tagId) chips.push({ id: tags.some((t) => t.id === f.tagId) ? "chip-tag" : "filter-tag", label: tags.find((t) => t.id === f.tagId) ? `#${tags.find((t) => t.id === f.tagId)!.name}` : "Тег", clear: () => set({ tagId: undefined }) });
   if (f.importId) chips.push({ id: "filter-import", label: "Один импорт", clear: () => set({ importId: undefined }) });
   if (f.payee) chips.push({ id: "filter-payee", label: `Получатель: ${f.payee}`, clear: () => set({ payee: undefined }) });
+  for (const q of f.quick ?? []) {
+    const label = QUICK_FILTERS.find((x) => x.key === q)?.label ?? q;
+    chips.push({ id: `chip-quick-${q}`, label, clear: () => toggleQuick(q) });
+  }
+  if (f.amount) chips.push({ id: "chip-amount", label: `Сумма: ${(f.amount / 100).toLocaleString("ru-RU")}${f.currency ? ` ${f.currency}` : ""}`, clear: () => set({ amount: undefined, currency: undefined }) });
+  if (f.minAmount) chips.push({ id: "chip-large", label: `Крупные: от ${(f.minAmount / 100).toLocaleString("ru-RU")}`, clear: () => set({ minAmount: undefined }) });
   if (f.eventId) chips.push({ id: "filter-event", label: events.find((e) => e.id === f.eventId)?.name ?? "Событие", clear: () => set({ eventId: undefined }) });
 
   return (
@@ -260,7 +274,7 @@ export function Transactions() {
           <button type="button" className={showPanel ? "btn small active" : "btn small"} aria-expanded={showPanel} data-open={panelOpen || undefined} data-testid="filters-toggle" onClick={() => togglePanel(!panelOpen)} title="Счёт, категория, тип и тег">
             <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden="true" /> Фильтры{activeCount > 0 ? ` · ${activeCount}` : ""}
           </button>
-          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined }))}>
+          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined, quick: undefined, minAmount: undefined, amount: undefined, currency: undefined }))}>
             Сбросить
           </button>
           <TableViewMenu layout={table} />
@@ -286,6 +300,29 @@ export function Transactions() {
                   </option>
                 ))}
               </select>
+            )}
+            <div className="tabs small quick-filters" role="group" aria-label="Готовые фильтры" data-testid="quick-filters">
+              {QUICK_FILTERS.map((q) => {
+                const on = f.quick?.includes(q.key) ?? false;
+                return (
+                  <button key={q.key} type="button" className={on ? "tab active" : "tab"} aria-pressed={on} title={q.hint} data-testid={`quick-${q.key}`} onClick={() => toggleQuick(q.key)}>
+                    {q.label}
+                  </button>
+                );
+              })}
+              <button type="button" className={f.minAmount ? "tab active" : "tab"} aria-pressed={!!f.minAmount} title="Операции от суммы в основной валюте; валютные — по курсу" data-testid="quick-large" onClick={() => set({ minAmount: f.minAmount ? undefined : LARGE_DEFAULT })}>
+                Крупные
+              </button>
+            </div>
+            {!!f.minAmount && (
+              <label className="inline-field">
+                <span className="muted">от</span>
+                <input type="number" name="minAmount" data-testid="quick-large-amount" min={1} step={1000} defaultValue={f.minAmount / 100} onChange={(e) => {
+                  // Пока поле пустое, прежний порог остаётся; убрать — кнопкой «Крупные» или крестиком.
+                  const v = Math.round(Number(e.target.value) * 100);
+                  if (v > 0) set({ minAmount: v });
+                }} />
+              </label>
             )}
           </div>
         )}

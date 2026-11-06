@@ -17,9 +17,27 @@ export interface Fine {
   kopecks: boolean;
   /** Код валюты («RUB») вместо значка («₽»). */
   code: boolean;
+  /** Р6: что показывать в днях календаря. */
+  layers: CalLayers;
 }
 
-export const DEFAULT_FINE: Fine = { start: "home", week: "mon", kopecks: true, code: false };
+export type CalLayer = "expense" | "income" | "balance" | "debts" | "reminders";
+export type CalLayers = Record<CalLayer, boolean>;
+export const CAL_LAYERS: { key: CalLayer; label: string }[] = [
+  { key: "expense", label: "Траты" },
+  { key: "income", label: "Доходы" },
+  { key: "balance", label: "Остаток" },
+  { key: "debts", label: "Платежи" },
+  { key: "reminders", label: "Напоминания" },
+];
+export const DEFAULT_LAYERS: CalLayers = { expense: true, income: true, balance: false, debts: true, reminders: true };
+
+export const DEFAULT_FINE: Fine = { start: "home", week: "mon", kopecks: true, code: false, layers: DEFAULT_LAYERS };
+
+function parseLayers(v: unknown): CalLayers {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  return Object.fromEntries(CAL_LAYERS.map(({ key }) => [key, typeof o[key] === "boolean" ? o[key] : DEFAULT_LAYERS[key]])) as CalLayers;
+}
 
 const isSection = (x: unknown): x is SectionId => SECTIONS.some((s) => s.id === x);
 
@@ -32,6 +50,7 @@ export function parseFine(raw: string | null | undefined): Fine {
       week: v.week === "sun" ? "sun" : "mon",
       kopecks: v.kopecks !== false,
       code: v.code === true,
+      layers: parseLayers(v.layers),
     };
   } catch {
     return DEFAULT_FINE;

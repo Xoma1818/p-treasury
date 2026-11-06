@@ -574,3 +574,61 @@ test("значок и цвет категории: в дереве, у подк�
   }
   await browser.$(`${row("Питание")}//*[@data-testid="cat-mark"]`).waitForExist({ reverse: true, timeout: 5000 });
 });
+
+test("готовые фильтры, «Найти похожие», слои дня и вид «Год» (Р3, Р5, Р6, Р7, 0.33)", async () => {
+  const total = async () => Number(((await (await browser.$('[data-testid="txn-count"]')).getText()).match(/из\s+([\d\s ]+)/)?.[1] ?? "0").replace(/\D/g, ""));
+  await openSection(browser, "Операции");
+  await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
+  await tap('//div[@data-testid="period"]//button[normalize-space()="Всё время"]');
+  await waitText(browser, '[data-testid="txn-count"]', /из/);
+  const all = await total();
+  // Р3: готовые фильтры внутри «Фильтров», плашкой с крестиком.
+  const toggle = await browser.$('[data-testid="filters-toggle"]');
+  if ((await toggle.getAttribute("data-open")) !== "true") await toggle.click();
+  await tap('[data-testid="quick-recurring"]');
+  await browser.$('[data-testid="chip-quick-recurring"]').waitForExist({ timeout: 5000 });
+  await browser.waitUntil(async () => (await total()) < all, { timeout: 5000, timeoutMsg: "«Повторяющиеся» не сузили список" });
+  assert.ok((await total()) > 0, "в примере есть повторяющиеся получатели");
+  await tap('[data-testid="quick-large"]');
+  await waitText(browser, '[data-testid="chip-large"]', /Крупные: от 10[\s ]000/);
+  await tap('[data-testid="chip-quick-recurring"] button');
+  await tap('[data-testid="chip-large"] button');
+  await browser.$('[data-testid="chip-large"]').waitForExist({ reverse: true, timeout: 5000 });
+  await browser.waitUntil(async () => (await total()) === all, { timeout: 5000, timeoutMsg: "фильтры не снялись" });
+  // Р5: «Найти похожие» из меню правой кнопки, оттуда — шаблон.
+  await browser.execute(() => {
+    const r = document.querySelector('[data-testid="txn-row"] td');
+    const b = r.getBoundingClientRect();
+    r.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: b.x + 5, clientY: b.y + 5 }));
+  });
+  await tap('//*[@data-testid="context-menu"]//button[normalize-space()="Найти похожие…"]');
+  await waitText(browser, '[data-testid="similar-count"]', /Найдено: [1-9]/);
+  await tap('[data-testid="similar-by-amount"]');
+  await waitText(browser, '[data-testid="similar-count"]', /Найдено: [1-9]/);
+  await tap('[data-testid="similar-make-template"]');
+  await waitText(browser, '[data-testid="similar-make-template"]', /сохранён/);
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Р6: слои дня в календаре включаются по отдельности.
+  await openSection(browser, "Календарь");
+  await browser.$('[data-testid="calendar"]').waitForExist({ timeout: 5000 });
+  try {
+    await tap('[data-testid="cal-layer-balance"]');
+    await browser.$('[data-testid="cal-balance"]').waitForExist({ timeout: 5000 });
+    await tap('[data-testid="cal-layer-expense"]');
+    await browser.waitUntil(() => browser.execute(() => !document.querySelector('[data-testid="calendar"] .chips .minus')), { timeout: 5000, timeoutMsg: "траты не скрылись" });
+  } finally {
+    for (const k of ["balance", "expense"]) {
+      const b = await browser.$(`[data-testid="cal-layer-${k}"]`);
+      if ((await b.getAttribute("aria-pressed")) !== (k === "expense" ? "true" : "false")) await b.click();
+    }
+  }
+  await browser.$('[data-testid="cal-balance"]').waitForExist({ reverse: true, timeout: 5000 });
+  // Р7: «Год» — тепловая карта, день открывает свою панель.
+  await tap('//div[contains(@class,"cal-tabs")]//button[normalize-space()="Год"]');
+  await browser.$('[data-testid="year-heat"]').waitForExist({ timeout: 5000 });
+  assert.ok((await browser.execute(() => document.querySelectorAll('[data-testid="heat-day"]').length)) >= 365);
+  await tap('[data-testid="heat-day"].today');
+  await browser.$('[data-testid="day-panel"]').waitForExist({ timeout: 5000 });
+  await tap('//div[contains(@class,"cal-tabs")]//button[normalize-space()="Месяц"]');
+});

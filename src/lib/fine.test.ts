@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { currencyLabel, DEFAULT_FINE, parseFine, shownAmount, startSection, weekdayIndex } from "./fine";
+import { currencyLabel, DEFAULT_FINE, DEFAULT_LAYERS, parseFine, shownAmount, startSection, weekdayIndex } from "./fine";
 
 describe("Г12: тонкие настройки", () => {
   it("разбирает сохранённое, незнакомое — по умолчанию", () => {
     expect(parseFine(null)).toEqual(DEFAULT_FINE);
     expect(parseFine("{битое")).toEqual(DEFAULT_FINE);
-    expect(parseFine('{"start":"budget","week":"sun","kopecks":false,"code":true}')).toEqual({ start: "budget", week: "sun", kopecks: false, code: true });
+    expect(parseFine('{"start":"budget","week":"sun","kopecks":false,"code":true}')).toEqual({ start: "budget", week: "sun", kopecks: false, code: true, layers: DEFAULT_LAYERS });
+    // Р6: слои по отдельности, незнакомое и битое — по умолчанию.
+    expect(parseFine('{"layers":{"balance":true,"expense":false,"debts":"да"}}').layers).toEqual({ ...DEFAULT_LAYERS, balance: true, expense: false });
     expect(parseFine('{"start":"nowhere","week":"tue"}')).toEqual(DEFAULT_FINE);
   });
   it("без копеек округляет только для экрана, код вместо значка", () => {

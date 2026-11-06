@@ -276,6 +276,116 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
     })
 }
 
+/// Р6 «Остаток на конец дня»: общий баланс счетов (как на Главной) на конец каждого
+/// прошедшего дня с `first` по `last`; будущие дни — `None`. Считается отдельно от
+/// календаря, только когда слой включён.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayBalance {
+    pub date: String,
+    pub balance: Option<i64>,
+}
+
+pub fn balances(
+    conn: &Connection,
+    first: NaiveDate,
+    last: NaiveDate,
+    today: &str,
+) -> Result<Vec<DayBalance>> {
+    if last < first || (last - first).num_days() > 62 {
+        return invalid("календарь строится не больше чем на два месяца");
+    }
+    let mut out = Vec::new();
+    let mut d = first;
+    while d <= last {
+        let date = d.to_string();
+        let balance = if date.as_str() <= today {
+            Some(crate::accounts::totals(conn, &date)?.total)
+        } else {
+            None
+        };
+        out.push(DayBalance { date, balance });
+        d += Duration::days(1);
+    }
+    Ok(out)
+}
+
+/// Р7 вид «Год»: траты по дням года в основной валюте (тепловая карта).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YearHeat {
+    pub year: i32,
+    pub currency_symbol: String,
+    pub minor_units: u32,
+    /// Все дни года по порядку: расход за день.
+    pub days: Vec<HeatDay>,
+    pub total: i64,
+    /// Самый дорогой день — от него считаются оттенки.
+    pub max: i64,
+    pub missing_rates: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatDay {
+    pub date: String,
+    pub expense: i64,
+}
+
+pub fn year_heat(conn: &Connection, year: i32) -> Result<YearHeat> {
+    let (Some(first), Some(last)) = (
+        NaiveDate::from_ymd_opt(year, 1, 1),
+        NaiveDate::from_ymd_opt(year, 12, 31),
+    ) else {
+        return invalid(format!("некорректный год: {year}"));
+    };
+    let base = currencies::base_currency(conn)?;
+    let bc = currencies::get(conn, &base)?;
+    let mut by_day: BTreeMap<String, i64> = BTreeMap::new();
+    let mut d = first;
+    while d <= last {
+        by_day.insert(d.to_string(), 0);
+        d += Duration::days(1);
+    }
+    let mut missing: Vec<String> = Vec::new();
+    // Суммы одной валюты за день складываются в ядре SQLite, курс — на эту дату.
+    let mut stmt = conn.prepare(
+        "SELECT t.date, a.currency_code, sum(t.amount) FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+         WHERE t.status = 'cleared' AND t.type = 'expense' AND t.date BETWEEN ?1 AND ?2
+         GROUP BY t.date, a.currency_code",
+    )?;
+    let rows: Vec<(String, String, i64)> = stmt
+        .query_map(params![first.to_string(), last.to_string()], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for (date, currency, amount) in rows {
+        match currencies::convert(conn, amount, &currency, &base, &date)? {
+            Some(v) => {
+                if let Some(x) = by_day.get_mut(&date) {
+                    *x += v;
+                }
+            }
+            None if !missing.contains(&currency) => missing.push(currency),
+            None => {}
+        }
+    }
+    let days: Vec<HeatDay> = by_day
+        .into_iter()
+        .map(|(date, expense)| HeatDay { date, expense })
+        .collect();
+    Ok(YearHeat {
+        year,
+        currency_symbol: bc.symbol,
+        minor_units: bc.minor_units,
+        total: days.iter().map(|d| d.expense).sum(),
+        max: days.iter().map(|d| d.expense).max().unwrap_or(0),
+        days,
+        missing_rates: missing,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,5 +556,84 @@ mod tests {
         assert!(range(c, d("2026-01-01"), d("2026-12-31"), "2026-10-20").is_err());
         assert!(month(c, "2026-13", "2026-10-20").is_err());
         assert_eq!(month(c, "2028-02", "2026-10-20").unwrap().days.len(), 29);
+    }
+
+    #[test]
+    fn day_balances_for_past_days_only() {
+        let db = Storage::open_in_memory().unwrap();
+        categories::seed_defaults(db.conn()).unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let food: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Питание'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        transactions::create(
+            c,
+            &TxnInput {
+                kind: "expense".into(),
+                date: "2026-11-02".into(),
+                account_id: card,
+                amount: 30_000,
+                category_id: Some(food),
+                to_account_id: None,
+                to_amount: None,
+                payee: None,
+                note: None,
+            },
+        )
+        .unwrap();
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let b = balances(c, d("2026-11-01"), d("2026-11-04"), "2026-11-03").unwrap();
+        let got: Vec<Option<i64>> = b.iter().map(|x| x.balance).collect();
+        assert_eq!(got, [Some(100_000), Some(70_000), Some(70_000), None]);
+    }
+
+    #[test]
+    fn year_heat_sums_days_in_base() {
+        let db = Storage::open_in_memory().unwrap();
+        categories::seed_defaults(db.conn()).unwrap();
+        let c = db.conn();
+        let rub = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let usd = accounts::create(c, &input("Доллары", "cash", "USD", 0)).unwrap();
+        let food: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Питание'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let spend = |acc: &str, date: &str, amount: i64| {
+            transactions::create(
+                c,
+                &TxnInput {
+                    kind: "expense".into(),
+                    date: date.into(),
+                    account_id: acc.into(),
+                    amount,
+                    category_id: Some(food.clone()),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap();
+        };
+        spend(&rub, "2028-02-29", 10_000);
+        spend(&rub, "2028-02-29", 5_000);
+        spend(&usd, "2028-03-01", 100);
+        let h = year_heat(c, 2028).unwrap();
+        assert_eq!(h.days.len(), 366, "високосный год");
+        assert_eq!(h.total, 15_000);
+        assert_eq!(h.missing_rates, ["USD"]);
+        currencies::set_rate(c, "2028-01-01", "USD", "RUB", "90").unwrap();
+        let h = year_heat(c, 2028).unwrap();
+        assert_eq!(h.max, 15_000);
+        assert_eq!(h.total, 24_000);
+        assert_eq!(h.days[59].date, "2028-02-29");
     }
 }
