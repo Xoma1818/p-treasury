@@ -424,7 +424,7 @@ function Rates({ base }: { base: string }) {
   const currencies = useCurrencies().data ?? [];
   const now = useToday();
   const rates = useQuery({ queryKey: ["rates"], queryFn: api.listRates });
-  const overview = useQuery({ queryKey: ["ratesOverview", now], queryFn: () => api.ratesOverview(now) });
+  const overview = useQuery({ queryKey: ["ratesOverview", now, base], queryFn: () => api.ratesOverview(now) });
   // null — «сегодня»: дата берётся в момент нажатия, а не при открытии экрана.
   const [cbrDate, setCbrDate] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
@@ -442,7 +442,10 @@ function Rates({ base }: { base: string }) {
   const fromCode = choices.some((c) => c.code === from) ? from : (choices[0]?.code ?? "");
   const list = rates.data ?? [];
   const shown = all ? list : list.slice(0, RATES_SHOWN);
-  const current = overview.data?.rates ?? [];
+  // Курс и его единица — из одного ответа: пока после смены основной валюты
+  // идёт новый запрос, старые числа не подписываются новым символом.
+  const fresh = overview.data?.base === base ? overview.data : undefined;
+  const current = fresh?.rates ?? [];
   const checkedAt = overview.data?.checkedAt;
 
   return (
@@ -468,7 +471,7 @@ function Rates({ base }: { base: string }) {
             {current.map((r) => (
               <tr key={r.code} data-code={r.code} data-source={r.source ?? undefined}>
                 <td>{r.code}</td>
-                <td className="num">{r.rate ? `1 ${r.code} = ${formatRate(r.rate)} ${symbol(base)}` : <span className="muted">нет курса</span>}</td>
+                <td className="num">{r.rate ? `1 ${r.code} = ${formatRate(r.rate)} ${symbol(fresh?.base ?? base)}` : <span className="muted">нет курса</span>}</td>
                 <td className="date">{r.date ? formatDate(r.date) : "—"}</td>
                 <td>{r.source ? <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span> : "—"}</td>
               </tr>

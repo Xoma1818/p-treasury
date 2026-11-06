@@ -193,8 +193,9 @@ pub fn auto_due(conn: &Connection, date: &str) -> Result<bool> {
     let last = settings::get(conn, "rates_auto_date")?.unwrap_or_default();
     let last_base = settings::get(conn, "rates_auto_base")?;
     let base = base_currency(conn)?;
-    // Старые базы не знают, к какой валюте грузили: считаем, что к нынешней.
-    let same_base = last_base.is_none_or(|b| b.is_empty() || b == base);
+    // Неизвестно, к какой валюте грузили (база до 0.32): проверяем ещё раз,
+    // после этого валюта запомнится.
+    let same_base = last_base.is_some_and(|b| b == base);
     Ok(on && (last.as_str() < date || !same_base))
 }
 
@@ -516,5 +517,16 @@ mod tests {
         assert_eq!(o.rates[0].rate, None);
         // История сохраняется: оба курса USD в базе.
         assert_eq!(currencies::list_rates(c).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn old_base_without_marker_checks_again_once() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        // Как в базе до 0.32: день отмечен, а валюта загрузки не записана.
+        crate::settings::set(c, "rates_auto_date", "2026-10-18").unwrap();
+        assert!(auto_due(c, "2026-10-18").unwrap());
+        auto_import(c, "2026-10-18", &parse_daily(SAMPLE.as_bytes()).unwrap()).unwrap();
+        assert!(!auto_due(c, "2026-10-18").unwrap());
     }
 }
