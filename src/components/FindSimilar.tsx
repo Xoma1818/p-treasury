@@ -85,10 +85,15 @@ export function FindSimilar({ txn, onClose }: { txn: Txn; onClose: () => void })
         )}
         {canTemplate && (
           <button type="button" className="btn" data-testid="similar-make-template" disabled={template.busy || !!templateDone} onClick={() => template.run()} title="Шаблон с этим получателем, суммой и счётом">
-            {templateDone ? `Шаблон «${templateDone}» сохранён` : "Сделать шаблон"}
+            {templateDone ? "Шаблон сохранён" : "Сделать шаблон"}
           </button>
         )}
       </div>
+      {(ruleDone || templateDone) && (
+        <p className="ok" role="status" data-testid="similar-done">
+          {[ruleDone && `Правило «${txn.payee}» → ${txn.categoryName ?? "категория"} сохранено.`, templateDone && `Шаблон «${templateDone}» сохранён.`].filter(Boolean).join(" ")}
+        </p>
+      )}
       <ErrorText error={rule.error ?? template.error} />
     </Modal>
   );

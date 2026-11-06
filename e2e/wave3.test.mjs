@@ -584,7 +584,8 @@ test("готовые фильтры, «Найти похожие», слои д�
   const all = await total();
   // Р3: готовые фильтры внутри «Фильтров», плашкой с крестиком.
   const toggle = await browser.$('[data-testid="filters-toggle"]');
-  if ((await toggle.getAttribute("data-open")) !== "true") await toggle.click();
+  const wasOpen = (await toggle.getAttribute("data-open")) === "true";
+  if (!wasOpen) await toggle.click();
   await tap('[data-testid="quick-recurring"]');
   await browser.$('[data-testid="chip-quick-recurring"]').waitForExist({ timeout: 5000 });
   await browser.waitUntil(async () => (await total()) < all, { timeout: 5000, timeoutMsg: "«Повторяющиеся» не сузили список" });
@@ -595,6 +596,8 @@ test("готовые фильтры, «Найти похожие», слои д�
   await tap('[data-testid="chip-large"] button');
   await browser.$('[data-testid="chip-large"]').waitForExist({ reverse: true, timeout: 5000 });
   await browser.waitUntil(async () => (await total()) === all, { timeout: 5000, timeoutMsg: "фильтры не снялись" });
+  // Панель «Фильтры» запоминается в окне: возвращаем, как было, чтобы не менять раскладку другим тестам.
+  if (!wasOpen) await toggle.click();
   // Р5: «Найти похожие» из меню правой кнопки, оттуда — шаблон.
   await browser.execute(() => {
     const r = document.querySelector('[data-testid="txn-row"] td');
@@ -606,7 +609,7 @@ test("готовые фильтры, «Найти похожие», слои д�
   await tap('[data-testid="similar-by-amount"]');
   await waitText(browser, '[data-testid="similar-count"]', /Найдено: [1-9]/);
   await tap('[data-testid="similar-make-template"]');
-  await waitText(browser, '[data-testid="similar-make-template"]', /сохранён/);
+  await waitText(browser, '[data-testid="similar-done"]', /Шаблон «.+» сохранён/);
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // Р6: слои дня в календаре включаются по отдельности.
