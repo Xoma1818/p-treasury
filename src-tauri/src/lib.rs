@@ -171,6 +171,7 @@ pub fn run() {
             commands::set_setting,
             commands::list_currencies,
             commands::list_rates,
+            commands::rates_overview,
             commands::set_rate,
             commands::delete_rate,
             commands::rate_on,

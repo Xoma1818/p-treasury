@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::Serialize;
 
 use crate::currencies::{self, base_currency};
@@ -164,14 +164,15 @@ pub fn import(conn: &Connection, daily: &Daily) -> Result<ImportResult> {
             }
             continue;
         };
-        let existing: Option<String> = conn
-            .query_row(
-                "SELECT source FROM exchange_rates WHERE date = ?1 AND from_code = ?2 AND to_code = ?3",
-                params![daily.date, code, base],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if existing.as_deref() == Some("manual") {
+        // Ручной курс пары на эту дату главнее в обоих направлениях: иначе
+        // USD→RUB и RUB→USD пересчитывались бы по разным значениям.
+        let manual: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM exchange_rates WHERE date = ?1 AND source = 'manual'
+               AND ((from_code = ?2 AND to_code = ?3) OR (from_code = ?3 AND to_code = ?2)))",
+            params![daily.date, code, base],
+            |r| r.get(0),
+        )?;
+        if manual {
             result.kept_manual.push(code);
             continue;
         }
@@ -185,18 +186,77 @@ pub fn import(conn: &Connection, daily: &Daily) -> Result<ImportResult> {
     Ok(result)
 }
 
-/// Нужна ли автозагрузка курсов на дату: включена и сегодня ещё не было.
+/// Нужна ли автозагрузка курсов на дату: включена, и сегодня курсы к нынешней
+/// основной валюте ещё не загружены (после смены основной валюты нужны новые пары).
 pub fn auto_due(conn: &Connection, date: &str) -> Result<bool> {
     let on = settings::get(conn, "rates_auto")?.as_deref() != Some("0");
     let last = settings::get(conn, "rates_auto_date")?.unwrap_or_default();
-    Ok(on && last.as_str() < date)
+    let last_base = settings::get(conn, "rates_auto_base")?;
+    let base = base_currency(conn)?;
+    // Старые базы не знают, к какой валюте грузили: считаем, что к нынешней.
+    let same_base = last_base.is_none_or(|b| b.is_empty() || b == base);
+    Ok(on && (last.as_str() < date || !same_base))
 }
 
-/// Автозагрузка: записать курсы и запомнить дату, чтобы до завтра не повторять.
+/// Записать служебную отметку (ключа может не быть в старой базе).
+fn mark(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Запомнить время последнего удачного ответа ЦБ (для подписи в Настройках).
+pub fn mark_checked(conn: &Connection) -> Result<()> {
+    let now = time::now_local().format("%Y-%m-%dT%H:%M").to_string();
+    mark(conn, "rates_checked_at", &now)
+}
+
+/// Когда последний раз удалось получить ответ ЦБ: `YYYY-MM-DDTHH:MM` местного времени.
+pub fn checked_at(conn: &Connection) -> Result<Option<String>> {
+    Ok(settings::get(conn, "rates_checked_at")?.filter(|s| !s.is_empty()))
+}
+
+/// Автозагрузка: записать курсы и запомнить дату и основную валюту, чтобы до
+/// завтра не повторять. Если ЦБ прислал курсы на более раннюю дату (выходной,
+/// праздник или новые ещё не видны), день не отмечается: проверим через час снова.
 pub fn auto_import(conn: &Connection, date: &str, daily: &Daily) -> Result<ImportResult> {
     let result = import(conn, daily)?;
-    settings::set(conn, "rates_auto_date", date)?;
+    mark_checked(conn)?;
+    if daily.date.as_str() >= date {
+        settings::set(conn, "rates_auto_date", date)?;
+        mark(conn, "rates_auto_base", &base_currency(conn)?)?;
+    }
     Ok(result)
+}
+
+/// Состояние курсов для Настроек: действующий курс по каждой нужной валюте и
+/// время последней проверки ЦБ.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RatesOverview {
+    pub base: String,
+    pub checked_at: Option<String>,
+    pub rates: Vec<currencies::CurrentRate>,
+}
+
+pub fn overview(conn: &Connection, on: &str) -> Result<RatesOverview> {
+    time::check_date(on)?;
+    let base = base_currency(conn)?;
+    let mut codes: Vec<String> = MAIN_CURRENCIES
+        .iter()
+        .map(|c| c.to_string())
+        .chain(wanted_currencies(conn)?)
+        .filter(|c| *c != base)
+        .collect();
+    codes.sort();
+    codes.dedup();
+    Ok(RatesOverview {
+        rates: currencies::current_rates(conn, &codes, on)?,
+        checked_at: checked_at(conn)?,
+        base,
+    })
 }
 
 #[cfg(test)]
@@ -379,13 +439,82 @@ mod tests {
         let db = Storage::open_in_memory().unwrap();
         let c = db.conn();
         let daily = parse_daily(SAMPLE.as_bytes()).unwrap();
-        assert!(auto_due(c, "2026-10-20").unwrap());
-        auto_import(c, "2026-10-20", &daily).unwrap();
+        assert!(auto_due(c, "2026-10-18").unwrap());
+        auto_import(c, "2026-10-18", &daily).unwrap();
         // Сегодня уже загружено, завтра снова.
-        assert!(!auto_due(c, "2026-10-20").unwrap());
-        assert!(auto_due(c, "2026-10-21").unwrap());
+        assert!(!auto_due(c, "2026-10-18").unwrap());
+        assert!(auto_due(c, "2026-10-19").unwrap());
         crate::settings::set(c, "rates_auto", "0").unwrap();
-        assert!(!auto_due(c, "2026-10-21").unwrap());
+        assert!(!auto_due(c, "2026-10-19").unwrap());
         assert!(crate::settings::set(c, "rates_auto", "maybe").is_err());
+    }
+
+    #[test]
+    fn manual_rate_in_reverse_direction_blocks_cbr() {
+        // 1 USD = 95 RUB вручную, затем основная валюта — доллар, ЦБ шлёт RUB→USD.
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        add_account(c, "RUB");
+        currencies::set_rate(c, "2026-10-18", "USD", "RUB", "95").unwrap();
+        crate::settings::set(c, "base_currency", "USD").unwrap();
+        let res = import(c, &parse_daily(SAMPLE.as_bytes()).unwrap()).unwrap();
+        assert_eq!(res.kept_manual, vec!["RUB"]);
+        assert_eq!(
+            currencies::convert(c, 950_000, "RUB", "USD", "2026-10-18").unwrap(),
+            Some(10_000)
+        );
+        assert_eq!(
+            currencies::convert(c, 10_000, "USD", "RUB", "2026-10-18").unwrap(),
+            Some(950_000)
+        );
+    }
+
+    #[test]
+    fn base_change_makes_auto_import_due_again() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        add_account(c, "EUR");
+        let daily = parse_daily(SAMPLE.as_bytes()).unwrap();
+        auto_import(c, "2026-10-18", &daily).unwrap();
+        assert!(!auto_due(c, "2026-10-18").unwrap());
+        crate::settings::set(c, "base_currency", "USD").unwrap();
+        assert!(auto_due(c, "2026-10-18").unwrap());
+        auto_import(c, "2026-10-18", &daily).unwrap();
+        assert!(!auto_due(c, "2026-10-18").unwrap());
+        assert!(currencies::rate_on(c, "EUR", "USD", "2026-10-18")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn earlier_answer_date_does_not_close_the_day() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let daily = parse_daily(SAMPLE.as_bytes()).unwrap(); // курсы на 18.10
+        let res = auto_import(c, "2026-10-19", &daily).unwrap();
+        // Курсы записаны, время проверки есть, но день не закрыт.
+        assert_eq!(res.updated, vec!["EUR", "USD"]);
+        assert!(checked_at(c).unwrap().is_some());
+        assert!(auto_due(c, "2026-10-19").unwrap());
+    }
+
+    #[test]
+    fn overview_one_row_per_currency() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        add_account(c, "USD");
+        currencies::set_rate(c, "2026-10-17", "USD", "RUB", "90").unwrap();
+        import(c, &parse_daily(SAMPLE.as_bytes()).unwrap()).unwrap();
+        let o = overview(c, "2026-10-20").unwrap();
+        assert_eq!(o.base, "RUB");
+        let codes: Vec<_> = o.rates.iter().map(|r| r.code.as_str()).collect();
+        assert_eq!(codes, ["CNY", "EUR", "GBP", "KZT", "USD"]);
+        let usd = o.rates.iter().find(|r| r.code == "USD").unwrap();
+        assert_eq!(usd.rate.as_deref(), Some("92.15"));
+        assert_eq!(usd.date.as_deref(), Some("2026-10-18"));
+        assert_eq!(usd.source.as_deref(), Some("cbr"));
+        assert_eq!(o.rates[0].rate, None);
+        // История сохраняется: оба курса USD в базе.
+        assert_eq!(currencies::list_rates(c).unwrap().len(), 3);
     }
 }

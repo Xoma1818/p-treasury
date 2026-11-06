@@ -29,6 +29,21 @@ export interface Currency {
   minorUnits: number;
 }
 
+/** Действующий курс валюты к основной (одна строка на валюту в Настройках). */
+export interface CurrentRate {
+  code: string;
+  rate: string | null;
+  date: string | null;
+  source: string | null;
+}
+
+export interface RatesOverview {
+  base: string;
+  /** Последний удачный ответ ЦБ: `YYYY-MM-DDTHH:MM` местного времени. */
+  checkedAt: string | null;
+  rates: CurrentRate[];
+}
+
 export interface ExchangeRate {
   date: string;
   fromCode: string;
@@ -1733,6 +1748,7 @@ export const api = {
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listCurrencies: () => invoke<Currency[]>("list_currencies"),
   listRates: () => invoke<ExchangeRate[]>("list_rates"),
+  ratesOverview: (date: string) => invoke<RatesOverview>("rates_overview", { date }),
   setRate: (date: string, from: string, to: string, rate: string) => invoke<void>("set_rate", { date, from, to, rate }),
   deleteRate: (date: string, from: string, to: string) => invoke<void>("delete_rate", { date, from, to }),
   rateOn: (from: string, to: string, date: string) => invoke<string | null>("rate_on", { from, to, date }),

@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 2 «Бюджеты»: сценарии из product/mvp-features.md, раздел 5.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, rateHistory } from "./app.mjs";
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
@@ -89,6 +89,7 @@ test("расход 45 € входит в рублёвый бюджет по к�
   await choose(browser, "rateFrom", "EUR");
   await fill(browser, "rate", "100,5");
   await click(browser, "Добавить");
+  await rateHistory(browser);
   await waitText(browser, '[data-testid="rates"]', /1 EUR = 100,5 ₽/);
 
   await expense("45", "Питание", "Карта EUR (€)");
