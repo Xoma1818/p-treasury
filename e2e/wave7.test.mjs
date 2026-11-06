@@ -29,6 +29,25 @@ async function pickLike(name, text) {
   if (value === null) throw new Error(`В списке ${name} нет пункта с «${text}»`);
   await (await browser.$(`select[name="${name}"]`)).selectByAttribute("value", value);
 }
+/** Кнопка по XPath: ставим в середину окна, плашку «Отменить» над ней закрываем;
+ *  если щелчок всё равно перехвачен, в ошибке видно, чем закрыта кнопка. */
+async function press(xpath) {
+  const el = await browser.$(xpath);
+  await el.waitForExist({ timeout: 5000 });
+  const cover = await browser.execute((b) => {
+    b.scrollIntoView({ block: "center" });
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const bar = top?.closest('[data-testid="undo-bar"]');
+    if (bar && !bar.contains(b)) bar.querySelector('button[aria-label="Закрыть"]')?.click();
+    return top && !b.contains(top) ? top.outerHTML.slice(0, 200) : null;
+  }, el);
+  try {
+    await el.click();
+  } catch (e) {
+    throw new Error(`${e.message}; сверху: ${cover}`);
+  }
+}
 const count = (sel) => browser.execute((s) => document.querySelectorAll(s).length, sel);
 
 let browser;
@@ -151,12 +170,12 @@ test("Операции: разбитый чек одной строкой с р�
   await waitText(browser, receipt, /Ашан, 3 категории/);
   await waitText(browser, receipt, money("−5 000 ₽"));
   await waitText(browser, receipt, /Магазины, [^,]*Лекарства, [^,]*Одежда|Одежда, [^,]*Лекарства, [^,]*Магазины/);
-  await (await browser.$(`${receipt}//button[@aria-label="Раскрыть чек"]`)).click();
+  await press(`${receipt}//button[@aria-label="Раскрыть чек"]`);
   await waitCount(browser, '[data-testid="receipt-part"]', 3);
   const parts = await browser.execute(() => [...document.querySelectorAll('[data-testid="receipt-part"]')].map((r) => r.textContent));
   // Части идут по названию категории: «Дети → Одежда», «Медицина → Лекарства», «Питание → Магазины».
   for (const re of [/Магазины\D*3\s200\s₽/, /Лекарства\D*450\s₽/, /Одежда\D*1\s350\s₽/]) assert.ok(parts.some((p) => re.test(p)), `${re} в ${parts.join(" | ")}`);
-  await (await browser.$(`${receipt}//button[@aria-label="Свернуть чек"]`)).click();
+  await press(`${receipt}//button[@aria-label="Свернуть чек"]`);
   await waitCount(browser, '[data-testid="receipt-part"]', 0);
   // Ремонт с тегом «дача» и страховка «÷ 12 мес.».
   await waitText(browser, '//tr[@data-testid="txn-row"][.//*[@data-testid="txn-tag"]]', /#дача/);

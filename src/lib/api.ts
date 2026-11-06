@@ -179,6 +179,16 @@ export interface Txn {
   countDate: string | null;
 }
 
+/** Р3: «В „Прочих“», «Повторяющиеся», «С комментарием», «Валютные». */
+export type QuickFilter = "uncategorized" | "recurring" | "note" | "foreign";
+
+export const QUICK_FILTERS: { key: QuickFilter; label: string; hint: string }[] = [
+  { key: "uncategorized", label: "Без категории", hint: "Лежат в «Прочих расходах» и «Прочих доходах»: туда попадает то, что импорт не разобрал" },
+  { key: "recurring", label: "Повторяющиеся", hint: "Получатель встречается в трёх и больше разных месяцах" },
+  { key: "note", label: "С комментарием", hint: "Есть комментарий к операции" },
+  { key: "foreign", label: "Валютные", hint: "По счетам не в основной валюте" },
+];
+
 export interface TxnFilter {
   dateFrom?: string;
   dateTo?: string;
@@ -194,6 +204,14 @@ export interface TxnFilter {
   importId?: string;
   /** Получатель целиком (похожие операции); без учёта регистра. */
   payee?: string;
+  /** Р3: готовые фильтры, действуют вместе. */
+  quick?: QuickFilter[];
+  /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
+  minAmount?: number;
+  /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */
+  amount?: number;
+  /** Валюта счёта (вместе с amount). */
+  currency?: string;
   /** Г8: порядок «столбец:asc|desc»; без него новые сверху. */
   sort?: string;
   limit?: number;
@@ -1877,6 +1895,11 @@ export const api = {
   forgetFile: (path: string) => invoke<void>("forget_file", { path }),
   calendarMonth: (month: string) => invoke<CalendarMonth>("calendar_month", { month }),
   calendarRange: (from: string, to: string) => invoke<CalendarMonth>("calendar_range", { from, to }),
+  /** Р7: траты по дням года в основной валюте. */
+  calendarYear: (year: number) =>
+    invoke<{ year: number; currencySymbol: string; minorUnits: number; days: { date: string; expense: number }[]; total: number; max: number; missingRates: string[] }>("calendar_year", { year }),
+  /** Р6: общий баланс на конец каждого прошедшего дня; будущие — null. */
+  calendarBalances: (from: string, to: string) => invoke<{ date: string; balance: number | null }[]>("calendar_balances", { from, to }),
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),
   missedReminders: () => invoke<Occurrence[]>("missed_reminders"),
   createReminder: (input: ReminderInput) => invoke<string>("create_reminder", { input }),

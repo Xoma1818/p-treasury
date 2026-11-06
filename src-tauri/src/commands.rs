@@ -1275,6 +1275,29 @@ pub fn calendar_month(state: State<AppState>, month: String) -> CmdResult<Month>
     })
 }
 
+/// Р7: траты по дням года (вид «Год»).
+#[tauri::command(async)]
+pub fn calendar_year(state: State<AppState>, year: i32) -> CmdResult<calendar::YearHeat> {
+    with_db(&state, |db| calendar::year_heat(db.conn(), year))
+}
+
+/// Р6: остаток на конец каждого прошедшего дня (слой «Остаток»).
+#[tauri::command(async)]
+pub fn calendar_balances(
+    state: State<AppState>,
+    from: String,
+    to: String,
+) -> CmdResult<Vec<calendar::DayBalance>> {
+    let parse = |s: &str| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|_| format!("некорректная дата: {s}"))
+    };
+    let (from, to) = (parse(&from)?, parse(&to)?);
+    with_db(&state, |db| {
+        calendar::balances(db.conn(), from, to, &time::today_local())
+    })
+}
+
 #[tauri::command(async)]
 pub fn calendar_range(state: State<AppState>, from: String, to: String) -> CmdResult<Month> {
     let parse = |s: &str| {

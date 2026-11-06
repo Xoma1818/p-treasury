@@ -5,7 +5,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::error::invalid;
-use crate::{accounts, categories, ids, money, time, Error, Result};
+use crate::{accounts, categories, currencies, ids, money, time, Error, Result};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -400,6 +400,17 @@ pub struct Filter {
     pub import_id: Option<String>,
     /// Получатель целиком, без учёта регистра и пробелов по краям (похожие операции).
     pub payee: Option<String>,
+    /// Р3: готовые фильтры, все вместе: «uncategorized» — в «Прочих расходах» или «Прочих доходах»,
+    /// «recurring» — получатель встречался в трёх и больше разных месяцах,
+    /// «note» — с комментарием, «foreign» — по счёту не в основной валюте.
+    pub quick: Vec<String>,
+    /// Р3 «Крупные»: сумма не меньше этой, в минимальных единицах основной валюты.
+    /// Валютные операции сравниваются по курсу на конец отбора; без курса не попадают.
+    pub min_amount: Option<i64>,
+    /// Р5 «Та же сумма»: ровно эта сумма (без знака) в минимальных единицах счёта
+    /// и, если задано, в этой валюте счёта.
+    pub amount: Option<i64>,
+    pub currency: Option<String>,
     /// Порядок списка (Г8): «date», «amount», «category», «account», «payee»
     /// с «:asc» или «:desc». Пусто или незнакомое — новые сверху. Выгрузки идут по дате.
     pub sort: Option<String>,
@@ -512,6 +523,54 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
             "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = {})",
             arg(tag.clone().into())
         ));
+    }
+    for q in &f.quick {
+        match q.as_str() {
+            // Своей категории нет — операция лежит в «Прочих» (туда же кладёт импорт).
+            "uncategorized" => wh.push(
+                "(c.parent_id IS NULL AND c.name IN ('Прочие расходы', 'Прочие доходы'))".into(),
+            ),
+            "note" => wh.push("trim(coalesce(t.note, '')) <> ''".into()),
+            "recurring" => wh.push(
+                "kz_lower(trim(t.payee)) IN (SELECT kz_lower(trim(r.payee)) FROM transactions r
+                  WHERE r.status = 'cleared' AND trim(coalesce(r.payee, '')) <> ''
+                  GROUP BY 1 HAVING count(DISTINCT substr(r.date, 1, 7)) >= 3)"
+                    .into(),
+            ),
+            "foreign" => {
+                let base = currencies::base_currency(conn)?;
+                wh.push(format!("a.currency_code <> {}", arg(base.into())));
+            }
+            _ => {}
+        }
+    }
+    if let Some(v) = f.amount.filter(|v| *v > 0) {
+        wh.push(format!("abs(t.amount) = {}", arg(v.into())));
+    }
+    if let Some(cur) = f.currency.as_deref().filter(|c| !c.is_empty()) {
+        wh.push(format!("a.currency_code = {}", arg(cur.to_string().into())));
+    }
+    if let Some(min) = f.min_amount.filter(|m| *m > 0) {
+        let base = currencies::base_currency(conn)?;
+        let on = f.date_to.clone().unwrap_or_else(time::today_local);
+        let codes: Vec<String> = conn
+            .prepare("SELECT DISTINCT currency_code FROM accounts")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut parts = Vec::new();
+        for code in codes {
+            // Порог переводим в валюту счёта; без курса такие операции не показываем.
+            if let Some(v) = currencies::convert(conn, min, &base, &code, &on)? {
+                let c = arg(code.into());
+                let v = arg(v.max(1).into());
+                parts.push(format!("(a.currency_code = {c} AND abs(t.amount) >= {v})"));
+            }
+        }
+        if parts.is_empty() {
+            wh.push("0".into());
+        } else {
+            wh.push(format!("({})", parts.join(" OR ")));
+        }
     }
     if !f.types.is_empty() {
         let ps: Vec<String> = f.types.iter().map(|t| arg(t.clone().into())).collect();
@@ -1038,6 +1097,76 @@ mod tests {
         assert_eq!(page.items[0].amount, 100);
         assert_eq!(by("  ПЯТЁРОЧКА У ДОМА").total, 1);
         assert_eq!(by("   ").total, 3, "пустой получатель не фильтрует");
+    }
+
+    #[test]
+    fn quick_filters_combine() {
+        // Р3: без категории, повторяющиеся, с заметкой, валютные, крупные.
+        let f = fx();
+        let c = f.db.conn();
+        for m in ["08", "09", "10"] {
+            let mut a = txn(
+                "expense",
+                &format!("2026-{m}-05"),
+                &f.card,
+                99_000,
+                Some(&f.food),
+            );
+            a.payee = Some("Связь".into());
+            create(c, &a).unwrap();
+        }
+        let other = cat(c, "Прочие расходы");
+        let mut once = txn("expense", "2026-10-06", &f.card, 2_000_000, Some(&other));
+        once.payee = Some("Мебель".into());
+        once.note = Some("диван".into());
+        create(c, &once).unwrap();
+        create(
+            c,
+            &txn("expense", "2026-10-07", &f.usd, 15_000, Some(&f.food)),
+        )
+        .unwrap();
+        let by = |quick: &[&str], min: Option<i64>| {
+            list(
+                c,
+                &Filter {
+                    quick: quick.iter().map(|q| q.to_string()).collect(),
+                    min_amount: min,
+                    date_to: Some("2026-10-31".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .total
+        };
+        assert_eq!(by(&["uncategorized"], None), 1);
+        assert_eq!(by(&["recurring"], None), 3);
+        assert_eq!(by(&["note"], None), 1);
+        assert_eq!(by(&["foreign"], None), 1);
+        assert_eq!(by(&["note", "uncategorized"], None), 1);
+        assert_eq!(by(&["recurring", "note"], None), 0);
+        // Крупные от 10 000 ₽: без курса доллара валютная трата не попадает.
+        assert_eq!(by(&[], Some(1_000_000)), 1);
+        currencies::set_rate(c, "2026-10-01", "USD", "RUB", "100").unwrap();
+        // 150 $ = 15 000 ₽ — теперь крупная.
+        assert_eq!(by(&[], Some(1_000_000)), 2);
+        assert_eq!(by(&["foreign"], Some(1_000_000)), 1);
+        assert_eq!(by(&["bogus"], None), 5, "незнакомый фильтр не мешает");
+        // Р5: та же сумма в той же валюте.
+        let same = |amount: i64, currency: Option<&str>| {
+            list(
+                c,
+                &Filter {
+                    amount: Some(amount),
+                    currency: currency.map(Into::into),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .total
+        };
+        assert_eq!(same(99_000, Some("RUB")), 3);
+        assert_eq!(same(99_000, Some("USD")), 0);
+        assert_eq!(same(15_000, None), 1);
     }
 
     #[test]

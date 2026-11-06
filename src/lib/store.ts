@@ -36,6 +36,9 @@ export interface TxnJump {
   importId?: string;
   /** Получатель целиком (из панели операции «Все →»). */
   payee?: string;
+  /** Р5: та же сумма в той же валюте счёта. */
+  amount?: number;
+  currency?: string;
   /** Только эти типы (доходы или расходы из «Как посчитано»). */
   types?: TxnType[];
 }
