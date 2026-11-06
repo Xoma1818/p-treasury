@@ -188,7 +188,16 @@ pub async fn load_cbr_rates(
     date: String,
 ) -> CmdResult<cbr::ImportResult> {
     let daily = download_cbr(&date).await?;
-    with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))
+    let result = with_undo(&state, "Курсы ЦБ РФ", |c| cbr::import(c, &daily))?;
+    // Время проверки — вне отмены: Ctrl+Z убирает курсы, а не факт проверки.
+    with_db(&state, |db| cbr::mark_checked(db.conn()))?;
+    Ok(result)
+}
+
+/// Действующие курсы по валютам и время последней проверки ЦБ (Настройки).
+#[tauri::command(async)]
+pub fn rates_overview(state: State<AppState>, date: String) -> CmdResult<cbr::RatesOverview> {
+    with_db(&state, |db| cbr::overview(db.conn(), &date))
 }
 
 /// Курсы ЦБ раз в день сами: при запуске и пока программа открыта.
@@ -314,9 +323,18 @@ pub fn list_categories(state: State<AppState>, include_archived: bool) -> CmdRes
 }
 
 #[tauri::command(async)]
-pub fn create_category(state: State<AppState>, input: CategoryInput) -> CmdResult<String> {
+pub fn create_category(
+    state: State<AppState>,
+    input: CategoryInput,
+    icon: Option<String>,
+    color: Option<String>,
+) -> CmdResult<String> {
     with_undo(&state, "Новая категория", |c| {
-        categories::create(c, &input)
+        let id = categories::create(c, &input)?;
+        if icon.is_some() || color.is_some() {
+            categories::set_look(c, &id, icon.as_deref(), color.as_deref())?;
+        }
+        Ok(id)
     })
 }
 
@@ -326,9 +344,12 @@ pub fn update_category(
     id: String,
     name: String,
     parent_id: Option<String>,
+    icon: Option<String>,
+    color: Option<String>,
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение категории", |c| {
-        categories::update(c, &id, &name, parent_id.as_deref())
+        categories::update(c, &id, &name, parent_id.as_deref())?;
+        categories::set_look(c, &id, icon.as_deref(), color.as_deref())
     })
 }
 
@@ -482,6 +503,19 @@ pub fn set_budget_limit(
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение лимита", |c| {
         budgets::set_limit(c, &budget_id, &category_id, limit)
+    })
+}
+
+/// Р8: переносить ли остаток строки на следующий месяц.
+#[tauri::command(async)]
+pub fn set_budget_rollover(
+    state: State<AppState>,
+    budget_id: String,
+    category_id: String,
+    on: bool,
+) -> CmdResult<()> {
+    with_undo(&state, "Перенос остатка", |c| {
+        budgets::set_rollover(c, &budget_id, &category_id, on)
     })
 }
 

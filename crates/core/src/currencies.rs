@@ -125,19 +125,82 @@ pub fn list_rates(conn: &Connection) -> Result<Vec<ExchangeRate>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Найденный курс: значение, обратный ли он, дата и источник записи.
+struct Found {
+    rate: Rate,
+    inverse: bool,
+    date: String,
+    source: String,
+}
+
 /// Последний известный курс на дату (или раньше): прямой `from→to` или обратный.
-fn find_rate(conn: &Connection, from: &str, to: &str, on: &str) -> Result<Option<(Rate, bool)>> {
-    let row: Option<(String, bool)> = conn
+/// На одну дату ручной курс главнее курса ЦБ в любом направлении, чтобы
+/// `USD→RUB` и `RUB→USD` считались по одному и тому же значению.
+fn find(conn: &Connection, from: &str, to: &str, on: &str) -> Result<Option<Found>> {
+    let row: Option<(String, bool, String, String)> = conn
         .query_row(
-            "SELECT rate, from_code <> ?1 FROM exchange_rates
+            "SELECT rate, from_code <> ?1, date, source FROM exchange_rates
              WHERE ((from_code = ?1 AND to_code = ?2) OR (from_code = ?2 AND to_code = ?1)) AND date <= ?3
-             ORDER BY date DESC, from_code = ?1 DESC LIMIT 1",
+             ORDER BY date DESC, source = 'manual' DESC, from_code = ?1 DESC LIMIT 1",
             params![from, to, on],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    row.map(|(rate, inverse)| Ok((Rate::parse(&rate)?, inverse)))
-        .transpose()
+    row.map(|(rate, inverse, date, source)| {
+        Ok(Found {
+            rate: Rate::parse(&rate)?,
+            inverse,
+            date,
+            source,
+        })
+    })
+    .transpose()
+}
+
+fn find_rate(conn: &Connection, from: &str, to: &str, on: &str) -> Result<Option<(Rate, bool)>> {
+    Ok(find(conn, from, to, on)?.map(|f| (f.rate, f.inverse)))
+}
+
+/// Действующий курс валюты к основной: одна строка на валюту для Настроек.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentRate {
+    pub code: String,
+    /// `1 code = rate основной валюты`; `None`, если курса ещё нет.
+    pub rate: Option<String>,
+    /// С какой даты действует курс.
+    pub date: Option<String>,
+    pub source: Option<String>,
+}
+
+/// Действующие курсы на дату для перечисленных валют (как их видят расчёты).
+pub fn current_rates(conn: &Connection, codes: &[String], on: &str) -> Result<Vec<CurrentRate>> {
+    let base = base_currency(conn)?;
+    codes
+        .iter()
+        .filter(|c| **c != base)
+        .map(|code| {
+            let found = find(conn, code, &base, on)?;
+            Ok(match found {
+                Some(f) => CurrentRate {
+                    code: code.clone(),
+                    rate: Some(if f.inverse {
+                        invert_string(&f.rate)
+                    } else {
+                        f.rate.to_string()
+                    }),
+                    date: Some(f.date),
+                    source: Some(f.source),
+                },
+                None => CurrentRate {
+                    code: code.clone(),
+                    rate: None,
+                    date: None,
+                    source: None,
+                },
+            })
+        })
+        .collect()
 }
 
 /// Курс `1 from = ? to` на дату строкой (для подстановки в форму).
@@ -245,5 +308,45 @@ mod tests {
         assert_eq!(list_rates(c).unwrap().len(), 2);
         assert!(set_rate(c, "2026-10-15", "USD", "USD", "1").is_err());
         assert!(set_rate(c, "2026-13-15", "USD", "RUB", "1").is_err());
+    }
+
+    #[test]
+    fn manual_rate_wins_in_both_directions_on_same_date() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        set_rate(c, "2026-10-18", "USD", "RUB", "95").unwrap();
+        // Курс ЦБ в обратную сторону на ту же дату (как после смены основной валюты).
+        c.execute(
+            "INSERT INTO exchange_rates (date, from_code, to_code, rate, source)
+             VALUES ('2026-10-18', 'RUB', 'USD', '0.0108695652', 'cbr')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            convert(c, 10_000, "USD", "RUB", "2026-10-18").unwrap(),
+            Some(950_000)
+        );
+        assert_eq!(
+            convert(c, 950_000, "RUB", "USD", "2026-10-18").unwrap(),
+            Some(10_000)
+        );
+    }
+
+    #[test]
+    fn current_rate_per_currency() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        set_rate(c, "2026-10-01", "USD", "RUB", "90").unwrap();
+        set_rate(c, "2026-10-15", "USD", "RUB", "92,15").unwrap();
+        set_rate(c, "2026-10-20", "USD", "RUB", "99").unwrap();
+        let codes = vec!["EUR".to_string(), "RUB".to_string(), "USD".to_string()];
+        let rows = current_rates(c, &codes, "2026-10-16").unwrap();
+        // Основная валюта не показывается; будущий курс ещё не действует.
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].code, "EUR");
+        assert_eq!(rows[0].rate, None);
+        assert_eq!(rows[1].rate.as_deref(), Some("92.15"));
+        assert_eq!(rows[1].date.as_deref(), Some("2026-10-15"));
+        assert_eq!(rows[1].source.as_deref(), Some("manual"));
     }
 }

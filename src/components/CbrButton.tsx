@@ -6,11 +6,12 @@ import { useAction } from "../lib/useAction";
 
 /** Кнопка «Обновить курсы ЦБ»: скачивает официальные курсы на дату и показывает итог. */
 export function CbrButton({
-  date = today(),
+  date,
   small,
   label = "Обновить курсы ЦБ",
   onLoaded,
 }: {
+  /** Дата курсов; без неё — сегодня на момент нажатия (экран мог простоять за полночь). */
   date?: string;
   small?: boolean;
   label?: string;
@@ -27,7 +28,7 @@ export function CbrButton({
         data-testid="cbr-load"
         aria-busy={load.busy} data-done={load.done || undefined}
         disabled={load.busy}
-        onClick={() => (setResult(null), onLoaded?.(), load.run(date))}
+        onClick={() => (setResult(null), onLoaded?.(), load.run(date ?? today()))}
       >
         <span className="btn-icon" aria-hidden="true">
           ↻

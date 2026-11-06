@@ -17,7 +17,16 @@ pub struct Category {
     pub archived: bool,
     /// Сколько операций в категории (без подкатегорий).
     pub transaction_count: i64,
+    /// Р22: имя значка (набор интерфейса) и цвет из палитры; пусто — как у родителя.
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
+
+/// Р22: приглушённые цвета категорий. Хранится имя, а не код цвета, чтобы
+/// светлая и тёмная темы подбирали свой оттенок.
+pub const COLORS: &[&str] = &[
+    "mint", "teal", "sky", "blue", "violet", "pink", "rose", "orange", "amber", "olive",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -224,7 +233,7 @@ pub fn seed_defaults(conn: &Connection) -> Result<bool> {
 pub fn list(conn: &Connection, include_archived: bool) -> Result<Vec<Category>> {
     let mut stmt = conn.prepare(
         "SELECT c.id, c.parent_id, c.name, c.kind, c.sort_order, c.archived_at IS NOT NULL,
-                (SELECT count(*) FROM transactions t WHERE t.category_id = c.id)
+                (SELECT count(*) FROM transactions t WHERE t.category_id = c.id), c.icon, c.color
          FROM categories c
          LEFT JOIN categories p ON p.id = c.parent_id
          WHERE ?1 OR (c.archived_at IS NULL AND (p.id IS NULL OR p.archived_at IS NULL))
@@ -240,6 +249,8 @@ pub fn list(conn: &Connection, include_archived: bool) -> Result<Vec<Category>> 
             sort_order: r.get(4)?,
             archived: r.get(5)?,
             transaction_count: r.get(6)?,
+            icon: r.get(7)?,
+            color: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -331,6 +342,37 @@ pub fn create(conn: &Connection, input: &CategoryInput) -> Result<String> {
         params![id, input.parent_id, name, input.kind, order, now],
     )?;
     Ok(id)
+}
+
+/// Р22: значок и цвет категории. `None` — как у родителя (или без значка).
+pub fn set_look(
+    conn: &Connection,
+    id: &str,
+    icon: Option<&str>,
+    color: Option<&str>,
+) -> Result<()> {
+    row(conn, id)?;
+    let icon = icon.map(str::trim).filter(|s| !s.is_empty());
+    let color = color.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(i) = icon {
+        if i.len() > 32
+            || !i
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        {
+            return invalid("неизвестный значок категории");
+        }
+    }
+    if let Some(c) = color {
+        if !COLORS.contains(&c) {
+            return invalid("неизвестный цвет категории");
+        }
+    }
+    conn.execute(
+        "UPDATE categories SET icon = ?2, color = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, icon, color, time::now_utc()],
+    )?;
+    Ok(())
 }
 
 /// Переименовать и/или переместить (сменить родителя). Тип не меняется.
@@ -457,6 +499,41 @@ mod tests {
                 .unwrap();
         }
         db
+    }
+
+    #[test]
+    fn look_is_stored_and_validated() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        seed_defaults(c).unwrap();
+        let food = by_name(c, "Питание", "expense");
+        set_look(c, &food, Some("shopping-cart"), Some("mint")).unwrap();
+        let got = list(c, false)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.id == food)
+            .unwrap();
+        assert_eq!(
+            (got.icon.as_deref(), got.color.as_deref()),
+            (Some("shopping-cart"), Some("mint"))
+        );
+        assert!(
+            set_look(c, &food, None, Some("#ff0000")).is_err(),
+            "цвет только из палитры"
+        );
+        assert!(set_look(c, &food, Some("<svg>"), None).is_err());
+        set_look(c, &food, Some(" "), None).unwrap();
+        let got = list(c, false)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.id == food)
+            .unwrap();
+        assert_eq!(
+            (got.icon, got.color),
+            (None, None),
+            "пусто — как у родителя"
+        );
+        assert!(set_look(c, "нет", None, None).is_err());
     }
 
     #[test]

@@ -29,6 +29,21 @@ export interface Currency {
   minorUnits: number;
 }
 
+/** Действующий курс валюты к основной (одна строка на валюту в Настройках). */
+export interface CurrentRate {
+  code: string;
+  rate: string | null;
+  date: string | null;
+  source: string | null;
+}
+
+export interface RatesOverview {
+  base: string;
+  /** Последний удачный ответ ЦБ: `YYYY-MM-DDTHH:MM` местного времени. */
+  checkedAt: string | null;
+  rates: CurrentRate[];
+}
+
 export interface ExchangeRate {
   date: string;
   fromCode: string;
@@ -100,6 +115,9 @@ export interface Category {
   sortOrder: number;
   archived: boolean;
   transactionCount: number;
+  /** Р22: значок и цвет; null — как у родителя. */
+  icon: string | null;
+  color: string | null;
 }
 
 /** Строка «было → стало» для переименования по новому списку категорий (0.28). */
@@ -679,11 +697,18 @@ export interface BudgetLine {
   categoryName: string;
   parentId: string | null;
   kind: CategoryKind;
+  /** Лимит вместе с перенесённым остатком. */
   limit: number;
+  /** Лимит, заданный на этот месяц. */
+  baseLimit: number;
   actual: number;
   remaining: number;
   percent: number;
   over: boolean;
+  /** Р8: остаток переносится на следующий месяц. */
+  rollover: boolean;
+  /** Пришло с прошлого месяца. */
+  carried: number;
 }
 
 export interface Budget {
@@ -704,6 +729,8 @@ export interface Budget {
   /** Расходы по лимитам к концу месяца при текущем темпе (только текущий месяц). */
   forecastExpense: number | null;
   missingRates: string[];
+  /** Р8: нет курса в прошлых месяцах — их остаток не перенесён. */
+  carryMissingRates: string[];
 }
 
 /** Откуда брать лимиты: среднее за 3 месяца или тот же месяц год назад. */
@@ -1721,6 +1748,7 @@ export const api = {
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listCurrencies: () => invoke<Currency[]>("list_currencies"),
   listRates: () => invoke<ExchangeRate[]>("list_rates"),
+  ratesOverview: (date: string) => invoke<RatesOverview>("rates_overview", { date }),
   setRate: (date: string, from: string, to: string, rate: string) => invoke<void>("set_rate", { date, from, to, rate }),
   deleteRate: (date: string, from: string, to: string) => invoke<void>("delete_rate", { date, from, to }),
   rateOn: (from: string, to: string, date: string) => invoke<string | null>("rate_on", { from, to, date }),
@@ -1738,10 +1766,10 @@ export const api = {
     invoke<string | null>("adjust_balance", { id, actualBalance, date, note }),
   totals: (date: string) => invoke<Totals>("totals", { date }),
   listCategories: (includeArchived = false) => invoke<Category[]>("list_categories", { includeArchived }),
-  createCategory: (input: { name: string; kind: CategoryKind; parentId: string | null }) =>
-    invoke<string>("create_category", { input }),
-  updateCategory: (id: string, name: string, parentId: string | null) =>
-    invoke<void>("update_category", { id, name, parentId }),
+  createCategory: (input: { name: string; kind: CategoryKind; parentId: string | null }, look: { icon: string | null; color: string | null } = { icon: null, color: null }) =>
+    invoke<string>("create_category", { input, icon: look.icon, color: look.color }),
+  updateCategory: (id: string, name: string, parentId: string | null, look: { icon: string | null; color: string | null }) =>
+    invoke<void>("update_category", { id, name, parentId, icon: look.icon, color: look.color }),
   categoryRenamePreview: () => invoke<CategoryRename[]>("category_rename_preview"),
   categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
@@ -1793,6 +1821,7 @@ export const api = {
   createBudget: (month: string, copyPrevious: boolean) => invoke<string>("create_budget", { month, copyPrevious }),
   setBudgetLimit: (budgetId: string, categoryId: string, limit: number | null) =>
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
+  setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
