@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
 /** Окно уходит так же мягко, как появилось (0.25): Esc, «×» и щелчок мимо окна
  *  сначала играют исчезновение, потом закрывают. Под автотестом — сразу.
  *  guardUnsaved: если в окне что-то вводили, Esc, «×» и щелчок мимо сначала
  *  спрашивают «Закрыть без сохранения?». Кнопка «Отмена» формы закрывает сразу. */
 const CLOSE_MS = 160;
+const FOCUSABLE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex]';
 
 /** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
 export function Modal({
@@ -27,6 +28,7 @@ export function Modal({
   const [dirty, setDirty] = useState(false);
   const [asking, setAsking] = useState(false);
   const timer = useRef(0);
+  const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
   // Блоки со своим сохранением (заметки) форму «грязной» не делают.
@@ -58,6 +60,26 @@ export function Modal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+  // Ловушка фокуса: Tab и Shift+Tab ходят по кругу внутри окна, а не уходят на страницу
+  // под ним. WebView2 сам этого не делает (прогон Windows, window.test.mjs).
+  const trapTab = (e: ReactKeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current) return;
+    const items = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+      (el) => !el.hasAttribute("disabled") && el.tabIndex >= 0 && el.getClientRects().length > 0,
+    );
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const at = document.activeElement;
+    const inside = at instanceof Node && box.current.contains(at);
+    if (e.shiftKey && (at === first || !inside)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (at === last || !inside)) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
   return (
     <div
       className={["overlay", side && "side", closing && "closing"].filter(Boolean).join(" ")}
@@ -66,7 +88,10 @@ export function Modal({
       <div
         className={["modal", wide && "wide", side && "side"].filter(Boolean).join(" ")}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
+        ref={box}
+        onKeyDown={trapTab}
         data-side={side || undefined}
         onInputCapture={guardUnsaved ? markDirty : undefined}
         onChangeCapture={guardUnsaved ? markDirty : undefined}

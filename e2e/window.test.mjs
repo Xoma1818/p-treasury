@@ -98,6 +98,8 @@ test("Tab идёт по полям формы по порядку, фокус в
     await browser.keys("Tab");
     const a = await active();
     assert.ok(a.inDialog, "Tab не уходит из окна формы за его пределы");
+    // Ловушка фокуса: после последнего элемента Tab возвращается к сумме — круг пройден.
+    if (a.name === "amount" && order.length > 1) break;
     if (a.name && a.name !== order.at(-1)) order.push(a.name);
   }
   const expected = ["amount", "date", "account", "payee", "category"];
