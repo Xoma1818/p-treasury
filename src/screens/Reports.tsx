@@ -423,7 +423,7 @@ function Structure({ period }: { period: Period }) {
       {r && r.items.length === 0 && <p className="muted">За этот период операций нет.</p>}
       {r && r.items.length > 0 && (
         <>
-          {chart === "donut" && <Donut items={r.items} total={r.total} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
+          {chart === "donut" && <Donut items={r.items} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
           <ul className="cat-report" data-testid="structure">
             {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, true)) : [])])}
           </ul>
@@ -437,8 +437,14 @@ function Structure({ period }: { period: Period }) {
 }
 
 /** Р12 «Доли»: кольцо по категориям верхнего уровня; щелчок — операции категории. */
-function Donut({ items, total, colorOf, onPick }: { items: CategoryItem[]; total: number; colorOf: (c: CategoryItem, i: number) => string; onPick: (c: CategoryItem) => void }) {
+function Donut({ items: all, colorOf, onPick }: { items: CategoryItem[]; colorOf: (c: CategoryItem, i: number) => string; onPick: (c: CategoryItem) => void }) {
   const [hover, setHover] = useState<number | null>(null);
+  // Доли — только категорий с тратами больше нуля: возврат без покупки в периоде даёт
+  // отрицательную сумму, и дуга пошла бы назад, перекрыв соседние.
+  const items = all.filter((c) => c.amount > 0);
+  const total = items.reduce((s, c) => s + c.amount, 0);
+  const share = (c: CategoryItem) => (total > 0 ? Math.round((c.amount * 100) / total) : 0);
+  if (items.length === 0) return null;
   const R = 70;
   const r0 = 44;
   const C = 90;
@@ -463,12 +469,12 @@ function Donut({ items, total, colorOf, onPick }: { items: CategoryItem[]; total
         {arcs.map(({ c, i, d }) => (
           <path key={c.categoryId} d={d} fill={colorOf(c, i)} fillRule="evenodd" className={hover === i ? "donut-arc active" : "donut-arc"} onMouseEnter={() => setHover(i)} onClick={() => onPick(c)}>
             <title>
-              {c.name}: {c.percent} %
+              {c.name}: {share(c)} %
             </title>
           </path>
         ))}
         <text x={C} y={C - 2} textAnchor="middle" className="donut-main">
-          {h ? `${h.percent} %` : "100 %"}
+          {h ? `${share(h)} %` : "100 %"}
         </text>
         <text x={C} y={C + 14} textAnchor="middle" className="donut-sub">
           {h ? h.name.slice(0, 16) : "всего"}
@@ -477,7 +483,7 @@ function Donut({ items, total, colorOf, onPick }: { items: CategoryItem[]; total
       <ul className="share-legend">
         {arcs.slice(0, 8).map(({ c, i }) => (
           <li key={c.categoryId} onMouseEnter={() => setHover(i)}>
-            <i className="swatch" style={{ background: colorOf(c, i) }} /> {c.name} <span className="muted">{c.percent} %</span>
+            <i className="swatch" style={{ background: colorOf(c, i) }} /> {c.name} <span className="muted">{share(c)} %</span>
           </li>
         ))}
         {items.length > 8 && <li className="muted">и ещё {items.length - 8}</li>}

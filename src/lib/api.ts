@@ -201,7 +201,8 @@ export interface Payoff {
   extra: number;
   currencySymbol: string;
   minorUnits: number;
-  order: { id: string; name: string; month: string; baseMonth: string | null }[];
+  /** Все долги расчёта; month = null — и с планом не закрывается за 50 лет. */
+  order: { id: string; name: string; month: string | null; baseMonth: string | null }[];
   freeMonth: string | null;
   baseFreeMonth: string | null;
   interest: number;

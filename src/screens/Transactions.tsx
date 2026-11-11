@@ -18,14 +18,14 @@ import { parseView, SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
 import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, shiftMonth, today } from "../lib/dates";
-import { useAccounts, useCategories } from "../lib/queries";
+import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 
 const PAGE = 100;
 
-/** Р3 «Крупные» по умолчанию: от 10 000 в основной валюте. */
-const LARGE_DEFAULT = 1_000_000;
+/** Р3 «Крупные» по умолчанию: от 10 000 в основной валюте (в целых единицах). */
+const LARGE_DEFAULT = 10_000;
 
 export function Transactions() {
   const accounts = useAccounts(true).data ?? [];
@@ -38,6 +38,11 @@ export function Transactions() {
   const events = useQuery({ queryKey: ["events"], queryFn: api.listEvents }).data ?? [];
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data ?? [];
   const [sel, setSel] = useState<SelState>(EMPTY_SEL);
+  // Знаков после запятой у валюты: у иены их нет, у рубля два (суммы фильтров — в минимальных единицах).
+  const currencies = useCurrencies().data;
+  const baseCode = useSettings().data?.base_currency;
+  const unitsOf = (code: string | undefined) => currencies?.find((c) => c.code === code)?.minorUnits ?? 2;
+  const baseScale = 10 ** unitsOf(baseCode);
 
   // Переход с фильтром со Счетов или Категорий: за всё время.
   useEffect(() => {
@@ -219,8 +224,8 @@ export function Transactions() {
     const label = QUICK_FILTERS.find((x) => x.key === q)?.label ?? q;
     chips.push({ id: `chip-quick-${q}`, label, clear: () => toggleQuick(q) });
   }
-  if (f.amount) chips.push({ id: "chip-amount", label: `Сумма: ${(f.amount / 100).toLocaleString("ru-RU")}${f.currency ? ` ${f.currency}` : ""}`, clear: () => set({ amount: undefined, currency: undefined }) });
-  if (f.minAmount) chips.push({ id: "chip-large", label: `Крупные: от ${(f.minAmount / 100).toLocaleString("ru-RU")}`, clear: () => set({ minAmount: undefined }) });
+  if (f.amount) chips.push({ id: "chip-amount", label: `Сумма: ${(f.amount / 10 ** unitsOf(f.currency)).toLocaleString("ru-RU")}${f.currency ? ` ${f.currency}` : ""}`, clear: () => set({ amount: undefined, currency: undefined }) });
+  if (f.minAmount) chips.push({ id: "chip-large", label: `Крупные: от ${(f.minAmount / baseScale).toLocaleString("ru-RU")}`, clear: () => set({ minAmount: undefined }) });
   if (f.eventId) chips.push({ id: "filter-event", label: events.find((e) => e.id === f.eventId)?.name ?? "Событие", clear: () => set({ eventId: undefined }) });
 
   return (
@@ -310,16 +315,16 @@ export function Transactions() {
                   </button>
                 );
               })}
-              <button type="button" className={f.minAmount ? "tab active" : "tab"} aria-pressed={!!f.minAmount} title="Операции от суммы в основной валюте; валютные — по курсу" data-testid="quick-large" onClick={() => set({ minAmount: f.minAmount ? undefined : LARGE_DEFAULT })}>
+              <button type="button" className={f.minAmount ? "tab active" : "tab"} aria-pressed={!!f.minAmount} title="Операции от суммы в основной валюте; валютные — по курсу" data-testid="quick-large" onClick={() => set({ minAmount: f.minAmount ? undefined : LARGE_DEFAULT * baseScale })}>
                 Крупные
               </button>
             </div>
             {!!f.minAmount && (
               <label className="inline-field">
                 <span className="muted">от</span>
-                <input type="number" name="minAmount" data-testid="quick-large-amount" min={1} step={1000} defaultValue={f.minAmount / 100} onChange={(e) => {
+                <input type="number" name="minAmount" data-testid="quick-large-amount" min={1} step={1000} defaultValue={f.minAmount / baseScale} onChange={(e) => {
                   // Пока поле пустое, прежний порог остаётся; убрать — кнопкой «Крупные» или крестиком.
-                  const v = Math.round(Number(e.target.value) * 100);
+                  const v = Math.round(Number(e.target.value) * baseScale);
                   if (v > 0) set({ minAmount: v });
                 }} />
               </label>

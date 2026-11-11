@@ -208,7 +208,9 @@ function PayoffCard() {
         </div>
       </div>
       {q.error && <p className="error">{String(q.error)}</p>}
-      {p && (
+      {p && p.missingRates.length > 0 && <p className="hint warn">Нет курса для {p.missingRates.join(", ")}: такие долги не вошли.</p>}
+      {p && p.order.length === 0 && p.missingRates.length === 0 && <p className="muted">Взятых долгов с остатком нет.</p>}
+      {p && p.order.length > 0 && (
         <>
           <div className="tiles payoff-tiles">
             <div className="tile" data-testid="payoff-free">
@@ -225,12 +227,11 @@ function PayoffCard() {
           <ol className="payoff-order" data-testid="payoff-order">
             {p.order.map((o) => (
               <li key={o.id}>
-                <span className="main">{o.name}</span> — {monthTitle(o.month).toLowerCase()}
+                <span className="main">{o.name}</span> — {o.month ? monthTitle(o.month).toLowerCase() : "не закрывается и за 50 лет: платёж меньше процентов"}
                 {o.baseMonth && o.baseMonth !== o.month && <span className="muted"> (без плана — {monthTitle(o.baseMonth).toLowerCase()})</span>}
               </li>
             ))}
           </ol>
-          {p.missingRates.length > 0 && <p className="hint warn">Нет курса для {p.missingRates.join(", ")}: такие долги не вошли.</p>}
           <p className="hint">Расчёт примерный: проценты раз в месяц на остаток, платёж — как ближайший по графику. Закрытый долг отдаёт свой платёж следующему.</p>
         </>
       )}
