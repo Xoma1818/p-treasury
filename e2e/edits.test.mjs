@@ -66,6 +66,16 @@ test("категория: переименовать и отправить в а
   await browser.waitUntil(async () => !(await browser.$(catRow("Подарки близким")).isExisting()), { timeout: 5000, timeoutMsg: "категория в архиве осталась в списке" });
 });
 
+// Тред 37: «Удалить» у категории не проходил ни один сквозной тест (обход кнопок отметил его «ничего не случилось»).
+test("категория: «Удалить» спрашивает и убирает из списка", async () => {
+  await openSection(browser, "Категории");
+  await rowButton(catRow("Досуг"), "Удалить");
+  const dialog = await browser.$('//*[@role="dialog"][contains(., "Удалить «Досуг»")]');
+  await dialog.waitForDisplayed({ timeout: 5000, timeoutMsg: "окно удаления категории не открылось" });
+  await save(browser, "Удалить");
+  await browser.waitUntil(async () => !(await browser.$(catRow("Досуг")).isExisting()), { timeout: 5000, timeoutMsg: "удалённая категория осталась в списке" });
+});
+
 test("заметка: изменить текст и удалить", async () => {
   await openSection(browser, "Заметки");
   await click(browser, "+ Заметка");
