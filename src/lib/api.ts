@@ -85,6 +85,24 @@ export interface Account {
   investKind: InvestKind | null;
   /** Для брокерского счёта: сколько стоит сейчас. */
   value: number | null;
+  /** Р19: своя группа. */
+  groupId: string | null;
+  /** Р20: входит в факт бюджета и в прогноз. */
+  inBudget: boolean;
+  inForecast: boolean;
+  /** Р21: те же имена, что у категорий. */
+  color: string | null;
+  icon: string | null;
+}
+
+/** Р19: группа счетов с итогом в основной валюте. */
+export interface AccountGroup {
+  id: string;
+  name: string;
+  sortOrder: number;
+  count: number;
+  total: number;
+  missingRates: string[];
 }
 
 export interface AccountInput {
@@ -1806,6 +1824,16 @@ export const api = {
   createAccount: (input: AccountInput) => invoke<string>("create_account", { input }),
   updateAccount: (id: string, input: AccountInput) => invoke<void>("update_account", { id, input }),
   archiveAccount: (id: string, archived: boolean) => invoke<void>("archive_account", { id, archived }),
+  setAccountIncludes: (id: string, inTotal: boolean, inBudget: boolean, inForecast: boolean) =>
+    invoke<void>("set_account_includes", { id, inTotal, inBudget, inForecast }),
+  setAccountLook: (id: string, icon: string | null, color: string | null) => invoke<void>("set_account_look", { id, icon, color }),
+  setAccountGroup: (id: string, groupId: string | null) => invoke<void>("set_account_group", { id, groupId }),
+  reorderAccounts: (ids: string[]) => invoke<void>("reorder_accounts", { ids }),
+  listAccountGroups: (today: string) => invoke<AccountGroup[]>("list_account_groups", { today }),
+  createAccountGroup: (name: string) => invoke<string>("create_account_group", { name }),
+  renameAccountGroup: (id: string, name: string) => invoke<void>("rename_account_group", { id, name }),
+  deleteAccountGroup: (id: string) => invoke<void>("delete_account_group", { id }),
+  reorderAccountGroups: (ids: string[]) => invoke<void>("reorder_account_groups", { ids }),
   adjustBalance: (id: string, actualBalance: number, date: string, note: string | null) =>
     invoke<string | null>("adjust_balance", { id, actualBalance, date, note }),
   totals: (date: string) => invoke<Totals>("totals", { date }),

@@ -10,7 +10,8 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { RulesCard } from "../components/Rules";
 import { TagsCard } from "../components/Tags";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
-import { CATEGORY_COLORS, CATEGORY_ICONS, COLOR_LABEL, colorVar, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
+import { CATEGORY_ICONS, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
+import { LookPicker } from "../components/LookPicker";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -119,32 +120,7 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
             </select>
           )}
         </Field>
-        <div className="field" role="group" aria-label="Значок">
-          <span className="label">Значок {parentId && !icon && <span className="muted small">— как у родителя</span>}</span>
-          <div className="look-pick" data-testid="icon-pick">
-            <button type="button" aria-pressed={!icon} title="Без значка" onClick={() => setIcon(null)}>
-              —
-            </button>
-            {Object.entries(CATEGORY_ICONS).map(([k, v]) => (
-              <button key={k} type="button" aria-pressed={icon === k} title={v.label} aria-label={v.label} data-icon={k} onClick={() => setIcon(k)}>
-                <v.icon size={16} strokeWidth={1.9} aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field" role="group" aria-label="Цвет">
-          <span className="label">Цвет {parentId && !color && <span className="muted small">— как у родителя</span>}</span>
-          <div className="look-pick" data-testid="color-pick">
-            <button type="button" aria-pressed={!color} title="Без цвета" onClick={() => setColor(null)}>
-              —
-            </button>
-            {CATEGORY_COLORS.map((c) => (
-              <button key={c} type="button" className="swatch-btn" aria-pressed={color === c} title={COLOR_LABEL[c]} aria-label={COLOR_LABEL[c]} data-color={c} onClick={() => setColor(c)}>
-                <span style={{ background: colorVar(c) }} />
-              </button>
-            ))}
-          </div>
-        </div>
+        <LookPicker icon={icon} color={color} onIcon={setIcon} onColor={setColor} inherited={!!parentId} />
         <ErrorText error={save.error} />
         <div className="actions">
           <span className="spacer" />

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use std::path::Path;
 
+use budget_core::account_groups;
 use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::auto_import::{self, ScanResult};
@@ -294,6 +295,85 @@ pub fn update_account(state: State<AppState>, id: String, input: AccountInput) -
 pub fn archive_account(state: State<AppState>, id: String, archived: bool) -> CmdResult<()> {
     with_undo(&state, "Закрытие счёта", |c| {
         accounts::set_archived(c, &id, archived)
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_account_includes(
+    state: State<AppState>,
+    id: String,
+    in_total: bool,
+    in_budget: bool,
+    in_forecast: bool,
+) -> CmdResult<()> {
+    with_undo(&state, "Куда входит счёт", |c| {
+        accounts::set_includes(c, &id, in_total, in_budget, in_forecast)
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_account_look(
+    state: State<AppState>,
+    id: String,
+    icon: Option<String>,
+    color: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Вид счёта", |c| {
+        accounts::set_look(c, &id, icon.as_deref(), color.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_account_group(
+    state: State<AppState>,
+    id: String,
+    group_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа счёта", |c| {
+        accounts::set_group(c, &id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn reorder_accounts(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок счетов", |c| {
+        accounts::reorder(c, &ids)
+    })
+}
+
+#[tauri::command(async)]
+pub fn list_account_groups(
+    state: State<AppState>,
+    today: String,
+) -> CmdResult<Vec<account_groups::AccountGroup>> {
+    with_db(&state, |db| account_groups::list(db.conn(), &today))
+}
+
+#[tauri::command(async)]
+pub fn create_account_group(state: State<AppState>, name: String) -> CmdResult<String> {
+    with_undo(&state, "Новая группа счетов", |c| {
+        account_groups::create(c, &name)
+    })
+}
+
+#[tauri::command(async)]
+pub fn rename_account_group(state: State<AppState>, id: String, name: String) -> CmdResult<()> {
+    with_undo(&state, "Группа счетов", |c| {
+        account_groups::rename(c, &id, &name)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_account_group(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление группы счетов", |c| {
+        account_groups::delete(c, &id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn reorder_account_groups(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок групп", |c| {
+        account_groups::reorder(c, &ids)
     })
 }
 

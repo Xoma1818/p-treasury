@@ -3,6 +3,7 @@
 //! UI вызывает только команды ядра и никогда не пишет SQL; модули ядра
 //! обращаются к базе только через [`storage`].
 
+pub mod account_groups;
 pub mod accounts;
 pub mod assets;
 pub mod auto_import;

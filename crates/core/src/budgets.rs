@@ -191,6 +191,8 @@ fn actuals(
         "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.event_id IS NULL
+           AND t.account_id NOT IN (SELECT value FROM json_each(
+               COALESCE((SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))
            AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
@@ -226,6 +228,8 @@ fn event_expense(
         "SELECT t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = 'expense' AND t.event_id IS NOT NULL
+           AND t.account_id NOT IN (SELECT value FROM json_each(
+               COALESCE((SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))
            AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
@@ -866,6 +870,34 @@ mod tests {
             .unwrap()
             .1;
         assert!(cafe_avg < 700_000, "{cafe_avg}");
+    }
+
+    #[test]
+    fn account_out_of_budget_is_not_in_actuals() {
+        // Р20: счёт «не в бюджете» (например, рабочая карта) не съедает лимиты.
+        let mut f = fx();
+        let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
+        let c = f.db.conn();
+        set_limit(c, &id, &cat(c, "Общепит"), Some(1_000_000)).unwrap();
+        let work = accounts::create(c, &input("Рабочая", "debit", "RUB", 5_000_000)).unwrap();
+        accounts::set_includes(c, &work, true, false, true).unwrap();
+        spend(c, &f.card, "2026-10-05", 200_000, "Общепит");
+        spend(c, &work, "2026-10-06", 300_000, "Общепит");
+        let b = get(c, "2026-10", "2026-10-20").unwrap();
+        let cafe = b
+            .lines
+            .iter()
+            .find(|l| l.category_name == "Общепит")
+            .unwrap();
+        assert_eq!(cafe.actual, 200_000);
+        accounts::set_includes(c, &work, true, true, true).unwrap();
+        let b = get(c, "2026-10", "2026-10-20").unwrap();
+        let cafe = b
+            .lines
+            .iter()
+            .find(|l| l.category_name == "Общепит")
+            .unwrap();
+        assert_eq!(cafe.actual, 500_000);
     }
 
     #[test]

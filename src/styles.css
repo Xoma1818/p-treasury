@@ -1112,3 +1112,16 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .chart .dot-income { fill: var(--series-income); }
 .chart .dot-expense { fill: var(--series-expense); }
 .card > .filters-row { margin-bottom: 8px; }
+
+/* Этап 8а: группы, порядок, значок счёта. */
+.account-name { display: flex; align-items: center; gap: 10px; }
+.accounts-table tbody + tbody .group-head td { padding-top: 18px; }
+.accounts-table .group-head td { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.accounts-table .group-head td.num { text-transform: none; letter-spacing: 0; color: var(--text); font-size: 13px; }
+.accounts-table tr[draggable="true"] { cursor: grab; }
+.accounts-table tr.dragging { opacity: 0.45; }
+.group-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-list li { display: flex; align-items: center; gap: 8px; }
+.group-list li input { flex: 1; min-width: 0; }
+.look-details summary { cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.look-details[open] summary { margin-bottom: 8px; }
