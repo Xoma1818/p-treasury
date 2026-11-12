@@ -2061,14 +2061,35 @@ pub fn account_reserves(
 }
 
 #[tauri::command(async)]
-pub fn create_goal(state: State<AppState>, input: GoalInput) -> CmdResult<String> {
-    with_undo(&state, "Новая цель", |c| goals::create(c, &input))
+pub fn create_goal(
+    state: State<AppState>,
+    input: GoalInput,
+    share_bp: Option<i64>,
+) -> CmdResult<String> {
+    // Цель и её доля — один шаг отмены.
+    with_undo(&state, "Новая цель", |c| {
+        let id = goals::create(c, &input)?;
+        if share_bp.is_some() {
+            goals::set_share(c, &id, share_bp)?;
+        }
+        Ok(id)
+    })
 }
 
 #[tauri::command(async)]
-pub fn update_goal(state: State<AppState>, id: String, input: GoalInput) -> CmdResult<()> {
+pub fn update_goal(
+    state: State<AppState>,
+    id: String,
+    input: GoalInput,
+    share_bp: Option<i64>,
+    with_share: Option<bool>,
+) -> CmdResult<()> {
     with_undo(&state, "Изменение цели", |c| {
-        goals::update(c, &id, &input)
+        goals::update(c, &id, &input)?;
+        if with_share == Some(true) {
+            goals::set_share(c, &id, share_bp)?;
+        }
+        Ok(())
     })
 }
 

@@ -16,7 +16,9 @@ use crate::{accounts, budgets, currencies, forecast, settings, time, Error, Resu
 pub const FIGURES_KEY: &str = "home_figures";
 pub const PERIOD_KEY: &str = "home_period";
 pub const MEASURES: &[&str] = &["expense", "income", "saldo", "balance"];
-pub const PERIODS: &[&str] = &["month", "week", "payday", "quarter", "year", "days30"];
+pub const PERIODS: &[&str] = &[
+    "month", "week", "payday", "quarter", "year", "days30", "custom",
+];
 /// Сколько дней назад ищем последнюю зарплату.
 pub const PAYDAY_LOOK_BACK: i64 = 45;
 pub const MAX_FIGURES: usize = 24;
@@ -34,6 +36,11 @@ pub struct Figure {
     pub account_id: Option<String>,
     #[serde(default)]
     pub tag_id: Option<String>,
+    /// Период «custom» — свои даты (например, прошлый месяц из отчёта), включительно.
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
 }
 
 /// Период и такой же отрезок перед ним (для сравнения «к тем же дням»).
@@ -260,6 +267,14 @@ pub fn check(f: &Figure) -> Result<()> {
     if !PERIODS.contains(&f.period.as_str()) {
         return bad("неизвестный период");
     }
+    if f.period == "custom" {
+        let (Some(a), Some(b)) = (&f.from, &f.to) else {
+            return bad("у своего периода нужны даты «с» и «по»");
+        };
+        if time::parse_date(a)? > time::parse_date(b)? {
+            return bad("дата «с» позже даты «по»");
+        }
+    }
     if f.measure == "balance" && (f.category_id.is_some() || f.tag_id.is_some()) {
         return bad("остаток считается по счёту, без категории и тега");
     }
@@ -357,12 +372,17 @@ fn balance(
         return Ok(t.total);
     };
     let base = currencies::base_currency(conn)?;
-    let cur: String = conn.query_row(
-        "SELECT currency_code FROM accounts WHERE id = ?1",
+    let (cur, kind): (String, String) = conn.query_row(
+        "SELECT currency_code, type FROM accounts WHERE id = ?1",
         [id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let bal = accounts::balance(conn, id, Some(on))?;
+    // Инвестиционный счёт — по оценке, как в общем балансе.
+    let bal = if kind == "investment" {
+        crate::invest::value_on(conn, id, on)?.0
+    } else {
+        accounts::balance(conn, id, Some(on))?
+    };
     Ok(match currencies::convert(conn, bal, &cur, &base, on)? {
         Some(v) => v,
         None => {
@@ -374,9 +394,30 @@ fn balance(
     })
 }
 
+/// Период цифры: свой (даты из отчёта) или относительный на сегодня.
+fn figure_range(conn: &Connection, f: &Figure, today: &str, week_sunday: bool) -> Result<Range> {
+    if f.period != "custom" {
+        return range(conn, &f.period, today, week_sunday);
+    }
+    let (Some(a), Some(b)) = (&f.from, &f.to) else {
+        return Err(Error::Validation("у своего периода нужны даты".into()));
+    };
+    let (from, to) = (time::parse_date(a)?, time::parse_date(b)?);
+    let len = (to - from).num_days() + 1;
+    Ok(Range {
+        kind: "custom".into(),
+        from: date(from),
+        to: date(to),
+        prev_from: date(from - Duration::days(len)),
+        prev_to: date(from - Duration::days(1)),
+        payday: None,
+        next_income: None,
+    })
+}
+
 /// Значение одной цифры на сегодня.
 pub fn value(conn: &Connection, f: &Figure, today: &str, week_sunday: bool) -> Result<FigureValue> {
-    let range = range(conn, &f.period, today, week_sunday)?;
+    let range = figure_range(conn, f, today, week_sunday)?;
     let mut missing = Vec::new();
     // Остаток — на сегодня (или на конец прошедшего периода), поток — за весь период.
     let to_now = if f.measure == "balance" {
@@ -408,7 +449,7 @@ pub fn values(conn: &Connection, today: &str, week_sunday: bool) -> Result<Vec<F
         .iter()
         .map(|f| match value(conn, f, today, week_sunday) {
             Err(Error::Db(rusqlite::Error::QueryReturnedNoRows)) => {
-                let range = range(conn, &f.period, today, week_sunday)?;
+                let range = figure_range(conn, f, today, week_sunday)?;
                 Ok(FigureValue {
                     id: f.id.clone(),
                     range,
@@ -465,6 +506,8 @@ mod tests {
             category_id: None,
             account_id: None,
             tag_id: None,
+            from: None,
+            to: None,
         }
     }
 
@@ -586,6 +629,26 @@ mod tests {
             list(c).unwrap().len(),
             4,
             "неудачная запись не трогает список"
+        );
+
+        // Инвестиционный счёт — по оценке: внесено 100 000, стоит 140 000.
+        let iis = accounts::create(c, &input("ИИС", "investment", "RUB", 10_000_000)).unwrap();
+        crate::invest::set_value(c, &iis, "2026-11-01", 14_000_000).unwrap();
+        let mut inv = fig("iis", "balance", "month");
+        inv.account_id = Some(iis);
+        assert_eq!(
+            value(c, &inv, "2026-11-12", false).unwrap().value,
+            14_000_000
+        );
+
+        // Свой период — октябрь из отчёта.
+        let mut oct = fig("oct", "expense", "custom");
+        assert!(save(c, &[oct.clone()]).is_err(), "без дат нельзя");
+        (oct.from, oct.to) = (Some("2026-10-01".into()), Some("2026-10-31".into()));
+        let v = value(c, &oct, "2026-11-12", false).unwrap();
+        assert_eq!(
+            (v.value, v.range.prev_from.as_str()),
+            (70_000, "2026-08-31")
         );
 
         settings::set(c, PERIOD_KEY, "week").unwrap();

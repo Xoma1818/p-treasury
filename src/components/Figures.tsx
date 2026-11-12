@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
-import { api, type Figure, type FigureMeasure, type FigurePeriod, type FigureValue, type HomeRange } from "../lib/api";
+import { api, type Figure, type FigureMeasure, type FigurePeriod, type FigureValue, type HomeRange, type TxnType } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { useFine } from "../lib/fine";
 import { parseLayout, toSetting } from "../lib/homeLayout";
@@ -31,6 +31,7 @@ export const PERIOD_LABEL: Record<FigurePeriod, string> = {
   quarter: "Этот квартал",
   year: "Этот год",
   days30: "Последние 30 дней",
+  custom: "Свои даты",
 };
 
 /** Подпись периода под цифрой: «с 05.11 (зарплата)», «09.11 – 15.11». */
@@ -63,7 +64,8 @@ export function FiguresCard() {
   const valueOf = (id: string) => values.find((v) => v.id === id);
   const open = (f: Figure, v: FigureValue) => {
     if (f.measure === "balance") return showTransactions({ accountId: f.accountId ?? undefined });
-    showTransactions({ dateFrom: v.range.from, dateTo: v.range.to, accountId: f.accountId ?? undefined, categoryId: f.categoryId ?? undefined, tagId: f.tagId ?? undefined });
+    const types: TxnType[] = f.measure === "expense" ? ["expense"] : f.measure === "income" ? ["income"] : ["income", "expense"];
+    showTransactions({ types, dateFrom: v.range.from, dateTo: v.range.to, accountId: f.accountId ?? undefined, categoryId: f.categoryId ?? undefined, tagId: f.tagId ?? undefined });
   };
   return (
     <div className="card" data-testid="home-figures">
@@ -104,7 +106,7 @@ export function FiguresCard() {
 }
 
 /** Окно цифры: новая (по образцу `draft`, например из отчёта) или изменение. */
-export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure | null; draft?: Partial<Figure>; onClose: () => void; onSaved?: () => void }) {
+export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: Figure | null; draft?: Partial<Figure>; note?: string; onClose: () => void; onSaved?: () => void }) {
   const settings = useSettings().data;
   const all = parseFigures(settings?.home_figures);
   const start = figure ?? draft ?? {};
@@ -114,6 +116,8 @@ export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure
   const [categoryId, setCategoryId] = useState(start.categoryId ?? "");
   const [accountId, setAccountId] = useState(start.accountId ?? "");
   const [tagId, setTagId] = useState(start.tagId ?? "");
+  const [from, setFrom] = useState(start.from ?? "");
+  const [to, setTo] = useState(start.to ?? "");
   const categories = useCategories().data ?? [];
   const accounts = useAccounts().data ?? [];
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data ?? [];
@@ -140,6 +144,7 @@ export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure
       categoryId: balance ? null : categoryId || null,
       accountId: accountId || null,
       tagId: balance ? null : tagId || null,
+      ...(period === "custom" && !balance ? { from: from || null, to: to || null } : {}),
     };
     save.run(figure ? all.map((x) => (x.id === f.id ? f : x)) : [...all, f]);
   };
@@ -147,7 +152,9 @@ export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure
     const cat = categories.find((c) => c.id === categoryId)?.name;
     const acc = accounts.find((a) => a.id === accountId)?.name;
     const base = balance ? (acc ?? "Остаток") : (cat ?? MEASURE_LABEL[measure].split(" ")[0]);
-    return balance ? base : `${base}, ${PERIOD_LABEL[period].toLowerCase().replace(/^этот |^эта /, "")}`;
+    if (balance) return base;
+    if (period === "custom") return from && to ? `${base}, ${formatDate(from)} – ${formatDate(to)}` : base;
+    return `${base}, ${PERIOD_LABEL[period].toLowerCase().replace(/^этот |^эта /, "")}`;
   };
   const move = (delta: number) => {
     if (!figure) return;
@@ -161,6 +168,11 @@ export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure
   return (
     <Modal title={figure ? `Цифра «${figure.title}»` : "Своя цифра"} onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())} data-testid="figure-form">
+        {note && (
+          <p className="hint warn" data-testid="figure-note">
+            {note}
+          </p>
+        )}
         <Field label="Название" hint="Можно оставить пустым — подпишем сами.">
           {(id) => <input id={id} name="figureTitle" placeholder={autoTitle()} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={60} autoFocus />}
         </Field>
@@ -188,6 +200,12 @@ export function FigureForm({ figure, draft, onClose, onSaved }: { figure: Figure
             )}
           </Field>
         </div>
+        {!balance && period === "custom" && (
+          <div className="row">
+            <Field label="С даты">{(id) => <input id={id} type="date" name="figureFrom" value={from} onChange={(e) => setFrom(e.target.value)} required />}</Field>
+            <Field label="По дату">{(id) => <input id={id} type="date" name="figureTo" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} required />}</Field>
+          </div>
+        )}
         {!balance && (
           <Field label="Категория" hint="Вместе с подкатегориями.">
             {(id) => <CategorySelect id={id} name="figureCategory" categories={categories} kind={kind} value={categoryId} onChange={setCategoryId} placeholder="Все категории" />}

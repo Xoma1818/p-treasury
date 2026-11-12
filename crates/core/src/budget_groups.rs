@@ -166,6 +166,7 @@ mod tests {
     use super::*;
     use crate::accounts::{self, tests::input};
     use crate::budgets;
+    use crate::categories;
     use crate::storage::Storage;
     use crate::transactions::{self, TxnInput};
 
@@ -288,5 +289,50 @@ mod tests {
         );
         assert_eq!(row.actuals[4], 300_000, "факт и без лимита");
         assert_eq!(y.has_budget[..5], [true, true, true, true, false]);
+    }
+
+    /// Ревью #88: объединение складывает лимиты по сумме на месяц и не теряет перенос;
+    /// процентный остаток переносится по той же базе дохода, что и в месяце.
+    #[test]
+    fn merge_kinds_and_percent_carry() {
+        let mut db = Storage::open_in_memory().unwrap();
+        categories::seed_defaults(db.conn()).unwrap();
+        let nov = budgets::create(db.conn_mut(), "2026-11", false).unwrap();
+        let c = db.conn();
+        budgets::set_limit(c, &nov, &cat(c, "Заработная плата"), Some(5_000_000)).unwrap();
+        budgets::set_limit_kind(c, &nov, &cat(c, "Общепит"), "percent", 1000).unwrap();
+        budgets::set_limit(c, &nov, &cat(c, "Подарки"), Some(200_000)).unwrap();
+        budgets::set_rollover(c, &nov, &cat(c, "Подарки"), true).unwrap();
+        let cafe = cat(c, "Общепит");
+        let gifts = cat(c, "Подарки");
+        categories::merge(db.conn_mut(), &gifts, &cafe).unwrap();
+        let c = db.conn();
+        let b = budgets::get(c, "2026-11", "2026-11-10").unwrap();
+        let l = b.lines.iter().find(|l| l.category_id == cafe).unwrap();
+        assert_eq!(
+            (l.limit, l.limit_kind.as_str(), l.rollover),
+            (700_000, "month", true)
+        );
+
+        // 10 % от плана 100 000 при факте 0: в месяце 10 000, и столько же переходит дальше.
+        budgets::set_limit(c, &nov, &cat(c, "Заработная плата"), Some(10_000_000)).unwrap();
+        budgets::set_limit_kind(c, &nov, &cafe, "percent", 1000).unwrap();
+        budgets::set_rollover(c, &nov, &cafe, true).unwrap();
+        assert_eq!(
+            budgets::get(c, "2026-11", "2026-11-10")
+                .unwrap()
+                .lines
+                .iter()
+                .find(|l| l.category_id == cafe)
+                .unwrap()
+                .remaining,
+            1_000_000
+        );
+        let mut db2 = db;
+        budgets::create(db2.conn_mut(), "2026-12", true).unwrap();
+        let c = db2.conn();
+        let dec = budgets::get(c, "2026-12", "2026-12-10").unwrap();
+        let l = dec.lines.iter().find(|l| l.category_id == cafe).unwrap();
+        assert_eq!(l.carried, 1_000_000);
     }
 }

@@ -293,19 +293,6 @@ fn actual_with_children(
         .sum()
 }
 
-/// Строка бюджета из базы: категория, имя, родитель, тип, сохранённый лимит,
-/// перенос, вид лимита и его значение.
-type LineRow = (
-    String,
-    String,
-    Option<String>,
-    String,
-    i64,
-    bool,
-    String,
-    Option<i64>,
-);
-
 /// Р9: лимит строки на период по её виду. Неделя пересчитывается по дням
 /// периода, доля — от дохода месяца (`income`).
 fn line_limit(kind: &str, value: Option<i64>, stored: i64, days: i64, income: i64) -> i64 {
@@ -360,16 +347,16 @@ fn carries(
         if lines.is_empty() {
             break;
         }
-        chain.push((pp, lines));
+        chain.push((pp, prev_id, lines));
         m = prev_month;
     }
     let mut carry: HashMap<String, i64> = HashMap::new();
-    for (pp, lines) in chain.into_iter().rev() {
+    for (pp, prev_id, lines) in chain.into_iter().rev() {
         let (by_cat, miss) = actuals(conn, &pp, currency)?;
         let mut next = HashMap::new();
         if miss.is_empty() {
             let days = period_days(&pp);
-            let income = income_total(conn, &by_cat)?;
+            let income = income_basis_of(conn, &prev_id, &by_cat)?;
             for (cat, stored, kind, value) in lines {
                 let limit = line_limit(&kind, value, stored, days, income);
                 let left = limit + carry.get(&cat).copied().unwrap_or(0)
@@ -388,6 +375,44 @@ fn carries(
         carry = next;
     }
     Ok(carry)
+}
+
+/// Лимит строки бюджета на месяц без перенесённого остатка (неделя и доля дохода
+/// пересчитаны, как в бюджете) и флаг переноса. Нет строки — (0, false).
+pub(crate) fn effective_limit(
+    conn: &Connection,
+    budget_id: &str,
+    category_id: &str,
+) -> Result<(i64, bool)> {
+    let start: String = conn.query_row(
+        "SELECT period_start FROM budgets WHERE id = ?1",
+        [budget_id],
+        |r| r.get(0),
+    )?;
+    let month = month_of(conn, &start)?.month;
+    let b = get(conn, &month, &start)?;
+    Ok(b.lines
+        .iter()
+        .find(|l| l.category_id == category_id)
+        .map(|l| (l.base_limit, l.rollover))
+        .unwrap_or((0, false)))
+}
+
+/// Р9: доход месяца для долей — план доходов (строки доходов верхнего уровня) или факт,
+/// что больше. Одна формула для месяца и для переноса остатка.
+fn income_basis_of(
+    conn: &Connection,
+    budget_id: &str,
+    by_cat: &HashMap<String, i64>,
+) -> Result<i64> {
+    let planned: i64 = conn.query_row(
+        "SELECT COALESCE(sum(bl.limit_amount), 0) FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
+         WHERE bl.budget_id = ?1 AND c.kind = 'income'
+           AND NOT EXISTS (SELECT 1 FROM budget_lines p WHERE p.budget_id = bl.budget_id AND p.category_id = c.parent_id)",
+        [budget_id],
+        |r| r.get(0),
+    )?;
+    Ok(planned.max(income_total(conn, by_cat)?))
 }
 
 /// Доходы периода по факту (сумма по категориям доходов).
@@ -468,22 +493,8 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
             ))
         })?;
         let rows: Vec<_> = rows.collect::<rusqlite::Result<_>>()?;
-        // Доход для долей: план доходов (строки доходов верхнего уровня) или факт.
-        let income_lines: Vec<&LineRow> = rows.iter().filter(|r| r.3 == "income").collect();
-        let planned_in: i64 = income_lines
-            .iter()
-            .filter(|r| {
-                r.2.as_deref()
-                    .is_none_or(|p| !income_lines.iter().any(|x| x.0 == p))
-            })
-            .map(|r| r.4)
-            .sum();
-        let actual_in: i64 = by_cat
-            .iter()
-            .filter(|(c, _)| kind_of.get(c.as_str()) == Some(&"income"))
-            .map(|(_, v)| v)
-            .sum();
-        income_basis = planned_in.max(actual_in);
+        // Доход для долей: план доходов или факт — та же формула, что при переносе.
+        income_basis = income_basis_of(conn, id, &by_cat)?;
         let days = period_days(&p);
         let carried_in = carries(
             conn,

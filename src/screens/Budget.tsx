@@ -5,7 +5,7 @@ import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
-import { Money } from "../components/Money";
+import { BaseMoney, Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode, type LimitKind } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
@@ -695,7 +695,8 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
   const q = useQuery({ queryKey: ["budgetYear", year], queryFn: () => api.budgetYear(year) });
   const y = q.data;
   const MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-  const cell = (v: number) => formatAmount(Math.round(v / 100) * 100, 2).replace(/,00$/, "");
+  // В рублях без копеек, с символом валюты и с учётом «скрыть суммы».
+  const cell = (v: number) => <BaseMoney amount={Math.round(v / 100) * 100} />;
   return (
     <div className="card" data-testid="budget-year">
       <div className="notes-head">

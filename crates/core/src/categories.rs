@@ -518,18 +518,30 @@ fn delete_in(tx: &Connection, id: &str, move_to: Option<&str>) -> Result<()> {
                  WHERE json_extract(row_json, '$.category_id') = ?1",
                 params![cid, target],
             )?;
-            // Лимит переносится, если у цели его в этом бюджете ещё нет; иначе суммируется.
-            tx.execute(
-                "UPDATE budget_lines SET limit_amount = limit_amount +
-                     (SELECT b.limit_amount FROM budget_lines b WHERE b.budget_id = budget_lines.budget_id AND b.category_id = ?1)
-                 WHERE category_id = ?2 AND budget_id IN (SELECT budget_id FROM budget_lines WHERE category_id = ?1)",
-                params![cid, target],
-            )?;
-            tx.execute(
-                "DELETE FROM budget_lines WHERE category_id = ?1
-                   AND budget_id IN (SELECT budget_id FROM budget_lines WHERE category_id = ?2)",
-                params![cid, target],
-            )?;
+            // Лимит переносится, если у цели его в этом бюджете ещё нет. Если есть — лимиты
+            // складываются по их сумме на месяц (неделя и доля дохода пересчитываются, как
+            // в бюджете), строка становится месячной, перенос остатка включён, если был у любой.
+            let both: Vec<String> = {
+                let mut stmt = tx.prepare(
+                    "SELECT a.budget_id FROM budget_lines a JOIN budget_lines b ON b.budget_id = a.budget_id
+                     WHERE a.category_id = ?1 AND b.category_id = ?2",
+                )?;
+                let rows = stmt.query_map(params![cid, target], |r| r.get(0))?;
+                rows.collect::<rusqlite::Result<_>>()?
+            };
+            for budget in both {
+                let (src, src_roll) = crate::budgets::effective_limit(tx, &budget, cid)?;
+                let (dst, dst_roll) = crate::budgets::effective_limit(tx, &budget, target)?;
+                tx.execute(
+                    "UPDATE budget_lines SET limit_amount = ?3, limit_kind = 'month', limit_value = NULL, rollover = ?4
+                     WHERE budget_id = ?1 AND category_id = ?2",
+                    params![budget, target, src + dst, src_roll || dst_roll],
+                )?;
+                tx.execute(
+                    "DELETE FROM budget_lines WHERE budget_id = ?1 AND category_id = ?2",
+                    params![budget, cid],
+                )?;
+            }
             tx.execute(
                 "UPDATE budget_lines SET category_id = ?2 WHERE category_id = ?1",
                 params![cid, target],

@@ -1,7 +1,7 @@
 // Теги (Г6): управление в «Категориях» и отчёт «По тегу» в «Отчётах».
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type Period, type Tag } from "../lib/api";
+import { api, type Figure, type Period, type Tag } from "../lib/api";
 import { monthTitle } from "../lib/dates";
 import { plural } from "../lib/receipt";
 import { useUi } from "../lib/store";
@@ -124,9 +124,10 @@ export function TagsCard() {
 }
 
 /** Отчёт «По тегу» за период: итог, категории и месяцы. */
-export function TagReport({ period }: { period: Period }) {
+export function TagReport({ period, onDraft }: { period: Period; onDraft?: (d: Partial<Figure>) => void }) {
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data;
   const [tagId, setTagId] = useState("");
+  useEffect(() => onDraft?.({ measure: "expense", tagId: tagId || null }), [tagId, onDraft]);
   useEffect(() => {
     if (!tagId && tags?.length) setTagId([...tags].sort((a, b) => b.count - a.count)[0].id);
   }, [tags, tagId]);

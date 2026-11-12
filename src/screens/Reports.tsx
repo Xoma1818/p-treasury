@@ -172,9 +172,22 @@ export function Reports() {
   const [sent, setSent] = useState(false);
   const draft = (): Partial<Figure> => {
     const measure = tab === "months" ? "saldo" : tab === "balances" || tab === "networth" ? "balance" : "expense";
-    const p: FigurePeriod = kind === "quarter" || kind === "year" ? kind : "month";
-    return { measure, period: p, ...(tab === "structure" || tab === "months" ? ctx : {}) };
+    // Текущий месяц/квартал/год — «скользящий» период; прошлый или произвольный — свои даты.
+    const now = today();
+    const live = kind !== "custom" && !!period && period.start <= now && now <= period.end;
+    const dates: Partial<Figure> =
+      measure === "balance" || !period ? { period: "month" } : live ? { period: kind as FigurePeriod } : { period: "custom", from: period.start, to: period.end };
+    return { measure, ...dates, ...(tab === "structure" || tab === "months" || tab === "tag" ? ctx : {}) };
   };
+  // Что цифра повторить не может — предупредим в окне.
+  const draftNote =
+    tab === "compare" || tab === "fx" || tab === "subs" || tab === "year"
+      ? "Этот отчёт цифрой не повторить: будут расходы за период. Поменяйте, что считать, если нужно другое."
+      : tab === "networth"
+        ? "Цифра покажет остаток на счетах общего баланса на сегодня, без долгов и истории."
+        : tab === "balances" && period && period.end < today()
+          ? "Цифра покажет остаток на сегодня, а не на конец выбранного периода."
+          : undefined;
   // Сравнение, подписки и итоги года выбирают период сами.
   const ownPeriod = tab === "compare" || tab === "subs" || tab === "year" || tab === "networth";
   // Итоги периода сверху не нужны там, где отчёт показывает свои.
@@ -238,7 +251,7 @@ export function Reports() {
           Цифра добавлена на Главную, в «Свои цифры».
         </p>
       )}
-      {toHome && <FigureForm figure={null} draft={draft()} onClose={() => setToHome(false)} onSaved={() => setSent(true)} />}
+      {toHome && <FigureForm figure={null} draft={draft()} note={draftNote} onClose={() => setToHome(false)} onSaved={() => setSent(true)} />}
       {exp.done && (
         <p className="ok" data-testid="export-done">
           Выгружено: {exp.done}
@@ -296,7 +309,7 @@ export function Reports() {
       {period && tab === "fx" && <FxGain period={period} />}
       {tab === "subs" && <SubscriptionsReport />}
       {tab === "year" && <YearReviewReport />}
-      {period && tab === "tag" && <TagReport period={period} />}
+      {period && tab === "tag" && <TagReport period={period} onDraft={setCtx} />}
       {tab === "networth" && <NetWorthReport />}
     </section>
   );

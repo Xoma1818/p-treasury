@@ -804,7 +804,7 @@ export interface CopyResult {
 
 /** Р2: период Главной и «Своих цифр». */
 export type HomePeriodKind = "month" | "week" | "payday";
-export type FigurePeriod = HomePeriodKind | "quarter" | "year" | "days30";
+export type FigurePeriod = HomePeriodKind | "quarter" | "year" | "days30" | "custom";
 export type FigureMeasure = "expense" | "income" | "saldo" | "balance";
 
 export interface HomeRange {
@@ -827,6 +827,9 @@ export interface Figure {
   categoryId?: string | null;
   accountId?: string | null;
   tagId?: string | null;
+  /** Только для period «custom». */
+  from?: string | null;
+  to?: string | null;
 }
 
 export interface FigureValue {
@@ -2148,8 +2151,11 @@ export const api = {
   closeMonth: (month: string, note: string | null) => invoke<void>("close_month", { month, note }),
   reopenMonth: (month: string) => invoke<void>("reopen_month", { month }),
   accountReserves: () => invoke<Record<string, number>>("account_reserves"),
-  createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
-  updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
+  /** shareBp: доля свободных денег в сотых процента; задаётся тем же шагом отмены. */
+  createGoal: (input: GoalInput, shareBp?: number | null) => invoke<string>("create_goal", { input, shareBp: shareBp ?? null }),
+  /** shareBp: undefined — долю не трогать, null — убрать. */
+  updateGoal: (id: string, input: GoalInput, shareBp?: number | null) =>
+    invoke<void>("update_goal", { id, input, shareBp: shareBp ?? null, withShare: shareBp !== undefined }),
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
   goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
   listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),

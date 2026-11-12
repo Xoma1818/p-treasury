@@ -145,8 +145,9 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
       const input = { name, target: t, currencyCode: code, accountId: accountId || null, deadline: deadline || null, reserve: canReserve && reserve };
       const bp = share.trim() === "" ? null : Math.round(Number(share.replace(",", ".").replace("%", "").trim()) * 100);
       if (bp != null && (!Number.isFinite(bp) || bp < 0 || bp > 10_000)) throw "Доля — от 0 до 100 %";
-      const id = goal ? (await api.updateGoal(goal.id, input), goal.id) : await api.createGoal(input);
-      if (bp !== (goal?.shareBp ?? null)) await api.setGoalShare(id, bp);
+      const shareArg = bp !== (goal?.shareBp ?? null) ? bp : undefined;
+      if (goal) await api.updateGoal(goal.id, input, shareArg);
+      else await api.createGoal(input, shareArg);
     },
     onClose,
     { celebrate: true },
