@@ -22,6 +22,8 @@ import { Hint } from "../components/Hint";
 import { NetWorthReport } from "../components/NetWorth";
 import { TagReport } from "../components/Tags";
 import { usePopup } from "../lib/usePopup";
+import { FigureForm } from "../components/Figures";
+import type { Figure, FigurePeriod } from "../lib/api";
 
 const M = BaseMoney;
 
@@ -164,6 +166,15 @@ export function Reports() {
     return api.exportReport("months", `${from}-28`, `${to}-28`, path);
   });
 
+  // Р14: «На Главную» — цифра по образцу открытого отчёта (вид, период, отбор).
+  const [ctx, setCtx] = useState<Partial<Figure>>({});
+  const [toHome, setToHome] = useState(false);
+  const [sent, setSent] = useState(false);
+  const draft = (): Partial<Figure> => {
+    const measure = tab === "months" ? "saldo" : tab === "balances" || tab === "networth" ? "balance" : "expense";
+    const p: FigurePeriod = kind === "quarter" || kind === "year" ? kind : "month";
+    return { measure, period: p, ...(tab === "structure" || tab === "months" ? ctx : {}) };
+  };
   // Сравнение, подписки и итоги года выбирают период сами.
   const ownPeriod = tab === "compare" || tab === "subs" || tab === "year" || tab === "networth";
   // Итоги периода сверху не нужны там, где отчёт показывает свои.
@@ -218,7 +229,16 @@ export function Reports() {
           )}
         </div>
         )}
+        <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
+          На Главную
+        </button>
       </div>
+      {sent && (
+        <p className="ok" role="status" data-testid="report-sent-home">
+          Цифра добавлена на Главную, в «Свои цифры».
+        </p>
+      )}
+      {toHome && <FigureForm figure={null} draft={draft()} onClose={() => setToHome(false)} onSaved={() => setSent(true)} />}
       {exp.done && (
         <p className="ok" data-testid="export-done">
           Выгружено: {exp.done}
@@ -269,8 +289,8 @@ export function Reports() {
       />
       <ReportTabs tab={tab} onPick={setTab} />
 
-      {period && tab === "structure" && <Structure period={period} />}
-      {period && tab === "months" && <Months period={period} kind={kind} />}
+      {period && tab === "structure" && <Structure period={period} onDraft={setCtx} />}
+      {period && tab === "months" && <Months period={period} kind={kind} onDraft={setCtx} />}
       {period && tab === "balances" && <Balances period={period} />}
       {tab === "compare" && <Compare />}
       {period && tab === "fx" && <FxGain period={period} />}
@@ -351,10 +371,11 @@ function ReportFilterBar({ value, onChange }: { value: ReportFilter; onChange: (
   );
 }
 
-function Structure({ period }: { period: Period }) {
+function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<Figure>) => void }) {
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<ReportFilter>({});
+  useEffect(() => onDraft?.({ measure: kind, accountId: filter.accountId ?? null, tagId: filter.tagId ?? null }), [kind, filter, onDraft]);
   const [chart, setChart] = useChartKind("structure");
   const report = useQuery({
     queryKey: ["reportByCategory", kind, period.start, period.end, filter],
@@ -503,9 +524,10 @@ function monthsRange(kind: Kind, period: Period): [string, string] {
   return [from, shiftMonth(from, months - 1)];
 }
 
-function Months({ period, kind }: { period: Period; kind: Kind }) {
+function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft?: (d: Partial<Figure>) => void }) {
   const [from, to] = monthsRange(kind, period);
   const [filter, setFilter] = useState<ReportFilter>({});
+  useEffect(() => onDraft?.({ accountId: filter.accountId ?? null, tagId: filter.tagId ?? null }), [filter, onDraft]);
   const [chart, setChart] = useChartKind("months");
   const report = useQuery({ queryKey: ["reportByMonth", from, to, filter], queryFn: () => api.reportByMonth(from, to, filter) });
   const showTransactions = useUi((u) => u.showTransactions);

@@ -802,6 +802,42 @@ export interface CopyResult {
   skipped: string[];
 }
 
+/** Р2: период Главной и «Своих цифр». */
+export type HomePeriodKind = "month" | "week" | "payday";
+export type FigurePeriod = HomePeriodKind | "quarter" | "year" | "days30";
+export type FigureMeasure = "expense" | "income" | "saldo" | "balance";
+
+export interface HomeRange {
+  kind: FigurePeriod;
+  from: string;
+  to: string;
+  prevFrom: string;
+  prevTo: string;
+  /** «От зарплаты»: дата дохода; null — дохода не нашли, взят месяц. */
+  payday: string | null;
+  nextIncome: string | null;
+}
+
+/** Р1: «Своя цифра» на Главной. */
+export interface Figure {
+  id: string;
+  title: string;
+  measure: FigureMeasure;
+  period: FigurePeriod;
+  categoryId?: string | null;
+  accountId?: string | null;
+  tagId?: string | null;
+}
+
+export interface FigureValue {
+  id: string;
+  range: HomeRange;
+  value: number;
+  prev: number | null;
+  baseCurrency: string;
+  missingRates: string[];
+}
+
 export interface YearBudget {
   year: number;
   months: string[];
@@ -1953,6 +1989,9 @@ export const api = {
   deleteBudgetGroup: (id: string) => invoke<void>("delete_budget_group", { id }),
   setCategoryBudgetGroup: (categoryId: string, groupId: string | null) => invoke<void>("set_category_budget_group", { categoryId, groupId }),
   applyBudgetTemplate: () => invoke<string[]>("apply_budget_template"),
+  homeRange: (today: string, weekSunday: boolean) => invoke<HomeRange>("home_range", { today, weekSunday }),
+  figureValues: (today: string, weekSunday: boolean) => invoke<FigureValue[]>("figure_values", { today, weekSunday }),
+  saveFigures: (figures: Figure[]) => invoke<void>("save_figures", { figures }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>

@@ -1,4 +1,4 @@
--- Тред 27, этап 8в: виды лимита (Р9) и группы бюджета (Р10).
+-- Тред 27, этап 8в–8г: виды лимита (Р9), группы бюджета (Р10), период и цифры Главной.
 --
 -- budget_lines.limit_kind — 'month' (сумма на месяц, как раньше), 'week'
 -- (limit_value — сумма в неделю) или 'percent' (limit_value — доля дохода
@@ -20,3 +20,6 @@ CREATE TABLE budget_groups (
 );
 
 ALTER TABLE categories ADD COLUMN budget_group_id TEXT REFERENCES budget_groups(id) ON DELETE SET NULL;
+
+-- Этап 8г: период Главной (Р2) и «Своя цифра» (Р1, Р14).
+INSERT OR IGNORE INTO settings (key, value) VALUES ('home_period', 'month'), ('home_figures', '[]');

@@ -687,6 +687,41 @@ pub fn apply_budget_template(state: State<AppState>) -> CmdResult<Vec<String>> {
     })
 }
 
+/// Р2: период Главной (месяц, неделя, от зарплаты) на сегодня.
+#[tauri::command(async)]
+pub fn home_range(
+    state: State<AppState>,
+    today: String,
+    week_sunday: bool,
+) -> CmdResult<budget_core::home_figures::Range> {
+    with_db(&state, |db| {
+        budget_core::home_figures::home_range(db.conn(), &today, week_sunday)
+    })
+}
+
+/// Р1: значения «Своих цифр» Главной.
+#[tauri::command(async)]
+pub fn figure_values(
+    state: State<AppState>,
+    today: String,
+    week_sunday: bool,
+) -> CmdResult<Vec<budget_core::home_figures::FigureValue>> {
+    with_db(&state, |db| {
+        budget_core::home_figures::values(db.conn(), &today, week_sunday)
+    })
+}
+
+/// Р1, Р14: сохранить список «Своих цифр» целиком.
+#[tauri::command(async)]
+pub fn save_figures(
+    state: State<AppState>,
+    figures: Vec<budget_core::home_figures::Figure>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        budget_core::home_figures::save(db.conn(), &figures)
+    })
+}
+
 /// Р8: переносить ли остаток строки на следующий месяц.
 #[tauri::command(async)]
 pub fn set_budget_rollover(

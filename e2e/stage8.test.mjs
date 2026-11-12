@@ -122,3 +122,33 @@ test("Р9–Р11: лимит в неделю, шаблон 50/30/20, копия 
   await click(browser, "Месяц", '//*[@data-testid="budget-mode"]');
   await browser.$(line("Питание")).waitForExist({ timeout: 5000 });
 });
+
+test("Р2, Р1, Р14: период Главной, «На Главную» из отчёта и своя цифра", async () => {
+  await openSection(browser, "Главная");
+  await click(browser, "Неделя", '//*[@data-testid="home-period"]');
+  await waitText(browser, '[data-testid="month-expense"]', /Расходы, неделя/);
+  await browser.$('[data-testid="home-period-range"]').waitForExist({ timeout: 5000 });
+  await click(browser, "От зарплаты", '//*[@data-testid="home-period"]');
+  await waitText(browser, '[data-testid="home-period-range"]', /Крупного дохода за 45 дней нет/);
+  await click(browser, "Месяц", '//*[@data-testid="home-period"]');
+  await browser.waitUntil(async () => !(await browser.$('[data-testid="home-period-range"]').isExisting()), { timeout: 5000 });
+
+  // Р14: остаток «Карты» из отчёта «Остатки на дату».
+  await openSection(browser, "Отчёты");
+  await click(browser, "Остатки на дату", '//*[@role="tablist"]');
+  await click(browser, "На Главную", "//main");
+  await choose(browser, "figureAccount", "Карта (₽)");
+  await fill(browser, "figureTitle", "На карте");
+  await save(browser, "На Главную");
+  await browser.$('[data-testid="report-sent-home"]').waitForExist({ timeout: 5000 });
+
+  // Р1: своя цифра прямо на Главной; название подставляется само.
+  await openSection(browser, "Главная");
+  await waitText(browser, '//*[@data-testid="figure" and @data-name="На карте"]', money("100 000 ₽"));
+  await click(browser, "+ Своя цифра", '//*[@data-testid="home-figures"]');
+  await choose(browser, "figureCategory", "Питание");
+  await choose(browser, "figurePeriod", "Эта неделя");
+  await save(browser, "На Главную");
+  await waitCount(browser, '[data-testid="figure"]', 2);
+  await browser.$('//*[@data-testid="figure" and @data-name="Питание, неделя"]').waitForExist({ timeout: 5000 });
+});

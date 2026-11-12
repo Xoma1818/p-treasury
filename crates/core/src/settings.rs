@@ -57,6 +57,7 @@ fn validate(key: &str, value: &str) -> Result<()> {
         "checks_days" => value.parse::<i64>().is_ok_and(|d| (7..=180).contains(&d)),
         "quick_hotkey" => QUICK_HOTKEYS.contains(&value),
         "date_format" => matches!(value, "DD.MM.YYYY" | "YYYY-MM-DD"),
+        "home_period" => matches!(value, "month" | "week" | "payday"),
         "subscriptions_hidden" | "forecast_excluded_accounts" | "ui_modules" => {
             serde_json::from_str::<Vec<String>>(value).is_ok()
         }
