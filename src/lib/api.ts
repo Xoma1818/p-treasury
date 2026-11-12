@@ -767,6 +767,48 @@ export interface BudgetLine {
   rollover: boolean;
   /** Пришло с прошлого месяца. */
   carried: number;
+  /** Р9: вид лимита. */
+  limitKind: LimitKind;
+  /** Неделя — сумма в неделю; доля — сотые процента дохода. */
+  limitValue: number | null;
+  /** Р10: группа бюджета категории. */
+  groupId: string | null;
+}
+
+export type LimitKind = "month" | "week" | "percent";
+
+/** Р10: итог группы бюджета. */
+export interface BudgetGroupSummary {
+  id: string;
+  name: string;
+  shareBp: number | null;
+  planned: number;
+  actual: number;
+  target: number | null;
+  savings: boolean;
+}
+
+export interface BudgetGroup {
+  id: string;
+  name: string;
+  shareBp: number | null;
+  sortOrder: number;
+  categoryIds: string[];
+}
+
+export interface CopyResult {
+  created: string[];
+  replaced: string[];
+  skipped: string[];
+}
+
+export interface YearBudget {
+  year: number;
+  months: string[];
+  hasBudget: boolean[];
+  rows: { categoryId: string; categoryName: string; parentId: string | null; kind: CategoryKind; limits: (number | null)[]; actuals: number[] }[];
+  plannedExpense: number[];
+  actualExpense: number[];
 }
 
 export interface Budget {
@@ -789,6 +831,9 @@ export interface Budget {
   missingRates: string[];
   /** Р8: нет курса в прошлых месяцах — их остаток не перенесён. */
   carryMissingRates: string[];
+  /** Р9, Р10: доход, от которого считаются доли. */
+  incomeBasis: number;
+  groups: BudgetGroupSummary[];
 }
 
 /** Откуда брать лимиты: среднее за 3 месяца или тот же месяц год назад. */
@@ -1898,6 +1943,16 @@ export const api = {
   setBudgetLimit: (budgetId: string, categoryId: string, limit: number | null) =>
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
   setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
+  setBudgetLimitKind: (budgetId: string, categoryId: string, kind: LimitKind, value: number) =>
+    invoke<void>("set_budget_limit_kind", { budgetId, categoryId, kind, value }),
+  copyBudgetForward: (month: string, months: number, overwrite: boolean) => invoke<CopyResult>("copy_budget_forward", { month, months, overwrite }),
+  budgetYear: (year: number) => invoke<YearBudget>("budget_year", { year }),
+  listBudgetGroups: () => invoke<BudgetGroup[]>("list_budget_groups"),
+  createBudgetGroup: (name: string, shareBp: number | null) => invoke<string>("create_budget_group", { name, shareBp }),
+  updateBudgetGroup: (id: string, name: string, shareBp: number | null) => invoke<void>("update_budget_group", { id, name, shareBp }),
+  deleteBudgetGroup: (id: string) => invoke<void>("delete_budget_group", { id }),
+  setCategoryBudgetGroup: (categoryId: string, groupId: string | null) => invoke<void>("set_category_budget_group", { categoryId, groupId }),
+  applyBudgetTemplate: () => invoke<string[]>("apply_budget_template"),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>

@@ -126,6 +126,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "account_groups_look",
         sql: include_str!("../../migrations/0022_account_groups_look.sql"),
     },
+    Migration {
+        version: 23,
+        name: "budget_kinds_groups",
+        sql: include_str!("../../migrations/0023_budget_kinds_groups.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

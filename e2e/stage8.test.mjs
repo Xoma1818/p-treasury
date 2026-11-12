@@ -88,3 +88,37 @@ test("Р23–Р24: ключевое слово в карточке катего�
   await browser.waitUntil(async () => !(await browser.$(cat("Кафе")).isExisting()), { timeout: 5000, timeoutMsg: "«Кафе» осталась" });
   await waitText(browser, '//*[@data-testid="rule-row"][contains(., "Шоколадница")]', /Общепит/);
 });
+
+const line = (name) => `//tr[@data-testid="budget-line" and @data-category="${name}"]`;
+
+test("Р9–Р11: лимит в неделю, шаблон 50/30/20, копия вперёд и вид года", async () => {
+  await openSection(browser, "Бюджет");
+  await click(browser, "Создать пустой");
+  await choose(browser, "add-expense", "Питание");
+  await fill(browser, "add-expense-limit", "10000");
+  await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');
+  await browser.$(line("Питание")).waitForExist({ timeout: 5000 });
+
+  // Р9: 700 ₽ в неделю → 100 ₽ в день × дней месяца.
+  await choose(browser, "limitKind", "в неделю");
+  await waitText(browser, '[data-testid="limit-month"]', /в месяц/);
+  await fill(browser, "limit", "700");
+  await (await browser.$('//main//h2[normalize-space()="Бюджет"]')).click();
+  const now = new Date();
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  await waitText(browser, '[data-testid="limit-month"]', money(`≈ ${Math.floor(days / 10)} ${days % 10}00 ₽ в месяц`));
+
+  // Р10: шаблон даёт три группы.
+  await click(browser, "Шаблон 50/30/20", '//*[@data-testid="budget-groups"]');
+  await waitCount(browser, '[data-testid="budget-group"]', 3);
+  await waitText(browser, '//tr[@data-testid="budget-group" and @data-name="Обязательное"]', /50 % дохода/);
+
+  // Р11: копия на 2 месяца вперёд и год.
+  await choose(browser, "copyMonths", "2 мес.");
+  await click(browser, "Скопировать", '//*[@data-testid="copy-forward"]');
+  await waitText(browser, '[data-testid="copy-done"]', /создано: 2/);
+  await click(browser, "Год", '//*[@data-testid="budget-mode"]');
+  await browser.$('//tr[@data-testid="year-row" and @data-category="Питание"]').waitForExist({ timeout: 5000 });
+  await click(browser, "Месяц", '//*[@data-testid="budget-mode"]');
+  await browser.$(line("Питание")).waitForExist({ timeout: 5000 });
+});

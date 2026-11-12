@@ -1132,3 +1132,18 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .rule-chip-x:hover { color: var(--text); }
 .tree li[draggable="true"] { cursor: grab; }
 .tree li.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
+
+/* Этап 8в: виды лимитов, копирование вперёд, группы и год */
+.limit-cell { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.limit-kind { font-size: 12px; padding: 2px 4px; border-radius: 6px; }
+.pct-input { width: 64px; text-align: right; }
+.limit-month { white-space: nowrap; }
+.copy-forward { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.copy-forward .inline-form { margin-bottom: 4px; }
+.budget-groups td.num { white-space: nowrap; }
+.year-scroll { overflow-x: auto; max-width: 100%; }
+.year-budget { font-size: 13px; min-width: 760px; }
+.year-budget td.num, .year-budget th.num { padding: 4px 6px; white-space: nowrap; }
+.year-budget td .sub { font-size: 11px; color: var(--muted); }
+.year-budget .child-name { padding-left: 20px; }
+.year-budget th .link { font-weight: 600; }

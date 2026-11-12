@@ -794,5 +794,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(20), "fine_settings");
     assert_eq!(at(21), "txn_history");
     assert_eq!(at(22), "account_groups_look");
-    assert_eq!(LATEST_VERSION, 22);
+    assert_eq!(at(23), "budget_kinds_groups");
+    assert_eq!(LATEST_VERSION, 23);
 }

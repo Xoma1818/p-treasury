@@ -10,6 +10,7 @@ pub mod auto_import;
 pub mod backups;
 pub mod bank_import;
 pub mod budget_alerts;
+pub mod budget_groups;
 pub mod budgets;
 pub mod bulk;
 pub mod calendar;

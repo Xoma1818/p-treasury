@@ -16,6 +16,7 @@ use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::auto_import::{self, ScanResult};
 use budget_core::backups::{self, BackupInfo};
 use budget_core::budget_alerts;
+use budget_core::budget_groups;
 use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::bulk::{self, BulkResult};
 use budget_core::calendar::{self, Month};
@@ -588,8 +589,101 @@ pub fn set_budget_limit(
     category_id: String,
     limit: Option<i64>,
 ) -> CmdResult<()> {
+    with_undo(&state, "Изменение лимита", |c| match limit {
+        // Сумма на месяц: вид лимита тоже становится «в месяц».
+        Some(v) => budgets::set_limit_kind(c, &budget_id, &category_id, "month", v),
+        None => budgets::set_limit(c, &budget_id, &category_id, None),
+    })
+}
+
+/// Р9: лимит в неделю или долей дохода.
+#[tauri::command(async)]
+pub fn set_budget_limit_kind(
+    state: State<AppState>,
+    budget_id: String,
+    category_id: String,
+    kind: String,
+    value: i64,
+) -> CmdResult<()> {
     with_undo(&state, "Изменение лимита", |c| {
-        budgets::set_limit(c, &budget_id, &category_id, limit)
+        budgets::set_limit_kind(c, &budget_id, &category_id, &kind, value)
+    })
+}
+
+/// Р11: скопировать лимиты на N месяцев вперёд.
+#[tauri::command(async)]
+pub fn copy_budget_forward(
+    state: State<AppState>,
+    month: String,
+    months: u32,
+    overwrite: bool,
+) -> CmdResult<budgets::CopyResult> {
+    with_undo(&state, "Копирование бюджета", |c| {
+        budgets::copy_forward(c, &month, months, overwrite)
+    })
+}
+
+/// Р11: годовой вид бюджета.
+#[tauri::command(async)]
+pub fn budget_year(state: State<AppState>, year: i32) -> CmdResult<budgets::YearBudget> {
+    with_db(&state, |db| {
+        budgets::year(db.conn(), year, &time::today_local())
+    })
+}
+
+/// Р10: группы бюджета.
+#[tauri::command(async)]
+pub fn list_budget_groups(state: State<AppState>) -> CmdResult<Vec<budget_groups::BudgetGroup>> {
+    with_db(&state, |db| budget_groups::list(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn create_budget_group(
+    state: State<AppState>,
+    name: String,
+    share_bp: Option<i64>,
+) -> CmdResult<String> {
+    with_undo(&state, "Новая группа бюджета", |c| {
+        budget_groups::create(c, &name, share_bp)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_budget_group(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    share_bp: Option<i64>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа бюджета", |c| {
+        budget_groups::update(c, &id, &name, share_bp)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_budget_group(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(
+        &state,
+        "Удаление группы бюджета",
+        |c| budget_groups::delete(c, &id),
+    )
+}
+
+#[tauri::command(async)]
+pub fn set_category_budget_group(
+    state: State<AppState>,
+    category_id: String,
+    group_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа категории", |c| {
+        budget_groups::set_category(c, &category_id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn apply_budget_template(state: State<AppState>) -> CmdResult<Vec<String>> {
+    with_undo(&state, "Шаблон 50/30/20", |c| {
+        budget_groups::apply_template(c)
     })
 }
 
