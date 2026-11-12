@@ -47,8 +47,9 @@ impl PayoffDebt {
 pub struct PayoffClose {
     pub id: String,
     pub name: String,
-    /// Месяц `YYYY-MM`, в котором долг закрыт по плану.
-    pub month: String,
+    /// Месяц `YYYY-MM`, в котором долг закрыт по плану (None — и с планом не
+    /// закрывается за 50 лет: такой долг тоже в списке, последним).
+    pub month: Option<String>,
     /// А обычными платежами — когда (None — не закрывается за 50 лет).
     pub base_month: Option<String>,
 }
@@ -60,7 +61,7 @@ pub struct Payoff {
     pub extra: i64,
     pub currency_symbol: String,
     pub minor_units: u32,
-    /// Долги в порядке закрытия по плану.
+    /// Все долги расчёта в порядке закрытия по плану; незакрывающиеся — в конце.
     pub order: Vec<PayoffClose>,
     /// «Дата свободы»: последний месяц выплат по плану и обычными платежами.
     pub free_month: Option<String>,
@@ -154,11 +155,10 @@ pub fn plan(list: &[PayoffDebt], extra: i64, strategy: &str, first_month: &str) 
     let mut idx: Vec<usize> = (0..list.len()).collect();
     idx.sort_by_key(|i| (run.closed[*i].unwrap_or(u32::MAX), list[*i].name.clone()));
     for i in idx {
-        let Some(m) = run.closed[i] else { continue };
         order.push(PayoffClose {
             id: list[i].id.clone(),
             name: list[i].name.clone(),
-            month: month(m)?,
+            month: run.closed[i].map(month).transpose()?,
             base_month: base.closed[i].map(month).transpose()?,
         });
     }
@@ -286,8 +286,12 @@ mod tests {
         let p = plan(&list, 0, "costly", "2026-11").unwrap();
         assert_eq!(p.base_free_month, None);
         assert_eq!(p.saved, 0);
+        // Долг, который не закрывается, всё равно виден в списке — без месяца.
+        assert_eq!(p.order.len(), 1);
+        assert_eq!(p.order[0].month, None);
         let p = plan(&list, 1_000_000, "costly", "2026-11").unwrap();
         assert!(p.free_month.is_some());
+        assert!(p.order[0].month.is_some());
         assert_eq!(p.order[0].base_month, None);
     }
 
