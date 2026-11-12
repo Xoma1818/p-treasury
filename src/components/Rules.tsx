@@ -80,3 +80,49 @@ export function RulesCard() {
     </div>
   );
 }
+
+/** Р24: правила прямо в карточке категории — «ключевые слова → сюда». */
+export function CategoryRules({ categoryId }: { categoryId: string }) {
+  const rules = (useQuery({ queryKey: ["rules"], queryFn: api.listRules }).data ?? []).filter((r) => r.categoryId === categoryId);
+  const [pattern, setPattern] = useState("");
+  const create = useAction(() => api.createRule({ pattern, categoryId, payee: null }), () => setPattern(""));
+  const remove = useAction(api.deleteRule);
+  const add = () => pattern.trim() && create.run();
+  return (
+    <div className="field" role="group" aria-label="Ключевые слова" data-testid="category-rules">
+      <span className="label">
+        Ключевые слова → сюда <Hint of="rules" />
+      </span>
+      <div className="rule-chips">
+        {rules.map((r) => (
+          <span key={r.id} className="rule-chip" data-testid="category-rule">
+            {r.pattern}
+            <button type="button" className="rule-chip-x" aria-label={`Убрать «${r.pattern}»`} onClick={() => remove.run(r.id)}>
+              ×
+            </button>
+          </span>
+        ))}
+        {rules.length === 0 && <span className="muted small">Пока нет. Операции с этим текстом в получателе сами попадут в категорию.</span>}
+      </div>
+      <div className="row">
+        <input
+          name="categoryRule"
+          placeholder="например «пятерочка»"
+          value={pattern}
+          onChange={(e) => setPattern(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter добавляет слово, а не сохраняет всю форму.
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button type="button" className="btn" disabled={!pattern.trim() || create.busy} onClick={add}>
+          Добавить
+        </button>
+      </div>
+      <ErrorText error={create.error ?? remove.error} />
+    </div>
+  );
+}

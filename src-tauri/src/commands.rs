@@ -467,6 +467,13 @@ pub fn delete_category(
     })
 }
 
+#[tauri::command(async)]
+pub fn merge_categories(state: State<AppState>, from: String, into: String) -> CmdResult<()> {
+    with_undo(&state, "Объединение категорий", |c| {
+        categories::merge(c, &from, &into)
+    })
+}
+
 // --- Операции ---
 
 #[tauri::command(async)]

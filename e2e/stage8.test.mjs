@@ -64,3 +64,27 @@ test("Р19–Р21: группа «Семья» с итогом, счёт не в
   await waitCount(browser, '[data-testid="account-group"]', 0);
   await waitCount(browser, '[data-testid="account-row"]', 2);
 });
+
+const cat = (name) => `//li[@data-testid="category-item" and @data-name="${name}"]`;
+
+test("Р23–Р24: ключевое слово в карточке категории и объединение «Кафе» с «Общепитом»", async () => {
+  await openSection(browser, "Категории");
+  await click(browser, "+ Категория", '//*[@data-testid="categories-expense"]');
+  await fill(browser, "name", "Кафе");
+  await save(browser);
+  await browser.$(cat("Кафе")).waitForExist({ timeout: 5000 });
+
+  await click(browser, "Изменить", cat("Кафе"));
+  await fill(browser, "categoryRule", "Шоколадница");
+  await click(browser, "Добавить", '//*[@data-testid="category-rules"]');
+  await waitCount(browser, '[data-testid="category-rule"]', 1);
+  await click(browser, "Отмена", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="rules"]', /Шоколадница/);
+
+  await click(browser, "Объединить", cat("Кафе"));
+  await choose(browser, "mergeInto", "Общепит");
+  await waitText(browser, '[data-testid="merge-hint"]', /перейдут в «Общепит»/);
+  await click(browser, "Объединить", '//*[@role="dialog"]//form');
+  await browser.waitUntil(async () => !(await browser.$(cat("Кафе")).isExisting()), { timeout: 5000, timeoutMsg: "«Кафе» осталась" });
+  await waitText(browser, '//*[@data-testid="rule-row"][contains(., "Шоколадница")]', /Общепит/);
+});

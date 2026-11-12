@@ -202,6 +202,7 @@ pub fn run() {
             commands::category_rename_apply,
             commands::archive_category,
             commands::delete_category,
+            commands::merge_categories,
             commands::list_transactions,
             commands::get_transaction,
             commands::create_transaction,

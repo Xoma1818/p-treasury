@@ -401,8 +401,69 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<()> {
 /// шаблоны, напоминания или строки бюджета, нужно указать `move_to`: всё
 /// это переносится туда (так «Рестораны» объединяются с «Кафе»).
 pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<()> {
-    let current = row(conn, id)?;
     let tx = conn.transaction()?;
+    delete_in(&tx, id, move_to)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Р23: объединить категорию `from` с `into`. Операции, лимиты, правила,
+/// шаблоны и напоминания переходят в `into`. Подкатегории верхней категории
+/// переезжают под `into` (если она верхняя); одноимённые — сливаются с её
+/// подкатегориями. Если `into` — подкатегория, всё сливается в неё.
+pub fn merge(conn: &mut Connection, from: &str, into: &str) -> Result<()> {
+    if from == into {
+        return invalid("выберите другую категорию");
+    }
+    let a = row(conn, from)?;
+    let b = row(conn, into)?;
+    if a.kind != b.kind {
+        return invalid("объединить можно только категории одного типа");
+    }
+    if b.parent_id.as_deref() == Some(from) {
+        return invalid("нельзя объединить категорию с её же подкатегорией");
+    }
+    let tx = conn.transaction()?;
+    if b.parent_id.is_none() {
+        let children: Vec<(String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, name FROM categories WHERE parent_id = ?1")?;
+            let rows = stmt.query_map([from], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        for (cid, name) in children {
+            let twin: Option<String> = {
+                let mut stmt =
+                    tx.prepare("SELECT id, name FROM categories WHERE parent_id = ?1")?;
+                let rows = stmt.query_map([into], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?;
+                let mut found = None;
+                for r in rows {
+                    let (id, n) = r?;
+                    if n.to_lowercase() == name.to_lowercase() {
+                        found = Some(id);
+                    }
+                }
+                found
+            };
+            match twin {
+                Some(t) => delete_in(&tx, &cid, Some(&t))?,
+                None => {
+                    tx.execute(
+                        "UPDATE categories SET parent_id = ?2, updated_at = ?3 WHERE id = ?1",
+                        params![cid, into, time::now_utc()],
+                    )?;
+                }
+            }
+        }
+    }
+    delete_in(&tx, from, Some(into))?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn delete_in(tx: &Connection, id: &str, move_to: Option<&str>) -> Result<()> {
+    let current = row(tx, id)?;
     let doomed: Vec<String> = {
         let mut stmt = tx.prepare("SELECT id FROM categories WHERE id = ?1 OR parent_id = ?1")?;
         let rows = stmt.query_map([id], |r| r.get(0))?;
@@ -425,7 +486,7 @@ pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<
         if doomed.iter().any(|d| d == target) {
             return invalid("нельзя перенести операции в удаляемую категорию");
         }
-        if row(&tx, target)?.kind != current.kind {
+        if row(tx, target)?.kind != current.kind {
             return invalid("операции можно перенести только в категорию того же типа");
         }
         for cid in &doomed {
@@ -435,6 +496,19 @@ pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<
             )?;
             tx.execute(
                 "UPDATE recurring_rules SET category_id = ?2 WHERE category_id = ?1",
+                params![cid, target],
+            )?;
+            // Р23: правила, шаблоны и напоминания идут за операциями, а не теряются.
+            tx.execute(
+                "UPDATE payee_rules SET category_id = ?2 WHERE category_id = ?1",
+                params![cid, target],
+            )?;
+            tx.execute(
+                "UPDATE transaction_templates SET category_id = ?2 WHERE category_id = ?1",
+                params![cid, target],
+            )?;
+            tx.execute(
+                "UPDATE reminders SET category_id = ?2 WHERE category_id = ?1",
                 params![cid, target],
             )?;
             // Стороны объединённых переводов вернутся при отмене импорта уже с
@@ -468,7 +542,6 @@ pub fn delete(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<
     // Подкатегории первыми из-за внешнего ключа parent_id.
     tx.execute("DELETE FROM categories WHERE parent_id = ?1", [id])?;
     tx.execute("DELETE FROM categories WHERE id = ?1", [id])?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -484,6 +557,118 @@ mod tests {
             |r| r.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn merge_moves_everything_and_children() {
+        // «Кафе» с подкатегориями «Обеды» и «Кофе» вливается в «Общепит», где «Обеды» уже есть.
+        let mut db = Storage::open_in_memory().unwrap();
+        seed_defaults(db.conn()).unwrap();
+        let c = db.conn();
+        let food = by_name(c, "Общепит", "expense");
+        let lunch = create(
+            c,
+            &CategoryInput {
+                name: "Обеды".into(),
+                kind: "expense".into(),
+                parent_id: Some(food.clone()),
+            },
+        )
+        .unwrap_or_else(|_| by_name(c, "Обеды", "expense"));
+        let cafe = create(
+            c,
+            &CategoryInput {
+                name: "Кафе".into(),
+                kind: "expense".into(),
+                parent_id: None,
+            },
+        )
+        .unwrap();
+        let cafe_lunch = create(
+            c,
+            &CategoryInput {
+                name: "обеды".into(),
+                kind: "expense".into(),
+                parent_id: Some(cafe.clone()),
+            },
+        )
+        .unwrap();
+        let coffee = create(
+            c,
+            &CategoryInput {
+                name: "Кофе".into(),
+                kind: "expense".into(),
+                parent_id: Some(cafe.clone()),
+            },
+        )
+        .unwrap();
+        let card = crate::accounts::create(
+            c,
+            &crate::accounts::tests::input("Карта", "debit", "RUB", 0),
+        )
+        .unwrap();
+        let spend = |cat: &str| {
+            crate::transactions::create(
+                c,
+                &crate::transactions::TxnInput {
+                    kind: "expense".into(),
+                    date: "2026-11-01".into(),
+                    account_id: card.clone(),
+                    amount: 10_000,
+                    category_id: Some(cat.into()),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap()
+        };
+        let t1 = spend(&cafe);
+        let t2 = spend(&cafe_lunch);
+        let t3 = spend(&coffee);
+        crate::rules::create(
+            c,
+            &crate::rules::RuleInput {
+                pattern: "Шоколадница".into(),
+                category_id: cafe.clone(),
+                payee: None,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            merge(db.conn_mut(), &cafe, &cafe_lunch).is_err(),
+            "в свою подкатегорию нельзя"
+        );
+        let salary = by_name(db.conn(), "Заработная плата", "income");
+        assert!(merge(db.conn_mut(), &cafe, &salary).is_err());
+        merge(db.conn_mut(), &cafe, &food).unwrap();
+        let c = db.conn();
+        let cat_of = |t: &str| -> String {
+            c.query_row(
+                "SELECT category_id FROM transactions WHERE id = ?1",
+                [t],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(cat_of(&t1), food);
+        assert_eq!(cat_of(&t2), lunch, "одноимённая подкатегория слилась");
+        assert_eq!(cat_of(&t3), coffee, "«Кофе» переехала под «Общепит»");
+        let parent: Option<String> = c
+            .query_row(
+                "SELECT parent_id FROM categories WHERE id = ?1",
+                [&coffee],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(parent.as_deref(), Some(food.as_str()));
+        let rule_cat: String = c
+            .query_row("SELECT category_id FROM payee_rules", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rule_cat, food, "правило не потерялось");
+        assert!(row(c, &cafe).is_err());
     }
 
     /// База до 0.28: набор с прежними названиями.

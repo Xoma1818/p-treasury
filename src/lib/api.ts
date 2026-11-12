@@ -1846,6 +1846,7 @@ export const api = {
   categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
+  mergeCategories: (from: string, into: string) => invoke<void>("merge_categories", { from, into }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
