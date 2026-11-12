@@ -1157,3 +1157,16 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .figure-tile .tile-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .figure-tile .figure-edit { margin-left: auto; opacity: 0.45; transition: opacity 0.15s; }
 .figure-tile:hover .figure-edit, .figure-tile .figure-edit:focus-visible { opacity: 1; }
+
+/* Этап 8д: заметки — закрепление и списки дел; цели — очередь и разложить */
+.note-list li.clickable { position: relative; padding-right: 32px; }
+.note-pin { position: absolute; top: 6px; right: 4px; opacity: 0.4; }
+.note-list li:hover .note-pin, .note-pin.on, .note-pin:focus-visible { opacity: 1; }
+.note-pin.on { color: var(--accent); }
+.note-list li.pinned { background: var(--accent-soft, transparent); }
+.note-check { display: flex; align-items: baseline; gap: 6px; cursor: pointer; }
+.note-check.done span { text-decoration: line-through; color: var(--muted); }
+.goal-order { display: inline-flex; gap: 2px; margin-left: 4px; }
+.goal-split { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.goal-split ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.goal-split li { display: flex; justify-content: space-between; gap: 12px; }

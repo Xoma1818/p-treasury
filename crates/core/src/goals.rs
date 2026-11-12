@@ -64,6 +64,35 @@ pub struct Goal {
     pub status: String,
     /// Нет курса валюты счёта к валюте цели: накопленное не посчитать.
     pub missing_rate: bool,
+    /// Р26: место в очереди (1 — самая важная); 0 — не задано.
+    pub priority: i64,
+    /// Р26: доля свободных денег для цели, сотые процента; `None` — по очереди.
+    pub share_bp: Option<i64>,
+}
+
+/// Р26: сколько из свободных денег положить в цель (подсказка, без переводов).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitPart {
+    pub goal_id: String,
+    pub name: String,
+    /// В основной валюте.
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Split {
+    pub base_currency: String,
+    /// Что раскладываем.
+    pub total: i64,
+    /// «share» — по долям целей, «priority» — по очереди: сначала первая, пока не наберётся.
+    pub mode: String,
+    pub parts: Vec<SplitPart>,
+    /// Что осталось нераспределённым.
+    pub left: i64,
+    /// Цели, у которых нет курса к основной валюте: их пропустили.
+    pub skipped: Vec<String>,
 }
 
 fn check(conn: &Connection, input: &GoalInput) -> Result<(String, Option<String>, Option<String>)> {
@@ -391,9 +420,109 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             need_per_month: need.filter(|_| remaining > 0),
             status: status.to_string(),
             missing_rate,
+            priority: 0,
+            share_bp: None,
         });
     }
+    // Р26: приоритет и доля читаются отдельно — запрос списка остаётся прежним.
+    let mut stmt = conn.prepare("SELECT id, priority, share_bp FROM goals WHERE archived = 0")?;
+    let extra: std::collections::HashMap<String, (i64, Option<i64>)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+        .collect::<rusqlite::Result<_>>()?;
+    for g in &mut out {
+        if let Some((p, s)) = extra.get(&g.id) {
+            (g.priority, g.share_bp) = (*p, *s);
+        }
+    }
+    // Цели с приоритетом — первыми по порядку, остальные как раньше (по сроку).
+    out.sort_by_key(|g| (g.priority == 0, g.priority));
     Ok(out)
+}
+
+/// Р26: очередь целей — `ids` по важности, первая — самая важная.
+pub fn set_priority(conn: &Connection, ids: &[String]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("UPDATE goals SET priority = 0", [])?;
+    for (i, id) in ids.iter().enumerate() {
+        let n = tx.execute(
+            "UPDATE goals SET priority = ?2 WHERE id = ?1",
+            params![id, i as i64 + 1],
+        )?;
+        if n == 0 {
+            return Err(Error::NotFound("цель"));
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Р26: доля свободных денег для цели (сотые процента) или `None` — по очереди.
+pub fn set_share(conn: &Connection, id: &str, share_bp: Option<i64>) -> Result<()> {
+    if share_bp.is_some_and(|b| !(0..=10_000).contains(&b)) {
+        return invalid("доля — от 0 до 100 %");
+    }
+    let others: i64 = conn.query_row(
+        "SELECT COALESCE(sum(share_bp), 0) FROM goals WHERE archived = 0 AND id <> ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    if others + share_bp.unwrap_or(0) > 10_000 {
+        return invalid("доли целей вместе больше 100 %");
+    }
+    let n = conn.execute(
+        "UPDATE goals SET share_bp = ?2 WHERE id = ?1",
+        params![id, share_bp],
+    )?;
+    if n == 0 {
+        return Err(Error::NotFound("цель"));
+    }
+    Ok(())
+}
+
+/// Р26: как разложить `total` (в основной валюте) по незакрытым целям. Если у целей
+/// заданы доли — по долям, иначе по очереди. Цель не получает больше, чем ей осталось.
+pub fn split(conn: &Connection, today: &str, total: i64) -> Result<Split> {
+    let base = currencies::base_currency(conn)?;
+    let goals: Vec<Goal> = list(conn, today)?
+        .into_iter()
+        .filter(|g| g.remaining > 0 && !g.missing_rate)
+        .collect();
+    let by_share = goals.iter().any(|g| g.share_bp.is_some_and(|b| b > 0));
+    let mut parts = Vec::new();
+    let mut skipped = Vec::new();
+    let mut left = total.max(0);
+    for g in &goals {
+        if by_share && !g.share_bp.is_some_and(|b| b > 0) {
+            continue;
+        }
+        let Some(need) = currencies::convert(conn, g.remaining, &g.currency_code, &base, today)?
+        else {
+            skipped.push(g.name.clone());
+            continue;
+        };
+        let want = if by_share {
+            total.max(0) * g.share_bp.unwrap_or(0) / 10_000
+        } else {
+            left
+        };
+        let amount = want.min(need).min(left);
+        if amount > 0 {
+            left -= amount;
+            parts.push(SplitPart {
+                goal_id: g.id.clone(),
+                name: g.name.clone(),
+                amount,
+            });
+        }
+    }
+    Ok(Split {
+        base_currency: base,
+        total: total.max(0),
+        mode: if by_share { "share" } else { "priority" }.into(),
+        parts,
+        left,
+        skipped,
+    })
 }
 
 #[cfg(test)]
@@ -527,5 +656,52 @@ mod tests {
         );
         delete(c, &id).unwrap();
         assert!(list(c, "2026-10-20").unwrap().is_empty());
+    }
+
+    #[test]
+    fn priority_share_and_split() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let trip = create(c, &goal("Отпуск", 10_000_000, None, Some("2027-07-01"))).unwrap();
+        let car = create(c, &goal("Машина", 50_000_000, None, None)).unwrap();
+        let pad = create(c, &goal("Подушка", 3_000_000, None, None)).unwrap();
+        deposit(c, &pad, "2026-11-01", 1_000_000).unwrap();
+
+        set_priority(c, &[pad.clone(), car.clone()]).unwrap();
+        let names: Vec<String> = list(c, "2026-11-12")
+            .unwrap()
+            .into_iter()
+            .map(|g| g.name)
+            .collect();
+        assert_eq!(names, ["Подушка", "Машина", "Отпуск"]);
+
+        // По очереди: «Подушке» не нужно больше 20 000, остальное — «Машине».
+        let s = split(c, "2026-11-12", 5_000_000).unwrap();
+        assert_eq!(s.mode, "priority");
+        let got: Vec<(&str, i64)> = s
+            .parts
+            .iter()
+            .map(|p| (p.name.as_str(), p.amount))
+            .collect();
+        assert_eq!(got, [("Подушка", 2_000_000), ("Машина", 3_000_000)]);
+        assert_eq!(s.left, 0);
+
+        // По долям: 50 % отпуску, 10 % подушке — остальное не трогаем.
+        set_share(c, &trip, Some(5_000)).unwrap();
+        set_share(c, &pad, Some(1_000)).unwrap();
+        assert!(
+            set_share(c, &car, Some(6_000)).is_err(),
+            "вместе больше 100 %"
+        );
+        let s = split(c, "2026-11-12", 5_000_000).unwrap();
+        assert_eq!(s.mode, "share");
+        let got: Vec<(&str, i64)> = s
+            .parts
+            .iter()
+            .map(|p| (p.name.as_str(), p.amount))
+            .collect();
+        assert_eq!(got, [("Подушка", 500_000), ("Отпуск", 2_500_000)]);
+        assert_eq!(s.left, 2_000_000);
+        assert!(split(c, "2026-11-12", -5).unwrap().parts.is_empty());
     }
 }

@@ -9,7 +9,8 @@ import { Ring } from "./Dashboard";
 import { AccountSelect, AmountInput, amountText, Field } from "./Fields";
 import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
-import { Money } from "./Money";
+import { BaseMoney, Money } from "./Money";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 /** Счета, внутри которых можно держать резерв. */
 const RESERVE_TYPES: string[] = ["cash", "debit", "savings"];
@@ -30,6 +31,16 @@ export function GoalsCard() {
   const goals = useQuery({ queryKey: ["goals"], queryFn: api.listGoals }).data ?? [];
   const [editing, setEditing] = useState<Goal | "new" | null>(null);
   const [depositing, setDepositing] = useState<Goal | null>(null);
+  // Р26: очередь — порядок карточек; стрелки меняют места соседей.
+  const order = useAction((ids: string[]) => api.setGoalPriority(ids));
+  const move = (i: number, d: number) => {
+    const ids = goals.map((g) => g.id);
+    const j = i + d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    order.run(ids);
+  };
+  const open = goals.some((g) => g.status !== "reached");
   return (
     <div className="card" data-testid="goals">
       <div className="screen-head">
@@ -45,15 +56,28 @@ export function GoalsCard() {
       </div>
       {goals.length === 0 && <p className="muted">На что копите? Отпуск, машина, подушка: приложение покажет, сколько уже есть и когда хватит.</p>}
       <div className="goal-grid">
-        {goals.map((g) => (
+        {goals.map((g, i) => (
           <div key={g.id} className={`goal-card goal-card-${g.status}`} data-testid="goal" data-name={g.name}>
             <Ring percent={g.percent} size={92} label={`${g.name}: ${g.percent} %`}>
               <b>{g.percent} %</b>
             </Ring>
             <div className="goal-body">
-              <button className="link main" onClick={() => setEditing(g)}>
-                {g.name}
-              </button>
+              <div className="goal-title">
+                <button className="link main" onClick={() => setEditing(g)}>
+                  {g.name}
+                </button>
+                {goals.length > 1 && (
+                  <span className="goal-order">
+                    <button className="icon-btn" aria-label={`Важнее: ${g.name}`} title="Важнее" disabled={i === 0 || order.busy} onClick={() => move(i, -1)}>
+                      <ChevronUp size={14} aria-hidden />
+                    </button>
+                    <button className="icon-btn" aria-label={`Менее важна: ${g.name}`} title="Менее важна" disabled={i === goals.length - 1 || order.busy} onClick={() => move(i, 1)}>
+                      <ChevronDown size={14} aria-hidden />
+                    </button>
+                  </span>
+                )}
+                {g.shareBp != null && g.shareBp > 0 && <span className="muted small"> · {g.shareBp / 100} % свободных</span>}
+              </div>
               <div className="goal-sum">
                 <Money amount={g.saved} symbol={g.currencySymbol} minorUnits={g.minorUnits} />
                 <span className="muted">
@@ -93,6 +117,7 @@ export function GoalsCard() {
           </div>
         ))}
       </div>
+      {open && <SplitHint />}
       {editing && <GoalForm goal={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {depositing && <DepositForm goal={depositing} onClose={() => setDepositing(null)} />}
     </div>
@@ -114,11 +139,14 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
   // Резерв — только на быстрых счетах: деньги лежат вместе с остальными.
   const canReserve = !!account && RESERVE_TYPES.includes(account.type);
   const [reserve, setReserve] = useState(goal?.reserve ?? false);
+  const [share, setShare] = useState(goal?.shareBp != null ? String(goal.shareBp / 100).replace(".", ",") : "");
   const save = useAction(
     async (t: number) => {
       const input = { name, target: t, currencyCode: code, accountId: accountId || null, deadline: deadline || null, reserve: canReserve && reserve };
-      if (goal) return api.updateGoal(goal.id, input);
-      await api.createGoal(input);
+      const bp = share.trim() === "" ? null : Math.round(Number(share.replace(",", ".").replace("%", "").trim()) * 100);
+      if (bp != null && (!Number.isFinite(bp) || bp < 0 || bp > 10_000)) throw "Доля — от 0 до 100 %";
+      const id = goal ? (await api.updateGoal(goal.id, input), goal.id) : await api.createGoal(input);
+      if (bp !== (goal?.shareBp ?? null)) await api.setGoalShare(id, bp);
     },
     onClose,
     { celebrate: true },
@@ -165,6 +193,9 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
           }
         >
           {(id) => <AccountSelect id={id} name="goalAccount" accounts={accounts} value={accountId} onChange={setAccountId} placeholder="Без счёта, пополняю вручную" />}
+        </Field>
+        <Field label="Доля свободных денег, %" hint="Для подсказки «Разложить свободные деньги». Пусто — по очереди: сначала самая важная цель.">
+          {(id) => <input id={id} name="goalShare" className="pct-input" inputMode="decimal" placeholder="—" value={share} onChange={(e) => setShare(e.target.value)} />}
         </Field>
         {canReserve && (
           <label className="check" data-testid="goal-reserve-toggle">
@@ -233,5 +264,49 @@ function DepositForm({ goal, onClose }: { goal: Goal; onClose: () => void }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Р26: подсказка, как разложить «Свободно до дохода» по целям. Переводов не делает. */
+function SplitHint() {
+  const [shown, setShown] = useState(false);
+  const split = useQuery({ queryKey: ["goalSplit"], queryFn: () => api.goalSplit(), enabled: shown });
+  const s = split.data;
+  return (
+    <div className="goal-split" data-testid="goal-split">
+      {!shown ? (
+        <button className="link" onClick={() => setShown(true)} data-testid="goal-split-open">
+          Разложить свободные деньги по целям
+        </button>
+      ) : !s ? (
+        <span className="muted small">Считаю…</span>
+      ) : s.total <= 0 ? (
+        <p className="muted small">Свободных денег до дохода сейчас нет — раскладывать нечего.</p>
+      ) : (
+        <>
+          <div className="muted small">
+            Свободно до дохода <BaseMoney amount={s.total} />. {s.mode === "share" ? "По долям целей:" : "По очереди, сначала самая важная:"}
+          </div>
+          <ul>
+            {s.parts.map((p) => (
+              <li key={p.goalId} data-testid="goal-split-part" data-name={p.name}>
+                <span>{p.name}</span>
+                <BaseMoney amount={p.amount} />
+              </li>
+            ))}
+          </ul>
+          <p className="hint">
+            {s.left > 0 && (
+              <>
+                Останется свободным: <BaseMoney amount={s.left} />.{" "}
+              </>
+            )}
+            Это подсказка: деньги никуда не переводятся, пополните цели сами.
+            {s.skipped.length > 0 && <> Без курса валюты пропущены: {s.skipped.join(", ")}.</>}
+          </p>
+        </>
+      )}
+      <ErrorText error={split.error ? String(split.error) : null} />
+    </div>
   );
 }

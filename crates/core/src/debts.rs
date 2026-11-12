@@ -882,6 +882,32 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
     })
 }
 
+/// Р18: за сколько дней напоминать о платеже долга; `None` — как в настройках,
+/// −1 — не напоминать. Отдельно от `get`: та работает и на старой схеме (проверка обновления).
+pub fn remind_days(conn: &Connection, id: &str) -> Result<Option<i64>> {
+    Ok(
+        conn.query_row("SELECT remind_days FROM debts WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?,
+    )
+}
+
+/// Р18: своё напоминание у долга. `None` — как в общей настройке, −1 — не напоминать,
+/// 0–60 — за сколько дней до платежа.
+pub fn set_remind_days(conn: &Connection, id: &str, days: Option<i64>) -> Result<()> {
+    if days.is_some_and(|d| !(-1..=60).contains(&d)) {
+        return invalid("напоминать можно за 0–60 дней");
+    }
+    let n = conn.execute(
+        "UPDATE debts SET remind_days = ?2 WHERE id = ?1",
+        params![id, days],
+    )?;
+    if n == 0 {
+        return Err(Error::NotFound("долг"));
+    }
+    Ok(())
+}
+
 pub fn list(conn: &Connection, today: &str) -> Result<Vec<DebtCard>> {
     let ids: Vec<String> = conn
         .prepare("SELECT id FROM debts ORDER BY status = 'closed', maturity_date, counterparty")?

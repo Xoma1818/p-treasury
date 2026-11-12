@@ -1,6 +1,6 @@
 // Этап 8 треда 27: опции разделов, которым нужна миграция 0022+.
 import { test, after, before } from "node:test";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, waitCount, money, newDebt, showAllHomeCards } from "./app.mjs";
 
 let browser;
 before(async () => {
@@ -151,4 +151,45 @@ test("Р2, Р1, Р14: период Главной, «На Главную» из 
   await save(browser, "На Главную");
   await waitCount(browser, '[data-testid="figure"]', 2);
   await browser.$('//*[@data-testid="figure" and @data-name="Питание, неделя"]').waitForExist({ timeout: 5000 });
+});
+
+test("Р25: заметка со списком дел и закрепление сверху", async () => {
+  await openSection(browser, "Заметки");
+  await click(browser, "+ Заметка");
+  await fill(browser, "noteBody", "Купить:\n- [ ] хлеб");
+  await save(browser);
+  await click(browser, "+ Заметка");
+  await fill(browser, "noteBody", "Вторая");
+  await save(browser);
+  await waitText(browser, '(//*[@data-testid="note"])[1]', /Вторая/);
+
+  const shop = '//*[@data-testid="note" and contains(., "хлеб")]';
+  await (await browser.$(`${shop}//*[@data-testid="note-check"]//input`)).click();
+  await browser.waitUntil(async () => /done/.test((await browser.$(`${shop}//*[@data-testid="note-check"]`).getAttribute("class")) ?? ""), { timeout: 5000, timeoutMsg: "пункт не отметился" });
+  await (await browser.$(`${shop}//*[@data-testid="note-pin"]`)).click();
+  await waitText(browser, '(//*[@data-testid="note"])[1]', /хлеб/);
+});
+
+test("Р26: очередь целей и подсказка «Разложить свободные деньги»", async () => {
+  await openSection(browser, "Главная");
+  await showAllHomeCards(browser);
+  for (const [name, sum] of [["Отпуск", "200000"], ["Подушка", "30000"]]) {
+    await click(browser, "+ Цель");
+    await fill(browser, "goalName", name);
+    await fill(browser, "goalTarget", sum);
+    await save(browser);
+    await browser.$(`[data-testid="goal"][data-name="${name}"]`).waitForExist({ timeout: 5000 });
+  }
+  await (await browser.$('button[aria-label="Важнее: Подушка"]')).click();
+  await waitText(browser, '(//*[@data-testid="goal"])[1]', /Подушка/);
+  await click(browser, "Разложить свободные деньги по целям");
+  await waitText(browser, '//*[@data-testid="goal-split-part" and @data-name="Подушка"]', money("30 000 ₽"));
+});
+
+test("Р18: своё напоминание у долга", async () => {
+  await newDebt(browser, { counterparty: "Банк", principal: "60000", rate: "10", term: "6", account: "Карта (₽)" });
+  await save(browser);
+  await browser.$('//main//h1[contains(., "Банк")]').waitForDisplayed({ timeout: 5000 });
+  await choose(browser, "debtRemind", "Не напоминать");
+  await browser.waitUntil(async () => (await browser.$('[data-testid="debt-remind"]').getValue()) === "-1", { timeout: 5000, timeoutMsg: "выбор не сохранился" });
 });

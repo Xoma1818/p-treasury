@@ -34,6 +34,8 @@ pub struct Note {
     pub link: Option<String>,
     /// Напоминание у заметки (0.23).
     pub reminder_id: Option<String>,
+    /// Р25: закреплена сверху списка.
+    pub pinned: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -148,7 +150,8 @@ const SELECT: &str = "SELECT n.id, n.body, n.date, n.transaction_id, n.account_i
           WHEN n.budget_id IS NOT NULL THEN 'Бюджет с ' || b.period_start
         END,
         n.created_at, n.updated_at,
-        (SELECT r.id FROM reminders r WHERE r.note_id = n.id ORDER BY r.created_at LIMIT 1)
+        (SELECT r.id FROM reminders r WHERE r.note_id = n.id ORDER BY r.created_at LIMIT 1),
+        n.pinned
      FROM notes n
      LEFT JOIN transactions t ON t.id = n.transaction_id
      LEFT JOIN accounts a ON a.id = n.account_id
@@ -168,10 +171,59 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Note> {
         created_at: r.get(8)?,
         updated_at: r.get(9)?,
         reminder_id: r.get(10)?,
+        pinned: r.get(11)?,
     })
 }
 
-/// Заметки по фильтру, новые сверху (по дате заметки, затем по времени создания).
+/// Р25: закрепить заметку сверху списка или открепить.
+pub fn set_pinned(conn: &Connection, id: &str, pinned: bool) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE notes SET pinned = ?2 WHERE id = ?1",
+        params![id, pinned],
+    )?;
+    if n == 0 {
+        return Err(Error::NotFound("заметка"));
+    }
+    Ok(())
+}
+
+/// Строка списка дел: «- [ ] дело» или «- [x] сделано» (и «*» вместо «-»).
+/// Возвращает (отмечено, текст).
+pub fn check_line(line: &str) -> Option<(bool, &str)> {
+    let t = line.trim_start();
+    let rest = t.strip_prefix("- ").or_else(|| t.strip_prefix("* "))?;
+    let (done, text) = if let Some(x) = rest.strip_prefix("[ ]") {
+        (false, x)
+    } else {
+        let x = rest
+            .strip_prefix("[x]")
+            .or_else(|| rest.strip_prefix("[X]"))?;
+        (true, x)
+    };
+    Some((done, text.trim_start()))
+}
+
+/// Р25: отметить или снять отметку у строки `line` (с нуля) списка дел в заметке.
+pub fn toggle_check(conn: &Connection, id: &str, line: usize) -> Result<()> {
+    let note = get(conn, id)?;
+    let mut lines: Vec<String> = note.body.lines().map(str::to_string).collect();
+    let Some(l) = lines.get_mut(line) else {
+        return invalid("в заметке нет такой строки");
+    };
+    let Some((done, _)) = check_line(l) else {
+        return invalid("строка не из списка дел");
+    };
+    // Отметка стоит сразу после отступа и «- » (или «* »).
+    let at = l.len() - l.trim_start().len() + 2;
+    l.replace_range(at..at + 3, if done { "[ ]" } else { "[x]" });
+    conn.execute(
+        "UPDATE notes SET body = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, lines.join("\n"), time::now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Заметки по фильтру: закреплённые сверху, затем новые (по дате заметки, затем по времени создания).
 pub fn list(conn: &Connection, f: &NoteFilter) -> Result<Vec<Note>> {
     let mut sql = format!("{SELECT} WHERE 1 = 1");
     let mut args: Vec<String> = Vec::new();
@@ -196,7 +248,7 @@ pub fn list(conn: &Connection, f: &NoteFilter) -> Result<Vec<Note>> {
     add("n.debt_id =", clean(&f.debt_id), &mut sql);
     add("n.budget_id =", clean(&f.budget_id), &mut sql);
     sql.push_str(
-        " ORDER BY COALESCE(n.date, substr(n.created_at, 1, 10)) DESC, n.created_at DESC LIMIT 500",
+        " ORDER BY n.pinned DESC, COALESCE(n.date, substr(n.created_at, 1, 10)) DESC, n.created_at DESC LIMIT 500",
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), row)?;
@@ -389,5 +441,35 @@ mod tests {
         .map(|n| n.body)
         .collect();
         assert_eq!(got, ["b", "a"]);
+    }
+
+    #[test]
+    fn pinned_first_and_checklist_toggles() {
+        let s = Storage::open_in_memory().unwrap();
+        let conn = s.conn();
+        let old = create(conn, &note("Старая", Some("2026-01-01"))).unwrap();
+        create(conn, &note("Новая", Some("2026-11-01"))).unwrap();
+        let shop = create(
+            conn,
+            &note("Купить:\n- [ ] хлеб\n- [x] молоко\nконец", None),
+        )
+        .unwrap();
+        set_pinned(conn, &old, true).unwrap();
+        let all = list(conn, &NoteFilter::default()).unwrap();
+        assert_eq!(all[0].body, "Старая");
+        assert!(all[0].pinned);
+
+        toggle_check(conn, &shop, 1).unwrap();
+        toggle_check(conn, &shop, 2).unwrap();
+        assert_eq!(
+            get(conn, &shop).unwrap().body,
+            "Купить:\n- [x] хлеб\n- [ ] молоко\nконец"
+        );
+        assert!(toggle_check(conn, &shop, 0).is_err());
+        assert!(toggle_check(conn, &shop, 9).is_err());
+        assert_eq!(check_line("  * [X] сделано"), Some((true, "сделано")));
+        assert_eq!(check_line("- просто пункт"), None);
+        // Отметка не ломает поиск.
+        assert_eq!(search(conn, "хлеб").len(), 1);
     }
 }

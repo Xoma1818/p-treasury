@@ -10,6 +10,7 @@ import { formatDate, monthTitle } from "../lib/dates";
 import { METHODS, PAY_EVERY, paymentsText, rateLabel, rateShort } from "../lib/loan";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { useSettings } from "../lib/queries";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { LoanPlanner } from "./debts/LoanPlanner";
@@ -343,6 +344,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
               <dd>{PAY_EVERY[c.payEvery]}</dd>
             </>
           )}
+          {active && <DebtRemind id={c.id} />}
           {c.note && (
             <>
               <dt>Комментарий</dt>
@@ -534,5 +536,38 @@ function RenameForm({ card, onClose }: { card: DebtCard; onClose: () => void }) 
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Р18: своё напоминание у долга — за сколько дней до платежа, или как в настройках, или не напоминать. */
+function DebtRemind({ id }: { id: string }) {
+  const own = useQuery({ queryKey: ["debtRemind", id], queryFn: () => api.debtRemindDays(id) });
+  const general = useSettings().data?.debt_reminder_days_before ?? "3";
+  const set = useAction((days: number | null) => api.setDebtRemindDays(id, days));
+  if (own.isLoading) return null;
+  const value = own.data == null ? "" : String(own.data);
+  return (
+    <>
+      <dt>Напоминание</dt>
+      <dd>
+        <select
+          name="debtRemind"
+          aria-label="Когда напоминать о платеже"
+          value={value}
+          onChange={(e) => set.run(e.target.value === "" ? null : Number(e.target.value))}
+          data-testid="debt-remind"
+        >
+          <option value="">Как в настройках (за {general} дн.)</option>
+          <option value="0">В день платежа</option>
+          {[1, 2, 3, 5, 7, 10, 14].map((d) => (
+            <option key={d} value={d}>
+              За {d} дн.
+            </option>
+          ))}
+          <option value="-1">Не напоминать</option>
+        </select>
+        <ErrorText error={set.error} />
+      </dd>
+    </>
   );
 }

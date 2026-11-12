@@ -1322,6 +1322,8 @@ export interface Note extends NoteInput {
   id: string;
   link: string | null;
   reminderId: string | null;
+  /** Р25: закреплена сверху. */
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1537,6 +1539,20 @@ export interface Goal {
   needPerMonth: number | null;
   status: GoalStatus;
   missingRate: boolean;
+  /** Р26: место в очереди (1 — самая важная), 0 — не задано. */
+  priority: number;
+  /** Р26: доля свободных денег, сотые процента. */
+  shareBp: number | null;
+}
+
+/** Р26: подсказка, как разложить свободные деньги по целям. */
+export interface GoalSplit {
+  baseCurrency: string;
+  total: number;
+  mode: "share" | "priority";
+  parts: { goalId: string; name: string; amount: number }[];
+  left: number;
+  skipped: string[];
 }
 
 export type SubPeriod = "week" | "month" | "quarter" | "year";
@@ -1949,6 +1965,8 @@ export const api = {
   /** Р17: «сначала дорогие» (costly) или «сначала маленькие» (small), extra — лишнее в месяц. */
   debtPayoff: (extra: number, strategy: "costly" | "small") => invoke<Payoff>("debt_payoff", { extra, strategy }),
   getDebt: (id: string) => invoke<DebtDetail>("get_debt", { id }),
+  debtRemindDays: (id: string) => invoke<number | null>("debt_remind_days", { id }),
+  setDebtRemindDays: (id: string, days: number | null) => invoke<void>("set_debt_remind_days", { id, days }),
   debtSummary: () => invoke<DebtSummary>("debt_summary"),
   createDebt: (input: DebtInput) => invoke<string>("create_debt", { input }),
   updateDebtInfo: (id: string, counterparty: string, note: string | null) => invoke<void>("update_debt_info", { id, counterparty, note }),
@@ -2070,6 +2088,8 @@ export const api = {
   splitReminder: (key: ReminderKey, input: ReminderInput) => invoke<string>("split_reminder", { key, input }),
   payReminder: (key: ReminderKey) => invoke<Paid>("pay_reminder", { key }),
   listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
+  setNotePinned: (id: string, pinned: boolean) => invoke<void>("set_note_pinned", { id, pinned }),
+  toggleNoteCheck: (id: string, line: number) => invoke<void>("toggle_note_check", { id, line }),
   createNote: (input: NoteInput) => invoke<string>("create_note", { input }),
   updateNote: (id: string, input: NoteInput) => invoke<void>("update_note", { id, input }),
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
@@ -2116,6 +2136,9 @@ export const api = {
   undoState: () => invoke<UndoState>("undo_state"),
   undo: () => invoke<string | null>("undo"),
   listGoals: () => invoke<Goal[]>("list_goals"),
+  setGoalPriority: (ids: string[]) => invoke<void>("set_goal_priority", { ids }),
+  setGoalShare: (id: string, shareBp: number | null) => invoke<void>("set_goal_share", { id, shareBp }),
+  goalSplit: (total: number | null = null) => invoke<GoalSplit>("goal_split", { total }),
   freeUntilIncome: () => invoke<FreeMoney>("free_until_income"),
   refundInfo: (of: string, except?: string | null) => invoke<RefundInfo>("refund_info", { of, except: except ?? null }),
   createRefund: (input: RefundInput) => invoke<string>("create_refund", { input }),

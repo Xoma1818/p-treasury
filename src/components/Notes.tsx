@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useState } from "react";
-import { Bell, X } from "lucide-react";
+import { Bell, Pin, X } from "lucide-react";
 import { api, type Note, type NoteFilter, type NoteInput } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { loadReceiptNotes } from "../lib/receiptNotes";
@@ -33,7 +33,12 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
           save.run({ body, date: date || null, ...link });
         }}
       >
-        <Field label="Текст">{(id) => <textarea id={id} name="noteBody" rows={4} value={body} onChange={(e) => setBody(e.target.value)} autoFocus />}</Field>
+        <Field label="Текст" hint="Список дел: строки «- [ ] пункт»; отмечаются галочкой прямо в списке заметок.">
+          {(id) => <textarea id={id} name="noteBody" rows={4} value={body} onChange={(e) => setBody(e.target.value)} autoFocus />}
+        </Field>
+        <button type="button" className="link small" data-testid="note-add-check" onClick={() => setBody((b) => (b && !b.endsWith("\n") ? `${b}\n- [ ] ` : `${b}- [ ] `))}>
+          + пункт списка дел
+        </button>
         <Field label="Дата (необязательно)">{(id) => <input id={id} name="noteDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         {note?.link && <p className="hint">Привязана: {note.link}</p>}
         <ErrorText error={save.error ?? remove.error} />
@@ -62,12 +67,51 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
   );
 }
 
+/** Строка списка дел: «- [ ] дело» или «- [x] сделано» — как в ядре (notes::check_line). */
+export function checkLine(line: string): { done: boolean; text: string } | null {
+  const m = /^\s*[-*] \[( |x|X)\]\s*(.*)$/.exec(line);
+  return m ? { done: m[1] !== " ", text: m[2] } : null;
+}
+
+/** Р25: текст заметки, где строки списка дел — галочки. */
+export function NoteBody({ note }: { note: Note }) {
+  const toggle = useAction((line: number) => api.toggleNoteCheck(note.id, line));
+  const lines = note.body.split("\n");
+  if (!lines.some((l) => checkLine(l))) return <div className="note-body">{note.body}</div>;
+  return (
+    <div className="note-body">
+      {lines.map((l, i) => {
+        const c = checkLine(l);
+        if (!c) return <div key={i}>{l || "\u00a0"}</div>;
+        return (
+          <label key={i} className={c.done ? "note-check done" : "note-check"} onClick={(e) => e.stopPropagation()} data-testid="note-check">
+            <input type="checkbox" checked={c.done} disabled={toggle.busy} onChange={() => toggle.run(i)} />
+            <span>{c.text}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 export function NoteList({ notes, onOpen, showLink = true }: { notes: Note[]; onOpen: (n: Note) => void; showLink?: boolean }) {
+  const pin = useAction((n: Note) => api.setNotePinned(n.id, !n.pinned));
   return (
     <ul className="note-list" data-testid="notes">
       {notes.map((n) => (
-        <li key={n.id} className="clickable" onClick={() => onOpen(n)} data-testid="note">
-          <div className="note-body">{n.body}</div>
+        <li key={n.id} className={n.pinned ? "clickable pinned" : "clickable"} onClick={() => onOpen(n)} data-testid="note" data-pinned={n.pinned || undefined}>
+          <button
+            type="button"
+            className={n.pinned ? "icon-btn note-pin on" : "icon-btn note-pin"}
+            aria-label={n.pinned ? "Открепить" : "Закрепить сверху"}
+            aria-pressed={n.pinned}
+            title={n.pinned ? "Открепить" : "Закрепить сверху"}
+            data-testid="note-pin"
+            onClick={(e) => (e.stopPropagation(), pin.run(n))}
+          >
+            <Pin size={14} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+          <NoteBody note={n} />
           <div className="sub">
             {n.reminderId && <Bell className="note-bell" size={13} strokeWidth={1.75} aria-label="Есть напоминание" />}
             {n.date && formatDate(n.date)}

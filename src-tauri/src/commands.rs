@@ -1974,6 +1974,74 @@ pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
     with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
 }
 
+/// Р18: своё напоминание у долга (`None` — как в настройках, −1 — не напоминать).
+#[tauri::command(async)]
+pub fn debt_remind_days(state: State<AppState>, id: String) -> CmdResult<Option<i64>> {
+    with_db(&state, |db| debts::remind_days(db.conn(), &id))
+}
+
+#[tauri::command(async)]
+pub fn set_debt_remind_days(
+    state: State<AppState>,
+    id: String,
+    days: Option<i64>,
+) -> CmdResult<()> {
+    with_undo(&state, "Напоминание по долгу", |c| {
+        debts::set_remind_days(c, &id, days)
+    })
+}
+
+/// Р25: закрепить заметку сверху.
+#[tauri::command(async)]
+pub fn set_note_pinned(state: State<AppState>, id: String, pinned: bool) -> CmdResult<()> {
+    with_undo(
+        &state,
+        if pinned {
+            "Закрепить заметку"
+        } else {
+            "Открепить заметку"
+        },
+        |c| notes::set_pinned(c, &id, pinned),
+    )
+}
+
+/// Р25: отметить пункт списка дел в заметке.
+#[tauri::command(async)]
+pub fn toggle_note_check(state: State<AppState>, id: String, line: usize) -> CmdResult<()> {
+    with_undo(&state, "Отметка в заметке", |c| {
+        notes::toggle_check(c, &id, line)
+    })
+}
+
+/// Р26: очередь целей по важности.
+#[tauri::command(async)]
+pub fn set_goal_priority(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок целей", |c| {
+        goals::set_priority(c, &ids)
+    })
+}
+
+/// Р26: доля свободных денег для цели.
+#[tauri::command(async)]
+pub fn set_goal_share(state: State<AppState>, id: String, share_bp: Option<i64>) -> CmdResult<()> {
+    with_undo(&state, "Доля цели", |c| {
+        goals::set_share(c, &id, share_bp)
+    })
+}
+
+/// Р26: подсказка, как разложить свободные деньги по целям. Без суммы — «Свободно до дохода».
+#[tauri::command(async)]
+pub fn goal_split(state: State<AppState>, total: Option<i64>) -> CmdResult<goals::Split> {
+    with_db(&state, |db| {
+        let today = time::today_local();
+        let total = match total {
+            Some(t) => t,
+            None => budget_core::free_money::until_income(db.conn(), &today)?.free,
+        };
+        goals::split(db.conn(), &today, total)
+    })
+}
+
 /// «Свободно до дохода» на сегодня (0.27).
 #[tauri::command(async)]
 pub fn free_until_income(state: State<AppState>) -> CmdResult<budget_core::free_money::FreeMoney> {
