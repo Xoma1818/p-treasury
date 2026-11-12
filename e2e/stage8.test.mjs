@@ -156,7 +156,10 @@ test("Р2, Р1, Р14: период Главной, «На Главную» из 
 test("Р25: заметка со списком дел и закрепление сверху", async () => {
   await openSection(browser, "Заметки");
   await click(browser, "+ Заметка");
-  await fill(browser, "noteBody", "Купить:\n- [ ] хлеб");
+  // Перевод строки поле не принимает через fill: пункт списка — кнопкой формы.
+  await fill(browser, "noteBody", "Купить:");
+  await (await browser.$('[data-testid="note-add-check"]')).click();
+  await (await browser.$('[name="noteBody"]')).addValue("хлеб");
   await save(browser);
   await click(browser, "+ Заметка");
   await fill(browser, "noteBody", "Вторая");
