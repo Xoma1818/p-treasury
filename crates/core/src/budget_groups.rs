@@ -334,5 +334,24 @@ mod tests {
         let dec = budgets::get(c, "2026-12", "2026-12-10").unwrap();
         let l = dec.lines.iter().find(|l| l.category_id == cafe).unwrap();
         assert_eq!(l.carried, 1_000_000);
+
+        // Начало месяца поменяли на 25-е: старый ноябрьский бюджет считается по своим датам.
+        crate::settings::set(c, "month_start_day", "25").unwrap();
+        let taxi = cat(c, "Такси");
+        c.execute(
+            "INSERT INTO budget_lines (budget_id, category_id, limit_amount, rollover) VALUES (?1, ?2, 300000, 0)",
+            [&nov, &taxi],
+        )
+        .unwrap();
+        categories::merge(db2.conn_mut(), &taxi, &cafe).unwrap();
+        let (amount, kind, roll): (i64, String, bool) = db2
+            .conn()
+            .query_row(
+                "SELECT limit_amount, limit_kind, rollover FROM budget_lines WHERE budget_id = ?1 AND category_id = ?2",
+                [&nov, &cafe],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((amount, kind.as_str(), roll), (1_300_000, "month", true));
     }
 }

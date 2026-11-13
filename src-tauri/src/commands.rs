@@ -2068,11 +2068,7 @@ pub fn create_goal(
 ) -> CmdResult<String> {
     // Цель и её доля — один шаг отмены.
     with_undo(&state, "Новая цель", |c| {
-        let id = goals::create(c, &input)?;
-        if share_bp.is_some() {
-            goals::set_share(c, &id, share_bp)?;
-        }
-        Ok(id)
+        goals::save_with_share(c, None, &input, share_bp.map(Some))
     })
 }
 
@@ -2085,11 +2081,8 @@ pub fn update_goal(
     with_share: Option<bool>,
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение цели", |c| {
-        goals::update(c, &id, &input)?;
-        if with_share == Some(true) {
-            goals::set_share(c, &id, share_bp)?;
-        }
-        Ok(())
+        let share = (with_share == Some(true)).then_some(share_bp);
+        goals::save_with_share(c, Some(id.as_str()), &input, share).map(|_| ())
     })
 }
 

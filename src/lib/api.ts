@@ -246,6 +246,8 @@ export interface TxnFilter {
   payee?: string;
   /** Р3: готовые фильтры, действуют вместе. */
   quick?: QuickFilter[];
+  /** Как в отчётах: возврат — минус расход на дату учёта. */
+  counted?: boolean;
   /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
   minAmount?: number;
   /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */
@@ -848,6 +850,9 @@ export interface YearBudget {
   rows: { categoryId: string; categoryName: string; parentId: string | null; kind: CategoryKind; limits: (number | null)[]; actuals: number[] }[];
   plannedExpense: number[];
   actualExpense: number[];
+  /** Валюта бюджета каждого месяца (суммы не пересчитываются). */
+  symbols: string[];
+  minorUnits: number[];
 }
 
 export interface Budget {

@@ -384,18 +384,50 @@ pub(crate) fn effective_limit(
     budget_id: &str,
     category_id: &str,
 ) -> Result<(i64, bool)> {
-    let start: String = conn.query_row(
-        "SELECT period_start FROM budgets WHERE id = ?1",
+    // Период — от собственной даты начала бюджета (начало месяца могли поменять позже).
+    let (start, currency): (String, String) = conn.query_row(
+        "SELECT period_start, currency_code FROM budgets WHERE id = ?1",
         [budget_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let month = month_of(conn, &start)?.month;
-    let b = get(conn, &month, &start)?;
-    Ok(b.lines
-        .iter()
-        .find(|l| l.category_id == category_id)
-        .map(|l| (l.base_limit, l.rollover))
-        .unwrap_or((0, false)))
+    let Some((stored, rollover, kind, value)) = conn
+        .query_row(
+            "SELECT limit_amount, rollover, limit_kind, limit_value FROM budget_lines
+             WHERE budget_id = ?1 AND category_id = ?2",
+            [budget_id, category_id],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, bool>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok((0, false));
+    };
+    let from = time::parse_date(&start)?;
+    let to = from
+        .checked_add_months(chrono::Months::new(1))
+        .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
+        - Duration::days(1);
+    let p = Period {
+        month: from.format("%Y-%m").to_string(),
+        start,
+        end: to.to_string(),
+    };
+    let income = if kind == "percent" {
+        let (by_cat, _) = actuals(conn, &p, &currency)?;
+        income_basis_of(conn, budget_id, &by_cat)?
+    } else {
+        0
+    };
+    Ok((
+        line_limit(&kind, value, stored, period_days(&p), income),
+        rollover,
+    ))
 }
 
 /// Р9: доход месяца для долей — план доходов (строки доходов верхнего уровня) или факт,
@@ -1035,6 +1067,10 @@ pub struct YearBudget {
     pub rows: Vec<YearRow>,
     pub planned_expense: Vec<i64>,
     pub actual_expense: Vec<i64>,
+    /// Символ и знаки после запятой валюты бюджета каждого месяца: суммы не пересчитываются,
+    /// поэтому у каждого месяца — своя валюта.
+    pub symbols: Vec<String>,
+    pub minor_units: Vec<u32>,
 }
 
 /// Р11: годовой вид — 12 месяцев в строку по категориям с лимитами.
@@ -1048,7 +1084,11 @@ pub fn year(conn: &Connection, year: i32, today: &str) -> Result<YearBudget> {
         .iter()
         .map(|m| get(conn, m, today))
         .collect::<Result<_>>()?;
+    let mut symbols = Vec::new();
+    let mut minor_units = Vec::new();
     for (i, b) in budgets.iter().enumerate() {
+        symbols.push(b.currency_symbol.clone());
+        minor_units.push(currencies::get(conn, &b.currency_code)?.minor_units);
         has_budget.push(b.id.is_some());
         planned_expense.push(b.planned_expense);
         actual_expense.push(b.actual_expense);
@@ -1092,6 +1132,8 @@ pub fn year(conn: &Connection, year: i32, today: &str) -> Result<YearBudget> {
         rows,
         planned_expense,
         actual_expense,
+        symbols,
+        minor_units,
     })
 }
 

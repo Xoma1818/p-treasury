@@ -457,6 +457,29 @@ pub fn set_priority(conn: &Connection, ids: &[String]) -> Result<()> {
 }
 
 /// Р26: доля свободных денег для цели (сотые процента) или `None` — по очереди.
+/// Цель вместе с долей — одной транзакцией: ошибка доли не оставляет цель без неё.
+/// `id` — изменить цель, `None` — создать; `share` — `None` не трогать долю.
+pub fn save_with_share(
+    conn: &mut Connection,
+    id: Option<&str>,
+    input: &GoalInput,
+    share: Option<Option<i64>>,
+) -> Result<String> {
+    let tx = conn.transaction()?;
+    let id = match id {
+        Some(id) => {
+            update(&tx, id, input)?;
+            id.to_string()
+        }
+        None => create(&tx, input)?,
+    };
+    if let Some(bp) = share {
+        set_share(&tx, &id, bp)?;
+    }
+    tx.commit()?;
+    Ok(id)
+}
+
 pub fn set_share(conn: &Connection, id: &str, share_bp: Option<i64>) -> Result<()> {
     if share_bp.is_some_and(|b| !(0..=10_000).contains(&b)) {
         return invalid("доля — от 0 до 100 %");
@@ -703,5 +726,17 @@ mod tests {
         assert_eq!(got, [("Подушка", 500_000), ("Отпуск", 2_500_000)]);
         assert_eq!(s.left, 2_000_000);
         assert!(split(c, "2026-11-12", -5).unwrap().parts.is_empty());
+
+        // Новая цель с долей сверх 100 % не сохраняется совсем.
+        let mut db = db;
+        let before = list(db.conn(), "2026-11-12").unwrap().len();
+        let bad = save_with_share(
+            db.conn_mut(),
+            None,
+            &goal("Ремонт", 1_000_000, None, None),
+            Some(Some(9_000)),
+        );
+        assert!(bad.is_err());
+        assert_eq!(list(db.conn(), "2026-11-12").unwrap().len(), before);
     }
 }

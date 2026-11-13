@@ -40,14 +40,36 @@ fn read_settings(conn: &Connection) -> Result<Vec<Option<String>>> {
         .collect()
 }
 
-fn write_setting(conn: &Connection, key: &str, value: &Option<String>) -> Result<()> {
-    match value {
-        Some(v) => conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
-            rusqlite::params![key, v],
-        )?,
-        None => conn.execute("DELETE FROM settings WHERE key = ?1", [key])?,
-    };
+fn ids_of(value: &Option<String>) -> Vec<String> {
+    value
+        .as_deref()
+        .and_then(|v| serde_json::from_str(v).ok())
+        .unwrap_or_default()
+}
+
+/// Перевести список счетов из `from` в `to`, не трогая счета, которые с тех пор
+/// изменили другим путём (например, в «Взгляде вперёд»): отменяется только своё.
+fn shift_setting(
+    conn: &Connection,
+    key: &str,
+    from: &Option<String>,
+    to: &Option<String>,
+) -> Result<()> {
+    let (from, to) = (ids_of(from), ids_of(to));
+    let mut now = ids_of(&crate::settings::get(conn, key)?);
+    now.retain(|id| to.contains(id) || !from.contains(id));
+    for id in &to {
+        if !from.contains(id) && !now.contains(id) {
+            now.push(id.clone());
+        }
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        rusqlite::params![
+            key,
+            serde_json::to_string(&now).map_err(|e| Error::Validation(e.to_string()))?
+        ],
+    )?;
     Ok(())
 }
 
@@ -153,8 +175,8 @@ impl Journal {
         if let Err(e) = apply(conn, &step.changes, true) {
             return Err(blocked("отменить", &step.label, e));
         }
-        for (k, before, _) in &step.settings {
-            write_setting(conn, k, before)?;
+        for (k, before, after) in &step.settings {
+            shift_setting(conn, k, after, before)?;
         }
         crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
@@ -173,8 +195,8 @@ impl Journal {
         if let Err(e) = apply(conn, &step.changes, false) {
             return Err(blocked("повторить", &step.label, e));
         }
-        for (k, _, after) in &step.settings {
-            write_setting(conn, k, after)?;
+        for (k, before, after) in &step.settings {
+            shift_setting(conn, k, before, after)?;
         }
         crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
@@ -530,7 +552,17 @@ mod tests {
         .unwrap();
         let a = accounts::get(db.conn(), &card).unwrap();
         assert!(!a.include_in_total && !a.in_budget && !a.in_forecast);
+        // Потом другой счёт выключили в «Взгляде вперёд» — отмена его не трогает.
+        let key = crate::forecast::EXCLUDED_ACCOUNTS_KEY;
+        let mut list: Vec<String> =
+            serde_json::from_str(&crate::settings::get(db.conn(), key).unwrap().unwrap()).unwrap();
+        list.push("other".into());
+        crate::settings::set(db.conn(), key, &serde_json::to_string(&list).unwrap()).unwrap();
         j.undo(db.conn()).unwrap();
+        assert_eq!(
+            crate::settings::get(db.conn(), key).unwrap().as_deref(),
+            Some(r#"["other"]"#)
+        );
         let a = accounts::get(db.conn(), &card).unwrap();
         assert!(
             a.include_in_total && a.in_budget && a.in_forecast,

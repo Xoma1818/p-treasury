@@ -5,7 +5,7 @@ import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
-import { BaseMoney, Money } from "../components/Money";
+import { Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode, type LimitKind } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
@@ -695,8 +695,12 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
   const q = useQuery({ queryKey: ["budgetYear", year], queryFn: () => api.budgetYear(year) });
   const y = q.data;
   const MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-  // В рублях без копеек, с символом валюты и с учётом «скрыть суммы».
-  const cell = (v: number) => <BaseMoney amount={Math.round(v / 100) * 100} />;
+  // Без копеек, в валюте бюджета этого месяца, с учётом «скрыть суммы».
+  const cell = (v: number, i: number) => {
+    const minor = y?.minorUnits[i] ?? 2;
+    const unit = 10 ** minor;
+    return <Money amount={Math.round(v / unit) * unit} symbol={y?.symbols[i] ?? "₽"} minorUnits={minor} />;
+  };
   return (
     <div className="card" data-testid="budget-year">
       <div className="notes-head">
@@ -737,8 +741,8 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
                     const over = r.kind === "expense" && l != null && a > l;
                     return (
                       <td key={i} className={over ? "num over" : "num"}>
-                        {a !== 0 || l != null ? cell(a) : ""}
-                        {l != null && <div className="sub">{cell(l)}</div>}
+                        {a !== 0 || l != null ? cell(a, i) : ""}
+                        {l != null && <div className="sub">{cell(l, i)}</div>}
                       </td>
                     );
                   })}
@@ -748,8 +752,8 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
                 <td>Расходы</td>
                 {y.actualExpense.map((a, i) => (
                   <td key={i} className={y.hasBudget[i] && a > y.plannedExpense[i] ? "num over" : "num"}>
-                    {cell(a)}
-                    {y.hasBudget[i] && <div className="sub">{cell(y.plannedExpense[i])}</div>}
+                    {cell(a, i)}
+                    {y.hasBudget[i] && <div className="sub">{cell(y.plannedExpense[i], i)}</div>}
                   </td>
                 ))}
               </tr>

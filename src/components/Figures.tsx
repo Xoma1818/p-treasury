@@ -65,7 +65,7 @@ export function FiguresCard() {
   const open = (f: Figure, v: FigureValue) => {
     if (f.measure === "balance") return showTransactions({ accountId: f.accountId ?? undefined });
     const types: TxnType[] = f.measure === "expense" ? ["expense"] : f.measure === "income" ? ["income"] : ["income", "expense"];
-    showTransactions({ types, dateFrom: v.range.from, dateTo: v.range.to, accountId: f.accountId ?? undefined, categoryId: f.categoryId ?? undefined, tagId: f.tagId ?? undefined });
+    showTransactions({ types, counted: true, dateFrom: v.range.from, dateTo: v.range.to, accountId: f.accountId ?? undefined, categoryId: f.categoryId ?? undefined, tagId: f.tagId ?? undefined });
   };
   return (
     <div className="card" data-testid="home-figures">
@@ -140,7 +140,8 @@ export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: 
       id: figure?.id ?? `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       title: title.trim() || autoTitle(),
       measure,
-      period,
+      // У остатка периода нет; «свои даты» без дат ядро не примет.
+      period: balance && period === "custom" ? "month" : period,
       categoryId: balance ? null : categoryId || null,
       accountId: accountId || null,
       tagId: balance ? null : tagId || null,
