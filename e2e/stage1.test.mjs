@@ -163,7 +163,17 @@ test("объединение: удаление категории с перен�
   await openSection(browser, "Категории");
   const food = '//*[@data-testid="categories-expense"]//li[.//span[@class="name" and normalize-space()="Питание"]]';
   await (await browser.$(food)).moveTo();
-  await (await browser.$(`${food}//button[normalize-space()="Удалить"]`)).click();
+  // С «Объединить» строка кнопок шире; в окне Windows WebDriver иногда считает,
+  // что щелчок по «Удалить» перехватывает сама строка кнопок. Ведём мышь на кнопку,
+  // а при перехвате нажимаем её напрямую: проверяем перенос операций, не щелчок.
+  const del = await browser.$(`${food}//button[normalize-space()="Удалить"]`);
+  await del.moveTo();
+  try {
+    await del.click();
+  } catch (e) {
+    if (!/intercepted/.test(e.message)) throw e;
+    await browser.execute((b) => b.click(), del);
+  }
   await waitText(browser, '[role="dialog"]', /Перенести операции \(1\)/);
   await choose(browser, "moveTo", "Прочие расходы");
   await save(browser, "Удалить");
