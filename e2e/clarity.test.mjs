@@ -71,7 +71,7 @@ test("история импорта: счётчики и отмена импор
   await waitCount(browser, '[data-testid="history-row"]', 1);
   await waitText(browser, '[data-testid="history-row"]', /tbank\.csv\s*выписка Т-Банк\s*2\s*2\s*0\s*Операции/);
   await (await browser.$('[data-testid="history-undo"]')).click();
-  await waitText(browser, '[data-testid="history-confirm"]', /Удалить операции этого импорта \(2\)/);
+  await waitText(browser, '[data-testid="history-confirm"]', /все операции этого импорта: 2\?/);
   await (await browser.$('[data-testid="history-undo-yes"]')).click();
   await waitText(browser, '[data-testid="history-row"]', /отменён/);
   await browser.keys("Escape");

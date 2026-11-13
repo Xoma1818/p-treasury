@@ -52,6 +52,8 @@ pub struct Saved {
     pub linked: usize,
     /// Возможные совпадения, ждущие подтверждения.
     pub suggested: usize,
+    /// Уже загруженные расходом или доходом строки, ставшие переводами.
+    pub converted: usize,
 }
 
 /// Запись, с которой можно связать строку выписки: одна операция или
@@ -413,6 +415,29 @@ pub fn history(conn: &Connection, limit: i64) -> Result<Vec<Batch>> {
         })
     })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Человек удаляет операции (`filter` — условие на `t`, параметр `?1`):
+/// строки банка, из которых они загружены или с которыми связаны, запоминаются,
+/// чтобы следующая выписка за тот же период не вернула удалённое. Разбитый чек
+/// — одна строка банка. Вызывается до удаления.
+pub(crate) fn remember_deleted(conn: &Connection, filter: &str, param: &str) -> Result<()> {
+    conn.execute(
+        &format!(
+            "INSERT INTO import_deleted (id, account_id, kind, bank_date, bank_amount, bank_payee, deleted_at)
+             SELECT lower(hex(randomblob(16))), account_id, kind, bank_date, bank_amount, bank_payee, ?2
+             FROM (SELECT k.account_id, k.kind, k.bank_date, k.bank_amount, k.bank_payee
+                   FROM import_keys k JOIN transactions t ON t.id = k.transaction_id
+                   WHERE {filter} AND k.kind IN ('expense', 'income')
+                   GROUP BY coalesce(t.split_id, t.id)
+                   UNION ALL
+                   SELECT l.account_id, l.kind, l.bank_date, l.bank_amount, l.bank_payee
+                   FROM import_links l JOIN transactions t ON t.id = l.transaction_id
+                   WHERE {filter})"
+        ),
+        params![param, time::now_utc()],
+    )?;
+    Ok(())
 }
 
 /// Отменить импорт: удалить добавленные им операции и забыть связи и

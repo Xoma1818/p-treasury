@@ -83,13 +83,17 @@ struct Spend {
     symbol: String,
     minor: u32,
     split_id: Option<String>,
+    /// Операция — строка выписки банка (загружена или связана с ней).
+    from_bank: bool,
 }
 
 fn spends(conn: &Connection, from: &str, to: &str) -> Result<Vec<Spend>> {
     let mut stmt = conn.prepare(
         "SELECT t.id, t.date, t.created_at, t.amount, t.account_id, trim(coalesce(t.payee, '')),
                 trim(coalesce(t.note, '')), t.category_id, c.name, a.currency_code, cur.symbol,
-                cur.minor_units, t.split_id
+                cur.minor_units, t.split_id,
+                EXISTS (SELECT 1 FROM import_keys k WHERE k.transaction_id = t.id)
+                  OR EXISTS (SELECT 1 FROM import_links l WHERE l.transaction_id = t.id)
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          JOIN currencies cur ON cur.code = a.currency_code
@@ -113,6 +117,7 @@ fn spends(conn: &Connection, from: &str, to: &str) -> Result<Vec<Spend>> {
             symbol: r.get(10)?,
             minor: r.get(11)?,
             split_id: r.get(12)?,
+            from_bank: r.get(13)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -139,6 +144,8 @@ struct Unit<'a> {
     minor: u32,
     /// Частей у разбитого чека; 0 — обычная операция.
     parts: usize,
+    /// Строка выписки банка (у чека — хоть одна часть).
+    from_bank: bool,
 }
 
 /// Префикс id разбитого чека в `second_id`.
@@ -161,6 +168,7 @@ fn units(list: &[Spend]) -> Vec<Unit<'_>> {
             symbol: &s.symbol,
             minor: s.minor,
             parts: 0,
+            from_bank: s.from_bank,
         };
         let Some(split) = s.split_id.as_deref() else {
             out.push(unit);
@@ -171,6 +179,7 @@ fn units(list: &[Spend]) -> Vec<Unit<'_>> {
                 let r = &mut out[i];
                 r.amount += s.amount;
                 r.parts += 1;
+                r.from_bank |= s.from_bank;
                 // Описание общее, только если оно у всех частей одинаковое.
                 if r.note.to_lowercase() != s.note.to_lowercase() {
                     r.note = "";
@@ -200,7 +209,8 @@ fn parts_of(n: usize) -> String {
 }
 
 /// Похоже на дубль: один счёт, одна сумма, тот же получатель (или то же
-/// описание), тот же или соседний день. Разбитый чек сравнивается целиком
+/// описание), тот же или соседний день, и хотя бы одна из двух записана не из
+/// выписки банка. Разбитый чек сравнивается целиком
 /// (сумма всех частей), а «Удалить второй» удаляет его весь.
 fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
     let all = units(list);
@@ -223,6 +233,11 @@ fn duplicates(list: &[Spend], since: &str) -> Result<Vec<Check>> {
                 !a.payee.is_empty() && a.payee.to_lowercase() == b.payee.to_lowercase();
             let same_note = !a.note.is_empty() && a.note.to_lowercase() == b.note.to_lowercase();
             if !(same_payee || same_note) || days_apart(a.date, b.date)? > 1 {
+                continue;
+            }
+            // Обе — разные строки выписки банка: две настоящие покупки (обед
+            // в одном кафе два дня подряд), а одну строку банк дважды не даёт.
+            if a.from_bank && b.from_bank {
                 continue;
             }
             // Список упорядочен по дате и времени записи: b — второй.

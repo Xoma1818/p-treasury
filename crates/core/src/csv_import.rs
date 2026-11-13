@@ -34,6 +34,9 @@ pub struct Row {
     pub linked_to: Option<String>,
     /// Возможных совпадений, которые попросят подтверждения.
     pub maybe: usize,
+    /// Строка уже загружена расходом или доходом, а это перевод своих денег:
+    /// загрузка сделает ту запись переводом (заметки и теги остаются).
+    pub to_transfer: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +59,8 @@ pub struct Preview {
     pub self_transfers: usize,
     /// Второй свой счёт для таких переводов (выбранный или запомненный).
     pub self_account_id: Option<String>,
+    /// Уже загруженные расходом или доходом строки, которые станут переводами.
+    pub to_transfers: usize,
 }
 
 pub(crate) struct Parsed {
@@ -63,6 +68,9 @@ pub(crate) struct Parsed {
     pub(crate) input: Option<TxnInput>,
     /// Текст получателя из выписки банка до правил (ключ повтора, B3).
     pub(crate) raw_payee: Option<String>,
+    /// Уже загруженная расходом или доходом запись, которую `input` (перевод)
+    /// заменит: свежая выписка исправляет записанное, а не добавляет второе.
+    pub(crate) convert: Option<String>,
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -477,6 +485,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             payee: get(c_payee),
             error: None,
             duplicate: false,
+            to_transfer: false,
             linked_to: None,
             maybe: 0,
         };
@@ -674,6 +683,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             row,
             input,
             raw_payee: None,
+            convert: None,
         });
     }
     if out.is_empty() {
@@ -828,8 +838,13 @@ pub(crate) fn save_rows(
 ) -> Result<import_log::Saved> {
     let mut plain = (Vec::new(), Vec::new());
     let mut back = Vec::new();
+    let mut converts = Vec::new();
     for (i, p) in parsed.into_iter().enumerate() {
         let Some(input) = p.input else { continue };
+        if let Some(id) = p.convert {
+            converts.push((p.row.line, id, input));
+            continue;
+        }
         match refunds.iter().find(|(r, _)| *r == i) {
             Some((_, budget)) => back.push((p.row.line, input, budget.clone())),
             None => {
@@ -865,6 +880,16 @@ pub(crate) fn save_rows(
             params![id, saved.import_id],
         )?;
         saved.added += 1;
+    }
+    // Свежая выписка: записанная расходом или доходом строка — перевод своих денег.
+    for (line, id, mut t) in converts {
+        // Заметка человека остаётся (теги и история — отдельно и тоже остаются).
+        t.note = conn.query_row("SELECT note FROM transactions WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })?;
+        crate::transactions::update(conn, &id, &t)
+            .map_err(|e| Error::Validation(format!("строка {line}: {e}")))?;
+        saved.converted += 1;
     }
     Ok(saved)
 }
@@ -918,10 +943,11 @@ pub fn preview_with(
     let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
     // Возвраты пишутся возвратами своих покупок и с ручными записями не связываются.
     let is_refund = |i: usize| extra.refunds.iter().any(|(r, _)| *r == i);
+    let to_transfers = parsed.iter().filter(|p| p.convert.is_some()).count();
     let inputs: Vec<TxnInput> = parsed
         .iter()
         .enumerate()
-        .filter(|(i, _)| !is_refund(*i))
+        .filter(|(i, p)| !is_refund(*i) && p.convert.is_none())
         .filter_map(|(_, p)| p.input.clone())
         .collect();
     let mut marks = import_log::marks(conn, bank.is_some(), &inputs)?.into_iter();
@@ -929,7 +955,7 @@ pub fn preview_with(
     for (_, p) in parsed
         .iter_mut()
         .enumerate()
-        .filter(|(i, p)| p.input.is_some() && !is_refund(*i))
+        .filter(|(i, p)| p.input.is_some() && p.convert.is_none() && !is_refund(*i))
     {
         match marks.next() {
             Some(import_log::Mark::Link(what)) => {
@@ -957,7 +983,8 @@ pub fn preview_with(
         None => (0, None),
     };
     Ok(Preview {
-        valid: parsed.iter().filter(|p| p.input.is_some()).count() - linked,
+        valid: parsed.iter().filter(|p| p.input.is_some()).count() - linked - to_transfers,
+        to_transfers,
         errors,
         duplicates,
         linked,
