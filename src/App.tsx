@@ -1,3 +1,4 @@
+import { CrashGuard, Opening } from "./components/Crash";
 import { useEffect } from "react";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
@@ -137,7 +138,7 @@ export function App() {
       </div>
     );
   }
-  if (!info.data) return null;
+  if (!info.data) return <Opening />;
   if (!info.data.onboardingDone) return <Onboarding />;
 
   const Screen = SCREENS[section];
@@ -146,7 +147,9 @@ export function App() {
       <Sidebar />
       <main className="content">
         <DemoBanner />
-        {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
+        <CrashGuard key={`${section}-${visit}`} inline>
+          {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
+        </CrashGuard>
       </main>
       <AutoRates />
       <MissedReminders />
