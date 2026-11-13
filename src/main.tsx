@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { QuickWindow } from "./components/QuickWindow";
+import { CrashGuard } from "./components/Crash";
 import { isTauri } from "./lib/api";
 import { installSeenSections } from "./lib/motion";
 import { installScale } from "./lib/scale";
@@ -30,7 +31,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false,
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      {quick ? <QuickWindow /> : <App />}
+      <CrashGuard>{quick ? <QuickWindow /> : <App />}</CrashGuard>
     </QueryClientProvider>
   </StrictMode>,
 );
