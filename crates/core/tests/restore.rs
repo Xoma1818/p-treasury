@@ -252,11 +252,13 @@ fn copy_from_every_schema_restores_like_an_upgrade() {
 fn damaged_copy_does_not_replace_data() {
     let dir = tempfile::tempdir().unwrap();
     let copy = old_copy(dir.path(), MIGRATIONS.len());
-    // Портим середину файла: заголовок цел, user_version читается.
+    // Портим все страницы после первой: заголовок и схема целы, user_version
+    // читается. Несколько страниц из середины могли оказаться свободными
+    // (так было после миграции 0022), поэтому портим все.
     let mut bytes = std::fs::read(&copy).unwrap();
     let page = 4096;
     let pages = bytes.len() / page;
-    for p in (pages / 2)..(pages / 2 + 3).min(pages) {
+    for p in 1..pages {
         for b in &mut bytes[p * page + 8..p * page + 200] {
             *b = 0xA5;
         }

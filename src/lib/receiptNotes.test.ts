@@ -13,6 +13,13 @@ describe("заметки разбитого чека", () => {
     expect(new Set(notes.map((n) => n.id)).size).toBe(2);
   });
 
+  it("закреплённая заметка части чека — сверху", async () => {
+    const pinned = { id: "old", transactionId: "part-z", body: "Чек сохранить", date: null, createdAt: "2026-09-01T10:00:00Z", pinned: true } as Note;
+    const fresh = { id: "new", transactionId: "part-a", body: "Новая", date: null, createdAt: "2026-10-02T10:00:00Z", pinned: false } as Note;
+    const notes = await loadReceiptNotes(async (f) => [pinned, fresh].filter((n) => n.transactionId === f.transactionId), {}, ["part-a", "part-z"]);
+    expect(notes.map((n) => n.id)).toEqual(["old", "new"]);
+  });
+
   it("ошибка чтения одной части не превращается в пустой список её заметок", async () => {
     await expect(loadReceiptNotes(async (f) => {
       if (f.transactionId === "part-z") throw new Error("чтение недоступно");

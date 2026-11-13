@@ -511,6 +511,39 @@ mod tests {
     }
 
     #[test]
+    fn counted_filter_lists_refund_as_expense() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let (card, cat) = (card(c), category(c));
+        let p = buy(c, &card, &cat, "2026-10-20", 500_000);
+        let r = create(c, &refund(&p, "2026-10-25", 100_000)).unwrap();
+        let ids = |counted| {
+            transactions::list(
+                c,
+                &transactions::Filter {
+                    date_from: Some("2026-10-01".into()),
+                    date_to: Some("2026-10-31".into()),
+                    types: vec!["expense".into()],
+                    counted,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>()
+        };
+        assert!(!ids(false).contains(&r));
+        let both = ids(true);
+        assert!(
+            both.contains(&p) && both.contains(&r),
+            "возврат объясняет итог расходов"
+        );
+    }
+
+    #[test]
     fn editing_receipt_keeps_refund_link_and_limit() {
         use crate::receipts::{self, PartInput, ReceiptInput};
         let mut db = Storage::open_in_memory().unwrap();

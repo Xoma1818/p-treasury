@@ -85,6 +85,24 @@ export interface Account {
   investKind: InvestKind | null;
   /** Для брокерского счёта: сколько стоит сейчас. */
   value: number | null;
+  /** Р19: своя группа. */
+  groupId: string | null;
+  /** Р20: входит в факт бюджета и в прогноз. */
+  inBudget: boolean;
+  inForecast: boolean;
+  /** Р21: те же имена, что у категорий. */
+  color: string | null;
+  icon: string | null;
+}
+
+/** Р19: группа счетов с итогом в основной валюте. */
+export interface AccountGroup {
+  id: string;
+  name: string;
+  sortOrder: number;
+  count: number;
+  total: number;
+  missingRates: string[];
 }
 
 export interface AccountInput {
@@ -228,6 +246,8 @@ export interface TxnFilter {
   payee?: string;
   /** Р3: готовые фильтры, действуют вместе. */
   quick?: QuickFilter[];
+  /** Как в отчётах: возврат — минус расход на дату учёта. */
+  counted?: boolean;
   /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
   minAmount?: number;
   /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */
@@ -749,6 +769,90 @@ export interface BudgetLine {
   rollover: boolean;
   /** Пришло с прошлого месяца. */
   carried: number;
+  /** Р9: вид лимита. */
+  limitKind: LimitKind;
+  /** Неделя — сумма в неделю; доля — сотые процента дохода. */
+  limitValue: number | null;
+  /** Р10: группа бюджета категории. */
+  groupId: string | null;
+}
+
+export type LimitKind = "month" | "week" | "percent";
+
+/** Р10: итог группы бюджета. */
+export interface BudgetGroupSummary {
+  id: string;
+  name: string;
+  shareBp: number | null;
+  planned: number;
+  actual: number;
+  target: number | null;
+  savings: boolean;
+}
+
+export interface BudgetGroup {
+  id: string;
+  name: string;
+  shareBp: number | null;
+  sortOrder: number;
+  categoryIds: string[];
+}
+
+export interface CopyResult {
+  created: string[];
+  replaced: string[];
+  skipped: string[];
+}
+
+/** Р2: период Главной и «Своих цифр». */
+export type HomePeriodKind = "month" | "week" | "payday";
+export type FigurePeriod = HomePeriodKind | "quarter" | "year" | "days30" | "custom";
+export type FigureMeasure = "expense" | "income" | "saldo" | "balance";
+
+export interface HomeRange {
+  kind: FigurePeriod;
+  from: string;
+  to: string;
+  prevFrom: string;
+  prevTo: string;
+  /** «От зарплаты»: дата дохода; null — дохода не нашли, взят месяц. */
+  payday: string | null;
+  nextIncome: string | null;
+}
+
+/** Р1: «Своя цифра» на Главной. */
+export interface Figure {
+  id: string;
+  title: string;
+  measure: FigureMeasure;
+  period: FigurePeriod;
+  categoryId?: string | null;
+  accountId?: string | null;
+  tagId?: string | null;
+  /** Только для period «custom». */
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface FigureValue {
+  id: string;
+  range: HomeRange;
+  value: number;
+  prev: number | null;
+  baseCurrency: string;
+  missingRates: string[];
+}
+
+export interface YearBudget {
+  year: number;
+  months: string[];
+  hasBudget: boolean[];
+  rows: { categoryId: string; categoryName: string; parentId: string | null; kind: CategoryKind; limits: (number | null)[]; actuals: number[] }[];
+  plannedExpense: number[];
+  actualExpense: number[];
+  /** Валюта бюджета каждого месяца (суммы не пересчитываются). */
+  symbols: string[];
+  minorUnits: number[];
 }
 
 export interface Budget {
@@ -771,6 +875,9 @@ export interface Budget {
   missingRates: string[];
   /** Р8: нет курса в прошлых месяцах — их остаток не перенесён. */
   carryMissingRates: string[];
+  /** Р9, Р10: доход, от которого считаются доли. */
+  incomeBasis: number;
+  groups: BudgetGroupSummary[];
 }
 
 /** Откуда брать лимиты: среднее за 3 месяца или тот же месяц год назад. */
@@ -1223,6 +1330,8 @@ export interface Note extends NoteInput {
   id: string;
   link: string | null;
   reminderId: string | null;
+  /** Р25: закреплена сверху. */
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1438,6 +1547,20 @@ export interface Goal {
   needPerMonth: number | null;
   status: GoalStatus;
   missingRate: boolean;
+  /** Р26: место в очереди (1 — самая важная), 0 — не задано. */
+  priority: number;
+  /** Р26: доля свободных денег, сотые процента. */
+  shareBp: number | null;
+}
+
+/** Р26: подсказка, как разложить свободные деньги по целям. */
+export interface GoalSplit {
+  baseCurrency: string;
+  total: number;
+  mode: "share" | "priority";
+  parts: { goalId: string; name: string; amount: number }[];
+  left: number;
+  skipped: string[];
 }
 
 export type SubPeriod = "week" | "month" | "quarter" | "year";
@@ -1806,6 +1929,16 @@ export const api = {
   createAccount: (input: AccountInput) => invoke<string>("create_account", { input }),
   updateAccount: (id: string, input: AccountInput) => invoke<void>("update_account", { id, input }),
   archiveAccount: (id: string, archived: boolean) => invoke<void>("archive_account", { id, archived }),
+  setAccountIncludes: (id: string, inTotal: boolean, inBudget: boolean, inForecast: boolean) =>
+    invoke<void>("set_account_includes", { id, inTotal, inBudget, inForecast }),
+  setAccountLook: (id: string, icon: string | null, color: string | null) => invoke<void>("set_account_look", { id, icon, color }),
+  setAccountGroup: (id: string, groupId: string | null) => invoke<void>("set_account_group", { id, groupId }),
+  reorderAccounts: (ids: string[]) => invoke<void>("reorder_accounts", { ids }),
+  listAccountGroups: (today: string) => invoke<AccountGroup[]>("list_account_groups", { today }),
+  createAccountGroup: (name: string) => invoke<string>("create_account_group", { name }),
+  renameAccountGroup: (id: string, name: string) => invoke<void>("rename_account_group", { id, name }),
+  deleteAccountGroup: (id: string) => invoke<void>("delete_account_group", { id }),
+  reorderAccountGroups: (ids: string[]) => invoke<void>("reorder_account_groups", { ids }),
   adjustBalance: (id: string, actualBalance: number, date: string, note: string | null) =>
     invoke<string | null>("adjust_balance", { id, actualBalance, date, note }),
   totals: (date: string) => invoke<Totals>("totals", { date }),
@@ -1818,6 +1951,7 @@ export const api = {
   categoryRenameApply: (ids: string[]) => invoke<number>("category_rename_apply", { ids }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("archive_category", { id, archived }),
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
+  mergeCategories: (from: string, into: string) => invoke<void>("merge_categories", { from, into }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
@@ -1839,6 +1973,8 @@ export const api = {
   /** Р17: «сначала дорогие» (costly) или «сначала маленькие» (small), extra — лишнее в месяц. */
   debtPayoff: (extra: number, strategy: "costly" | "small") => invoke<Payoff>("debt_payoff", { extra, strategy }),
   getDebt: (id: string) => invoke<DebtDetail>("get_debt", { id }),
+  debtRemindDays: (id: string) => invoke<number | null>("debt_remind_days", { id }),
+  setDebtRemindDays: (id: string, days: number | null) => invoke<void>("set_debt_remind_days", { id, days }),
   debtSummary: () => invoke<DebtSummary>("debt_summary"),
   createDebt: (input: DebtInput) => invoke<string>("create_debt", { input }),
   updateDebtInfo: (id: string, counterparty: string, note: string | null) => invoke<void>("update_debt_info", { id, counterparty, note }),
@@ -1869,6 +2005,19 @@ export const api = {
   setBudgetLimit: (budgetId: string, categoryId: string, limit: number | null) =>
     invoke<void>("set_budget_limit", { budgetId, categoryId, limit }),
   setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
+  setBudgetLimitKind: (budgetId: string, categoryId: string, kind: LimitKind, value: number) =>
+    invoke<void>("set_budget_limit_kind", { budgetId, categoryId, kind, value }),
+  copyBudgetForward: (month: string, months: number, overwrite: boolean) => invoke<CopyResult>("copy_budget_forward", { month, months, overwrite }),
+  budgetYear: (year: number) => invoke<YearBudget>("budget_year", { year }),
+  listBudgetGroups: () => invoke<BudgetGroup[]>("list_budget_groups"),
+  createBudgetGroup: (name: string, shareBp: number | null) => invoke<string>("create_budget_group", { name, shareBp }),
+  updateBudgetGroup: (id: string, name: string, shareBp: number | null) => invoke<void>("update_budget_group", { id, name, shareBp }),
+  deleteBudgetGroup: (id: string) => invoke<void>("delete_budget_group", { id }),
+  setCategoryBudgetGroup: (categoryId: string, groupId: string | null) => invoke<void>("set_category_budget_group", { categoryId, groupId }),
+  applyBudgetTemplate: () => invoke<string[]>("apply_budget_template"),
+  homeRange: (today: string, weekSunday: boolean) => invoke<HomeRange>("home_range", { today, weekSunday }),
+  figureValues: (today: string, weekSunday: boolean) => invoke<FigureValue[]>("figure_values", { today, weekSunday }),
+  saveFigures: (figures: Figure[]) => invoke<void>("save_figures", { figures }),
   setBudgetNote: (budgetId: string, note: string | null) => invoke<void>("set_budget_note", { budgetId, note }),
   deleteBudget: (budgetId: string) => invoke<void>("delete_budget", { budgetId }),
   fillBudget: (budgetId: string, mode: FillMode, categoryId: string | null = null) =>
@@ -1947,6 +2096,8 @@ export const api = {
   splitReminder: (key: ReminderKey, input: ReminderInput) => invoke<string>("split_reminder", { key, input }),
   payReminder: (key: ReminderKey) => invoke<Paid>("pay_reminder", { key }),
   listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
+  setNotePinned: (id: string, pinned: boolean) => invoke<void>("set_note_pinned", { id, pinned }),
+  toggleNoteCheck: (id: string, line: number) => invoke<void>("toggle_note_check", { id, line }),
   createNote: (input: NoteInput) => invoke<string>("create_note", { input }),
   updateNote: (id: string, input: NoteInput) => invoke<void>("update_note", { id, input }),
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
@@ -1993,6 +2144,9 @@ export const api = {
   undoState: () => invoke<UndoState>("undo_state"),
   undo: () => invoke<string | null>("undo"),
   listGoals: () => invoke<Goal[]>("list_goals"),
+  setGoalPriority: (ids: string[]) => invoke<void>("set_goal_priority", { ids }),
+  setGoalShare: (id: string, shareBp: number | null) => invoke<void>("set_goal_share", { id, shareBp }),
+  goalSplit: (total: number | null = null) => invoke<GoalSplit>("goal_split", { total }),
   freeUntilIncome: () => invoke<FreeMoney>("free_until_income"),
   refundInfo: (of: string, except?: string | null) => invoke<RefundInfo>("refund_info", { of, except: except ?? null }),
   createRefund: (input: RefundInput) => invoke<string>("create_refund", { input }),
@@ -2002,8 +2156,11 @@ export const api = {
   closeMonth: (month: string, note: string | null) => invoke<void>("close_month", { month, note }),
   reopenMonth: (month: string) => invoke<void>("reopen_month", { month }),
   accountReserves: () => invoke<Record<string, number>>("account_reserves"),
-  createGoal: (input: GoalInput) => invoke<string>("create_goal", { input }),
-  updateGoal: (id: string, input: GoalInput) => invoke<void>("update_goal", { id, input }),
+  /** shareBp: доля свободных денег в сотых процента; задаётся тем же шагом отмены. */
+  createGoal: (input: GoalInput, shareBp?: number | null) => invoke<string>("create_goal", { input, shareBp: shareBp ?? null }),
+  /** shareBp: undefined — долю не трогать, null — убрать. */
+  updateGoal: (id: string, input: GoalInput, shareBp?: number | null) =>
+    invoke<void>("update_goal", { id, input, shareBp: shareBp ?? null, withShare: shareBp !== undefined }),
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
   goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
   listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),

@@ -25,6 +25,52 @@ struct Step {
     id: u64,
     label: String,
     changes: Vec<u8>,
+    /// Настройки, которые меняются вместе с данными (ключ, было, стало).
+    settings: Vec<(String, Option<String>, Option<String>)>,
+}
+
+/// Настройки — часть данных: «Куда входит счёт» (Р20) хранит выключенные счета бюджета
+/// и прогноза в настройках, и их отмена должна идти одним шагом со счётом.
+const UNDOABLE_SETTINGS: &[&str] = &["budget_excluded_accounts", "forecast_excluded_accounts"];
+
+fn read_settings(conn: &Connection) -> Result<Vec<Option<String>>> {
+    UNDOABLE_SETTINGS
+        .iter()
+        .map(|k| crate::settings::get(conn, k))
+        .collect()
+}
+
+fn ids_of(value: &Option<String>) -> Vec<String> {
+    value
+        .as_deref()
+        .and_then(|v| serde_json::from_str(v).ok())
+        .unwrap_or_default()
+}
+
+/// Перевести список счетов из `from` в `to`, не трогая счета, которые с тех пор
+/// изменили другим путём (например, в «Взгляде вперёд»): отменяется только своё.
+fn shift_setting(
+    conn: &Connection,
+    key: &str,
+    from: &Option<String>,
+    to: &Option<String>,
+) -> Result<()> {
+    let (from, to) = (ids_of(from), ids_of(to));
+    let mut now = ids_of(&crate::settings::get(conn, key)?);
+    now.retain(|id| to.contains(id) || !from.contains(id));
+    for id in &to {
+        if !from.contains(id) && !now.contains(id) {
+            now.push(id.clone());
+        }
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        rusqlite::params![
+            key,
+            serde_json::to_string(&now).map_err(|e| Error::Validation(e.to_string()))?
+        ],
+    )?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -88,18 +134,27 @@ impl Journal {
         let mut session = Session::new(&shadow)?;
         session.table_filter(Some(tracked));
         session.attach::<&str>(None)?;
+        let before = read_settings(conn)?;
         let out = action(conn);
         let mut changes = Vec::new();
         session.changeset_strm(&mut changes)?;
         drop(session);
         drop(shadow);
         let out = out?;
-        if !changes.is_empty() {
+        let after = read_settings(conn)?;
+        let settings: Vec<_> = UNDOABLE_SETTINGS
+            .iter()
+            .zip(before.into_iter().zip(after))
+            .filter(|(_, (b, a))| b != a)
+            .map(|(k, (b, a))| (k.to_string(), b, a))
+            .collect();
+        if !changes.is_empty() || !settings.is_empty() {
             self.next_id += 1;
             self.undo.push(Step {
                 id: self.next_id,
                 label: label.to_string(),
                 changes,
+                settings,
             });
             if self.undo.len() > LIMIT {
                 self.undo.remove(0);
@@ -120,6 +175,9 @@ impl Journal {
         if let Err(e) = apply(conn, &step.changes, true) {
             return Err(blocked("отменить", &step.label, e));
         }
+        for (k, before, after) in &step.settings {
+            shift_setting(conn, k, after, before)?;
+        }
         crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
         self.redo.push(step);
@@ -136,6 +194,9 @@ impl Journal {
         let snap = crate::history::before_undo(conn, &touched(&step.changes)?)?;
         if let Err(e) = apply(conn, &step.changes, false) {
             return Err(blocked("повторить", &step.label, e));
+        }
+        for (k, before, after) in &step.settings {
+            shift_setting(conn, k, before, after)?;
         }
         crate::history::after_undo(conn, &snap)?;
         let label = step.label.clone();
@@ -198,6 +259,9 @@ unsafe extern "C" fn abort_on_conflict(
 /// Каскады внешних ключей выключены: удаление строки, от которой уже зависят
 /// более поздние записи, — конфликт, а не молчаливое удаление этих записей.
 fn apply(conn: &Connection, changes: &[u8], invert: bool) -> Result<()> {
+    if changes.is_empty() {
+        return Ok(());
+    }
     let mut flags = ffi::SQLITE_CHANGESETAPPLY_FKNOACTION;
     if invert {
         flags |= ffi::SQLITE_CHANGESETAPPLY_INVERT;
@@ -476,5 +540,36 @@ mod tests {
             ))
             .is_err());
         assert_eq!(j.state().undo.unwrap().id, top);
+    }
+
+    #[test]
+    fn account_includes_undo_in_one_step() {
+        let (mut db, card, _) = setup();
+        let mut j = Journal::default();
+        j.record(db.conn_mut(), "Куда входит счёт", |c| {
+            accounts::set_includes(c, &card, false, false, false)
+        })
+        .unwrap();
+        let a = accounts::get(db.conn(), &card).unwrap();
+        assert!(!a.include_in_total && !a.in_budget && !a.in_forecast);
+        // Потом другой счёт выключили в «Взгляде вперёд» — отмена его не трогает.
+        let key = crate::forecast::EXCLUDED_ACCOUNTS_KEY;
+        let mut list: Vec<String> =
+            serde_json::from_str(&crate::settings::get(db.conn(), key).unwrap().unwrap()).unwrap();
+        list.push("other".into());
+        crate::settings::set(db.conn(), key, &serde_json::to_string(&list).unwrap()).unwrap();
+        j.undo(db.conn()).unwrap();
+        assert_eq!(
+            crate::settings::get(db.conn(), key).unwrap().as_deref(),
+            Some(r#"["other"]"#)
+        );
+        let a = accounts::get(db.conn(), &card).unwrap();
+        assert!(
+            a.include_in_total && a.in_budget && a.in_forecast,
+            "все три вернулись"
+        );
+        j.redo(db.conn()).unwrap();
+        let a = accounts::get(db.conn(), &card).unwrap();
+        assert!(!a.include_in_total && !a.in_budget && !a.in_forecast);
     }
 }

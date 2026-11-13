@@ -3,12 +3,14 @@
 //! UI вызывает только команды ядра и никогда не пишет SQL; модули ядра
 //! обращаются к базе только через [`storage`].
 
+pub mod account_groups;
 pub mod accounts;
 pub mod assets;
 pub mod auto_import;
 pub mod backups;
 pub mod bank_import;
 pub mod budget_alerts;
+pub mod budget_groups;
 pub mod budgets;
 pub mod bulk;
 pub mod calendar;
@@ -29,6 +31,7 @@ pub mod free_money;
 pub mod goals;
 pub mod habits;
 pub mod history;
+pub mod home_figures;
 pub mod ids;
 pub mod import_log;
 pub mod invest;

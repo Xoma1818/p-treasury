@@ -5,6 +5,7 @@ export const HOME_BLOCKS = {
   tiles: "Баланс и месяц",
   checks: "Проверьте",
   unusual: "Необычно в этом месяце",
+  figures: "Свои цифры",
   trend: "Полгода и куда ушли деньги",
   cushion: "Финансовая подушка",
   ahead: "Взгляд вперёд",

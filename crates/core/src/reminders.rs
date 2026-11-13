@@ -776,11 +776,22 @@ pub fn occurrences(
         .and_then(|v| v.parse().ok())
         .unwrap_or(3);
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.due_date, s.payment, d.id, d.counterparty, d.direction, c.symbol, c.minor_units
+        "SELECT s.id, s.due_date, s.payment, d.id, d.counterparty, d.direction, c.symbol, c.minor_units,
+                d.remind_days
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
-         WHERE s.status = 'pending' AND d.status = 'active'",
+         WHERE s.status = 'pending' AND d.status = 'active' AND COALESCE(d.remind_days, 0) >= 0",
     )?;
-    type DebtRow = (String, String, i64, String, String, String, String, u32);
+    type DebtRow = (
+        String,
+        String,
+        i64,
+        String,
+        String,
+        String,
+        String,
+        u32,
+        Option<i64>,
+    );
     let rows: Vec<DebtRow> = stmt
         .query_map([], |r| {
             Ok((
@@ -792,10 +803,13 @@ pub fn occurrences(
                 r.get(5)?,
                 r.get(6)?,
                 r.get(7)?,
+                r.get(8)?,
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    for (sid, due, payment, debt_id, who, direction, sym, mu) in rows {
+    for (sid, due, payment, debt_id, who, direction, sym, mu, own) in rows {
+        // Р18: у долга может быть своё «за сколько дней».
+        let days = own.unwrap_or(days);
         let Ok(due_d) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
             continue;
         };
@@ -1596,6 +1610,19 @@ mod tests {
         // Настройка «за сколько дней».
         settings::set(c, "debt_reminder_days_before", "5").unwrap();
         assert_eq!(due_unnotified(c, dt("2026-11-10T09:00")).unwrap().len(), 1);
+        // Р18: своё напоминание у долга главнее общей настройки, −1 — не напоминать.
+        debts::set_remind_days(c, &debt, Some(1)).unwrap();
+        assert!(due_unnotified(c, dt("2026-11-13T09:00"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(due_unnotified(c, dt("2026-11-14T09:00")).unwrap().len(), 1);
+        assert_eq!(debts::remind_days(c, &debt).unwrap(), Some(1));
+        debts::set_remind_days(c, &debt, Some(-1)).unwrap();
+        assert!(due_unnotified(c, dt("2026-11-14T09:00"))
+            .unwrap()
+            .is_empty());
+        assert!(debts::set_remind_days(c, &debt, Some(99)).is_err());
+        debts::set_remind_days(c, &debt, None).unwrap();
         // Платёж отмечен — напоминание исчезает.
         let next = debts::get(c, &debt, "2026-11-12")
             .unwrap()

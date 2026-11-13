@@ -10,11 +10,13 @@ use std::collections::BTreeMap;
 
 use std::path::Path;
 
+use budget_core::account_groups;
 use budget_core::accounts::{self, Account, AccountInput, Totals};
 use budget_core::assets::{self, Asset, AssetInput};
 use budget_core::auto_import::{self, ScanResult};
 use budget_core::backups::{self, BackupInfo};
 use budget_core::budget_alerts;
+use budget_core::budget_groups;
 use budget_core::budgets::{self, Budget, FillMode, Period};
 use budget_core::bulk::{self, BulkResult};
 use budget_core::calendar::{self, Month};
@@ -298,6 +300,85 @@ pub fn archive_account(state: State<AppState>, id: String, archived: bool) -> Cm
 }
 
 #[tauri::command(async)]
+pub fn set_account_includes(
+    state: State<AppState>,
+    id: String,
+    in_total: bool,
+    in_budget: bool,
+    in_forecast: bool,
+) -> CmdResult<()> {
+    with_undo(&state, "Куда входит счёт", |c| {
+        accounts::set_includes(c, &id, in_total, in_budget, in_forecast)
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_account_look(
+    state: State<AppState>,
+    id: String,
+    icon: Option<String>,
+    color: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Вид счёта", |c| {
+        accounts::set_look(c, &id, icon.as_deref(), color.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn set_account_group(
+    state: State<AppState>,
+    id: String,
+    group_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа счёта", |c| {
+        accounts::set_group(c, &id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn reorder_accounts(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок счетов", |c| {
+        accounts::reorder(c, &ids)
+    })
+}
+
+#[tauri::command(async)]
+pub fn list_account_groups(
+    state: State<AppState>,
+    today: String,
+) -> CmdResult<Vec<account_groups::AccountGroup>> {
+    with_db(&state, |db| account_groups::list(db.conn(), &today))
+}
+
+#[tauri::command(async)]
+pub fn create_account_group(state: State<AppState>, name: String) -> CmdResult<String> {
+    with_undo(&state, "Новая группа счетов", |c| {
+        account_groups::create(c, &name)
+    })
+}
+
+#[tauri::command(async)]
+pub fn rename_account_group(state: State<AppState>, id: String, name: String) -> CmdResult<()> {
+    with_undo(&state, "Группа счетов", |c| {
+        account_groups::rename(c, &id, &name)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_account_group(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(&state, "Удаление группы счетов", |c| {
+        account_groups::delete(c, &id)
+    })
+}
+
+#[tauri::command(async)]
+pub fn reorder_account_groups(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок групп", |c| {
+        account_groups::reorder(c, &ids)
+    })
+}
+
+#[tauri::command(async)]
 pub fn adjust_balance(
     state: State<AppState>,
     id: String,
@@ -384,6 +465,13 @@ pub fn delete_category(
 ) -> CmdResult<()> {
     with_undo(&state, "Удаление категории", |c| {
         categories::delete(c, &id, move_to.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn merge_categories(state: State<AppState>, from: String, into: String) -> CmdResult<()> {
+    with_undo(&state, "Объединение категорий", |c| {
+        categories::merge(c, &from, &into)
     })
 }
 
@@ -501,8 +589,136 @@ pub fn set_budget_limit(
     category_id: String,
     limit: Option<i64>,
 ) -> CmdResult<()> {
+    with_undo(&state, "Изменение лимита", |c| match limit {
+        // Сумма на месяц: вид лимита тоже становится «в месяц».
+        Some(v) => budgets::set_limit_kind(c, &budget_id, &category_id, "month", v),
+        None => budgets::set_limit(c, &budget_id, &category_id, None),
+    })
+}
+
+/// Р9: лимит в неделю или долей дохода.
+#[tauri::command(async)]
+pub fn set_budget_limit_kind(
+    state: State<AppState>,
+    budget_id: String,
+    category_id: String,
+    kind: String,
+    value: i64,
+) -> CmdResult<()> {
     with_undo(&state, "Изменение лимита", |c| {
-        budgets::set_limit(c, &budget_id, &category_id, limit)
+        budgets::set_limit_kind(c, &budget_id, &category_id, &kind, value)
+    })
+}
+
+/// Р11: скопировать лимиты на N месяцев вперёд.
+#[tauri::command(async)]
+pub fn copy_budget_forward(
+    state: State<AppState>,
+    month: String,
+    months: u32,
+    overwrite: bool,
+) -> CmdResult<budgets::CopyResult> {
+    with_undo(&state, "Копирование бюджета", |c| {
+        budgets::copy_forward(c, &month, months, overwrite)
+    })
+}
+
+/// Р11: годовой вид бюджета.
+#[tauri::command(async)]
+pub fn budget_year(state: State<AppState>, year: i32) -> CmdResult<budgets::YearBudget> {
+    with_db(&state, |db| {
+        budgets::year(db.conn(), year, &time::today_local())
+    })
+}
+
+/// Р10: группы бюджета.
+#[tauri::command(async)]
+pub fn list_budget_groups(state: State<AppState>) -> CmdResult<Vec<budget_groups::BudgetGroup>> {
+    with_db(&state, |db| budget_groups::list(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn create_budget_group(
+    state: State<AppState>,
+    name: String,
+    share_bp: Option<i64>,
+) -> CmdResult<String> {
+    with_undo(&state, "Новая группа бюджета", |c| {
+        budget_groups::create(c, &name, share_bp)
+    })
+}
+
+#[tauri::command(async)]
+pub fn update_budget_group(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    share_bp: Option<i64>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа бюджета", |c| {
+        budget_groups::update(c, &id, &name, share_bp)
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_budget_group(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_undo(
+        &state,
+        "Удаление группы бюджета",
+        |c| budget_groups::delete(c, &id),
+    )
+}
+
+#[tauri::command(async)]
+pub fn set_category_budget_group(
+    state: State<AppState>,
+    category_id: String,
+    group_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Группа категории", |c| {
+        budget_groups::set_category(c, &category_id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn apply_budget_template(state: State<AppState>) -> CmdResult<Vec<String>> {
+    with_undo(&state, "Шаблон 50/30/20", |c| {
+        budget_groups::apply_template(c)
+    })
+}
+
+/// Р2: период Главной (месяц, неделя, от зарплаты) на сегодня.
+#[tauri::command(async)]
+pub fn home_range(
+    state: State<AppState>,
+    today: String,
+    week_sunday: bool,
+) -> CmdResult<budget_core::home_figures::Range> {
+    with_db(&state, |db| {
+        budget_core::home_figures::home_range(db.conn(), &today, week_sunday)
+    })
+}
+
+/// Р1: значения «Своих цифр» Главной.
+#[tauri::command(async)]
+pub fn figure_values(
+    state: State<AppState>,
+    today: String,
+    week_sunday: bool,
+) -> CmdResult<Vec<budget_core::home_figures::FigureValue>> {
+    with_db(&state, |db| {
+        budget_core::home_figures::values(db.conn(), &today, week_sunday)
+    })
+}
+
+/// Р1, Р14: сохранить список «Своих цифр» целиком.
+#[tauri::command(async)]
+pub fn save_figures(
+    state: State<AppState>,
+    figures: Vec<budget_core::home_figures::Figure>,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        budget_core::home_figures::save(db.conn(), &figures)
     })
 }
 
@@ -1758,6 +1974,74 @@ pub fn list_goals(state: State<AppState>) -> CmdResult<Vec<Goal>> {
     with_db(&state, |db| goals::list(db.conn(), &time::today_local()))
 }
 
+/// Р18: своё напоминание у долга (`None` — как в настройках, −1 — не напоминать).
+#[tauri::command(async)]
+pub fn debt_remind_days(state: State<AppState>, id: String) -> CmdResult<Option<i64>> {
+    with_db(&state, |db| debts::remind_days(db.conn(), &id))
+}
+
+#[tauri::command(async)]
+pub fn set_debt_remind_days(
+    state: State<AppState>,
+    id: String,
+    days: Option<i64>,
+) -> CmdResult<()> {
+    with_undo(&state, "Напоминание по долгу", |c| {
+        debts::set_remind_days(c, &id, days)
+    })
+}
+
+/// Р25: закрепить заметку сверху.
+#[tauri::command(async)]
+pub fn set_note_pinned(state: State<AppState>, id: String, pinned: bool) -> CmdResult<()> {
+    with_undo(
+        &state,
+        if pinned {
+            "Закрепить заметку"
+        } else {
+            "Открепить заметку"
+        },
+        |c| notes::set_pinned(c, &id, pinned),
+    )
+}
+
+/// Р25: отметить пункт списка дел в заметке.
+#[tauri::command(async)]
+pub fn toggle_note_check(state: State<AppState>, id: String, line: usize) -> CmdResult<()> {
+    with_undo(&state, "Отметка в заметке", |c| {
+        notes::toggle_check(c, &id, line)
+    })
+}
+
+/// Р26: очередь целей по важности.
+#[tauri::command(async)]
+pub fn set_goal_priority(state: State<AppState>, ids: Vec<String>) -> CmdResult<()> {
+    with_undo(&state, "Порядок целей", |c| {
+        goals::set_priority(c, &ids)
+    })
+}
+
+/// Р26: доля свободных денег для цели.
+#[tauri::command(async)]
+pub fn set_goal_share(state: State<AppState>, id: String, share_bp: Option<i64>) -> CmdResult<()> {
+    with_undo(&state, "Доля цели", |c| {
+        goals::set_share(c, &id, share_bp)
+    })
+}
+
+/// Р26: подсказка, как разложить свободные деньги по целям. Без суммы — «Свободно до дохода».
+#[tauri::command(async)]
+pub fn goal_split(state: State<AppState>, total: Option<i64>) -> CmdResult<goals::Split> {
+    with_db(&state, |db| {
+        let today = time::today_local();
+        let total = match total {
+            Some(t) => t,
+            None => budget_core::free_money::until_income(db.conn(), &today)?.free,
+        };
+        goals::split(db.conn(), &today, total)
+    })
+}
+
 /// «Свободно до дохода» на сегодня (0.27).
 #[tauri::command(async)]
 pub fn free_until_income(state: State<AppState>) -> CmdResult<budget_core::free_money::FreeMoney> {
@@ -1777,14 +2061,28 @@ pub fn account_reserves(
 }
 
 #[tauri::command(async)]
-pub fn create_goal(state: State<AppState>, input: GoalInput) -> CmdResult<String> {
-    with_undo(&state, "Новая цель", |c| goals::create(c, &input))
+pub fn create_goal(
+    state: State<AppState>,
+    input: GoalInput,
+    share_bp: Option<i64>,
+) -> CmdResult<String> {
+    // Цель и её доля — один шаг отмены.
+    with_undo(&state, "Новая цель", |c| {
+        goals::save_with_share(c, None, &input, share_bp.map(Some))
+    })
 }
 
 #[tauri::command(async)]
-pub fn update_goal(state: State<AppState>, id: String, input: GoalInput) -> CmdResult<()> {
+pub fn update_goal(
+    state: State<AppState>,
+    id: String,
+    input: GoalInput,
+    share_bp: Option<i64>,
+    with_share: Option<bool>,
+) -> CmdResult<()> {
     with_undo(&state, "Изменение цели", |c| {
-        goals::update(c, &id, &input)
+        let share = (with_share == Some(true)).then_some(share_bp);
+        goals::save_with_share(c, Some(id.as_str()), &input, share).map(|_| ())
     })
 }
 

@@ -558,6 +558,7 @@ pub fn clear(conn: &mut Connection) -> Result<()> {
         "recurring_rules",
         "categories",
         "accounts",
+        "account_groups",
         "exchange_rates",
     ] {
         tx.execute(&format!("DELETE FROM {table}"), [])?;

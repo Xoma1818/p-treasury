@@ -28,6 +28,9 @@ import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins"
 import { ExplainDialog, type ExplainKind } from "../components/Explain";
 import { MonthReviewBanner } from "../components/MonthReview";
 import { AddMenu } from "../components/AddMenu";
+import { FiguresCard } from "../components/Figures";
+import { useFine } from "../lib/fine";
+import type { HomePeriodKind } from "../lib/api";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -56,7 +59,27 @@ export function Home() {
   const [editing, setEditing] = useState(false);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
-  const layout = parseLayout(useSettings().data?.home_layout);
+  const settings = useSettings().data;
+  const layout = parseLayout(settings?.home_layout);
+  // Р2: плитки доходов и расходов — за месяц, неделю или с зарплаты.
+  const homeKind: HomePeriodKind = settings?.home_period === "week" || settings?.home_period === "payday" ? settings.home_period : "month";
+  const week = useFine().week;
+  const range = useQuery({
+    queryKey: ["homeRange", date, week, homeKind],
+    queryFn: () => api.homeRange(date, week === "sun"),
+    enabled: homeKind !== "month",
+  }).data;
+  const custom = homeKind !== "month" && range?.kind === homeKind ? range : null;
+  const rangeSum = useQuery({
+    queryKey: ["summary", custom?.from, custom?.to],
+    queryFn: () => api.periodSummary(custom!.from, custom!.to),
+    enabled: !!custom,
+  }).data;
+  const rangePrev = useQuery({
+    queryKey: ["summary", custom?.prevFrom, custom?.prevTo],
+    queryFn: () => api.periodSummary(custom!.prevFrom, custom!.prevTo),
+    enabled: !!custom,
+  }).data;
   const setSetting = useAction(api.setSetting);
   const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
   const half = (b: HomeBlock) => !!layout.half?.includes(b);
@@ -66,7 +89,15 @@ export function Home() {
   const symbol = totals.data?.baseSymbol ?? "₽";
   const dash = useDashboard(period);
   const spark = sparkSeries(dash.months, totals.data?.total);
-  const prev = dash.prevSame;
+  const prevMonth = dash.prevSame;
+  // Что показывают плитки: месяц как раньше или период Р2 и такой же отрезок перед ним.
+  const shown = homeKind === "month" ? month.data : custom ? rangeSum : undefined;
+  const prev = homeKind === "month" ? prevMonth : rangePrev;
+  const tileWhen = homeKind === "month" ? monthShort : homeKind === "week" ? "неделя" : "с зарплаты";
+  const tileFrom = homeKind === "month" ? period?.start : custom?.from;
+  const tileTo = homeKind === "month" ? period?.end : custom?.to;
+  const prevHint = homeKind === "month" ? "к тем же дням прошлого месяца" : "к тем же дням прошлого периода";
+  const sparks = homeKind === "month";
 
   const blocks: Record<HomeBlock, React.ReactNode> = {
     quick: (
@@ -78,11 +109,34 @@ export function Home() {
           </div>
     ),
     summary: period ? <SummaryCard period={period} /> : null,
+    figures: <FiguresCard />,
     trend: period ? <TrendCard period={period} /> : null,
     days: <DaysCard />,
     goals: <GoalsCard />,
     subs: <SubscriptionsCard />,
     tiles: (
+          <>
+          <div className="home-period">
+            <div className="tabs small" role="group" aria-label="Период плиток" data-testid="home-period">
+              {(
+                [
+                  ["month", "Месяц"],
+                  ["week", "Неделя"],
+                  ["payday", "От зарплаты"],
+                ] as const
+              ).map(([k, label]) => (
+                <button key={k} type="button" className={homeKind === k ? "tab active" : "tab"} aria-pressed={homeKind === k} onClick={() => setSetting.run("home_period", k)} data-testid={`home-period-${k}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Hint of="home.period" />
+            {custom && (
+              <span className="muted small" data-testid="home-period-range">
+                {custom.kind === "payday" && !custom.payday ? "Крупного дохода за 45 дней нет — считаем месяц" : `${formatDate(custom.from)} – ${formatDate(custom.to)}`}
+              </span>
+            )}
+          </div>
           <div className="tiles">
             <div className="card tile" data-testid="total-balance">
               <div className="tile-label">
@@ -119,37 +173,38 @@ export function Home() {
             </div>
             <div className="card tile" data-testid="month-income">
               <div className="tile-label">
-                Доходы, {monthShort}
+                Доходы, {tileWhen}
                 <Hint of="home.income" />
-                {month.data && <Delta pct={change(month.data.income, prev?.income)} hint="к тем же дням прошлого месяца" />}
+                {shown && <Delta pct={change(shown.income, prev?.income)} hint={prevHint} />}
               </div>
-              <button type="button" className="tile-value tile-explain plus" title="Как посчитано" data-testid="explain-income" onClick={() => setExplain("income")}>{month.data && <Money amount={month.data.income} symbol={symbol} animate />}</button>
-              <Sparkline values={spark.income} className="income" />
-              {month.data?.savingsRate != null && (
+              <button type="button" className="tile-value tile-explain plus" title="Как посчитано" data-testid="explain-income" onClick={() => setExplain("income")}>{shown && <Money amount={shown.income} symbol={symbol} animate />}</button>
+              {sparks && <Sparkline values={spark.income} className="income" />}
+              {shown?.savingsRate != null && (
                 <div className="hint" data-testid="home-savings-rate">
-                  Норма сбережений {month.data.savingsRate} %
+                  Норма сбережений {shown.savingsRate} %
                 </div>
               )}
             </div>
             <div className="card tile" data-testid="month-expense">
               <div className="tile-label">
-                Расходы, {monthShort}
+                Расходы, {tileWhen}
                 <Hint of="home.expense" />
-                {month.data && <Delta pct={change(month.data.expense, prev?.expense)} lowerIsBetter hint="к тем же дням прошлого месяца" />}
+                {shown && <Delta pct={change(shown.expense, prev?.expense)} lowerIsBetter hint={prevHint} />}
               </div>
-              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{month.data && <Money amount={month.data.expense} symbol={symbol} animate />}</button>
-              <Sparkline values={spark.expense} className="expense" />
+              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{shown && <Money amount={shown.expense} symbol={symbol} animate />}</button>
+              {sparks && <Sparkline values={spark.expense} className="expense" />}
             </div>
             <div className="card tile">
               <div className="tile-label">
-                Сальдо месяца
+                {homeKind === "month" ? "Сальдо месяца" : `Сальдо, ${tileWhen}`}
                 <Hint of="home.saldo" />
-                {month.data && prev && <Delta pct={change(month.data.income - month.data.expense, prev.income - prev.expense)} hint="к тем же дням прошлого месяца" />}
+                {shown && prev && <Delta pct={change(shown.income - shown.expense, prev.income - prev.expense)} hint={prevHint} />}
               </div>
-              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-saldo" onClick={() => setExplain("saldo")}>{month.data && <Money amount={month.data.income - month.data.expense} symbol={symbol} signed animate />}</button>
-              <Sparkline values={spark.saldo} />
+              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-saldo" onClick={() => setExplain("saldo")}>{shown && <Money amount={shown.income - shown.expense} symbol={symbol} signed animate />}</button>
+              {sparks && <Sparkline values={spark.saldo} />}
             </div>
           </div>
+          </>
     ),
     checks: <ChecksCard />,
     unusual: <UnusualCard />,
@@ -390,7 +445,7 @@ export function Home() {
           </button>
         </p>
       )}
-      {explain && period && <ExplainDialog kind={explain} on={date} from={period.start} to={period.end} onClose={() => setExplain(null)} />}
+      {explain && tileFrom && tileTo && <ExplainDialog kind={explain} on={date} from={tileFrom} to={tileTo} onClose={() => setExplain(null)} />}
     </section>
   );
 }

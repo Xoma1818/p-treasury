@@ -34,6 +34,15 @@ pub struct Account {
     pub invest_kind: Option<String>,
     /// Для брокерского счёта: стоимость сейчас (последняя оценка плюс переводы после неё).
     pub value: Option<i64>,
+    /// Р19: своя группа счёта (`None` — без группы).
+    pub group_id: Option<String>,
+    /// Р20: траты и доходы счёта входят в факт бюджета.
+    pub in_budget: bool,
+    /// Р20: счёт входит в прогноз (не выключен в «Взгляде вперёд»).
+    pub in_forecast: bool,
+    /// Р21: цвет и значок, те же имена, что у категорий.
+    pub color: Option<String>,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,7 +86,7 @@ pub fn balance(conn: &Connection, account_id: &str, on: Option<&str>) -> Result<
 const SELECT: &str =
     "SELECT a.id, a.name, a.type, a.currency_code, c.symbol, c.minor_units, a.opening_balance,
         a.opening_date, a.credit_limit, a.include_in_total, a.sort_order, a.archived_at IS NOT NULL,
-        a.invest_kind
+        a.invest_kind, a.group_id, a.color, a.icon
  FROM accounts a JOIN currencies c ON c.code = a.currency_code";
 
 fn map(conn: &Connection, r: &rusqlite::Row) -> rusqlite::Result<Account> {
@@ -89,6 +98,7 @@ fn map(conn: &Connection, r: &rusqlite::Row) -> rusqlite::Result<Account> {
         other => rusqlite::Error::ToSqlConversionFailure(Box::new(other)),
     };
     let bal = balance(conn, &id, None).map_err(wrap)?;
+    let id_for_forecast = id.clone();
     let value = if kind == "investment" {
         Some(
             crate::invest::value_on(conn, &id, &time::today_local())
@@ -113,6 +123,15 @@ fn map(conn: &Connection, r: &rusqlite::Row) -> rusqlite::Result<Account> {
         sort_order: r.get(10)?,
         archived: r.get(11)?,
         invest_kind: r.get(12)?,
+        group_id: r.get(13)?,
+        in_budget: !excluded(conn, BUDGET_EXCLUDED_KEY)
+            .map_err(wrap)?
+            .contains(&id_for_forecast),
+        in_forecast: !crate::forecast::excluded_accounts(conn)
+            .map_err(wrap)?
+            .contains(&id_for_forecast),
+        color: r.get(14)?,
+        icon: r.get(15)?,
         balance: bal,
         value,
     })
@@ -260,6 +279,122 @@ pub fn update(conn: &Connection, id: &str, input: &AccountInput) -> Result<()> {
             invest_kind
         ],
     )?;
+    Ok(())
+}
+
+/// Р20: счета, чьи траты и доходы не входят в факт бюджета (JSON-список id).
+pub const BUDGET_EXCLUDED_KEY: &str = "budget_excluded_accounts";
+
+fn excluded(conn: &Connection, key: &str) -> Result<std::collections::HashSet<String>> {
+    Ok(crate::settings::get(conn, key)?
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect())
+}
+
+/// Р20: куда входит счёт — общий баланс, факт бюджета, прогноз. Прогноз
+/// хранит выключенные счета в своей настройке, здесь она же.
+pub fn set_includes(
+    conn: &Connection,
+    id: &str,
+    in_total: bool,
+    in_budget: bool,
+    in_forecast: bool,
+) -> Result<()> {
+    let a = get(conn, id)?;
+    if a.kind == "debt" {
+        return invalid("служебный счёт долга меняется в разделе «Долги»");
+    }
+    conn.execute(
+        "UPDATE accounts SET include_in_total = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, in_total, time::now_utc()],
+    )?;
+    let mut off: Vec<String> = excluded(conn, BUDGET_EXCLUDED_KEY)?
+        .into_iter()
+        .filter(|x| x != id)
+        .collect();
+    if !in_budget {
+        off.push(id.to_string());
+    }
+    off.sort();
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![
+            BUDGET_EXCLUDED_KEY,
+            serde_json::to_string(&off).expect("список строк")
+        ],
+    )?;
+    let mut skip: Vec<String> = crate::forecast::excluded_accounts(conn)?
+        .into_iter()
+        .filter(|x| x != id)
+        .collect();
+    if !in_forecast {
+        skip.push(id.to_string());
+    }
+    skip.sort();
+    crate::forecast::set_excluded_accounts(conn, &skip)
+}
+
+/// Р21: цвет и значок счёта (`None` — без них). Имена — как у категорий.
+pub fn set_look(
+    conn: &Connection,
+    id: &str,
+    icon: Option<&str>,
+    color: Option<&str>,
+) -> Result<()> {
+    get(conn, id)?;
+    let icon = icon.map(str::trim).filter(|s| !s.is_empty());
+    let color = color.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(i) = icon {
+        if i.len() > 32
+            || !i
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        {
+            return invalid("неизвестный значок счёта");
+        }
+    }
+    if let Some(c) = color {
+        if !crate::categories::COLORS.contains(&c) {
+            return invalid("неизвестный цвет счёта");
+        }
+    }
+    conn.execute(
+        "UPDATE accounts SET icon = ?2, color = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, icon, color, time::now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Р19: перенести счёт в группу (`None` — без группы).
+pub fn set_group(conn: &Connection, id: &str, group_id: Option<&str>) -> Result<()> {
+    get(conn, id)?;
+    if let Some(g) = group_id {
+        crate::account_groups::get(conn, g)?;
+    }
+    conn.execute(
+        "UPDATE accounts SET group_id = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, group_id, time::now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Р19: новый порядок счетов (перетаскиванием). Счета не из списка остаются после.
+pub fn reorder(conn: &Connection, ids: &[String]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for id in ids {
+        head(&tx, id)?;
+    }
+    let total = ids.len() as i64;
+    tx.execute("UPDATE accounts SET sort_order = sort_order + ?1", [total])?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE accounts SET sort_order = ?2 WHERE id = ?1",
+            params![id, i as i64],
+        )?;
+    }
+    tx.commit()?;
     Ok(())
 }
 

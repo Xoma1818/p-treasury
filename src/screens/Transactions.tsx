@@ -216,7 +216,7 @@ export function Transactions() {
   const chips: { id: string; label: string; clear: () => void }[] = [];
   if (f.accountId) chips.push({ id: "chip-account", label: accounts.find((a) => a.id === f.accountId)?.name ?? "Счёт", clear: () => set({ accountId: undefined }) });
   if (f.categoryId) chips.push({ id: "chip-category", label: categories.find((c) => c.id === f.categoryId)?.name ?? "Категория", clear: () => set({ categoryId: undefined }) });
-  if (f.types?.length) chips.push({ id: "chip-type", label: TXN_TYPES[f.types[0]], clear: () => set({ types: undefined }) });
+  if (f.types?.length) chips.push({ id: "chip-type", label: f.counted && f.types.includes("expense") ? `${TXN_TYPES[f.types[0]]} с возвратами` : TXN_TYPES[f.types[0]], clear: () => set({ types: undefined, counted: undefined }) });
   if (f.tagId) chips.push({ id: tags.some((t) => t.id === f.tagId) ? "chip-tag" : "filter-tag", label: tags.find((t) => t.id === f.tagId) ? `#${tags.find((t) => t.id === f.tagId)!.name}` : "Тег", clear: () => set({ tagId: undefined }) });
   if (f.importId) chips.push({ id: "filter-import", label: "Один импорт", clear: () => set({ importId: undefined }) });
   if (f.payee) chips.push({ id: "filter-payee", label: `Получатель: ${f.payee}`, clear: () => set({ payee: undefined }) });
@@ -279,7 +279,7 @@ export function Transactions() {
           <button type="button" className={showPanel ? "btn small active" : "btn small"} aria-expanded={showPanel} data-open={panelOpen || undefined} data-testid="filters-toggle" onClick={() => togglePanel(!panelOpen)} title="Счёт, категория, тип и тег">
             <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden="true" /> Фильтры{activeCount > 0 ? ` · ${activeCount}` : ""}
           </button>
-          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined, quick: undefined, minAmount: undefined, amount: undefined, currency: undefined }))}>
+          <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined, quick: undefined, minAmount: undefined, amount: undefined, currency: undefined, counted: undefined }))}>
             Сбросить
           </button>
           <TableViewMenu layout={table} />
@@ -288,7 +288,7 @@ export function Transactions() {
           <div className="filters-row" data-testid="filters-panel">
             <AccountSelect name="filterAccount" accounts={accounts} value={f.accountId ?? ""} onChange={(v) => set({ accountId: v || undefined })} placeholder="Все счета" />
             <CategorySelect name="filterCategory" categories={categories} value={f.categoryId ?? ""} onChange={(v) => set({ categoryId: v || undefined })} placeholder="Все категории" />
-            <select name="filterType" aria-label="Тип" value={f.types?.[0] ?? ""} onChange={(e) => set({ types: e.target.value ? [e.target.value as TxnType] : undefined })}>
+            <select name="filterType" aria-label="Тип" value={f.types?.[0] ?? ""} onChange={(e) => set({ types: e.target.value ? [e.target.value as TxnType] : undefined, counted: undefined })}>
               <option value="">Все типы</option>
               {(Object.keys(TXN_TYPES) as TxnType[]).map((t) => (
                 <option key={t} value={t}>

@@ -404,6 +404,9 @@ pub struct Filter {
     /// «recurring» — получатель встречался в трёх и больше разных месяцах,
     /// «note» — с комментарием, «foreign» — по счёту не в основной валюте.
     pub quick: Vec<String>,
+    /// Как в отчётах: возврат — минус расход и стоит на дате учёта (тип и даты отбора
+    /// сравниваются так же, как в итогах). Для перехода из сумм на Главной.
+    pub counted: bool,
     /// Р3 «Крупные»: сумма не меньше этой, в минимальных единицах основной валюты.
     /// Валютные операции сравниваются по курсу на конец отбора; без курса не попадают.
     pub min_amount: Option<i64>,
@@ -492,11 +495,19 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
         args.push(v);
         format!("?{}", args.len())
     };
+    let (ty, dt) = if f.counted {
+        (
+            "(CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END)",
+            "(CASE WHEN t.refund = 1 THEN COALESCE(t.count_date, t.date) ELSE t.date END)",
+        )
+    } else {
+        ("t.type", "t.date")
+    };
     if let Some(d) = &f.date_from {
-        wh.push(format!("t.date >= {}", arg(d.clone().into())));
+        wh.push(format!("{dt} >= {}", arg(d.clone().into())));
     }
     if let Some(d) = &f.date_to {
-        wh.push(format!("t.date <= {}", arg(d.clone().into())));
+        wh.push(format!("{dt} <= {}", arg(d.clone().into())));
     }
     if let Some(a) = &f.account_id {
         let p = arg(a.clone().into());
@@ -572,7 +583,7 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     }
     if !f.types.is_empty() {
         let ps: Vec<String> = f.types.iter().map(|t| arg(t.clone().into())).collect();
-        wh.push(format!("t.type IN ({})", ps.join(", ")));
+        wh.push(format!("{ty} IN ({})", ps.join(", ")));
     }
     if let Some(q) = f.search.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
         let like = arg(format!("%{}%", q.to_lowercase()).into());

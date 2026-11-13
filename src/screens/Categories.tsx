@@ -7,10 +7,11 @@ import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
-import { RulesCard } from "../components/Rules";
+import { CategoryRules, RulesCard } from "../components/Rules";
 import { TagsCard } from "../components/Tags";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
-import { CATEGORY_COLORS, CATEGORY_ICONS, COLOR_LABEL, colorVar, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
+import { CATEGORY_ICONS, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
+import { LookPicker } from "../components/LookPicker";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -19,6 +20,13 @@ export function Categories() {
   const all = useCategories(true).data ?? [];
   const [edit, setEdit] = useState<Edit | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
+  const [merging, setMerging] = useState<Category | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  // Р23: подкатегорию можно перетащить под другую верхнюю категорию того же типа.
+  const moveUnder = useAction((c: Category, parentId: string) => api.updateCategory(c.id, c.name, parentId, { icon: c.icon ?? null, color: c.color ?? null }));
+  const dragged = dragId ? all.find((c) => c.id === dragId) : undefined;
+  const canDrop = (target: Category) => !!dragged && !target.parentId && target.kind === dragged.kind && dragged.parentId !== target.id && !target.archived;
   const archive = useAction(api.archiveCategory);
   const showTransactions = useUi((s) => s.showTransactions);
   const visible = all.filter((c) => showArchived || !c.archived);
@@ -36,7 +44,32 @@ export function Categories() {
         {visible
           .filter((c) => c.kind === kind)
           .map((c) => (
-            <li key={c.id} className={(c.parentId ? "child" : "parent") + (c.archived ? " archived" : "")}>
+            <li
+              key={c.id}
+              className={(c.parentId ? "child" : "parent") + (c.archived ? " archived" : "") + (overId === c.id ? " drop-target" : "")}
+              data-testid="category-item"
+              data-name={c.name}
+              draggable={!!c.parentId && !c.archived}
+              onDragStart={(e) => {
+                setDragId(c.id);
+                e.dataTransfer.setData("text/plain", c.id);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragEnd={() => (setDragId(null), setOverId(null))}
+              onDragOver={(e) => {
+                if (canDrop(c)) {
+                  e.preventDefault();
+                  setOverId(c.id);
+                }
+              }}
+              onDragLeave={() => overId === c.id && setOverId(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragged && canDrop(c)) moveUnder.run(dragged, c.id);
+                setDragId(null);
+                setOverId(null);
+              }}
+            >
               <span className="name">
                 <LookMark look={lookOf(c.id, byId)} />
                 {c.name}
@@ -58,6 +91,9 @@ export function Categories() {
                 <button className="link" onClick={() => archive.run(c.id, !c.archived)}>
                   {c.archived ? "Вернуть" : "В архив"}
                 </button>
+                <button className="link" onClick={() => setMerging(c)} title="Перенести всё в другую категорию и убрать эту">
+                  Объединить
+                </button>
                 <button className="link danger" onClick={() => setDeleting(c)}>
                   Удалить
                 </button>
@@ -71,12 +107,13 @@ export function Categories() {
   return (
     <section className="screen">
       <ScreenTitle id="categories" />
-      <ErrorText error={archive.error} />
+      <ErrorText error={archive.error ?? moveUnder.error} />
       <RenameOffer />
       <div className="columns">
         {column("expense", "Расходы")}
         {column("income", "Доходы")}
       </div>
+      <p className="hint">Подкатегорию можно перетащить под другую категорию. «Объединить» переносит всё в другую категорию.</p>
       <label className="check small">
         <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
         Показать архивные
@@ -85,6 +122,7 @@ export function Categories() {
       <RulesCard />
       {edit && <CategoryForm edit={edit} all={all} onClose={() => setEdit(null)} />}
       {deleting && <DeleteForm category={deleting} all={all} onClose={() => setDeleting(null)} />}
+      {merging && <MergeForm category={merging} all={all} onClose={() => setMerging(null)} />}
     </section>
   );
 }
@@ -119,32 +157,8 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
             </select>
           )}
         </Field>
-        <div className="field" role="group" aria-label="Значок">
-          <span className="label">Значок {parentId && !icon && <span className="muted small">— как у родителя</span>}</span>
-          <div className="look-pick" data-testid="icon-pick">
-            <button type="button" aria-pressed={!icon} title="Без значка" onClick={() => setIcon(null)}>
-              —
-            </button>
-            {Object.entries(CATEGORY_ICONS).map(([k, v]) => (
-              <button key={k} type="button" aria-pressed={icon === k} title={v.label} aria-label={v.label} data-icon={k} onClick={() => setIcon(k)}>
-                <v.icon size={16} strokeWidth={1.9} aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field" role="group" aria-label="Цвет">
-          <span className="label">Цвет {parentId && !color && <span className="muted small">— как у родителя</span>}</span>
-          <div className="look-pick" data-testid="color-pick">
-            <button type="button" aria-pressed={!color} title="Без цвета" onClick={() => setColor(null)}>
-              —
-            </button>
-            {CATEGORY_COLORS.map((c) => (
-              <button key={c} type="button" className="swatch-btn" aria-pressed={color === c} title={COLOR_LABEL[c]} aria-label={COLOR_LABEL[c]} data-color={c} onClick={() => setColor(c)}>
-                <span style={{ background: colorVar(c) }} />
-              </button>
-            ))}
-          </div>
-        </div>
+        <LookPicker icon={icon} color={color} onIcon={setIcon} onColor={setColor} inherited={!!parentId} />
+        {current && <CategoryRules categoryId={current.id} />}
         <ErrorText error={save.error} />
         <div className="actions">
           <span className="spacer" />
@@ -256,6 +270,44 @@ function RenameDialog({ items, onClose }: { items: CategoryRename[]; onClose: ()
           Переименовать ({picked.size})
         </button>
       </div>
+    </Modal>
+  );
+}
+
+/** Р23: объединить категорию с другой — операции, лимиты, правила, шаблоны и напоминания переходят туда. */
+function MergeForm({ category, all, onClose }: { category: Category; all: Category[]; onClose: () => void }) {
+  const [target, setTarget] = useState("");
+  const children = all.filter((c) => c.parentId === category.id);
+  const choices = all.filter((c) => c.kind === category.kind && c.id !== category.id && c.parentId !== category.id && !c.archived);
+  const into = all.find((c) => c.id === target);
+  const merge = useAction(() => api.mergeCategories(category.id, target), onClose);
+  return (
+    <Modal title={`Объединить «${category.name}»`} onClose={onClose}>
+      <form className="form" onSubmit={(e) => (e.preventDefault(), merge.run())}>
+        <Field label="С какой категорией">
+          {(id) => <CategorySelect id={id} name="mergeInto" categories={choices} value={target} onChange={setTarget} />}
+        </Field>
+        <p className="hint" data-testid="merge-hint">
+          {into
+            ? `Операции (${category.transactionCount}), лимиты бюджета, правила, шаблоны и напоминания перейдут в «${into.name}», а «${category.name}» исчезнет.`
+            : "Всё, что было в этой категории, перейдёт в выбранную, а эта исчезнет."}
+          {children.length > 0 &&
+            (into && !into.parentId
+              ? ` Подкатегории (${children.map((c) => c.name).join(", ")}) переедут под «${into.name}»; одноимённые сольются.`
+              : ` Подкатегории (${children.map((c) => c.name).join(", ")}) тоже сольются.`)}{" "}
+          Отменить можно Ctrl+Z.
+        </p>
+        <ErrorText error={merge.error} />
+        <div className="actions">
+          <span className="spacer" />
+          <button type="button" className="btn" onClick={onClose}>
+            Отмена
+          </button>
+          <button type="submit" className="btn primary" disabled={!target || merge.busy} aria-busy={merge.busy}>
+            Объединить
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

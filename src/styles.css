@@ -1112,3 +1112,61 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .chart .dot-income { fill: var(--series-income); }
 .chart .dot-expense { fill: var(--series-expense); }
 .card > .filters-row { margin-bottom: 8px; }
+
+/* Этап 8а: группы, порядок, значок счёта. */
+.account-name { display: flex; align-items: center; gap: 10px; }
+.accounts-table tbody + tbody .group-head td { padding-top: 18px; }
+.accounts-table .group-head td { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.accounts-table .group-head td.num { text-transform: none; letter-spacing: 0; color: var(--text); font-size: 13px; }
+.accounts-table tr[draggable="true"] { cursor: grab; }
+.accounts-table tr.dragging { opacity: 0.45; }
+.group-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-list li { display: flex; align-items: center; gap: 8px; }
+.group-list li input { flex: 1; min-width: 0; }
+.look-details summary { cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.look-details[open] summary { margin-bottom: 8px; }
+/* Этап 8б: ключевые слова в карточке категории, объединение и перенос подкатегорий. */
+.rule-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.rule-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--accent-soft); font-size: 13px; }
+.rule-chip-x { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; }
+.rule-chip-x:hover { color: var(--text); }
+.tree li[draggable="true"] { cursor: grab; }
+.tree li.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
+
+/* Этап 8в: виды лимитов, копирование вперёд, группы и год */
+.limit-cell { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.limit-kind { font-size: 12px; padding: 2px 4px; border-radius: 6px; }
+.pct-input { width: 64px; text-align: right; }
+.limit-month { white-space: nowrap; }
+.copy-forward { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.copy-forward .inline-form { margin-bottom: 4px; }
+.budget-groups td.num { white-space: nowrap; }
+.year-scroll { overflow-x: auto; max-width: 100%; }
+.year-budget { font-size: 13px; min-width: 760px; }
+.year-budget td.num, .year-budget th.num { padding: 4px 6px; white-space: nowrap; }
+.year-budget td .sub { font-size: 11px; color: var(--muted); }
+.year-budget .child-name { padding-left: 20px; }
+.year-budget th .link { font-weight: 600; }
+
+/* Этап 8г: период Главной и «Свои цифры» */
+.home-period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.home-period .tabs.small { width: fit-content; }
+.figure-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.figure-tile { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.figure-tile .tile-label { display: flex; align-items: center; gap: 6px; }
+.figure-tile .tile-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figure-tile .figure-edit { margin-left: auto; opacity: 0.45; transition: opacity 0.15s; }
+.figure-tile:hover .figure-edit, .figure-tile .figure-edit:focus-visible { opacity: 1; }
+
+/* Этап 8д: заметки — закрепление и списки дел; цели — очередь и разложить */
+.note-list li.clickable { position: relative; padding-right: 32px; }
+.note-pin { position: absolute; top: 6px; right: 4px; opacity: 0.4; }
+.note-list li:hover .note-pin, .note-pin.on, .note-pin:focus-visible { opacity: 1; }
+.note-pin.on { color: var(--accent); }
+.note-list li.pinned { background: var(--accent-soft, transparent); }
+.note-check { display: flex; align-items: baseline; gap: 6px; cursor: pointer; }
+.note-check.done span { text-decoration: line-through; color: var(--muted); }
+.goal-order { display: inline-flex; gap: 2px; margin-left: 4px; }
+.goal-split { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.goal-split ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.goal-split li { display: flex; justify-content: space-between; gap: 12px; }

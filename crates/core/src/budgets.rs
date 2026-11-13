@@ -138,6 +138,29 @@ pub struct Line {
     pub rollover: bool,
     /// Сколько пришло с прошлого месяца (уже входит в остаток и процент).
     pub carried: i64,
+    /// Р9: вид лимита — `month`, `week` или `percent`.
+    pub limit_kind: String,
+    /// Для недели — сумма в неделю, для доли — сотые процента дохода.
+    pub limit_value: Option<i64>,
+    /// Р10: группа бюджета категории (подкатегория — как у родителя).
+    pub group_id: Option<String>,
+}
+
+/// Р10: итог группы бюджета за период.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSummary {
+    pub id: String,
+    pub name: String,
+    pub share_bp: Option<i64>,
+    /// Сумма лимитов строк группы.
+    pub planned: i64,
+    /// Факт по всем категориям группы (с лимитом и без).
+    pub actual: i64,
+    /// Цель: доля от дохода месяца (если доля задана).
+    pub target: Option<i64>,
+    /// Группа без категорий расходов: её факт — то, что осталось от дохода.
+    pub savings: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -168,6 +191,10 @@ pub struct Budget {
     /// Р8: валюты без курса в прошлых месяцах цепочки переноса: из таких месяцев
     /// остаток не переносится, пока курс не введён.
     pub carry_missing_rates: Vec<String>,
+    /// Р9, Р10: доход, от которого считаются доли (план доходов или факт, что больше).
+    pub income_basis: i64,
+    /// Р10: группы бюджета с итогами; пусто, если групп нет.
+    pub groups: Vec<GroupSummary>,
 }
 
 fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, Option<String>)>> {
@@ -191,6 +218,8 @@ fn actuals(
         "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.event_id IS NULL
+           AND t.account_id NOT IN (SELECT value FROM json_each(
+               COALESCE((SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))
            AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
@@ -226,6 +255,8 @@ fn event_expense(
         "SELECT t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type = 'expense' AND t.event_id IS NOT NULL
+           AND t.account_id NOT IN (SELECT value FROM json_each(
+               COALESCE((SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))
            AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
@@ -262,6 +293,22 @@ fn actual_with_children(
         .sum()
 }
 
+/// Р9: лимит строки на период по её виду. Неделя пересчитывается по дням
+/// периода, доля — от дохода месяца (`income`).
+fn line_limit(kind: &str, value: Option<i64>, stored: i64, days: i64, income: i64) -> i64 {
+    match (kind, value) {
+        ("week", Some(v)) => (v as i128 * days as i128 / 7) as i64,
+        ("percent", Some(bp)) => (income.max(0) as i128 * bp as i128 / 10_000) as i64,
+        _ => stored,
+    }
+}
+
+fn period_days(p: &Period) -> i64 {
+    let start = NaiveDate::parse_from_str(&p.start, "%Y-%m-%d").expect("дата периода");
+    let end = NaiveDate::parse_from_str(&p.end, "%Y-%m-%d").expect("дата периода");
+    (end - start).num_days() + 1
+}
+
 /// Р8: что переходит в `month` с прошлого месяца по строкам расходов с переносом.
 /// Переносится только неистраченное (перерасход не переносится), по всей непрерывной
 /// цепочке: остаток прошлого месяца считается вместе с тем, что пришло в него самого.
@@ -288,24 +335,30 @@ fn carries(
             break;
         }
         let mut stmt = conn.prepare_cached(
-            "SELECT bl.category_id, bl.limit_amount FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
+            "SELECT bl.category_id, bl.limit_amount, bl.limit_kind, bl.limit_value
+             FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
              WHERE bl.budget_id = ?1 AND bl.rollover = 1 AND c.kind = 'expense'",
         )?;
-        let lines: Vec<(String, i64)> = stmt
-            .query_map([&prev_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        let lines: Vec<(String, i64, String, Option<i64>)> = stmt
+            .query_map([&prev_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         if lines.is_empty() {
             break;
         }
-        chain.push((pp, lines));
+        chain.push((pp, prev_id, lines));
         m = prev_month;
     }
     let mut carry: HashMap<String, i64> = HashMap::new();
-    for (pp, lines) in chain.into_iter().rev() {
+    for (pp, prev_id, lines) in chain.into_iter().rev() {
         let (by_cat, miss) = actuals(conn, &pp, currency)?;
         let mut next = HashMap::new();
         if miss.is_empty() {
-            for (cat, limit) in lines {
+            let days = period_days(&pp);
+            let income = income_basis_of(conn, &prev_id, &by_cat)?;
+            for (cat, stored, kind, value) in lines {
+                let limit = line_limit(&kind, value, stored, days, income);
                 let left = limit + carry.get(&cat).copied().unwrap_or(0)
                     - actual_with_children(&by_cat, parent_of, &cat);
                 if left > 0 {
@@ -322,6 +375,85 @@ fn carries(
         carry = next;
     }
     Ok(carry)
+}
+
+/// Лимит строки бюджета на месяц без перенесённого остатка (неделя и доля дохода
+/// пересчитаны, как в бюджете) и флаг переноса. Нет строки — (0, false).
+pub(crate) fn effective_limit(
+    conn: &Connection,
+    budget_id: &str,
+    category_id: &str,
+) -> Result<(i64, bool)> {
+    // Период — от собственной даты начала бюджета (начало месяца могли поменять позже).
+    let (start, currency): (String, String) = conn.query_row(
+        "SELECT period_start, currency_code FROM budgets WHERE id = ?1",
+        [budget_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let Some((stored, rollover, kind, value)) = conn
+        .query_row(
+            "SELECT limit_amount, rollover, limit_kind, limit_value FROM budget_lines
+             WHERE budget_id = ?1 AND category_id = ?2",
+            [budget_id, category_id],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, bool>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok((0, false));
+    };
+    let from = time::parse_date(&start)?;
+    let to = from
+        .checked_add_months(chrono::Months::new(1))
+        .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
+        - Duration::days(1);
+    let p = Period {
+        month: from.format("%Y-%m").to_string(),
+        start,
+        end: to.to_string(),
+    };
+    let income = if kind == "percent" {
+        let (by_cat, _) = actuals(conn, &p, &currency)?;
+        income_basis_of(conn, budget_id, &by_cat)?
+    } else {
+        0
+    };
+    Ok((
+        line_limit(&kind, value, stored, period_days(&p), income),
+        rollover,
+    ))
+}
+
+/// Р9: доход месяца для долей — план доходов (строки доходов верхнего уровня) или факт,
+/// что больше. Одна формула для месяца и для переноса остатка.
+fn income_basis_of(
+    conn: &Connection,
+    budget_id: &str,
+    by_cat: &HashMap<String, i64>,
+) -> Result<i64> {
+    let planned: i64 = conn.query_row(
+        "SELECT COALESCE(sum(bl.limit_amount), 0) FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
+         WHERE bl.budget_id = ?1 AND c.kind = 'income'
+           AND NOT EXISTS (SELECT 1 FROM budget_lines p WHERE p.budget_id = bl.budget_id AND p.category_id = c.parent_id)",
+        [budget_id],
+        |r| r.get(0),
+    )?;
+    Ok(planned.max(income_total(conn, by_cat)?))
+}
+
+/// Доходы периода по факту (сумма по категориям доходов).
+fn income_total(conn: &Connection, by_cat: &HashMap<String, i64>) -> Result<i64> {
+    let mut stmt = conn.prepare_cached("SELECT id FROM categories WHERE kind = 'income'")?;
+    let income: Vec<String> = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(income.iter().filter_map(|c| by_cat.get(c)).sum())
 }
 
 /// Бюджет месяца с фактом. Если бюджета нет, `id = None` и строк нет,
@@ -351,12 +483,29 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         .map(|c| (c.id.clone(), c.parent_id.clone()))
         .collect();
     let actual_for = |cat: &str| actual_with_children(&by_cat, &parents, cat);
+    // Р10: группы бюджета. Подкатегория без своей группы — в группе родителя.
+    let membership = crate::budget_groups::membership(conn)?;
+    let group_of = |cat: &str| -> Option<String> {
+        membership.get(cat).cloned().or_else(|| {
+            parent_of
+                .get(cat)
+                .copied()
+                .flatten()
+                .and_then(|p| membership.get(p).cloned())
+        })
+    };
 
     let mut lines = Vec::new();
     let mut carry_missing_rates = Vec::new();
+    let mut income_basis = by_cat
+        .iter()
+        .filter(|(c, _)| kind_of.get(c.as_str()) == Some(&"income"))
+        .map(|(_, v)| *v)
+        .sum::<i64>();
     if let Some((id, _, _)) = &row {
         let mut stmt = conn.prepare(
-            "SELECT bl.category_id, c.name, c.parent_id, c.kind, bl.limit_amount, bl.rollover
+            "SELECT bl.category_id, c.name, c.parent_id, c.kind, bl.limit_amount, bl.rollover,
+                    bl.limit_kind, bl.limit_value
              FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
              LEFT JOIN categories p ON p.id = c.parent_id
              WHERE bl.budget_id = ?1
@@ -371,8 +520,14 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
                 r.get::<_, String>(3)?,
                 r.get::<_, i64>(4)?,
                 r.get::<_, bool>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, Option<i64>>(7)?,
             ))
         })?;
+        let rows: Vec<_> = rows.collect::<rusqlite::Result<_>>()?;
+        // Доход для долей: план доходов или факт — та же формула, что при переносе.
+        income_basis = income_basis_of(conn, id, &by_cat)?;
+        let days = period_days(&p);
         let carried_in = carries(
             conn,
             month,
@@ -382,7 +537,18 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
             &mut carry_missing_rates,
         )?;
         for row in rows {
-            let (category_id, category_name, parent_id, kind, base, rollover) = row?;
+            let (
+                category_id,
+                category_name,
+                parent_id,
+                kind,
+                stored,
+                rollover,
+                limit_kind,
+                limit_value,
+            ) = row;
+            let base = line_limit(&limit_kind, limit_value, stored, days, income_basis);
+            let group_id = group_of(&category_id);
             let actual = actual_for(&category_id);
             let carried = if kind == "expense" {
                 carried_in.get(&category_id).copied().unwrap_or(0)
@@ -407,6 +573,9 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
                 limit,
                 base_limit: base,
                 actual,
+                limit_kind,
+                limit_value,
+                group_id,
             });
         }
     }
@@ -490,6 +659,40 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         };
     let events_spent = event_expense(conn, &p, &currency, &mut missing_rates)?;
 
+    let mut groups = Vec::new();
+    for g in crate::budget_groups::list(conn)? {
+        let planned: i64 = lines
+            .iter()
+            .filter(|l| l.kind == "expense" && l.group_id.as_deref() == Some(&g.id))
+            .filter(top_level)
+            .map(|l| l.limit)
+            .sum();
+        let has_expense = cats
+            .iter()
+            .any(|c| c.kind == "expense" && group_of(&c.id).as_deref() == Some(&g.id));
+        let actual = if has_expense {
+            by_cat
+                .iter()
+                .filter(|(c, _)| kind_of.get(c.as_str()) == Some(&"expense"))
+                .filter(|(c, _)| group_of(c).as_deref() == Some(&g.id))
+                .map(|(_, v)| v)
+                .sum()
+        } else {
+            (actual_income - actual_expense).max(0)
+        };
+        groups.push(GroupSummary {
+            target: g
+                .share_bp
+                .map(|bp| (income_basis as i128 * bp as i128 / 10_000) as i64),
+            savings: !has_expense,
+            id: g.id,
+            name: g.name,
+            share_bp: g.share_bp,
+            planned,
+            actual,
+        });
+    }
+
     Ok(Budget {
         id: row.as_ref().map(|r| r.0.clone()),
         note: row.and_then(|r| r.2),
@@ -507,6 +710,8 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         forecast_expense,
         missing_rates,
         carry_missing_rates,
+        income_basis,
+        groups,
     })
 }
 
@@ -535,8 +740,9 @@ pub fn create(conn: &mut Connection, month: &str, copy_previous: bool) -> Result
     )?;
     if let (Some((prev_id, _, _)), true) = (&prev, copy_previous) {
         tx.execute(
-            "INSERT INTO budget_lines (id, budget_id, category_id, limit_amount, rollover)
-             SELECT lower(hex(randomblob(16))), ?1, bl.category_id, bl.limit_amount, bl.rollover
+            "INSERT INTO budget_lines (id, budget_id, category_id, limit_amount, rollover, limit_kind, limit_value)
+             SELECT lower(hex(randomblob(16))), ?1, bl.category_id, bl.limit_amount, bl.rollover,
+                    bl.limit_kind, bl.limit_value
              FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
              WHERE bl.budget_id = ?2 AND c.archived_at IS NULL",
             params![id, prev_id],
@@ -709,6 +915,228 @@ pub fn set_limit(
     Ok(())
 }
 
+/// Р9: вид лимита строки. `month` — `value` сумма на месяц; `week` — сумма в
+/// неделю (на месяц пересчитывается по дням периода); `percent` — доля дохода
+/// месяца в сотых процента (только для расходов).
+pub fn set_limit_kind(
+    conn: &Connection,
+    budget_id: &str,
+    category_id: &str,
+    kind: &str,
+    value: i64,
+) -> Result<()> {
+    check_budget(conn, budget_id)?;
+    let cat_kind = categories::kind_of(conn, category_id)?;
+    if value < 0 {
+        return invalid("лимит не может быть отрицательным");
+    }
+    let (amount, stored_value) = match kind {
+        "month" => (value, None),
+        "week" => {
+            let start: String = conn.query_row(
+                "SELECT period_start FROM budgets WHERE id = ?1",
+                [budget_id],
+                |r| r.get(0),
+            )?;
+            let p = month_of(conn, &start)?;
+            (
+                (value as i128 * period_days(&p) as i128 / 7) as i64,
+                Some(value),
+            )
+        }
+        "percent" => {
+            if cat_kind != "expense" {
+                return invalid("долей дохода задаётся только лимит расходов");
+            }
+            if value > 10_000 {
+                return invalid("доля дохода — не больше 100 %");
+            }
+            (0, Some(value))
+        }
+        _ => return invalid("неизвестный вид лимита"),
+    };
+    conn.execute(
+        "INSERT INTO budget_lines (id, budget_id, category_id, limit_amount, limit_kind, limit_value)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (budget_id, category_id) DO UPDATE SET limit_amount = excluded.limit_amount,
+             limit_kind = excluded.limit_kind, limit_value = excluded.limit_value",
+        params![ids::new_id(), budget_id, category_id, amount, kind, stored_value],
+    )?;
+    conn.execute(
+        "UPDATE budgets SET updated_at = ?2 WHERE id = ?1",
+        params![budget_id, time::now_utc()],
+    )?;
+    Ok(())
+}
+
+/// Р11: итог копирования бюджета вперёд.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyResult {
+    /// Месяцы, где бюджет создан.
+    pub created: Vec<String>,
+    /// Месяцы, где лимиты заменены.
+    pub replaced: Vec<String>,
+    /// Месяцы, где бюджет уже был и остался как есть.
+    pub skipped: Vec<String>,
+}
+
+/// Р11: скопировать лимиты месяца `month` на `months` месяцев вперёд. Уже
+/// заведённые бюджеты заменяются только с `overwrite`, иначе не трогаются.
+pub fn copy_forward(
+    conn: &mut Connection,
+    month: &str,
+    months: u32,
+    overwrite: bool,
+) -> Result<CopyResult> {
+    if !(1..=24).contains(&months) {
+        return invalid("скопировать можно на 1–24 месяца");
+    }
+    let sd = start_day(conn)?;
+    let Some((src, currency, _)) = budget_row(conn, &period(month, sd)?.start)? else {
+        return invalid("в этом месяце бюджета нет: копировать нечего");
+    };
+    let tx = conn.transaction()?;
+    let mut out = CopyResult {
+        created: Vec::new(),
+        replaced: Vec::new(),
+        skipped: Vec::new(),
+    };
+    let now = time::now_utc();
+    for i in 1..=months as i32 {
+        let m = shift_month(month, i)?;
+        let p = period(&m, sd)?;
+        let id = match budget_row(&tx, &p.start)? {
+            Some(_) if !overwrite => {
+                out.skipped.push(m);
+                continue;
+            }
+            Some((id, _, _)) => {
+                tx.execute("DELETE FROM budget_lines WHERE budget_id = ?1", [&id])?;
+                tx.execute(
+                    "UPDATE budgets SET currency_code = ?2, updated_at = ?3 WHERE id = ?1",
+                    params![id, currency, now],
+                )?;
+                out.replaced.push(m);
+                id
+            }
+            None => {
+                let id = ids::new_id();
+                tx.execute(
+                    "INSERT INTO budgets (id, period_start, period_type, currency_code, created_at, updated_at)
+                     VALUES (?1, ?2, 'month', ?3, ?4, ?4)",
+                    params![id, p.start, currency, now],
+                )?;
+                out.created.push(m);
+                id
+            }
+        };
+        tx.execute(
+            "INSERT INTO budget_lines (id, budget_id, category_id, limit_amount, rollover, limit_kind, limit_value)
+             SELECT lower(hex(randomblob(16))), ?1, bl.category_id, bl.limit_amount, bl.rollover,
+                    bl.limit_kind, bl.limit_value
+             FROM budget_lines bl JOIN categories c ON c.id = bl.category_id
+             WHERE bl.budget_id = ?2 AND c.archived_at IS NULL",
+            params![id, src],
+        )?;
+    }
+    tx.commit()?;
+    Ok(out)
+}
+
+/// Р11: строка годового вида — лимит и факт категории по 12 месяцам.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YearRow {
+    pub category_id: String,
+    pub category_name: String,
+    pub parent_id: Option<String>,
+    pub kind: String,
+    /// Лимит по месяцам (`None` — в этом месяце лимита нет).
+    pub limits: Vec<Option<i64>>,
+    pub actuals: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YearBudget {
+    pub year: i32,
+    pub months: Vec<String>,
+    /// Есть ли бюджет в месяце.
+    pub has_budget: Vec<bool>,
+    pub rows: Vec<YearRow>,
+    pub planned_expense: Vec<i64>,
+    pub actual_expense: Vec<i64>,
+    /// Символ и знаки после запятой валюты бюджета каждого месяца: суммы не пересчитываются,
+    /// поэтому у каждого месяца — своя валюта.
+    pub symbols: Vec<String>,
+    pub minor_units: Vec<u32>,
+}
+
+/// Р11: годовой вид — 12 месяцев в строку по категориям с лимитами.
+pub fn year(conn: &Connection, year: i32, today: &str) -> Result<YearBudget> {
+    let months: Vec<String> = (1..=12).map(|m| format!("{year:04}-{m:02}")).collect();
+    let mut rows: Vec<YearRow> = Vec::new();
+    let mut has_budget = Vec::new();
+    let mut planned_expense = Vec::new();
+    let mut actual_expense = Vec::new();
+    let budgets: Vec<Budget> = months
+        .iter()
+        .map(|m| get(conn, m, today))
+        .collect::<Result<_>>()?;
+    let mut symbols = Vec::new();
+    let mut minor_units = Vec::new();
+    for (i, b) in budgets.iter().enumerate() {
+        symbols.push(b.currency_symbol.clone());
+        minor_units.push(currencies::get(conn, &b.currency_code)?.minor_units);
+        has_budget.push(b.id.is_some());
+        planned_expense.push(b.planned_expense);
+        actual_expense.push(b.actual_expense);
+        for l in &b.lines {
+            let row = match rows.iter_mut().position(|r| r.category_id == l.category_id) {
+                Some(at) => &mut rows[at],
+                None => {
+                    rows.push(YearRow {
+                        category_id: l.category_id.clone(),
+                        category_name: l.category_name.clone(),
+                        parent_id: l.parent_id.clone(),
+                        kind: l.kind.clone(),
+                        limits: vec![None; 12],
+                        actuals: vec![0; 12],
+                    });
+                    rows.last_mut().expect("только что добавили")
+                }
+            };
+            row.limits[i] = Some(l.limit);
+        }
+    }
+    // Факт по всем месяцам, в том числе где у категории лимита не было.
+    let sd = start_day(conn)?;
+    let parents: HashMap<String, Option<String>> = categories::list(conn, true)?
+        .into_iter()
+        .map(|c| (c.id, c.parent_id))
+        .collect();
+    for (i, b) in budgets.iter().enumerate() {
+        let (by_cat, _) = actuals(conn, &period(&months[i], sd)?, &b.currency_code)?;
+        for row in &mut rows {
+            row.actuals[i] = actual_with_children(&by_cat, &parents, &row.category_id);
+        }
+    }
+    rows.sort_by(|a, b| {
+        (a.kind == "income", &a.category_name).cmp(&(b.kind == "income", &b.category_name))
+    });
+    Ok(YearBudget {
+        year,
+        months,
+        has_budget,
+        rows,
+        planned_expense,
+        actual_expense,
+        symbols,
+        minor_units,
+    })
+}
+
 /// Р8: переносить ли неистраченный остаток строки расходов на следующий месяц.
 pub fn set_rollover(conn: &Connection, budget_id: &str, category_id: &str, on: bool) -> Result<()> {
     check_budget(conn, budget_id)?;
@@ -866,6 +1294,34 @@ mod tests {
             .unwrap()
             .1;
         assert!(cafe_avg < 700_000, "{cafe_avg}");
+    }
+
+    #[test]
+    fn account_out_of_budget_is_not_in_actuals() {
+        // Р20: счёт «не в бюджете» (например, рабочая карта) не съедает лимиты.
+        let mut f = fx();
+        let id = create(f.db.conn_mut(), "2026-10", false).unwrap();
+        let c = f.db.conn();
+        set_limit(c, &id, &cat(c, "Общепит"), Some(1_000_000)).unwrap();
+        let work = accounts::create(c, &input("Рабочая", "debit", "RUB", 5_000_000)).unwrap();
+        accounts::set_includes(c, &work, true, false, true).unwrap();
+        spend(c, &f.card, "2026-10-05", 200_000, "Общепит");
+        spend(c, &work, "2026-10-06", 300_000, "Общепит");
+        let b = get(c, "2026-10", "2026-10-20").unwrap();
+        let cafe = b
+            .lines
+            .iter()
+            .find(|l| l.category_name == "Общепит")
+            .unwrap();
+        assert_eq!(cafe.actual, 200_000);
+        accounts::set_includes(c, &work, true, true, true).unwrap();
+        let b = get(c, "2026-10", "2026-10-20").unwrap();
+        let cafe = b
+            .lines
+            .iter()
+            .find(|l| l.category_name == "Общепит")
+            .unwrap();
+        assert_eq!(cafe.actual, 500_000);
     }
 
     #[test]

@@ -43,6 +43,8 @@ export interface TxnJump {
   types?: TxnType[];
   /** Р3: готовые фильтры («Без категории» из «Состояния данных»). */
   quick?: QuickFilter[];
+  /** Как в отчётах: возвраты — вместе с расходами (переход из сумм на Главной). */
+  counted?: boolean;
 }
 
 interface UiState {
