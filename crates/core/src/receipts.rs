@@ -224,6 +224,7 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
 /// Удалить весь чек.
 pub fn delete(conn: &Connection, split_id: &str) -> Result<()> {
     exists(conn, split_id)?;
+    crate::import_log::remember_deleted(conn, "t.split_id = ?1", split_id)?;
     conn.execute("DELETE FROM transactions WHERE split_id = ?1", [split_id])?;
     Ok(())
 }

@@ -215,10 +215,19 @@ pub fn delete(conn: &mut Connection, ids: &[String]) -> Result<BulkResult> {
     let tx = conn.transaction()?;
     let all = with_whole_receipts(&tx, ids)?;
     let mut res = BulkResult::default();
+    let mut receipts: HashSet<String> = HashSet::new();
     for r in rows(&tx, &all)? {
         if r.debt_id.is_some() {
             res.skipped += 1;
             continue;
+        }
+        // Удалённое не вернётся со следующей выпиской; чек — одна строка банка.
+        match &r.split_id {
+            Some(split) if receipts.insert(split.clone()) => {
+                crate::import_log::remember_deleted(&tx, "t.split_id = ?1", split)?
+            }
+            Some(_) => {}
+            None => crate::import_log::remember_deleted(&tx, "t.id = ?1", &r.id)?,
         }
         tx.execute("DELETE FROM transactions WHERE id = ?1", [&r.id])?;
         res.changed += 1;

@@ -308,8 +308,14 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
         return invalid("это платёж по долгу: удалите его в карточке долга");
     }
     match &old.split_id {
-        Some(split) => conn.execute("DELETE FROM transactions WHERE split_id = ?1", [split])?,
-        None => conn.execute("DELETE FROM transactions WHERE id = ?1", [id])?,
+        Some(split) => {
+            crate::import_log::remember_deleted(conn, "t.split_id = ?1", split)?;
+            conn.execute("DELETE FROM transactions WHERE split_id = ?1", [split])?
+        }
+        None => {
+            crate::import_log::remember_deleted(conn, "t.id = ?1", id)?;
+            conn.execute("DELETE FROM transactions WHERE id = ?1", [id])?
+        }
     };
     Ok(())
 }

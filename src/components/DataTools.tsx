@@ -173,7 +173,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
             {(id) => <AccountSelect id={id} name="importAccount" accounts={accounts} value={accountId ?? ""} onChange={(v) => load(path!, v || null)} />}
           </Field>
           {preview.selfTransfers > 0 && (
-            <Field label={`Переводы «Между своими счетами» (${preview.selfTransfers}) — второй счёт`} hint="Куда уходят и откуда приходят деньги в этих строках: копилка, накопительный счёт, другой банк. Тогда это переводы, а не расходы и доходы. Если вторая сторона есть в этой же выписке, перевод найдётся сам. Запомним для следующих выписок.">
+            <Field label={`Переводы своих денег (${preview.selfTransfers}) — второй счёт`} hint="«Между своими счетами», копилка, пополнение из другого банка: строки, которые банк не считает тратами и доходами («Учёт в аналитике: Нет»). Выберите, куда уходят и откуда приходят эти деньги, и они запишутся переводами, а траты и доходы совпадут с банком. Уже загруженные раньше такие строки тоже станут переводами. Если вторая сторона есть в этой же выписке, перевод найдётся сам. Запомним для следующих выписок.">
               {(id) => <AccountSelect id={id} name="importSelfAccount" placeholder="Не знаю — записать расходом и доходом" accounts={accounts} exclude={accountId ?? undefined} value={preview.selfAccountId ?? ""} onChange={(v) => load(path!, accountId, v)} />}
             </Field>
           )}
@@ -185,6 +185,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
             {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
             {preview.errors > 0 && `, с ошибками ${preview.errors}`}
             {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
+            {preview.toTransfers > 0 && `, станут переводами ${preview.toTransfers}`}
             {preview.linked > 0 && `, свяжутся с вашими записями ${preview.linked}`}
             {preview.doubtful > 0 && `, спросим про совпадения ${preview.doubtful}`}
           </p>
@@ -204,7 +205,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
               </thead>
               <tbody>
                 {preview.rows.map((r) => (
-                  <tr key={r.line} className={r.error ? "bad" : r.duplicate || r.linkedTo ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"} data-linked={r.linkedTo ? "1" : "0"}>
+                  <tr key={r.line} className={r.error ? "bad" : r.duplicate || r.linkedTo || r.toTransfer ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"} data-linked={r.linkedTo ? "1" : "0"}>
                     <td>{r.line}</td>
                     <td>{/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? formatDate(r.date) : r.date}</td>
                     <td>{r.type}</td>
@@ -212,7 +213,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
                     <td>{r.category}</td>
                     {preview.bank && <td className="import-payee">{r.payee}</td>}
                     <td className="num">{r.amount}</td>
-                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.duplicate ? "уже есть, пропустим" : r.linkedTo ? `ваша запись ${r.linkedTo}` : r.maybe > 0 ? `похоже на ваши записи (${r.maybe}), спросим` : "ок")}</td>
+                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.toTransfer ? "уже есть, станет переводом" : r.duplicate ? "уже есть, пропустим" : r.linkedTo ? `ваша запись ${r.linkedTo}` : r.maybe > 0 ? `похоже на ваши записи (${r.maybe}), спросим` : "ок")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -228,6 +229,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
       {loaded !== null && (
         <p className="ok" data-testid="import-done">
           Загружено операций: {loaded.added}
+          {loaded.converted > 0 && `, стали переводами: ${loaded.converted}`}
           {loaded.linked > 0 && `, связано с вашими записями: ${loaded.linked}`}
           {loaded.suggested > 0 && (
             <>
