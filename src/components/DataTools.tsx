@@ -98,18 +98,28 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
   const qc = useQueryClient();
 
+  // Предпросмотр, по которому идёт загрузка: пока новый не пришёл, кнопки
+  // загрузки выключены, а ответ на устаревший запрос не показывается.
+  const [pending, setPending] = useState(false);
+  const request = useRef(0);
   const load = async (p: string, account: string | null = accountId, self: string | null = selfId) => {
+    const n = ++request.current;
     setError(null);
     setLoaded(null);
-    setSelfId(self);
+    setPending(true);
     try {
       const r = await api.importPreview(p, account, self);
+      if (n !== request.current) return;
       setPreview(r);
+      setSelfId(self);
       setAccountId(r.accountId);
       setPath(p);
     } catch (e) {
+      if (n !== request.current) return;
       setPreview(null);
       setError(String(e));
+    } finally {
+      if (n === request.current) setPending(false);
     }
   };
   // Файл, брошенный в окно: сразу предпросмотр.
@@ -244,7 +254,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
       <ErrorText error={error} />
       <div className="actions">
         {preview && preview.errors > 0 && preview.valid + preview.toTransfers > 0 && (
-          <button className="link" onClick={() => commit(true)}>
+          <button className="link" disabled={pending} onClick={() => commit(true)}>
             Загрузить только правильные ({preview.valid + preview.toTransfers})
           </button>
         )}
@@ -253,7 +263,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
           Закрыть
         </button>
         {preview && (
-          <button className="btn primary" disabled={preview.errors > 0 || preview.valid + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+          <button className="btn primary" disabled={pending || preview.errors > 0 || preview.valid + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {preview.valid === 0 && preview.toTransfers > 0 ? `Исправить ${preview.toTransfers}` : `Загрузить ${preview.valid}`}
             {preview.valid > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>

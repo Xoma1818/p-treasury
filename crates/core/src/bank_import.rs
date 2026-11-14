@@ -643,7 +643,8 @@ fn transfer_repeat(
                    AND amount = ?4 AND ((account_id = ?2 AND to_account_id = ?3)
                                         OR (account_id = ?3 AND to_account_id = ?2)))
               + (SELECT count(*) FROM import_deleted WHERE kind = 'transfer' AND bank_date = ?1
-                   AND bank_amount = ?4 AND account_id IN (?2, ?3))",
+                   AND bank_amount = ?4 AND ((account_id = ?2 AND to_account_id = ?3)
+                                             OR (account_id = ?3 AND to_account_id = ?2)))",
         params![t.date, a, b, t.amount],
         |r| r.get(0),
     )?;
@@ -1963,5 +1964,84 @@ mod tests {
         crate::transactions::delete(c, &id).unwrap();
         let p = crate::csv_import::preview_with(c, &path, None, Some(&savings)).unwrap();
         assert_eq!((p.valid, p.duplicates, p.to_transfers), (0, 9, 0));
+    }
+
+    /// Ревью #91 (повторное) п.1: перевод собран из расхода выписки A и дохода
+    /// выписки B. Отмена A возвращает доход B; отмена B — расход A как был.
+    #[test]
+    fn undo_of_either_side_import_keeps_the_other_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let head = "\"Дата операции\";\"Номер карты\";\"Статус\";\"Сумма операции\";\"Валюта операции\";\"Сумма платежа\";\"Валюта платежа\";\"Категория\";\"Описание\"\n";
+        let out = "\"03.11.2026 10:00:00\";\"*1111\";\"OK\";\"-500,00\";\"RUB\";\"-500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let inc = "\"03.11.2026 10:00:01\";\"*2222\";\"OK\";\"500,00\";\"RUB\";\"500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let file = |name: &str, body: String| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let a = file("a.csv", format!("{head}{out}"));
+        let b = file("b.csv", format!("{head}{inc}"));
+        let both = file("both.csv", format!("{head}{out}{inc}"));
+        let rows = |c: &Connection| -> Vec<(String, String, i64)> {
+            c.prepare("SELECT type, account_id, amount FROM transactions ORDER BY type")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        for undo_a in [true, false] {
+            let mut db = Storage::open_in_memory().unwrap();
+            crate::categories::seed_defaults(db.conn()).unwrap();
+            let card = account(db.conn(), "Карта *1111");
+            let deposit = account(db.conn(), "Вклад *2222");
+            let ia =
+                crate::csv_import::import_with(db.conn_mut(), &a, false, Some(&card), Some(""))
+                    .unwrap()
+                    .import_id;
+            let ib =
+                crate::csv_import::import_with(db.conn_mut(), &b, false, Some(&deposit), Some(""))
+                    .unwrap()
+                    .import_id;
+            crate::csv_import::import_with(db.conn_mut(), &both, false, Some(&card), None).unwrap();
+            let c = db.conn();
+            assert_eq!(rows(c), [("transfer".to_string(), card.clone(), 50_000)]);
+            if undo_a {
+                crate::import_log::undo(c, &ia).unwrap();
+                assert_eq!(rows(c), [("income".to_string(), deposit.clone(), 50_000)]);
+                // Строка B узнаётся: повтор её выписки ничего не добавит.
+                let p = crate::csv_import::preview_with(c, &b, Some(&deposit), Some("")).unwrap();
+                assert_eq!((p.valid, p.duplicates), (0, 1));
+            } else {
+                crate::import_log::undo(c, &ib).unwrap();
+                assert_eq!(rows(c), [("expense".to_string(), card.clone(), 50_000)]);
+                let p = crate::csv_import::preview_with(c, &a, Some(&card), Some("")).unwrap();
+                assert_eq!((p.valid, p.duplicates), (0, 1));
+            }
+        }
+    }
+
+    /// Ревью #91 (повторное) п.2: удалённый перевод A → B не мешает новому A → C.
+    #[test]
+    fn deleted_transfer_does_not_block_transfer_to_other_account() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let other = account(db.conn(), "Копилка");
+        let path = testdata("tbank-operations-analytics.csv");
+        crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some(&savings)).unwrap();
+        let c = db.conn();
+        let id: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE type = 'transfer' AND amount = 8000000",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        crate::transactions::delete(c, &id).unwrap();
+        let p = crate::csv_import::preview_with(c, &path, None, Some(&other)).unwrap();
+        let row = p.rows.iter().find(|r| r.amount == "80000,00").unwrap();
+        assert!(!row.duplicate && row.error.is_none(), "{row:?}");
     }
 }

@@ -408,15 +408,23 @@ pub(crate) fn effective_limit(
     else {
         return Ok((0, false));
     };
-    let from = time::parse_date(&start)?;
-    let to = from
-        .checked_add_months(chrono::Months::new(1))
-        .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
-        - Duration::days(1);
-    let p = Period {
-        month: from.format("%Y-%m").to_string(),
-        start,
-        end: to.to_string(),
+    // Начало бюджета совпадает с нынешним началом месяца — период по настройке
+    // (при начале 31-го март идёт с 28 февраля по 30 марта, а не по 27 марта).
+    // Иначе начало поменяли позже: месяц от собственной даты бюджета.
+    let current = month_of(conn, &start)?;
+    let p = if current.start == start {
+        current
+    } else {
+        let from = time::parse_date(&start)?;
+        let to = from
+            .checked_add_months(chrono::Months::new(1))
+            .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
+            - Duration::days(1);
+        Period {
+            month: from.format("%Y-%m").to_string(),
+            start,
+            end: to.to_string(),
+        }
     };
     let income = if kind == "percent" {
         let (by_cat, _) = actuals(conn, &p, &currency)?;
@@ -1196,6 +1204,21 @@ mod tests {
         assert!(period("2026-13", 1).is_err());
         assert_eq!(shift_month("2026-01", -1).unwrap(), "2025-12");
         assert_eq!(shift_month("2026-12", 1).unwrap(), "2027-01");
+    }
+
+    /// Ревью #91 (к #88): лимит «в неделю» при объединении категорий берёт
+    /// бюджетный месяц по настройке: начало 31-го, март — 31 день (28.02–30.03).
+    #[test]
+    fn weekly_limit_with_start_31_counts_whole_march() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        settings::set(db.conn(), "month_start_day", "31").unwrap();
+        let budget = create(db.conn_mut(), "2026-03", false).unwrap();
+        let c = db.conn();
+        let food = cat(c, "Общепит");
+        set_limit_kind(c, &budget, &food, "week", 7_000).unwrap();
+        let (limit, _) = effective_limit(c, &budget, &food).unwrap();
+        assert_eq!(limit, 31_000);
     }
 
     /// Ревью #88: начало месяца 29–31 и февраль (обычный и високосный год):

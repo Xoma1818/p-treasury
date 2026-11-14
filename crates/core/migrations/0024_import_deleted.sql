@@ -12,6 +12,8 @@ CREATE TABLE import_deleted (
     bank_date   TEXT NOT NULL,
     bank_amount INTEGER NOT NULL,
     bank_payee  TEXT NOT NULL DEFAULT '',
+    -- Удалённый перевод: второй счёт (перевод A → B не мешает новому A → C).
+    to_account_id TEXT,
     deleted_at  TEXT NOT NULL
 );
 CREATE INDEX idx_import_deleted_bank ON import_deleted(account_id, bank_date, bank_amount);
@@ -24,6 +26,8 @@ CREATE TABLE import_converts (
     import_id      TEXT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
     transaction_id TEXT NOT NULL,
     kind           TEXT NOT NULL CHECK (kind IN ('update', 'absorb')),
+    -- Для 'absorb' — перевод, в который вошла сторона.
+    into_id        TEXT,
     -- Для 'absorb' — исходный импорт стороны: если он отменён, сторона не возвращается.
     from_import    TEXT,
     row_json       TEXT NOT NULL,

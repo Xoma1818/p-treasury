@@ -424,14 +424,17 @@ pub fn history(conn: &Connection, limit: i64) -> Result<Vec<Batch>> {
 pub(crate) fn remember_deleted(conn: &Connection, filter: &str, param: &str) -> Result<()> {
     conn.execute(
         &format!(
-            "INSERT INTO import_deleted (id, account_id, kind, bank_date, bank_amount, bank_payee, deleted_at)
-             SELECT lower(hex(randomblob(16))), account_id, kind, bank_date, bank_amount, bank_payee, ?2
-             FROM (SELECT k.account_id, k.kind, k.bank_date, k.bank_amount, k.bank_payee
+            "INSERT INTO import_deleted (id, account_id, kind, bank_date, bank_amount, bank_payee,
+                                         to_account_id, deleted_at)
+             SELECT lower(hex(randomblob(16))), account_id, kind, bank_date, bank_amount, bank_payee,
+                    to_account_id, ?2
+             FROM (SELECT k.account_id, k.kind, k.bank_date, k.bank_amount, k.bank_payee,
+                          CASE WHEN k.kind = 'transfer' THEN t.to_account_id END AS to_account_id
                    FROM import_keys k JOIN transactions t ON t.id = k.transaction_id
                    WHERE {filter}
                    GROUP BY coalesce(t.split_id, t.id)
                    UNION ALL
-                   SELECT l.account_id, l.kind, l.bank_date, l.bank_amount, l.bank_payee
+                   SELECT l.account_id, l.kind, l.bank_date, l.bank_amount, l.bank_payee, NULL
                    FROM import_links l JOIN transactions t ON t.id = l.transaction_id
                    WHERE {filter})"
         ),
@@ -819,7 +822,13 @@ fn restore_exprs(conn: &Connection) -> Result<(Vec<String>, Vec<String>)> {
 }
 
 /// Снимок операции перед тем, как свежая выписка её изменит (см. [`convert_to_transfer`]).
-fn remember_convert(conn: &Connection, import_id: &str, id: &str, kind: &str) -> Result<()> {
+fn remember_convert(
+    conn: &Connection,
+    import_id: &str,
+    id: &str,
+    kind: &str,
+    into: Option<&str>,
+) -> Result<()> {
     let fields = txn_columns(conn)?
         .iter()
         .map(|c| format!("'{c}', \"{c}\""))
@@ -827,9 +836,9 @@ fn remember_convert(conn: &Connection, import_id: &str, id: &str, kind: &str) ->
         .join(", ");
     conn.execute(
         &format!(
-            "INSERT INTO import_converts (import_id, transaction_id, kind, from_import, row_json,
-                                          tags_json, attached_json, keys_json)
-             SELECT ?1, id, ?3, import_id, json_object({fields}),
+            "INSERT INTO import_converts (import_id, transaction_id, kind, into_id, from_import,
+                                          row_json, tags_json, attached_json, keys_json)
+             SELECT ?1, id, ?3, ?4, import_id, json_object({fields}),
                     (SELECT json_group_array(tag_id) FROM transaction_tags
                      WHERE transaction_id = t.id),
                     json_object(
@@ -843,7 +852,7 @@ fn remember_convert(conn: &Connection, import_id: &str, id: &str, kind: &str) ->
                      FROM import_keys WHERE transaction_id = t.id)
              FROM transactions t WHERE id = ?2"
         ),
-        params![import_id, id, kind],
+        params![import_id, id, kind, into],
     )?;
     Ok(())
 }
@@ -860,7 +869,7 @@ pub(crate) fn convert_to_transfer(
     mut t: TxnInput,
     absorb: Option<&str>,
 ) -> Result<()> {
-    remember_convert(conn, import_id, id, "update")?;
+    remember_convert(conn, import_id, id, "update", None)?;
     let note_of = |id: &str| -> Result<Option<String>> {
         Ok(conn
             .query_row("SELECT note FROM transactions WHERE id = ?1", [id], |r| {
@@ -870,7 +879,7 @@ pub(crate) fn convert_to_transfer(
     };
     let mut notes: Vec<String> = note_of(id)?.into_iter().collect();
     if let Some(b) = absorb {
-        remember_convert(conn, import_id, b, "absorb")?;
+        remember_convert(conn, import_id, b, "absorb", Some(id))?;
         notes.extend(note_of(b)?);
         conn.execute(
             "INSERT OR IGNORE INTO import_links
@@ -891,93 +900,196 @@ pub(crate) fn convert_to_transfer(
     transactions::update(conn, id, &t)
 }
 
-/// Отмена импорта, который сделал записанное переводами: записи возвращаются
-/// как были, вошедшая в перевод вторая сторона — тоже (если её импорт не отменён).
-fn unconvert(conn: &Connection, import_id: &str) -> Result<()> {
+/// Пары (колонка, выражение из `row_json`) для возврата операции, кроме `id`.
+fn restore_set(conn: &Connection) -> Result<Vec<(String, String)>> {
     let (names, values) = restore_exprs(conn)?;
-    let set: Vec<(String, String)> = names
+    Ok(names
         .into_iter()
         .zip(values)
         .filter(|(n, _)| n != "\"id\"")
-        .collect();
-    let rows: Vec<(String, String, Option<String>, String, String, String)> = conn
-        .prepare(
-            "SELECT c.transaction_id, c.kind, c.from_import, c.tags_json, c.attached_json, c.keys_json
-             FROM import_converts c LEFT JOIN import_batches b ON b.id = c.from_import
-             WHERE c.import_id = ?1 AND (c.kind = 'update' OR c.from_import IS NULL OR b.undone_at IS NULL)",
-        )?
-        .query_map([import_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-        })?
-        .collect::<std::result::Result<_, _>>()?;
-    for (id, kind, _, tags, attached, keys) in &rows {
-        if kind == "update" {
-            let cols = set
-                .iter()
-                .map(|(n, _)| n.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let vals = set
-                .iter()
-                .map(|(_, v)| v.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            conn.execute(
-                &format!(
-                    "UPDATE transactions SET ({cols}) = (SELECT {vals} FROM import_converts
-                       WHERE import_id = ?1 AND transaction_id = ?2) WHERE id = ?2"
-                ),
-                params![import_id, id],
-            )?;
-            // Теги, пришедшие со второй стороной, уходят вместе с ней.
-            conn.execute(
-                "DELETE FROM transaction_tags WHERE transaction_id = ?1
-                   AND tag_id NOT IN (SELECT value FROM json_each(?2))",
-                params![id, tags],
-            )?;
-            continue;
-        }
-        let names = std::iter::once("\"id\"".to_string())
-            .chain(set.iter().map(|(n, _)| n.clone()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let vals = std::iter::once("transaction_id".to_string())
-            .chain(set.iter().map(|(_, v)| v.clone()))
-            .collect::<Vec<_>>()
-            .join(", ");
+        .collect())
+}
+
+/// Запись `id`, которую выписка `import_id` сделала переводом, — снова как была.
+/// Связи строк банка, добавленные вместе со второй стороной, уходят.
+fn restore_update(conn: &Connection, import_id: &str, id: &str) -> Result<()> {
+    let set = restore_set(conn)?;
+    let tags: Option<String> = conn
+        .query_row(
+            "SELECT tags_json FROM import_converts
+             WHERE import_id = ?1 AND transaction_id = ?2 AND kind = 'update'",
+            params![import_id, id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(tags) = tags else { return Ok(()) };
+    let cols = set
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let vals = set
+        .iter()
+        .map(|(_, v)| v.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    conn.execute(
+        &format!(
+            "UPDATE transactions SET ({cols}) = (SELECT {vals} FROM import_converts
+               WHERE import_id = ?1 AND transaction_id = ?2) WHERE id = ?2"
+        ),
+        params![import_id, id],
+    )?;
+    // Теги, пришедшие со второй стороной, уходят вместе с ней.
+    conn.execute(
+        "DELETE FROM transaction_tags WHERE transaction_id = ?1
+           AND tag_id NOT IN (SELECT value FROM json_each(?2))",
+        params![id, tags],
+    )?;
+    conn.execute(
+        "DELETE FROM import_links WHERE transaction_id = ?1 AND import_id = ?2",
+        params![id, import_id],
+    )?;
+    conn.execute(
+        "DELETE FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2",
+        params![import_id, id],
+    )?;
+    Ok(())
+}
+
+/// Вторая сторона `side`, вошедшая в перевод при выписке `import_id`, — снова
+/// отдельной записью (с тегами, ключом строки банка и прикреплённым).
+fn restore_absorb(conn: &Connection, import_id: &str, side: &str) -> Result<()> {
+    let set = restore_set(conn)?;
+    let row: Option<(String, String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT tags_json, attached_json, keys_json, into_id FROM import_converts
+             WHERE import_id = ?1 AND transaction_id = ?2 AND kind = 'absorb'",
+            params![import_id, side],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((tags, attached, keys, into)) = row else {
+        return Ok(());
+    };
+    let names = std::iter::once("\"id\"".to_string())
+        .chain(set.iter().map(|(n, _)| n.clone()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let vals = std::iter::once("transaction_id".to_string())
+        .chain(set.iter().map(|(_, v)| v.clone()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    conn.execute(
+        &format!(
+            "INSERT INTO transactions ({names})
+             SELECT {vals} FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2"
+        ),
+        params![import_id, side],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+         SELECT ?1, value FROM json_each(?2) WHERE value IN (SELECT id FROM tags)",
+        params![side, tags],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO import_keys
+           (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
+         SELECT ?1, json_extract(value, '$.account_id'), json_extract(value, '$.kind'),
+                json_extract(value, '$.bank_date'), json_extract(value, '$.bank_amount'),
+                json_extract(value, '$.bank_payee')
+         FROM json_each(?2)",
+        params![side, keys],
+    )?;
+    for (table, key) in [("notes", "notes"), ("reminder_occurrences", "occurrences")] {
         conn.execute(
             &format!(
-                "INSERT INTO transactions ({names})
-                 SELECT {vals} FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2"
+                "UPDATE {table} SET transaction_id = ?1
+                 WHERE id IN (SELECT value FROM json_each(?2, '$.{key}'))"
             ),
-            params![import_id, id],
+            params![side, attached],
         )?;
+    }
+    // Ключ этой стороны больше не нужен у перевода.
+    if let Some(into) = into {
         conn.execute(
-            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
-             SELECT ?1, value FROM json_each(?2) WHERE value IN (SELECT id FROM tags)",
-            params![id, tags],
+            "DELETE FROM import_links WHERE transaction_id = ?1 AND import_id = ?2",
+            params![into, import_id],
         )?;
-        conn.execute(
-            "INSERT OR IGNORE INTO import_keys
-               (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
-             SELECT ?1, json_extract(value, '$.account_id'), json_extract(value, '$.kind'),
-                    json_extract(value, '$.bank_date'), json_extract(value, '$.bank_amount'),
-                    json_extract(value, '$.bank_payee')
-             FROM json_each(?2)",
-            params![id, keys],
-        )?;
-        for (table, key) in [("notes", "notes"), ("reminder_occurrences", "occurrences")] {
-            conn.execute(
-                &format!(
-                    "UPDATE {table} SET transaction_id = ?1
-                     WHERE id IN (SELECT value FROM json_each(?2, '$.{key}'))"
-                ),
-                params![id, attached],
-            )?;
-        }
     }
     conn.execute(
-        "DELETE FROM import_converts WHERE import_id = ?1",
+        "DELETE FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2",
+        params![import_id, side],
+    )?;
+    Ok(())
+}
+
+/// Отмена импорта `import_id` и записи, которые свежие выписки делали переводами:
+/// - его собственные преобразования возвращаются как были (вошедшая в перевод
+///   вторая сторона — тоже, если её импорт не отменён);
+/// - перевод, сделанный из записи этого импорта, уходит вместе с ней, а вошедшая
+///   в него сторона другого, действующего импорта возвращается;
+/// - сторона этого импорта, вошедшая в перевод другой выписки, уходит, а перевод
+///   снова становится записью, какой был.
+fn unconvert(conn: &Connection, import_id: &str) -> Result<()> {
+    let list = |sql: &str| -> Result<Vec<(String, String, String)>> {
+        Ok(conn
+            .prepare(sql)?
+            .query_map([import_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<std::result::Result<_, _>>()?)
+    };
+    let alive = |from: Option<String>| -> Result<bool> {
+        Ok(match from {
+            None => true,
+            Some(f) if f == import_id => false,
+            Some(f) => conn
+                .query_row(
+                    "SELECT undone_at IS NULL FROM import_batches WHERE id = ?1",
+                    [&f],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or(false),
+        })
+    };
+    let from_of = |c: &str, id: &str| -> Result<Option<String>> {
+        Ok(conn.query_row(
+            "SELECT from_import FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2",
+            params![c, id],
+            |r| r.get(0),
+        )?)
+    };
+    // Свои преобразования: сначала стороны (пока перевод ещё есть), потом записи.
+    for (c, id, kind) in list(
+        "SELECT import_id, transaction_id, kind FROM import_converts WHERE import_id = ?1
+         ORDER BY kind = 'update'",
+    )? {
+        if kind == "absorb" && alive(from_of(&c, &id)?)? {
+            restore_absorb(conn, &c, &id)?;
+        } else if kind == "update" {
+            restore_update(conn, &c, &id)?;
+        }
+    }
+    // Перевод из записи этого импорта: сторона другого импорта возвращается.
+    for (c, id, _) in list(
+        "SELECT a.import_id, a.transaction_id, a.kind FROM import_converts a
+         JOIN transactions t ON t.id = a.into_id
+         WHERE a.kind = 'absorb' AND t.import_id = ?1",
+    )? {
+        if alive(from_of(&c, &id)?)? {
+            restore_absorb(conn, &c, &id)?;
+        }
+    }
+    // Сторона этого импорта в чужом переводе: перевод снова запись, как была.
+    for (c, into, _) in list(
+        "SELECT import_id, into_id, kind FROM import_converts
+         WHERE kind = 'absorb' AND from_import = ?1 AND into_id IS NOT NULL",
+    )? {
+        restore_update(conn, &c, &into)?;
+    }
+    conn.execute(
+        "DELETE FROM import_converts WHERE import_id = ?1 OR from_import = ?1
+            OR transaction_id IN (SELECT id FROM transactions WHERE import_id = ?1)",
         [import_id],
     )?;
     Ok(())
