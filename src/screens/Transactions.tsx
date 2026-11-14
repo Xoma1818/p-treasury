@@ -16,6 +16,7 @@ import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
+import { typeChipLabel } from "../lib/typeChip";
 import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
@@ -216,7 +217,7 @@ export function Transactions() {
   const chips: { id: string; label: string; clear: () => void }[] = [];
   if (f.accountId) chips.push({ id: "chip-account", label: accounts.find((a) => a.id === f.accountId)?.name ?? "Счёт", clear: () => set({ accountId: undefined }) });
   if (f.categoryId) chips.push({ id: "chip-category", label: categories.find((c) => c.id === f.categoryId)?.name ?? "Категория", clear: () => set({ categoryId: undefined }) });
-  if (f.types?.length) chips.push({ id: "chip-type", label: f.counted && f.types.includes("expense") ? `${TXN_TYPES[f.types[0]]} с возвратами` : TXN_TYPES[f.types[0]], clear: () => set({ types: undefined, counted: undefined }) });
+  if (f.types?.length) chips.push({ id: "chip-type", label: typeChipLabel(f.types, f.counted), clear: () => set({ types: undefined, counted: undefined }) });
   if (f.tagId) chips.push({ id: tags.some((t) => t.id === f.tagId) ? "chip-tag" : "filter-tag", label: tags.find((t) => t.id === f.tagId) ? `#${tags.find((t) => t.id === f.tagId)!.name}` : "Тег", clear: () => set({ tagId: undefined }) });
   if (f.importId) chips.push({ id: "filter-import", label: "Один импорт", clear: () => set({ importId: undefined }) });
   if (f.payee) chips.push({ id: "filter-payee", label: `Получатель: ${f.payee}`, clear: () => set({ payee: undefined }) });
