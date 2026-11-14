@@ -681,6 +681,30 @@ fn plain_to_convert(
     Ok(ids.into_iter().find(|id| !taken.contains(id)))
 }
 
+/// Строка банка уже записана (не выбранной этим файлом) записью, которую
+/// переводом сделать нельзя: часть чека, возврат, покупка с возвратом, платёж
+/// по долгу или уже перевод. Тогда вторую сторону тоже не трогаем, иначе одна
+/// сумма легла бы на счёт дважды.
+fn plain_blocked(
+    conn: &Connection,
+    plain: &TxnInput,
+    raw: &str,
+    taken: &HashSet<String>,
+) -> Result<bool> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT k.transaction_id FROM import_keys k
+         WHERE k.account_id = ?1 AND k.kind = ?2 AND k.bank_date = ?3 AND k.bank_amount = ?4
+           AND k.bank_payee = ?5",
+    )?;
+    let ids = stmt
+        .query_map(
+            params![plain.account_id, plain.kind, plain.date, plain.amount, raw],
+            |r| r.get::<_, String>(0),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(ids.iter().any(|id| !taken.contains(id)))
+}
+
 /// Запомнить счёт для выписок банка (и для каждой карты из этой выписки).
 pub(crate) fn remember(conn: &Connection, bank: Bank, ops: &[Op], account_id: &str) -> Result<()> {
     let mut map = remembered(conn)?;
@@ -1046,11 +1070,11 @@ pub(crate) fn to_parsed(
                         let repeat = transfer_repeat(conn, &input, &plain, &op.payee, &mut seen)?;
                         // Вторая сторона из этой же выписки, записанная раньше
                         // отдельно доходом на другом своём счёте.
+                        let mut blocked = false;
                         let other = match pair.get(&i) {
                             Some(&j) => match (accs[j], amounts[j]) {
-                                (Some(to), Some(amount)) => plain_to_convert(
-                                    conn,
-                                    &TxnInput {
+                                (Some(to), Some(amount)) => {
+                                    let side = TxnInput {
                                         kind: "income".into(),
                                         date: ops[j].date.clone(),
                                         account_id: to.id.clone(),
@@ -1060,15 +1084,26 @@ pub(crate) fn to_parsed(
                                         to_amount: None,
                                         payee: None,
                                         note: None,
-                                    },
-                                    &ops[j].payee,
-                                    &converting,
-                                )?,
+                                    };
+                                    let id =
+                                        plain_to_convert(conn, &side, &ops[j].payee, &converting)?;
+                                    blocked = id.is_none()
+                                        && plain_blocked(conn, &side, &ops[j].payee, &converting)?;
+                                    id
+                                }
                                 _ => None,
                             },
                             None => None,
                         };
-                        convert = match plain_to_convert(conn, &plain, &op.payee, &converting)? {
+                        let mine = plain_to_convert(conn, &plain, &op.payee, &converting)?;
+                        blocked = blocked
+                            || (mine.is_none()
+                                && plain_blocked(conn, &plain, &op.payee, &converting)?);
+                        convert = match mine {
+                            // Одна из сторон записана так, что переводом её не
+                            // сделать (например, покупка с возвратом): обе
+                            // записи остаются как были.
+                            _ if blocked => None,
                             Some(id) => Some((id, other)),
                             // Записана только вторая сторона: переводом станет она.
                             None => other.map(|id| (id, None)),
@@ -2178,5 +2213,81 @@ mod tests {
         .unwrap();
         crate::import_log::undo(c, &saved.import_id).unwrap();
         assert_eq!(note_on(c).as_deref(), Some(other.as_str()));
+    }
+    /// Ревью #91 (четвёртое) P1: стороны перевода загружены раньше отдельно, к
+    /// расходу привязан возврат. Общая выписка не делает доход переводом (иначе
+    /// карта ушла бы в −900 вместо −400) и не добавляет ничего второй раз.
+    /// И наоборот: возврат на стороне дохода не даёт сделать переводом расход.
+    #[test]
+    fn side_with_refund_keeps_both_sides_as_they_are() {
+        for refund_on_expense in [true, false] {
+            let mut db = Storage::open_in_memory().unwrap();
+            crate::categories::seed_defaults(db.conn()).unwrap();
+            let card = account(db.conn(), "Карта *1111");
+            let deposit = account(db.conn(), "Вклад *2222");
+            let dir = tempfile::tempdir().unwrap();
+            let head = "\"Дата операции\";\"Номер карты\";\"Статус\";\"Сумма операции\";\"Валюта операции\";\"Сумма платежа\";\"Валюта платежа\";\"Категория\";\"Описание\"\n";
+            let out = "\"03.11.2026 10:00:00\";\"*1111\";\"OK\";\"-500,00\";\"RUB\";\"-500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+            let inc = "\"03.11.2026 10:00:01\";\"*2222\";\"OK\";\"500,00\";\"RUB\";\"500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+            let file = |name: &str, body: String| {
+                let p = dir.path().join(name);
+                std::fs::write(&p, body).unwrap();
+                p
+            };
+            let a = file("a.csv", format!("{head}{out}"));
+            let b = file("b.csv", format!("{head}{inc}"));
+            let both = file("both.csv", format!("{head}{out}{inc}"));
+            crate::csv_import::import_with(db.conn_mut(), &a, false, Some(&card), Some(""))
+                .unwrap();
+            crate::csv_import::import_with(db.conn_mut(), &b, false, Some(&deposit), Some(""))
+                .unwrap();
+            let c = db.conn();
+            let kind = if refund_on_expense {
+                "expense"
+            } else {
+                "income"
+            };
+            let of: String = c
+                .query_row("SELECT id FROM transactions WHERE type = ?1", [kind], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            if refund_on_expense {
+                crate::refunds::create(
+                    c,
+                    &crate::refunds::RefundInput {
+                        of,
+                        date: "2026-11-04".into(),
+                        account_id: None,
+                        amount: 10_000,
+                        in_purchase_month: false,
+                        note: None,
+                    },
+                )
+                .unwrap();
+            } else {
+                c.execute("UPDATE transactions SET refund = 1 WHERE id = ?1", [&of])
+                    .unwrap();
+            }
+            let before = (
+                crate::accounts::balance(c, &card, None).unwrap(),
+                crate::accounts::balance(c, &deposit, None).unwrap(),
+            );
+            let p = crate::csv_import::preview_with(c, &both, Some(&card), None).unwrap();
+            assert_eq!((p.valid, p.to_transfers), (0, 0), "{kind}");
+            let saved =
+                crate::csv_import::import_with(db.conn_mut(), &both, false, Some(&card), None)
+                    .unwrap();
+            assert_eq!((saved.added, saved.converted), (0, 0), "{kind}");
+            let c = db.conn();
+            let after = (
+                crate::accounts::balance(c, &card, None).unwrap(),
+                crate::accounts::balance(c, &deposit, None).unwrap(),
+            );
+            assert_eq!(before, after, "{kind}");
+            if refund_on_expense {
+                assert_eq!(after.0, -40_000);
+            }
+        }
     }
 }

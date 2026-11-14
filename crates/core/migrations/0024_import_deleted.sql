@@ -36,3 +36,18 @@ CREATE TABLE import_converts (
     keys_json      TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (import_id, transaction_id)
 );
+
+-- Ревью #91: день начала месяца, с которым создан бюджет. Начало месяца могут
+-- сменить позже, а по одной дате начала длину периода не узнать (28 февраля —
+-- начало марта и при 28-м, и при 31-м). Старым бюджетам — нынешняя настройка;
+-- если она к их дате не подходит, расчёт это видит и её не берёт. Новым —
+-- настройка на момент создания (триггер: код создания бюджета не меняется).
+ALTER TABLE budgets ADD COLUMN start_day INTEGER;
+UPDATE budgets SET start_day = coalesce(
+    (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'month_start_day'), 1);
+CREATE TRIGGER budgets_start_day AFTER INSERT ON budgets WHEN NEW.start_day IS NULL
+BEGIN
+    UPDATE budgets SET start_day = coalesce(
+        (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'month_start_day'), 1)
+    WHERE id = NEW.id;
+END;
