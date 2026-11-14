@@ -1198,6 +1198,38 @@ mod tests {
         assert_eq!(shift_month("2026-12", 1).unwrap(), "2027-01");
     }
 
+    /// Ревью #88: начало месяца 29–31 и февраль (обычный и високосный год):
+    /// периоды идут встык без дыр и наложений, каждая дата — ровно в одном,
+    /// а начало периода (так хранится бюджет) узнаётся своим месяцем.
+    #[test]
+    fn late_start_days_and_february_have_no_gaps() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        for sd in [28u32, 29, 30, 31] {
+            settings::set(c, "month_start_day", &sd.to_string()).unwrap();
+            let mut month = "2026-12".to_string();
+            let mut prev_end: Option<NaiveDate> = None;
+            for _ in 0..40 {
+                let p = period(&month, sd).unwrap();
+                let start = NaiveDate::parse_from_str(&p.start, "%Y-%m-%d").unwrap();
+                let end = NaiveDate::parse_from_str(&p.end, "%Y-%m-%d").unwrap();
+                assert!(start <= end, "{sd} {month}: {p:?}");
+                if let Some(e) = prev_end {
+                    assert_eq!(start, e + Duration::days(1), "{sd} {month}: стык");
+                }
+                for d in [start, end] {
+                    assert_eq!(
+                        month_of(c, &d.to_string()).unwrap().month,
+                        month,
+                        "{sd} {d}"
+                    );
+                }
+                prev_end = Some(end);
+                month = shift_month(&month, 1).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn month_of_date_respects_start_day() {
         let db = Storage::open_in_memory().unwrap();

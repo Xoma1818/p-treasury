@@ -637,9 +637,13 @@ fn transfer_repeat(
     let nth = seen
         .entry(format!("transfer|{}|{a}|{b}|{}", t.date, t.amount))
         .or_insert(0);
+    // Записанные переводы между этими счетами и удалённые вами загруженные переводы.
     let transfers: i64 = conn.query_row(
-        "SELECT count(*) FROM transactions WHERE type = 'transfer' AND date = ?1 AND amount = ?4
-           AND ((account_id = ?2 AND to_account_id = ?3) OR (account_id = ?3 AND to_account_id = ?2))",
+        "SELECT (SELECT count(*) FROM transactions WHERE type = 'transfer' AND date = ?1
+                   AND amount = ?4 AND ((account_id = ?2 AND to_account_id = ?3)
+                                        OR (account_id = ?3 AND to_account_id = ?2)))
+              + (SELECT count(*) FROM import_deleted WHERE kind = 'transfer' AND bank_date = ?1
+                   AND bank_amount = ?4 AND account_id IN (?2, ?3))",
         params![t.date, a, b, t.amount],
         |r| r.get(0),
     )?;
@@ -892,7 +896,7 @@ pub(crate) fn to_parsed(
             continue;
         }
         let mut new_cat: Option<String> = None;
-        let mut convert: Option<String> = None;
+        let mut convert: Option<(String, Option<String>)> = None;
         let mut refund = false;
         let mut transfer: Option<String> = None;
         let checked = (|| -> std::result::Result<TxnInput, String> {
@@ -1038,9 +1042,35 @@ pub(crate) fn to_parsed(
                             ..input.clone()
                         };
                         let repeat = transfer_repeat(conn, &input, &plain, &op.payee, &mut seen)?;
-                        if repeat {
-                            convert = plain_to_convert(conn, &plain, &op.payee, &converting)?;
-                        }
+                        // Вторая сторона из этой же выписки, записанная раньше
+                        // отдельно доходом на другом своём счёте.
+                        let other = match pair.get(&i) {
+                            Some(&j) => match (accs[j], amounts[j]) {
+                                (Some(to), Some(amount)) => plain_to_convert(
+                                    conn,
+                                    &TxnInput {
+                                        kind: "income".into(),
+                                        date: ops[j].date.clone(),
+                                        account_id: to.id.clone(),
+                                        amount,
+                                        category_id: None,
+                                        to_account_id: None,
+                                        to_amount: None,
+                                        payee: None,
+                                        note: None,
+                                    },
+                                    &ops[j].payee,
+                                    &converting,
+                                )?,
+                                _ => None,
+                            },
+                            None => None,
+                        };
+                        convert = match plain_to_convert(conn, &plain, &op.payee, &converting)? {
+                            Some(id) => Some((id, other)),
+                            // Записана только вторая сторона: переводом станет она.
+                            None => other.map(|id| (id, None)),
+                        };
                         repeat && convert.is_none()
                     }
                     None => is_repeat(conn, &input, Some(&op.payee), &mut seen)?,
@@ -1057,8 +1087,9 @@ pub(crate) fn to_parsed(
                 None
             }
         };
-        if let Some(id) = &convert {
+        if let Some((id, other)) = &convert {
             converting.insert(id.clone());
+            converting.extend(other.clone());
             row.to_transfer = true;
         }
         if input.is_some() && convert.is_none() {
@@ -1819,5 +1850,118 @@ mod tests {
         crate::import_log::undo(c, &saved.import_id).unwrap();
         let p = crate::csv_import::preview_with(c, &path, None, Some("")).unwrap();
         assert_eq!((p.valid, p.duplicates), (8, 1));
+    }
+
+    /// Ревью #91 п.4: обе стороны перевода раньше загружены отдельно (расход с
+    /// карты и доход на вклад), потом выписка с обеими: один перевод, доход на
+    /// вклад не остаётся вторым. «Отменить импорт» возвращает обе записи (п.2).
+    #[test]
+    fn sides_loaded_apart_become_one_transfer_and_undo_brings_them_back() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = account(db.conn(), "Карта *1111");
+        let deposit = account(db.conn(), "Вклад *2222");
+        let dir = tempfile::tempdir().unwrap();
+        let head = "\"Дата операции\";\"Номер карты\";\"Статус\";\"Сумма операции\";\"Валюта операции\";\"Сумма платежа\";\"Валюта платежа\";\"Категория\";\"Описание\"\n";
+        let out = "\"03.11.2026 10:00:00\";\"*1111\";\"OK\";\"-500,00\";\"RUB\";\"-500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let inc = "\"03.11.2026 10:00:01\";\"*2222\";\"OK\";\"500,00\";\"RUB\";\"500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let file = |name: &str, body: String| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let a = file("a.csv", format!("{head}{out}"));
+        let b = file("b.csv", format!("{head}{inc}"));
+        let both = file("both.csv", format!("{head}{out}{inc}"));
+        crate::csv_import::import_with(db.conn_mut(), &a, false, Some(&card), Some("")).unwrap();
+        crate::csv_import::import_with(db.conn_mut(), &b, false, Some(&deposit), Some("")).unwrap();
+        let n = |c: &Connection, sql: &str| -> i64 { c.query_row(sql, [], |r| r.get(0)).unwrap() };
+        let balance = |c: &Connection, acc: &str| -> i64 {
+            n(c, &format!(
+                "SELECT coalesce(sum(CASE WHEN type = 'income' AND account_id = '{acc}' THEN amount
+                                          WHEN type = 'expense' AND account_id = '{acc}' THEN -amount
+                                          WHEN type = 'transfer' AND to_account_id = '{acc}' THEN amount
+                                          WHEN type = 'transfer' AND account_id = '{acc}' THEN -amount
+                                          ELSE 0 END), 0) FROM transactions"
+            ))
+        };
+        assert_eq!(n(db.conn(), "SELECT count(*) FROM transactions"), 2);
+
+        let p = crate::csv_import::preview_with(db.conn(), &both, Some(&card), None).unwrap();
+        assert_eq!((p.valid, p.to_transfers), (0, 1));
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &both, false, Some(&card), None).unwrap();
+        assert_eq!((saved.added, saved.converted), (0, 1));
+        let c = db.conn();
+        assert_eq!(n(c, "SELECT count(*) FROM transactions"), 1);
+        assert_eq!((balance(c, &card), balance(c, &deposit)), (-50_000, 50_000));
+        // Повтор каждой выписки ничего не добавляет.
+        for f in [&a, &b, &both] {
+            let p = crate::csv_import::preview_with(c, f, None, None).unwrap();
+            assert_eq!((p.valid, p.to_transfers), (0, 0), "{f:?}");
+        }
+
+        // Отмена этой выписки: расход и доход возвращаются как были.
+        crate::import_log::undo(c, &saved.import_id).unwrap();
+        assert_eq!(
+            n(
+                c,
+                "SELECT count(*) FROM transactions WHERE type = 'transfer'"
+            ),
+            0
+        );
+        assert_eq!(n(c, "SELECT count(*) FROM transactions"), 2);
+        assert_eq!((balance(c, &card), balance(c, &deposit)), (-50_000, 50_000));
+        let p = crate::csv_import::preview_with(c, &b, Some(&deposit), Some("")).unwrap();
+        assert_eq!((p.valid, p.duplicates), (0, 1));
+    }
+
+    /// Ревью #91 п.2: «Отменить импорт» свежей выписки возвращает записи,
+    /// ставшие переводами, расходом и доходом (с прежними категориями).
+    #[test]
+    fn undo_of_fresher_statement_restores_converted_rows() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let path = testdata("tbank-operations-analytics.csv");
+        crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some("")).unwrap();
+        let snapshot = |c: &Connection| -> Vec<(String, String, Option<String>, Option<String>)> {
+            c.prepare("SELECT id, type, category_id, payee FROM transactions ORDER BY id")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let before = snapshot(db.conn());
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some(&savings))
+                .unwrap();
+        assert_eq!(saved.converted, 4);
+        crate::import_log::undo(db.conn(), &saved.import_id).unwrap();
+        assert_eq!(snapshot(db.conn()), before);
+    }
+
+    /// Ревью #91 п.3: удалённый загруженный перевод не возвращается.
+    #[test]
+    fn deleted_imported_transfer_does_not_come_back() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let path = testdata("tbank-operations-analytics.csv");
+        crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some(&savings)).unwrap();
+        let c = db.conn();
+        let id: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE type = 'transfer' AND amount = 8000000",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        crate::transactions::delete(c, &id).unwrap();
+        let p = crate::csv_import::preview_with(c, &path, None, Some(&savings)).unwrap();
+        assert_eq!((p.valid, p.duplicates, p.to_transfers), (0, 9, 0));
     }
 }

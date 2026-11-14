@@ -428,7 +428,7 @@ pub(crate) fn remember_deleted(conn: &Connection, filter: &str, param: &str) -> 
              SELECT lower(hex(randomblob(16))), account_id, kind, bank_date, bank_amount, bank_payee, ?2
              FROM (SELECT k.account_id, k.kind, k.bank_date, k.bank_amount, k.bank_payee
                    FROM import_keys k JOIN transactions t ON t.id = k.transaction_id
-                   WHERE {filter} AND k.kind IN ('expense', 'income')
+                   WHERE {filter}
                    GROUP BY coalesce(t.split_id, t.id)
                    UNION ALL
                    SELECT l.account_id, l.kind, l.bank_date, l.bank_amount, l.bank_payee
@@ -456,6 +456,7 @@ pub fn undo(conn: &Connection, import_id: &str) -> Result<usize> {
         Some(Some(_)) => return invalid("этот импорт уже отменён"),
         Some(None) => {}
     }
+    unconvert(conn, import_id)?;
     unmerge(conn, import_id)?;
     conn.execute(
         "DELETE FROM import_suggestions WHERE import_id = ?1",
@@ -792,22 +793,11 @@ pub(crate) fn carry_matches(conn: &Connection, old: &[String], new: &[String]) -
     Ok(())
 }
 
-/// Отмена импорта, одна сторона которого вошла в объединённый перевод:
-/// перевод удаляется, а сторона другой выписки (если её импорт не отменён) или
-/// ручная запись возвращается как была.
-fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
-    let transfers: Vec<String> = conn
-        .prepare("SELECT DISTINCT transfer_id FROM import_merges WHERE import_id = ?1")?
-        .query_map([import_id], |r| r.get(0))?
-        .collect::<std::result::Result<_, _>>()?;
+/// Колонки `transactions` и выражения, достающие их из сохранённого
+/// `row_json`. Необязательная ссылка на то, что успели удалить (событие,
+/// правило повтора, категорию, второй счёт), возвращается пустой, а не ломает отмену.
+fn restore_exprs(conn: &Connection) -> Result<(Vec<String>, Vec<String>)> {
     let cols = txn_columns(conn)?;
-    let names = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    // Необязательная ссылка на то, что успели удалить (событие, правило
-    // повтора, категорию), возвращается пустой, а не ломает отмену.
     let fks: Vec<(String, String, String)> = conn
         .prepare("SELECT \"from\", \"table\", \"to\" FROM pragma_foreign_key_list('transactions')")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
@@ -823,8 +813,186 @@ fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
                 _ => v,
             }
         })
+        .collect();
+    let names = cols.iter().map(|c| format!("\"{c}\"")).collect();
+    Ok((names, values))
+}
+
+/// Снимок операции перед тем, как свежая выписка её изменит (см. [`convert_to_transfer`]).
+fn remember_convert(conn: &Connection, import_id: &str, id: &str, kind: &str) -> Result<()> {
+    let fields = txn_columns(conn)?
+        .iter()
+        .map(|c| format!("'{c}', \"{c}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    conn.execute(
+        &format!(
+            "INSERT INTO import_converts (import_id, transaction_id, kind, from_import, row_json,
+                                          tags_json, attached_json, keys_json)
+             SELECT ?1, id, ?3, import_id, json_object({fields}),
+                    (SELECT json_group_array(tag_id) FROM transaction_tags
+                     WHERE transaction_id = t.id),
+                    json_object(
+                      'notes', (SELECT json_group_array(id) FROM notes
+                                WHERE transaction_id = t.id),
+                      'occurrences', (SELECT json_group_array(id) FROM reminder_occurrences
+                                      WHERE transaction_id = t.id)),
+                    (SELECT json_group_array(json_object('account_id', account_id, 'kind', kind,
+                              'bank_date', bank_date, 'bank_amount', bank_amount,
+                              'bank_payee', bank_payee))
+                     FROM import_keys WHERE transaction_id = t.id)
+             FROM transactions t WHERE id = ?2"
+        ),
+        params![import_id, id, kind],
+    )?;
+    Ok(())
+}
+
+/// Свежая выписка `import_id`: запись `id`, загруженная раньше расходом или
+/// доходом, становится переводом `t` (заметка, теги и история остаются).
+/// `absorb` — вторая сторона того же перевода, загруженная раньше отдельно:
+/// она входит в перевод (её заметка, теги и прикреплённое переходят к нему),
+/// а её строка банка остаётся узнаваемой. «Отменить импорт» вернёт обе как были.
+pub(crate) fn convert_to_transfer(
+    conn: &Connection,
+    import_id: &str,
+    id: &str,
+    mut t: TxnInput,
+    absorb: Option<&str>,
+) -> Result<()> {
+    remember_convert(conn, import_id, id, "update")?;
+    let note_of = |id: &str| -> Result<Option<String>> {
+        Ok(conn
+            .query_row("SELECT note FROM transactions WHERE id = ?1", [id], |r| {
+                r.get::<_, Option<String>>(0)
+            })?
+            .filter(|n| !n.trim().is_empty()))
+    };
+    let mut notes: Vec<String> = note_of(id)?.into_iter().collect();
+    if let Some(b) = absorb {
+        remember_convert(conn, import_id, b, "absorb")?;
+        notes.extend(note_of(b)?);
+        conn.execute(
+            "INSERT OR IGNORE INTO import_links
+               (transaction_id, account_id, import_id, kind, bank_date, bank_amount, bank_payee, auto)
+             SELECT ?1, account_id, ?2, kind, bank_date, bank_amount, bank_payee, 1
+             FROM import_keys WHERE transaction_id = ?3",
+            params![id, import_id, b],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+             SELECT ?1, tag_id FROM transaction_tags WHERE transaction_id = ?2",
+            params![id, b],
+        )?;
+        carry_attached(conn, b, id)?;
+        conn.execute("DELETE FROM transactions WHERE id = ?1", [b])?;
+    }
+    t.note = (!notes.is_empty()).then(|| notes.join("; "));
+    transactions::update(conn, id, &t)
+}
+
+/// Отмена импорта, который сделал записанное переводами: записи возвращаются
+/// как были, вошедшая в перевод вторая сторона — тоже (если её импорт не отменён).
+fn unconvert(conn: &Connection, import_id: &str) -> Result<()> {
+    let (names, values) = restore_exprs(conn)?;
+    let set: Vec<(String, String)> = names
+        .into_iter()
+        .zip(values)
+        .filter(|(n, _)| n != "\"id\"")
+        .collect();
+    let rows: Vec<(String, String, Option<String>, String, String, String)> = conn
+        .prepare(
+            "SELECT c.transaction_id, c.kind, c.from_import, c.tags_json, c.attached_json, c.keys_json
+             FROM import_converts c LEFT JOIN import_batches b ON b.id = c.from_import
+             WHERE c.import_id = ?1 AND (c.kind = 'update' OR c.from_import IS NULL OR b.undone_at IS NULL)",
+        )?
+        .query_map([import_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    for (id, kind, _, tags, attached, keys) in &rows {
+        if kind == "update" {
+            let cols = set
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let vals = set
+                .iter()
+                .map(|(_, v)| v.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            conn.execute(
+                &format!(
+                    "UPDATE transactions SET ({cols}) = (SELECT {vals} FROM import_converts
+                       WHERE import_id = ?1 AND transaction_id = ?2) WHERE id = ?2"
+                ),
+                params![import_id, id],
+            )?;
+            // Теги, пришедшие со второй стороной, уходят вместе с ней.
+            conn.execute(
+                "DELETE FROM transaction_tags WHERE transaction_id = ?1
+                   AND tag_id NOT IN (SELECT value FROM json_each(?2))",
+                params![id, tags],
+            )?;
+            continue;
+        }
+        let names = std::iter::once("\"id\"".to_string())
+            .chain(set.iter().map(|(n, _)| n.clone()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let vals = std::iter::once("transaction_id".to_string())
+            .chain(set.iter().map(|(_, v)| v.clone()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        conn.execute(
+            &format!(
+                "INSERT INTO transactions ({names})
+                 SELECT {vals} FROM import_converts WHERE import_id = ?1 AND transaction_id = ?2"
+            ),
+            params![import_id, id],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+             SELECT ?1, value FROM json_each(?2) WHERE value IN (SELECT id FROM tags)",
+            params![id, tags],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO import_keys
+               (transaction_id, account_id, kind, bank_date, bank_amount, bank_payee)
+             SELECT ?1, json_extract(value, '$.account_id'), json_extract(value, '$.kind'),
+                    json_extract(value, '$.bank_date'), json_extract(value, '$.bank_amount'),
+                    json_extract(value, '$.bank_payee')
+             FROM json_each(?2)",
+            params![id, keys],
+        )?;
+        for (table, key) in [("notes", "notes"), ("reminder_occurrences", "occurrences")] {
+            conn.execute(
+                &format!(
+                    "UPDATE {table} SET transaction_id = ?1
+                     WHERE id IN (SELECT value FROM json_each(?2, '$.{key}'))"
+                ),
+                params![id, attached],
+            )?;
+        }
+    }
+    conn.execute(
+        "DELETE FROM import_converts WHERE import_id = ?1",
+        [import_id],
+    )?;
+    Ok(())
+}
+
+/// Отмена импорта, одна сторона которого вошла в объединённый перевод:
+/// перевод удаляется, а сторона другой выписки (если её импорт не отменён) или
+/// ручная запись возвращается как была.
+fn unmerge(conn: &Connection, import_id: &str) -> Result<()> {
+    let transfers: Vec<String> = conn
+        .prepare("SELECT DISTINCT transfer_id FROM import_merges WHERE import_id = ?1")?
+        .query_map([import_id], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    let (names, values) = restore_exprs(conn)?;
+    let (names, values) = (names.join(", "), values.join(", "));
     for transfer in transfers {
         let back: Vec<(String, Option<String>, String, String)> = conn
             .prepare(

@@ -243,9 +243,9 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
       )}
       <ErrorText error={error} />
       <div className="actions">
-        {preview && preview.errors > 0 && preview.valid > 0 && (
+        {preview && preview.errors > 0 && preview.valid + preview.toTransfers > 0 && (
           <button className="link" onClick={() => commit(true)}>
-            Загрузить только правильные ({preview.valid})
+            Загрузить только правильные ({preview.valid + preview.toTransfers})
           </button>
         )}
         <span className="spacer" />
@@ -253,8 +253,9 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
           Закрыть
         </button>
         {preview && (
-          <button className="btn primary" disabled={preview.errors > 0 || preview.valid === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
-            Загрузить {preview.valid}
+          <button className="btn primary" disabled={preview.errors > 0 || preview.valid + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+            {preview.valid === 0 && preview.toTransfers > 0 ? `Исправить ${preview.toTransfers}` : `Загрузить ${preview.valid}`}
+            {preview.valid > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>
         )}
       </div>

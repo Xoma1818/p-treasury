@@ -70,7 +70,9 @@ pub(crate) struct Parsed {
     pub(crate) raw_payee: Option<String>,
     /// Уже загруженная расходом или доходом запись, которую `input` (перевод)
     /// заменит: свежая выписка исправляет записанное, а не добавляет второе.
-    pub(crate) convert: Option<String>,
+    /// Второе — вторая сторона того же перевода, загруженная раньше отдельно:
+    /// она войдёт в перевод.
+    pub(crate) convert: Option<(String, Option<String>)>,
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -841,8 +843,8 @@ pub(crate) fn save_rows(
     let mut converts = Vec::new();
     for (i, p) in parsed.into_iter().enumerate() {
         let Some(input) = p.input else { continue };
-        if let Some(id) = p.convert {
-            converts.push((p.row.line, id, input));
+        if let Some(c) = p.convert {
+            converts.push((p.row.line, c, input));
             continue;
         }
         match refunds.iter().find(|(r, _)| *r == i) {
@@ -882,12 +884,8 @@ pub(crate) fn save_rows(
         saved.added += 1;
     }
     // Свежая выписка: записанная расходом или доходом строка — перевод своих денег.
-    for (line, id, mut t) in converts {
-        // Заметка человека остаётся (теги и история — отдельно и тоже остаются).
-        t.note = conn.query_row("SELECT note FROM transactions WHERE id = ?1", [&id], |r| {
-            r.get(0)
-        })?;
-        crate::transactions::update(conn, &id, &t)
+    for (line, (id, absorb), t) in converts {
+        import_log::convert_to_transfer(conn, &saved.import_id, &id, t, absorb.as_deref())
             .map_err(|e| Error::Validation(format!("строка {line}: {e}")))?;
         saved.converted += 1;
     }
