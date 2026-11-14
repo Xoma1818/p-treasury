@@ -1,3 +1,4 @@
+import { CrashGuard } from "../components/Crash";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
@@ -429,11 +430,11 @@ export function Home() {
                   {layout.hidden.includes(b) ? "Показать" : "Скрыть"}
                 </button>
               </div>
-              {!layout.hidden.includes(b) && <div className="home-block-body">{blocks[b]}</div>}
+              {!layout.hidden.includes(b) && <div className="home-block-body"><CrashGuard card={HOME_BLOCKS[b]}>{blocks[b]}</CrashGuard></div>}
             </div>
           ) : (
             <div key={b} className={half(b) ? "home-block half" : "home-block"} data-block={b}>
-              {blocks[b]}
+              <CrashGuard card={HOME_BLOCKS[b]}>{blocks[b]}</CrashGuard>
             </div>
           ),
         )}
