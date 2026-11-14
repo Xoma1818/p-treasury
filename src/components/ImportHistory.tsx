@@ -95,8 +95,8 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
       {confirm && (
         <div className="confirm-box" data-testid="history-confirm">
           <p>
-            Удалить операции этого импорта ({confirm.present})?
-            {confirm.edited > 0 && ` Из них вы меняли после загрузки: ${confirm.edited} — они тоже удалятся.`} Вернуть можно сразу кнопкой «Отменить» (Ctrl+Z).
+            Удалить из учёта все операции этого импорта: {confirm.present}? Балансы и итоги месяца изменятся.
+            {confirm.edited > 0 && ` Из них вы меняли после загрузки: ${confirm.edited} — они тоже удалятся.`} Вернуть: сразу — кнопкой «Отменить» (Ctrl+Z), позже — загрузив эту же выписку ещё раз (ничего не задвоится, но ваши правки придётся повторить).
           </p>
           <ErrorText error={undo.error} />
           <div className="actions">

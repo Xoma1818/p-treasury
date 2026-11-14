@@ -1397,6 +1397,8 @@ export interface ImportRow {
   linkedTo: string | null;
   /** Возможных совпадений, которые попросят подтверждения. */
   maybe: number;
+  /** Уже загружена расходом или доходом, а это перевод своих денег: станет переводом. */
+  toTransfer: boolean;
 }
 
 export interface ImportPreview {
@@ -1415,6 +1417,8 @@ export interface ImportPreview {
   selfTransfers: number;
   /** Второй свой счёт для таких переводов (выбранный или запомненный). */
   selfAccountId: string | null;
+  /** Уже загруженные расходом или доходом строки, которые станут переводами. */
+  toTransfers: number;
 }
 
 export interface BackupStatus {
@@ -1647,6 +1651,8 @@ export interface ImportSaved {
   linked: number;
   /** Возможные совпадения на подтверждение. */
   suggested: number;
+  /** Уже загруженные расходом или доходом строки, ставшие переводами. */
+  converted: number;
 }
 
 /** Запись истории импорта. */

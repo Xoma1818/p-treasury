@@ -101,6 +101,18 @@ pub fn start_day(conn: &Connection) -> Result<u32> {
         .unwrap_or(1))
 }
 
+/// Период, который при начале месяца `sd` начинается ровно в `start`.
+fn period_from(start: &str, sd: u32) -> Result<Option<Period>> {
+    let month = &start[..7];
+    for m in [month.to_string(), shift_month(month, 1)?] {
+        let p = period(&m, sd)?;
+        if p.start == start {
+            return Ok(Some(p));
+        }
+    }
+    Ok(None)
+}
+
 /// Бюджетный месяц, в который попадает дата.
 pub fn month_of(conn: &Connection, date: &str) -> Result<Period> {
     time::check_date(date)?;
@@ -385,10 +397,10 @@ pub(crate) fn effective_limit(
     category_id: &str,
 ) -> Result<(i64, bool)> {
     // Период — от собственной даты начала бюджета (начало месяца могли поменять позже).
-    let (start, currency): (String, String) = conn.query_row(
-        "SELECT period_start, currency_code FROM budgets WHERE id = ?1",
+    let (start, currency, sd): (String, String, Option<u32>) = conn.query_row(
+        "SELECT period_start, currency_code, start_day FROM budgets WHERE id = ?1",
         [budget_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     let Some((stored, rollover, kind, value)) = conn
         .query_row(
@@ -408,15 +420,33 @@ pub(crate) fn effective_limit(
     else {
         return Ok((0, false));
     };
-    let from = time::parse_date(&start)?;
-    let to = from
-        .checked_add_months(chrono::Months::new(1))
-        .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
-        - Duration::days(1);
-    let p = Period {
-        month: from.format("%Y-%m").to_string(),
-        start,
-        end: to.to_string(),
+    // Период — по дню начала, с которым бюджет создан (при начале 31-го март
+    // идёт с 28 февраля по 30 марта, даже если потом начало сменили на 1-е).
+    // Не записан или к дате не подходит — по нынешней настройке. Если и она не
+    // подходит, длину периода по одной дате не узнать (28 февраля — начало и
+    // при 28-м, и при 31-м): лимит «в неделю» берётся сохранённым.
+    let own = match sd {
+        Some(sd) => period_from(&start, sd)?,
+        None => None,
+    };
+    let current = month_of(conn, &start)?;
+    let p = if let Some(p) = own {
+        p
+    } else if current.start == start {
+        current
+    } else if kind == "week" {
+        return Ok((stored, rollover));
+    } else {
+        let from = time::parse_date(&start)?;
+        let to = from
+            .checked_add_months(chrono::Months::new(1))
+            .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
+            - Duration::days(1);
+        Period {
+            month: from.format("%Y-%m").to_string(),
+            start,
+            end: to.to_string(),
+        }
     };
     let income = if kind == "percent" {
         let (by_cat, _) = actuals(conn, &p, &currency)?;
@@ -1196,6 +1226,97 @@ mod tests {
         assert!(period("2026-13", 1).is_err());
         assert_eq!(shift_month("2026-01", -1).unwrap(), "2025-12");
         assert_eq!(shift_month("2026-12", 1).unwrap(), "2027-01");
+    }
+
+    /// Ревью #91 (к #88): лимит «в неделю» при объединении категорий берёт
+    /// бюджетный месяц по настройке: начало 31-го, март — 31 день (28.02–30.03).
+    #[test]
+    fn weekly_limit_with_start_31_counts_whole_march() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        settings::set(db.conn(), "month_start_day", "31").unwrap();
+        let budget = create(db.conn_mut(), "2026-03", false).unwrap();
+        let c = db.conn();
+        let food = cat(c, "Общепит");
+        set_limit_kind(c, &budget, &food, "week", 7_000).unwrap();
+        let (limit, _) = effective_limit(c, &budget, &food).unwrap();
+        assert_eq!(limit, 31_000);
+        // Начало месяца потом сменили на 1-е: лимит этого бюджета не уменьшается.
+        settings::set(c, "month_start_day", "1").unwrap();
+        let (limit, _) = effective_limit(c, &budget, &food).unwrap();
+        assert_eq!(limit, 31_000);
+    }
+
+    /// Ревью #91 (четвёртое) P2: доля дохода при начале 31-го считается по
+    /// всему мартовскому периоду (28.02–30.03) и после смены начала на 1-е:
+    /// доход 29 марта входит.
+    #[test]
+    fn percent_limit_keeps_own_period_after_start_day_change() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        settings::set(db.conn(), "month_start_day", "31").unwrap();
+        let budget = create(db.conn_mut(), "2026-03", false).unwrap();
+        let c = db.conn();
+        let acc = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let salary: String = c
+            .query_row(
+                "SELECT id FROM categories WHERE kind = 'income' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        transactions::create(
+            c,
+            &TxnInput {
+                kind: "income".into(),
+                date: "2026-03-29".into(),
+                account_id: acc,
+                amount: 100_000,
+                category_id: Some(salary),
+                to_account_id: None,
+                to_amount: None,
+                payee: None,
+                note: None,
+            },
+        )
+        .unwrap();
+        let food = cat(c, "Общепит");
+        set_limit_kind(c, &budget, &food, "percent", 1_000).unwrap();
+        assert_eq!(effective_limit(c, &budget, &food).unwrap().0, 10_000);
+        settings::set(c, "month_start_day", "1").unwrap();
+        assert_eq!(effective_limit(c, &budget, &food).unwrap().0, 10_000);
+    }
+
+    /// Ревью #88: начало месяца 29–31 и февраль (обычный и високосный год):
+    /// периоды идут встык без дыр и наложений, каждая дата — ровно в одном,
+    /// а начало периода (так хранится бюджет) узнаётся своим месяцем.
+    #[test]
+    fn late_start_days_and_february_have_no_gaps() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        for sd in [28u32, 29, 30, 31] {
+            settings::set(c, "month_start_day", &sd.to_string()).unwrap();
+            let mut month = "2026-12".to_string();
+            let mut prev_end: Option<NaiveDate> = None;
+            for _ in 0..40 {
+                let p = period(&month, sd).unwrap();
+                let start = NaiveDate::parse_from_str(&p.start, "%Y-%m-%d").unwrap();
+                let end = NaiveDate::parse_from_str(&p.end, "%Y-%m-%d").unwrap();
+                assert!(start <= end, "{sd} {month}: {p:?}");
+                if let Some(e) = prev_end {
+                    assert_eq!(start, e + Duration::days(1), "{sd} {month}: стык");
+                }
+                for d in [start, end] {
+                    assert_eq!(
+                        month_of(c, &d.to_string()).unwrap().month,
+                        month,
+                        "{sd} {d}"
+                    );
+                }
+                prev_end = Some(end);
+                month = shift_month(&month, 1).unwrap();
+            }
+        }
     }
 
     #[test]
