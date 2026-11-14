@@ -656,8 +656,8 @@ fn transfer_repeat(
 
 /// Строка банка уже записана обычным расходом или доходом (до выбора второго
 /// счёта или до 0.35, когда переводы своих денег так и записывались): эту
-/// запись свежая выписка сделает переводом. Части чеков, возвраты и платежи
-/// по долгам не трогаем. `taken` — записи, уже выбранные этим файлом.
+/// запись свежая выписка сделает переводом. Части чеков, возвраты, покупки с
+/// возвратами и платежи по долгам не трогаем: такая строка просто пропускается. `taken` — записи, уже выбранные этим файлом.
 fn plain_to_convert(
     conn: &Connection,
     plain: &TxnInput,
@@ -669,6 +669,7 @@ fn plain_to_convert(
          WHERE k.account_id = ?1 AND k.kind = ?2 AND k.bank_date = ?3 AND k.bank_amount = ?4
            AND k.bank_payee = ?5 AND t.type = k.kind AND t.account_id = k.account_id
            AND t.split_id IS NULL AND t.refund = 0 AND t.debt_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.refund_of = t.id)
          ORDER BY t.created_at, t.id",
     )?;
     let ids = stmt
@@ -2043,5 +2044,139 @@ mod tests {
         let p = crate::csv_import::preview_with(c, &path, None, Some(&other)).unwrap();
         let row = p.rows.iter().find(|r| r.amount == "80000,00").unwrap();
         assert!(!row.duplicate && row.error.is_none(), "{row:?}");
+    }
+
+    /// Ревью #91 (третье) п.3: расход с возвратом не превращается в перевод —
+    /// строка пропускается, остальное загружается.
+    #[test]
+    fn purchase_with_refund_is_not_converted() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        account(db.conn(), "Premium");
+        let savings = account(db.conn(), "Накопительный");
+        let path = testdata("tbank-operations-analytics.csv");
+        crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some("")).unwrap();
+        let c = db.conn();
+        let copilka: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE payee = 'Инвесткопилка'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        crate::refunds::create(
+            c,
+            &crate::refunds::RefundInput {
+                of: copilka.clone(),
+                date: "2026-11-14".into(),
+                account_id: None,
+                amount: 10_000,
+                in_purchase_month: false,
+                note: None,
+            },
+        )
+        .unwrap();
+        let p = crate::csv_import::preview_with(c, &path, None, Some(&savings)).unwrap();
+        assert_eq!(p.to_transfers, 3);
+        assert!(p.rows[0].duplicate && !p.rows[0].to_transfer);
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some(&savings))
+                .unwrap();
+        assert_eq!((saved.added, saved.converted), (0, 3));
+        let kind: String = db
+            .conn()
+            .query_row(
+                "SELECT type FROM transactions WHERE id = ?1",
+                [&copilka],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kind, "expense");
+    }
+
+    /// Ревью #91 (третье) п.2: заметку второй стороны перенесли с перевода на
+    /// другую операцию — отмена импорта её не забирает.
+    #[test]
+    fn undo_keeps_note_moved_after_conversion() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let card = account(db.conn(), "Карта *1111");
+        let deposit = account(db.conn(), "Вклад *2222");
+        let dir = tempfile::tempdir().unwrap();
+        let head = "\"Дата операции\";\"Номер карты\";\"Статус\";\"Сумма операции\";\"Валюта операции\";\"Сумма платежа\";\"Валюта платежа\";\"Категория\";\"Описание\"\n";
+        let out = "\"03.11.2026 10:00:00\";\"*1111\";\"OK\";\"-500,00\";\"RUB\";\"-500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let inc = "\"03.11.2026 10:00:01\";\"*2222\";\"OK\";\"500,00\";\"RUB\";\"500,00\";\"RUB\";\"Переводы\";\"Между своими счетами\"\n";
+        let file = |name: &str, body: String| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let a = file("a.csv", format!("{head}{out}"));
+        let b = file("b.csv", format!("{head}{inc}"));
+        let both = file("both.csv", format!("{head}{out}{inc}"));
+        crate::csv_import::import_with(db.conn_mut(), &a, false, Some(&card), Some("")).unwrap();
+        crate::csv_import::import_with(db.conn_mut(), &b, false, Some(&deposit), Some("")).unwrap();
+        let c = db.conn();
+        let income: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE type = 'income'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        c.execute(
+            "INSERT INTO notes (id, body, transaction_id, created_at, updated_at)
+             VALUES ('n1', 'чек', ?1, '2026-11-03', '2026-11-03')",
+            [&income],
+        )
+        .unwrap();
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &both, false, Some(&card), None).unwrap();
+        let c = db.conn();
+        let transfer: String = c
+            .query_row(
+                "SELECT id FROM transactions WHERE type = 'transfer'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let note_on = |c: &Connection| -> Option<String> {
+            c.query_row(
+                "SELECT transaction_id FROM notes WHERE id = 'n1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(note_on(c).as_deref(), Some(transfer.as_str()));
+        // Заметку перенесли на другую операцию (вклад, ручная запись).
+        let other = crate::transactions::create(
+            c,
+            &crate::transactions::TxnInput {
+                kind: "expense".into(),
+                date: "2026-11-05".into(),
+                account_id: deposit.clone(),
+                amount: 1_000,
+                category_id: c
+                    .query_row(
+                        "SELECT id FROM categories WHERE kind = 'expense' LIMIT 1",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap(),
+                to_account_id: None,
+                to_amount: None,
+                payee: None,
+                note: None,
+            },
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE notes SET transaction_id = ?1 WHERE id = 'n1'",
+            [&other],
+        )
+        .unwrap();
+        crate::import_log::undo(c, &saved.import_id).unwrap();
+        assert_eq!(note_on(c).as_deref(), Some(other.as_str()));
     }
 }

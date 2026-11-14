@@ -410,10 +410,14 @@ pub(crate) fn effective_limit(
     };
     // Начало бюджета совпадает с нынешним началом месяца — период по настройке
     // (при начале 31-го март идёт с 28 февраля по 30 марта, а не по 27 марта).
-    // Иначе начало поменяли позже: месяц от собственной даты бюджета.
+    // Иначе начало поменяли позже, и длину периода бюджета по одной его дате
+    // не узнать (28 февраля — начало и при 28-м, и при 31-м): лимит «в неделю»
+    // берётся сохранённым, он посчитан по периоду, когда лимит задавали.
     let current = month_of(conn, &start)?;
     let p = if current.start == start {
         current
+    } else if kind == "week" {
+        return Ok((stored, rollover));
     } else {
         let from = time::parse_date(&start)?;
         let to = from
@@ -1217,6 +1221,10 @@ mod tests {
         let c = db.conn();
         let food = cat(c, "Общепит");
         set_limit_kind(c, &budget, &food, "week", 7_000).unwrap();
+        let (limit, _) = effective_limit(c, &budget, &food).unwrap();
+        assert_eq!(limit, 31_000);
+        // Начало месяца потом сменили на 1-е: лимит этого бюджета не уменьшается.
+        settings::set(c, "month_start_day", "1").unwrap();
         let (limit, _) = effective_limit(c, &budget, &food).unwrap();
         assert_eq!(limit, 31_000);
     }

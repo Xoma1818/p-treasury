@@ -1001,13 +1001,16 @@ fn restore_absorb(conn: &Connection, import_id: &str, side: &str) -> Result<()> 
          FROM json_each(?2)",
         params![side, keys],
     )?;
+    // Заметки и отметки «оплачено» возвращаются, только если их не перевесили
+    // с перевода на другую операцию.
     for (table, key) in [("notes", "notes"), ("reminder_occurrences", "occurrences")] {
         conn.execute(
             &format!(
                 "UPDATE {table} SET transaction_id = ?1
-                 WHERE id IN (SELECT value FROM json_each(?2, '$.{key}'))"
+                 WHERE id IN (SELECT value FROM json_each(?2, '$.{key}'))
+                   AND transaction_id IS ?3"
             ),
-            params![side, attached],
+            params![side, attached, into],
         )?;
     }
     // Ключ этой стороны больше не нужен у перевода.
