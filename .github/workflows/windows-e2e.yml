@@ -76,6 +76,8 @@ jobs:
           npm ci
           npx vite build --logLevel warn
           cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Выпускная сборка для проверки скорости
+        run: cargo build --release -p budget-app --features custom-protocol --locked --quiet
       - name: Большая база и тест производительности ядра
         shell: bash
         env:
@@ -88,5 +90,6 @@ jobs:
           PTREASURY_REQUIRE_OLD: "1"
           PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
           PTREASURY_REQUIRE_VOLUME: "1"
+          PTREASURY_VOLUME_BIN: ${{ github.workspace }}\target\release\budget-app.exe
           PTREASURY_BIN: ${{ github.workspace }}\target\debug\budget-app.exe
         run: node --test --test-concurrency=1 e2e/*.test.mjs

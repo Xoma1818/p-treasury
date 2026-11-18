@@ -30,6 +30,10 @@ const ready = source && existsSync(join(source, "budget.db"));
 if (process.env.PTREASURY_REQUIRE_VOLUME === "1" && !ready) {
   throw new Error(`нет базы PTREASURY_VOLUME_DIR: ${source ?? "не задана"}`);
 }
+const volumeBin = process.env.PTREASURY_VOLUME_BIN;
+if (process.env.PTREASURY_REQUIRE_VOLUME === "1" && (!volumeBin || !existsSync(volumeBin))) {
+  throw new Error("Required release binary PTREASURY_VOLUME_BIN is missing");
+}
 let browser;
 after(async () => {
   if (browser) await stop(browser);
@@ -48,7 +52,8 @@ test("10 лет учёта: каждый экран открывается бы�
   const dir = mkdtempSync(join(tmpdir(), "p-treasury-volume-"));
   cpSync(source, dir, { recursive: true });
   const t0 = Date.now();
-  ({ browser } = await start(dir));
+  console.log(`Performance binary: ${volumeBin ?? "default (local run)"}`);
+  ({ browser } = await start(dir, { bin: volumeBin }));
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 20000 });
   await browser.waitUntil(() => browser.execute(() => /₽/.test(document.querySelector('[data-testid="total-balance"]')?.textContent ?? "")), { timeout: 10000 });
   const results = { "Запуск до Главной с балансом (вместе с запуском WebDriver)": Date.now() - t0 };
