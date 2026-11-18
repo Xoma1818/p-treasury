@@ -136,6 +136,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "import_deleted",
         sql: include_str!("../../migrations/0024_import_deleted.sql"),
     },
+    Migration {
+        version: 25,
+        name: "budget_start_provenance",
+        sql: include_str!("../../migrations/0025_budget_start_provenance.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

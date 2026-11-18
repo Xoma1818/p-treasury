@@ -462,7 +462,10 @@ mod replacement_tests {
         let mut journal = budget_core::undo::Journal::default();
         journal
             .record(db.conn_mut(), "old change", |conn| {
-                conn.execute("UPDATE currencies SET name = 'changed' WHERE code = 'RUB'", [])?;
+                conn.execute(
+                    "UPDATE currencies SET name = 'changed' WHERE code = 'RUB'",
+                    [],
+                )?;
                 Ok(())
             })
             .unwrap();

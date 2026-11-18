@@ -153,6 +153,7 @@ test("месяц жизни: от первого запуска до сводк�
     await choose(browser, "add-expense", cat);
     await fill(browser, "add-expense-limit", limit);
     await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');
+    await browser.$(`//tr[@data-testid="budget-line" and @data-category="${cat}"]`).waitForExist({ timeout: 5000 });
   }
   await browser.$('//tr[@data-testid="budget-line" and @data-category="Общепит"]').waitForExist({ timeout: 5000 });
 

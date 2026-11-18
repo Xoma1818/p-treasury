@@ -15,15 +15,35 @@ fn restore_rejects_orphan_without_replacing_live_data() {
     {
         let source = Storage::open(&path, &opts).unwrap();
         source.conn().execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO accounts (id,name,type,currency_code,opening_date,created_at,updated_at) VALUES ('orphan','Orphan','cash','MISSING','2026-01-01','','');").unwrap();
-        let integrity: String = source.conn().query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
+        let integrity: String = source
+            .conn()
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(integrity, "ok");
     }
     let mut live = Storage::open_in_memory().unwrap();
-    live.conn().execute("INSERT OR REPLACE INTO settings(key,value) VALUES ('review_marker','keep')", []).unwrap();
+    live.conn()
+        .execute(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES ('review_marker','keep')",
+            [],
+        )
+        .unwrap();
     assert!(live.restore_from(&path, &opts).is_err());
-    let marker: String = live.conn().query_row("SELECT value FROM settings WHERE key='review_marker'", [], |r| r.get(0)).unwrap();
+    let marker: String = live
+        .conn()
+        .query_row(
+            "SELECT value FROM settings WHERE key='review_marker'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(marker, "keep");
-    let orphans: i64 = live.conn().query_row("SELECT count(*) FROM accounts WHERE id='orphan'", [], |r| r.get(0)).unwrap();
+    let orphans: i64 = live
+        .conn()
+        .query_row("SELECT count(*) FROM accounts WHERE id='orphan'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
     assert_eq!(orphans, 0);
 }
 
@@ -35,7 +55,7 @@ fn currency_overflow_is_rejected_instead_of_wrapping() {
 }
 
 #[test]
-fn legacy_budget_merge_keeps_income_at_original_period_end() {
+fn ambiguous_legacy_budget_merge_refuses_without_changing_finances() {
     let dir = tempfile::tempdir().unwrap();
     let opts = OpenOptions {
         backup_dir: dir.path().join("backups"),
@@ -65,18 +85,69 @@ fn legacy_budget_merge_keeps_income_at_original_period_end() {
             .unwrap();
     }
     let mut upgraded = Storage::open(&path, &opts).unwrap();
-    // Return to the original month before merging: March includes March 29.
-    budget_core::settings::set(upgraded.conn(), "month_start_day", "31").unwrap();
-    budget_core::categories::merge(upgraded.conn_mut(), "source", "target").unwrap();
-    let merged: i64 = upgraded
-        .conn()
-        .query_row(
-            "SELECT limit_amount FROM budget_lines
-             WHERE budget_id='march' AND category_id='target'",
-            [],
-            |row| row.get(0),
+    for day in ["28", "1", "31"] {
+        budget_core::settings::set(upgraded.conn(), "month_start_day", day).unwrap();
+        assert!(budget_core::categories::merge(upgraded.conn_mut(), "source", "target").is_err());
+        let preserved: (i64, i64, i64, i64) = upgraded
+            .conn()
+            .query_row(
+                "SELECT (SELECT count(*) FROM categories WHERE id IN ('source','target')),
+                        (SELECT sum(limit_value) FROM budget_lines WHERE budget_id='march'),
+                        (SELECT sum(amount) FROM transactions),
+                        (SELECT start_day FROM budgets WHERE id='march')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(preserved, (2, 3000, 100000, 28));
+    }
+}
+
+#[test]
+fn new_budget_keeps_its_known_period_when_merging_after_setting_change() {
+    let mut db = Storage::open_in_memory().unwrap();
+    budget_core::settings::set(db.conn(), "month_start_day", "31").unwrap();
+    let id = budget_core::budgets::create(db.conn_mut(), "2026-03", false).unwrap();
+    db.conn()
+        .execute_batch(
+            "INSERT INTO categories(id,name,kind,created_at,updated_at) VALUES
+             ('source','Source','expense','',''), ('target','Target','expense','',''),
+             ('salary','Salary','income','','');
+             INSERT INTO accounts(id,name,type,currency_code,opening_date,created_at,updated_at)
+             VALUES ('cash','Cash','cash','RUB','2026-01-01','','');
+             INSERT INTO transactions(id,type,date,account_id,amount,category_id,created_at,updated_at)
+             VALUES ('salary-row','income','2026-03-29','cash',100000,'salary','','');",
         )
         .unwrap();
-    // 10% + 20% of 100000, independently calculated from the original period.
-    assert_eq!(merged, 30000);
+    budget_core::budgets::set_limit_kind(db.conn(), &id, "source", "percent", 1000).unwrap();
+    budget_core::budgets::set_limit_kind(db.conn(), &id, "target", "percent", 2000).unwrap();
+    budget_core::settings::set(db.conn(), "month_start_day", "28").unwrap();
+    budget_core::categories::merge(db.conn_mut(), "source", "target").unwrap();
+    let saved: (i64, i64, i64) = db
+        .conn()
+        .query_row(
+            "SELECT b.start_day, b.start_day_known, l.limit_amount
+             FROM budgets b JOIN budget_lines l ON l.budget_id=b.id
+             WHERE b.id=?1 AND l.category_id='target'",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(saved, (31, 1, 30000));
+}
+#[test]
+fn checked_rates_keep_rounding_and_reject_both_overflow_directions() {
+    use budget_core::money::Rate;
+    let half = Rate::parse("0.5").unwrap();
+    assert_eq!(half.convert(1, 0, 0).unwrap(), 1);
+    assert_eq!(half.convert(-1, 0, 0).unwrap(), -1);
+    assert_eq!(
+        Rate::parse("1").unwrap().convert(i64::MAX, 0, 0).unwrap(),
+        i64::MAX
+    );
+    assert!(Rate::parse("2").unwrap().convert(i64::MAX, 0, 0).is_err());
+    assert!(half.convert_inverse(i64::MAX, 0, 0).is_err());
+    assert!(half.convert(1, 0, 100).is_err());
+    let zero = Rate::from_amounts(i64::MAX, 0, 1, 0).unwrap();
+    assert!(zero.convert_inverse(1, 0, 0).is_err());
 }

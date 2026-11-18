@@ -1,5 +1,6 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -107,8 +108,10 @@ async function winProbeDevtools(bin, env) {
  * Windows: после первой неудачной сессии start() падает сразу, не тратя минуты
  * на таймауты, — и в других файлах тестов того же прогона (метка у общего родителя).
  */
-const WIN_FAIL_MARK = join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}.txt`);
-let winSessionError = WIN && existsSync(WIN_FAIL_MARK) ? readFileSync(WIN_FAIL_MARK, "utf8") : undefined;
+function winFailureMark(bin) {
+  const key = createHash("sha256").update(resolve(bin).toLowerCase()).digest("hex").slice(0, 16);
+  return join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}-${key}.txt`);
+}
 
 let driver;
 let currentDir;
@@ -153,7 +156,10 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       return `журнала нет: ${e.message}`;
     }
   };
-  if (WIN && winSessionError) throw new Error(`сессия WebDriver в Windows не создаётся: ${winSessionError}`);
+  const failureMark = winFailureMark(bin);
+  if (WIN && existsSync(failureMark)) {
+    throw new Error(`сессия WebDriver для ${bin} не создаётся: ${readFileSync(failureMark, "utf8")}`);
+  }
   if (WIN) {
     await winCleanup();
     const dead = winProbeApp(bin, { ...process.env, ...cbr, ...wv2, ...env });
@@ -170,9 +176,8 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     await winCleanup();
     await winProbeDevtools(bin, { ...process.env, ...cbr, ...wv2, ...env });
     await winCleanup();
-    winSessionError = e.message;
     try {
-      writeFileSync(WIN_FAIL_MARK, e.message);
+      writeFileSync(failureMark, e.message);
     } catch {
       // метка не обязательна
     }

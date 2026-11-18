@@ -398,7 +398,9 @@ pub(crate) fn effective_limit(
 ) -> Result<(i64, bool)> {
     // Период — от собственной даты начала бюджета (начало месяца могли поменять позже).
     let (start, currency, sd): (String, String, Option<u32>) = conn.query_row(
-        "SELECT period_start, currency_code, start_day FROM budgets WHERE id = ?1",
+        "SELECT period_start, currency_code,
+                CASE WHEN start_day_known = 1 THEN start_day END
+         FROM budgets WHERE id = ?1",
         [budget_id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
@@ -422,31 +424,21 @@ pub(crate) fn effective_limit(
     };
     // Период — по дню начала, с которым бюджет создан (при начале 31-го март
     // идёт с 28 февраля по 30 марта, даже если потом начало сменили на 1-е).
-    // Не записан или к дате не подходит — по нынешней настройке. Если и она не
-    // подходит, длину периода по одной дате не узнать (28 февраля — начало и
-    // при 28-м, и при 31-м): лимит «в неделю» берётся сохранённым.
+    // Неизвестный период нельзя восстановить из нынешней настройки: 28 и 31
+    // дают одно начало в феврале. Фиксированные лимиты сохраняем, процентные
+    // не пересчитываем без достоверного периода.
     let own = match sd {
         Some(sd) => period_from(&start, sd)?,
         None => None,
     };
-    let current = month_of(conn, &start)?;
     let p = if let Some(p) = own {
         p
-    } else if current.start == start {
-        current
-    } else if kind == "week" {
+    } else if kind == "week" || kind == "month" {
         return Ok((stored, rollover));
     } else {
-        let from = time::parse_date(&start)?;
-        let to = from
-            .checked_add_months(chrono::Months::new(1))
-            .ok_or_else(|| Error::Validation("неверная дата бюджета".into()))?
-            - Duration::days(1);
-        Period {
-            month: from.format("%Y-%m").to_string(),
-            start,
-            end: to.to_string(),
-        }
+        return invalid(
+            "период старого бюджета неизвестен: объединение процентных лимитов недоступно",
+        );
     };
     let income = if kind == "percent" {
         let (by_cat, _) = actuals(conn, &p, &currency)?;

@@ -67,6 +67,8 @@ jobs:
         run: cargo build -p budget-app --features custom-protocol --locked --quiet
       - name: Замена хранилища и история отмены
         run: cargo test -p budget-app --lib replacement_tests --features custom-protocol --locked
+      - name: Адаптер WebDriver старой версии (только создание окна)
+        run: node scripts/prepare-old-windows-e2e.mjs old
       - name: Старая версия 0.16.0
         working-directory: old
         shell: bash

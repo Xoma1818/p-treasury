@@ -1831,7 +1831,9 @@ pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String>
     let mut guard = state.lock_db();
     state.replace_data(&mut guard, |slot| {
         let db = slot.as_mut().map_err(|e| e.clone())?;
-        let safety = db.restore_from(Path::new(&path), &opts).map_err(|e| e.to_string())?;
+        let safety = db
+            .restore_from(Path::new(&path), &opts)
+            .map_err(|e| e.to_string())?;
         Ok(safety.display().to_string())
     })
 }

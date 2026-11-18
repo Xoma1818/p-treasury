@@ -19,15 +19,12 @@ test("сохранение выписки: повторный клик и сме
   await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 4$/);
   // Delay transport, not business outcome: release calls the real Rust command.
   await browser.execute(() => {
-    const original = window.__TAURI_INTERNALS__.invoke;
+    if (!navigator.webdriver) throw new Error("Import delay requires WebDriver mode");
     window.__saveCalls = 0;
-    window.__restoreImportInvoke = () => { window.__TAURI_INTERNALS__.invoke = original; };
-    window.__TAURI_INTERNALS__.invoke = function(command, args, ...rest) {
-      if (command !== "import_csv") return original.call(this, command, args, ...rest);
+    window.__restoreImportInvoke = () => { window.__releaseImport?.(); delete window.__ptBeforeImport; delete window.__releaseImport; };
+    window.__ptBeforeImport = () => {
       window.__saveCalls++;
-      return new Promise((resolve, reject) => {
-        window.__releaseImport = () => original.call(this, command, args, ...rest).then(resolve, reject);
-      });
+      return new Promise(resolve => { window.__releaseImport = resolve; });
     };
     const button = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === "Загрузить 4");
     button.click(); button.click();
