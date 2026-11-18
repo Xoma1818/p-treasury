@@ -796,5 +796,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(22), "account_groups_look");
     assert_eq!(at(23), "budget_kinds_groups");
     assert_eq!(at(24), "import_deleted");
-    assert_eq!(LATEST_VERSION, 24);
+    assert_eq!(at(25), "budget_start_provenance");
+    assert_eq!(LATEST_VERSION, 25);
 }
