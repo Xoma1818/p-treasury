@@ -66,3 +66,6 @@
 - [Выпуски](https://github.com/Xoma1818/p-treasury-releases/releases), [публикация версии](https://github.com/Xoma1818/p-treasury/actions/workflows/release.yml).
 - [Секреты Actions](https://github.com/Xoma1818/p-treasury/settings/secrets/actions) — проверять наличие/ответственного, не читать и не выводить значения.
 - [Настройки подключения](https://github.com/settings/installations/175137301).
+
+### 18.11.2026 — закрытие пропусков тестирования
+Ветка codex/full-test-coverage от0b31664. Windows workflow готовит старую0.16 по pinnedSHA и большую базу; отсутствие prerequisite теперь ошибка. Добавлены regressions restore FK, overflow, legacy budget merge, import save race и DB/history replacement concurrency. Простые исправления FK/import/race включены. Overflow и legacy budget пока ожидаемые красные регрессии, не считать исправленными. 157UI/26файлов и TypeScript прошли, JS syntax и diff check прошли; Rust и Windows новые тесты ещё не запускались. Открытые93/94 не слиты; budget tests94 не заменяют legacy pre-migration case. Следующий шаг CI и исправление обнаруженных тестами ошибок; релиз не выполняется.

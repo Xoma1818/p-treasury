@@ -269,14 +269,17 @@ pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String>
     let opts = state.open_options();
     let safety = {
         let mut guard = state.lock_db();
+        let safety = state.replace_data(&mut guard, |slot| {
+            let db = slot.as_mut().map_err(|e| e.clone())?;
+            let path = Path::new(&found.path);
+            if found.kind == "excel" {
+                vault::restore_excel(db, path, &opts)
+            } else {
+                db.restore_from(path, &opts)
+            }
+            .map_err(|e| e.to_string())
+        })?;
         let db = guard.as_mut().map_err(|e| e.clone())?;
-        let path = Path::new(&found.path);
-        let safety = if found.kind == "excel" {
-            vault::restore_excel(db, path, &opts)
-        } else {
-            db.restore_from(path, &opts)
-        }
-        .map_err(|e| e.to_string())?;
         let c = db.conn();
         // Папка со старого компьютера могла остаться в настройках копии.
         let restored = settings::get(c, "vault_dir")
@@ -296,8 +299,6 @@ pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String>
         set("onboarding_done", "1")?;
         safety.display().to_string()
     };
-    // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    state.lock_undo().clear();
     sync(&state, false);
     Ok(safety)
 }

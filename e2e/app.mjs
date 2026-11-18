@@ -35,20 +35,14 @@ function winRunning(image) {
 /** Закрыть всё от прошлого запуска и дождаться, пока процессы исчезнут: живой
  *  tauri-driver держит порт 4444 (новая сессия попала бы в него), а WebView2 —
  *  свою папку, и тогда msedgedriver отвечает «DevToolsActivePort file doesn't exist». */
-async function winCleanup(timeout = 20000) {
-  const until = Date.now() + timeout;
-  for (;;) {
-    const left = WIN_IMAGES.filter(winRunning);
-    if (!left.length) return;
-    if (Date.now() > until) {
-      console.error(`# после прогона остались процессы: ${left.join(", ")}`);
-      return;
-    }
-    for (const image of left) spawnSync("taskkill", ["/IM", image, "/T", "/F"]);
-    await new Promise((r) => setTimeout(r, 500));
+async function winCleanup() {
+  // Only the driver spawned by this test owns the application/WebView children.
+  // Never terminate processes by image name: other applications use WebView2.
+  if (driver?.pid && driver.exitCode === null && driver.signalCode === null) {
+    spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
-
 /** Windows: запускается ли программа сама по себе (без WebDriver). Проверяется один раз;
  *  если она сразу закрывается, сессия всё равно не создастся — тесты падают сразу, а не по таймауту. */
 let winProbe;
@@ -211,7 +205,7 @@ export async function stop(browser) {
       // kill() в Windows не трогает дочерние процессы: msedgedriver и приложение
       // пережили бы прогон, а с 0.26 следующий запуск отдавался бы старой копии
       // (одна копия программы) — «session not created: DevToolsActivePort».
-      if (driver?.pid) spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+
       await winCleanup();
       return;
     }

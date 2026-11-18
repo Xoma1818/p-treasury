@@ -43,8 +43,15 @@ async function figures() {
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
   f.report = await (await browser.$('[data-testid="report-balance"]')).getText();
   await openSection(browser, "Займы и долги");
-  await waitText(browser, '[data-testid="debt-card"]', /Банк/).catch(() => {});
-  f.debts = await (await browser.$("main")).getText();
+  await browser.$('[data-testid="debt-row"][data-name="Банк"]').waitForDisplayed({ timeout: 5000 });
+  // Stable row data in 0.16 and current UI; no headings, action buttons or new payoff panel.
+  f.debts = await browser.execute(() => [...document.querySelectorAll('[data-testid="debt-row"]')].map(row => ({
+    name: row.getAttribute("data-name"),
+    amounts: row.children[1].textContent.replace(/\s+/g, " ").trim(),
+    next: row.children[2].textContent.replace(/\s+/g, " ").trim(),
+    closed: row.classList.contains("archived"),
+  })));
+  assert.equal(f.debts.length, 1, "created debt must remain visible");
   await openSection(browser, "Операции");
   await click(browser, "Сбросить");
   f.txns = await (await browser.$('[data-testid="txn-count"]')).getText();

@@ -27,6 +27,9 @@ function rssMb() {
 
 const source = process.env.PTREASURY_VOLUME_DIR;
 const ready = source && existsSync(join(source, "budget.db"));
+if (process.env.PTREASURY_REQUIRE_VOLUME === "1" && !ready) {
+  throw new Error(`нет базы PTREASURY_VOLUME_DIR: ${source ?? "не задана"}`);
+}
 let browser;
 after(async () => {
   if (browser) await stop(browser);

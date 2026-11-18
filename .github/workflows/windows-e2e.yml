@@ -20,11 +20,16 @@ jobs:
   e2e:
     name: Сквозные тесты в окне Windows
     runs-on: windows-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/checkout@v5
+        with:
+          # v0.16.0, schema 9. Immutable baseline for upgrade acceptance.
+          ref: 98ddf2d4fb81e045a149af10d8dace195b2e81aa
+          path: old
       - name: Проверяемый коммит
         shell: bash
         run: git log -1 --format='%H %s'
@@ -60,8 +65,26 @@ jobs:
         run: npm run build
       - name: Приложение со встроенным интерфейсом
         run: cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Замена хранилища и история отмены
+        run: cargo test -p budget-app --lib replacement_tests --features custom-protocol --locked
+      - name: Старая версия 0.16.0
+        working-directory: old
+        shell: bash
+        run: |
+          npm ci
+          npx vite build --logLevel warn
+          cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Большая база и тест производительности ядра
+        shell: bash
+        env:
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+        run: cargo test --release -p budget-core --test volume --locked -- --ignored --nocapture
       - name: Сквозные тесты
         shell: bash
         env:
+          PTREASURY_OLD_BIN: ${{ github.workspace }}\old\target\debug\budget-app.exe
+          PTREASURY_REQUIRE_OLD: "1"
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+          PTREASURY_REQUIRE_VOLUME: "1"
           PTREASURY_BIN: ${{ github.workspace }}\target\debug\budget-app.exe
         run: node --test --test-concurrency=1 e2e/*.test.mjs

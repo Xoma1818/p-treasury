@@ -36,6 +36,18 @@ impl AppState {
         self.undo.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Replace/reset data and its history as one DB-locked operation.
+    /// On failure the caller's history remains available.
+    pub(crate) fn replace_data<T>(
+        &self,
+        guard: &mut MutexGuard<'_, Result<Storage, String>>,
+        action: impl FnOnce(&mut Result<Storage, String>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let result = action(guard)?;
+        self.lock_undo().clear();
+        Ok(result)
+    }
+
     pub fn open_options(&self) -> OpenOptions {
         OpenOptions {
             backup_dir: self.data_dir.join("backups"),
@@ -438,4 +450,78 @@ pub fn run() {
                 vault::sync_on_exit(app);
             }
         });
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+    use std::sync::{mpsc, Arc, TryLockError};
+
+    fn state_with_history() -> AppState {
+        let mut db = Storage::open_in_memory().unwrap();
+        let mut journal = budget_core::undo::Journal::default();
+        journal
+            .record(db.conn_mut(), "old change", |conn| {
+                conn.execute("UPDATE currencies SET name = 'changed' WHERE code = 'RUB'", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(journal.state().undo.is_some());
+        AppState {
+            db: Mutex::new(Ok(db)),
+            undo: Mutex::new(journal),
+            data_dir: PathBuf::new(),
+            portable: false,
+            vault_default: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn replacement_excludes_concurrent_undo_until_history_is_cleared() {
+        let state = Arc::new(state_with_history());
+        let (changed_tx, changed_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let worker_state = Arc::clone(&state);
+        let worker = std::thread::spawn(move || {
+            let mut guard = worker_state.lock_db();
+            worker_state
+                .replace_data(&mut guard, |slot| {
+                    *slot = Ok(Storage::open_in_memory().unwrap());
+                    changed_tx.send(()).unwrap();
+                    resume_rx.recv().unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        });
+        changed_rx.recv().unwrap();
+        // Exactly the dangerous interval: new DB installed, old journal still present.
+        assert!(state.lock_undo().state().undo.is_some());
+        assert!(matches!(state.db.try_lock(), Err(TryLockError::WouldBlock)));
+        resume_tx.send(()).unwrap();
+        worker.join().unwrap();
+        let guard = state.lock_db();
+        let db = guard.as_ref().unwrap();
+        assert!(state.lock_undo().undo(db.conn()).unwrap().is_none());
+        let name: String = db
+            .conn()
+            .query_row("SELECT name FROM currencies WHERE code='RUB'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_ne!(name, "changed");
+    }
+
+    #[test]
+    fn rejected_replacement_preserves_history() {
+        let state = state_with_history();
+        let mut guard = state.lock_db();
+        let result: Result<(), String> =
+            state.replace_data(&mut guard, |_| Err("invalid backup".into()));
+        assert!(result.is_err());
+        assert!(state
+            .lock_undo()
+            .undo(guard.as_ref().unwrap().conn())
+            .unwrap()
+            .is_some());
+    }
 }

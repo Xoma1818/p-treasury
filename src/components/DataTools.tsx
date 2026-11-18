@@ -9,6 +9,7 @@ import { useAction } from "../lib/useAction";
 import { AccountSelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Hint } from "./Hint";
+import { ImportSaveGuard } from "../lib/importSaveGuard";
 
 type Kind = "month" | "quarter" | "year" | "custom";
 
@@ -102,7 +103,10 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   // загрузки выключены, а ответ на устаревший запрос не показывается.
   const [pending, setPending] = useState(false);
   const request = useRef(0);
+  const saveGuard = useRef(new ImportSaveGuard());
+  const [saving, setSaving] = useState(false);
   const load = async (p: string, account: string | null = accountId, self: string | null = selfId) => {
+    if (saveGuard.current.busy) return;
     const n = ++request.current;
     setError(null);
     setLoaded(null);
@@ -142,13 +146,20 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
     }
   };
   const commit = async (skipErrors: boolean) => {
+    if (pending || !preview || !path) return;
+    await saveGuard.current.run(async () => {
+    setSaving(true);
+    setError(null);
     try {
       setLoaded(await api.importCsv(path!, skipErrors, preview?.bank ? accountId : null, preview?.bank ? selfId : null));
       setPreview(null);
       await qc.invalidateQueries();
     } catch (e) {
       setError(String(e));
+    } finally {
+      setSaving(false);
     }
+    });
   };
 
   if (next === "history") return <ImportHistoryDialog onClose={onClose} />;
@@ -159,11 +170,11 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
         Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета, в том числе «Operations …») или таблица по шаблону приложения (CSV или Excel, подойдёт и выгрузка «Операций»). Категории подберутся по правилам и по категориям банка. Если в файле есть категория, которой нет в программе, возьмётся похожая, а если похожей нет, создастся новая: в таблице ниже она помечена «(новая)», поправить можно потом в «Категориях». Возврат покупки (деньги от того же магазина после покупки) записывается возвратом, а не доходом. Уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
       </p>
       <div className="btn-group">
-        <button className="btn primary" onClick={choose}>
+        <button className="btn primary" disabled={saving} onClick={choose}>
           Выбрать файл
         </button>
         {path && (
-          <button className="btn" onClick={() => load(path)} title="Перечитать файл после исправлений">
+          <button className="btn" disabled={saving} onClick={() => load(path)} title="Перечитать файл после исправлений">
             Проверить снова
           </button>
         )}
@@ -175,7 +186,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
         </button>
       </div>
       {preview?.bank && (
-        <div className="row import-bank">
+        <fieldset className="row import-bank" disabled={saving} style={{ border: 0, padding: 0, margin: 0 }}>
           <span className="bank-chip" data-testid="import-bank">
             Выписка {preview.bank}
           </span>
@@ -187,7 +198,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
               {(id) => <AccountSelect id={id} name="importSelfAccount" placeholder="Не знаю — записать расходом и доходом" accounts={accounts} exclude={accountId ?? undefined} value={preview.selfAccountId ?? ""} onChange={(v) => load(path!, accountId, v)} />}
             </Field>
           )}
-        </div>
+        </fieldset>
       )}
       {preview && (
         <>
@@ -254,7 +265,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
       <ErrorText error={error} />
       <div className="actions">
         {preview && preview.errors > 0 && preview.valid + preview.toTransfers > 0 && (
-          <button className="link" disabled={pending} onClick={() => commit(true)}>
+          <button className="link" disabled={pending || saving} onClick={() => commit(true)}>
             Загрузить только правильные ({preview.valid + preview.toTransfers})
           </button>
         )}
@@ -263,7 +274,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
           Закрыть
         </button>
         {preview && (
-          <button className="btn primary" disabled={pending || preview.errors > 0 || preview.valid + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+          <button className="btn primary" disabled={pending || saving || preview.errors > 0 || preview.valid + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {preview.valid === 0 && preview.toTransfers > 0 ? `Исправить ${preview.toTransfers}` : `Загрузить ${preview.valid}`}
             {preview.valid > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>

@@ -178,9 +178,11 @@ pub fn switch(state: &AppState, path: &Path) -> Result<(), String> {
         eprintln!("папка сохранности не переименована, остаётся прежняя: {e}");
     }
     // Старое соединение закрывается здесь, когда его место занимает новое.
-    *guard = Ok(next);
+    state.replace_data(&mut guard, |slot| {
+        *slot = Ok(next);
+        Ok(())
+    })?;
     drop(guard);
-    *state.lock_undo() = budget_core::undo::Journal::default();
     let mut r = load(&state.data_dir);
     r.current = Some(path.display().to_string());
     store(&state.data_dir, &r)
