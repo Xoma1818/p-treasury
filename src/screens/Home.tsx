@@ -1,3 +1,4 @@
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { CrashGuard } from "../components/Crash";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useModules } from "../lib/modules";
@@ -41,9 +42,10 @@ export function Home() {
   const [cbrUsed, setCbrUsed] = useState(false);
   // Месяц считается от настройки «первый день месяца», как в бюджете.
   const period = useMonthOf(date).data;
-  const totals = useQuery({ queryKey: ["totals", date], queryFn: () => api.totals(date) });
+  const totals = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["totals", date], queryFn: () => api.totals(date) });
   const free = useQuery({ queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
   const month = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", period?.start, period?.end],
     queryFn: () => api.periodSummary(period!.start, period!.end),
     enabled: !!period,
@@ -72,11 +74,13 @@ export function Home() {
   }).data;
   const custom = homeKind !== "month" && range?.kind === homeKind ? range : null;
   const rangeSum = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", custom?.from, custom?.to],
     queryFn: () => api.periodSummary(custom!.from, custom!.to),
     enabled: !!custom,
   }).data;
   const rangePrev = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", custom?.prevFrom, custom?.prevTo],
     queryFn: () => api.periodSummary(custom!.prevFrom, custom!.prevTo),
     enabled: !!custom,
