@@ -1403,6 +1403,7 @@ export interface ImportRow {
 }
 
 export interface ImportPreview {
+  fileDigest: string;
   rows: ImportRow[];
   valid: number;
   errors: number;
@@ -2116,10 +2117,10 @@ export const api = {
     invoke<void>("export_comparison", { kind, by, periods, path }),
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
   importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
-  importCsv: async (path: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null) => {
+  importCsv: async (path: string, fileDigest: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null) => {
     // WebDriver-only scheduling hook; the result always comes from the real command.
     if (navigator.webdriver) await window.__ptBeforeImport?.();
-    return invoke<ImportSaved>("import_csv", { path, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null });
+    return invoke<ImportSaved>("import_csv", { path, fileDigest, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null });
   },
   importHistory: () => invoke<ImportBatch[]>("import_history"),
   importUndo: (id: string) => invoke<number>("import_undo", { id }),

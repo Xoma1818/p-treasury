@@ -17,6 +17,8 @@ budget-core = { path = "../crates/core" }
 tauri = { version = "2", features = ["tray-icon"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
+tempfile = "3"
 chrono.workspace = true
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
@@ -35,6 +37,3 @@ tauri-plugin-single-instance = "2"
 [features]
 # Встроить собранный интерфейс (dist) в бинарник; Tauri CLI включает это сам при `tauri build`.
 custom-protocol = ["tauri/custom-protocol"]
-
-[dev-dependencies]
-tempfile = "3"

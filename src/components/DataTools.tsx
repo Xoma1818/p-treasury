@@ -199,7 +199,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     setSaving(true);
     setError(null);
     try {
-      setLoaded(await api.importCsv(path!, skipErrors, preview?.bank ? accountId : null, preview?.bank ? selfId : null));
+      setLoaded(await api.importCsv(path, preview.fileDigest, skipErrors, preview.bank ? accountId : null, preview.bank ? selfId : null));
       setPreview(null);
       await qc.invalidateQueries();
     } catch (e) {
