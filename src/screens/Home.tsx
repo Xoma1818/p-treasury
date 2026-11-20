@@ -44,7 +44,7 @@ export function Home() {
   // Месяц считается от настройки «первый день месяца», как в бюджете.
   const period = useMonthOf(date).data;
   const totals = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["totals", date], queryFn: () => api.totals(date) });
-  const free = useQuery({ queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
+  const free = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
   const month = useQuery({
     staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", period?.start, period?.end],

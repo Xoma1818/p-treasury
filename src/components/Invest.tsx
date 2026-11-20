@@ -5,6 +5,7 @@ import { formatDate, monthTitle, today } from "../lib/dates";
 import { leftToSave, projectGrowth, tenthsText } from "../lib/invest";
 import { parseAmount } from "../lib/money";
 import { useAccounts } from "../lib/queries";
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
@@ -12,7 +13,11 @@ import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 import { Hint } from "./Hint";
 
-const useOverview = () => useQuery({ queryKey: ["investOverview"], queryFn: api.investOverview }).data;
+const useOverview = () => useQuery({
+  queryKey: ["investOverview", today()],
+  queryFn: api.investOverview,
+  staleTime: AGGREGATE_STALE_MS,
+}).data;
 
 /** «Отложено 15 000 из 20 000 ₽» с полоской; без плана — только сумма. */
 function MonthLine({ m, symbol, onPlan }: { m: InvestMonth; symbol: string; onPlan: () => void }) {

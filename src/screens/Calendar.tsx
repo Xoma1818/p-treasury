@@ -17,6 +17,7 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { goalText, monthLine } from "../lib/forecast";
 import { heatWeeks } from "../lib/heat";
 import { formatMoney } from "../lib/money";
+import { useDefaultForecast } from "../lib/queries";
 
 type Tab = "month" | "week" | "year" | "reminders";
 
@@ -148,7 +149,7 @@ function Totals({ m, partial }: { m: CalendarMonth; partial?: boolean }) {
 
 /** Строка прогноза над месяцем (0.19): сколько денег будет на конец месяца. */
 function ForecastLine({ month }: { month: string }) {
-  const f = useQuery({ queryKey: ["forecast", null], queryFn: () => api.forecast(null) }).data;
+  const f = useDefaultForecast().data;
   const { go } = useUi();
   const line = f ? monthLine(f, month) : null;
   if (!f || !line) return null;
