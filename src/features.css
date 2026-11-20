@@ -348,11 +348,10 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-head { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 4px; }
 .nw-change { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .nw-chart .grid.zero { stroke: var(--border-strong); }
-.nw-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 1; animation: nw-draw 900ms var(--ease) both; }
+.nw-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .nw-area { fill: var(--accent); opacity: 0.08; }
 .nw-dot { fill: var(--card); stroke: var(--accent); stroke-width: 2; pointer-events: none; transition: r var(--fast) var(--ease); }
 .nw-dot.neg { stroke: var(--over); }
-@keyframes nw-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .nw-tip { min-width: 240px; }
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }

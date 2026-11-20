@@ -246,6 +246,15 @@ test("закрытие окна: по умолчанию в трей, с нас�
   await openSection(browser, "Настройки");
   await choose(browser, "closeToTray", "Закрывать приложение");
   await new Promise((r) => setTimeout(r, 1100));
+  // Скрытое окно быстрого ввода не должно удерживать процесс после закрытия главного.
+  const main = await browser.getWindowHandle();
+  await browser.execute(() => window.__TAURI_INTERNALS__.invoke("open_quick"));
+  await browser.waitUntil(async () => (await browser.getWindowHandles()).some((h) => h !== main), { timeout: 10000 });
+  const quick = (await browser.getWindowHandles()).find((h) => h !== main);
+  await browser.switchToWindow(quick);
+  await browser.$("main.quick-window").waitForDisplayed({ timeout: 10000 });
+  await browser.execute(() => window.__TAURI_INTERNALS__.invoke("hide_quick", { saved: false }));
+  await browser.switchToWindow(main);
   closeLikeUser();
   await browser.waitUntil(async () => !appPid(), { timeout: 15000 });
   const copies = readdirSync(join(vault, "Копии"));

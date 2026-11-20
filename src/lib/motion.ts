@@ -1,8 +1,7 @@
 import { useUi } from "./store";
 
-// «Пружина» (0.25): графики, кольца и полосы растут только при первом открытии
-// раздела за сеанс. При повторном открытии на <html> ставится data-seen, и CSS
-// показывает их сразу.
+// Вводный эффект карточек и календаря включён только при первом открытии раздела.
+// При повторном посещении CSS видит data-seen и сразу показывает элементы.
 export function installSeenSections() {
   const seen = new Set([useUi.getState().section]);
   const root = document.documentElement;

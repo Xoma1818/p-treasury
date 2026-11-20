@@ -24,6 +24,7 @@ import { TagReport } from "../components/Tags";
 import { usePopup } from "../lib/usePopup";
 import { FigureForm } from "../components/Figures";
 import type { Figure, FigurePeriod } from "../lib/api";
+import "./reportsOverview.css";
 
 const M = BaseMoney;
 
@@ -49,7 +50,7 @@ function ReportTabs({ tab, onPick }: { tab: Tab; onPick: (t: Tab) => void }) {
   const moreTabs = MORE_TABS.filter(([t]) => t !== "subs" || modules.on("subs"));
   const more = moreTabs.find(([t]) => t === tab);
   return (
-    <div className="tabs report-tabs" role="tablist">
+    <div className="tabs report-tabs" role="tablist" aria-label="Виды отчётов">
       {MAIN_TABS.map(([t, label]) => (
         <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => onPick(t)}>
           {label}
@@ -115,9 +116,10 @@ function periodTitle(kind: Kind, p: Period) {
   return `${formatDate(p.start)} – ${formatDate(p.end)}`;
 }
 
-/** Экран «Отчёты»: структура, по месяцам, остатки. Каждая цифра ведёт к своим операциям. */
+/** Экран «Отчёты»: структура, по месяцам, остатки. */
 export function Reports() {
-  const current = useMonthOf(today()).data;
+  const currentMonth = useMonthOf(today());
+  const current = currentMonth.data;
   const [tab, setTab] = useState<Tab>(() => {
     const t = useUi.getState().reportTab as Tab | null;
     if (t) useUi.setState({ reportTab: null });
@@ -157,7 +159,9 @@ export function Reports() {
   });
   const s = summary.data;
   const showTransactions = useUi((u) => u.showTransactions);
-  const all = () => period && showTransactions({ dateFrom: period.start, dateTo: period.end });
+  const openPeriodOperations = (type: CategoryKind) => {
+    if (period) showTransactions({ dateFrom: period.start, dateTo: period.end, types: [type], counted: true });
+  };
   const exp = useExport(`Kazna — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
     if (!period) return;
     if (tab === "structure") return api.exportReport("categories", period.start, period.end, path);
@@ -192,60 +196,68 @@ export function Reports() {
   const ownPeriod = tab === "compare" || tab === "subs" || tab === "year" || tab === "networth";
   // Итоги периода сверху не нужны там, где отчёт показывает свои.
   const noTiles = ownPeriod || tab === "tag";
+  const periodError = kind === "custom"
+    ? (custom ? null : currentMonth.error)
+    : (month ? fixed.error : currentMonth.error);
   return (
-    <section className="screen wide">
-      <div className="screen-head">
+    <section className="screen wide reports-overview">
+      <div className="screen-head reports-heading">
         <ScreenTitle id="reports" />
-        {!ownPeriod && (
-        <div className="period-picker">
-          <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {
-            const k = e.target.value as Kind;
-            if (k === "custom" && period) setCustom({ start: period.start, end: period.end });
-            setKind(k);
-          }}>
-            {KINDS.map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-          {kind === "custom" ? (
-            <>
-              <input type="date" name="reportFrom" aria-label="С даты" value={custom?.start ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: e.target.value, end: c?.end ?? e.target.value }))} />
-              <span className="muted">—</span>
-              <input type="date" name="reportTo" aria-label="По дату" value={custom?.end ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: c?.start ?? e.target.value, end: e.target.value }))} />
-            </>
-          ) : (
-            month && (
-              <div className="month-switch">
-                <button className="icon-btn" aria-label="Предыдущий период" onClick={() => setAnchor(shiftMonth(month, -STEP[kind]))}>
-                  <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
-                </button>
-                <div>
-                  <div className="main" data-testid="report-period">
-                    {period && periodTitle(kind, period)}
-                  </div>
-                  {period && (
-                    <div className="sub">
-                      {formatDate(period.start)} – {formatDate(period.end)}
-                    </div>
-                  )}
-                </div>
-                <button className="icon-btn" aria-label="Следующий период" onClick={() => setAnchor(shiftMonth(month, STEP[kind]))}>
-                  <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
-                </button>
-              </div>
-            )
-          )}
-          {tab !== "balances" && tab !== "fx" && tab !== "tag" && (
-            <ExportButton exp={exp} disabled={!period} title="Отчёт на вкладке в CSV или Excel" />
-          )}
-        </div>
-        )}
         <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
           На Главную
         </button>
       </div>
+      {!ownPeriod && (
+        <div className="card reports-period-panel">
+          <h2 id="reports-period-title">Период отчёта</h2>
+          <div className="period-picker" role="group" aria-labelledby="reports-period-title">
+            <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {
+              const k = e.target.value as Kind;
+              if (k === "custom" && period) setCustom({ start: period.start, end: period.end });
+              setKind(k);
+            }}>
+              {KINDS.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            {kind === "custom" ? (
+              <>
+                <input type="date" name="reportFrom" aria-label="С даты" value={custom?.start ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: e.target.value, end: c?.end ?? e.target.value }))} />
+                <span className="muted">—</span>
+                <input type="date" name="reportTo" aria-label="По дату" value={custom?.end ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: c?.start ?? e.target.value, end: e.target.value }))} />
+              </>
+            ) : (
+              month && (
+                <div className="month-switch">
+                  <button className="icon-btn" aria-label="Предыдущий период" onClick={() => setAnchor(shiftMonth(month, -STEP[kind]))}>
+                    <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
+                  </button>
+                  <div>
+                    <div className="main" data-testid="report-period">
+                      {period && periodTitle(kind, period)}
+                    </div>
+                    {period && (
+                      <div className="sub">
+                        {formatDate(period.start)} – {formatDate(period.end)}
+                      </div>
+                    )}
+                  </div>
+                  <button className="icon-btn" aria-label="Следующий период" onClick={() => setAnchor(shiftMonth(month, STEP[kind]))}>
+                    <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            )}
+            {tab !== "balances" && tab !== "fx" && tab !== "tag" && (
+              <ExportButton exp={exp} disabled={!period} title="Отчёт на вкладке в CSV или Excel" />
+            )}
+          </div>
+        </div>
+      )}
+      {!ownPeriod && periodError && <p className="error reports-status" role="alert">Не удалось загрузить период. {String(periodError)}</p>}
+      {!ownPeriod && !period && !periodError && <p className="muted reports-status" role="status">Загружаем период…</p>}
       {sent && (
         <p className="ok" role="status" data-testid="report-sent-home">
           Цифра добавлена на Главную, в «Свои цифры».
@@ -259,58 +271,75 @@ export function Reports() {
       )}
       <ErrorText error={exp.error} />
 
+      {period && !noTiles && !s && (
+        summary.error
+          ? <p className="error reports-status" role="alert">Не удалось загрузить итоги. {String(summary.error)}</p>
+          : <p className="muted reports-status" role="status">Загружаем итоги…</p>
+      )}
+
       {s && !noTiles && (
-        <div className="tiles">
-          <div className="card tile clickable" data-testid="report-income" onClick={all}>
-            <div className="tile-label">Доходы</div>
-            <div className="tile-value plus">
-              <M amount={s.income} />
+        <section className="reports-summary" aria-labelledby="reports-summary-title">
+          <h2 id="reports-summary-title">Итоги периода</h2>
+          <div className="tiles reports-tiles">
+            <div className="card tile" data-testid="report-income">
+              <div className="tile-label">Доходы</div>
+              <button type="button" className="tile-value tile-explain plus" title="Операции по доходам за период" onClick={() => openPeriodOperations("income")}>
+                <M amount={s.income} />
+                <span className="sr-only"> — открыть доходы за период</span>
+              </button>
             </div>
-          </div>
-          <div className="card tile clickable" data-testid="report-expense" onClick={all}>
-            <div className="tile-label">Расходы</div>
-            <div className="tile-value">
-              <M amount={s.expense} />
+            <div className="card tile" data-testid="report-expense">
+              <div className="tile-label">Расходы</div>
+              <button type="button" className="tile-value tile-explain" title="Операции по расходам за период" onClick={() => openPeriodOperations("expense")}>
+                <M amount={s.expense} />
+                <span className="sr-only"> — открыть расходы и возвраты за период</span>
+              </button>
             </div>
-          </div>
-          <div className="card tile" data-testid="report-balance">
-            <div className="tile-label">Сальдо</div>
-            <div className={s.income - s.expense < 0 ? "tile-value over" : "tile-value"}>
-              <M amount={s.income - s.expense} signed />
-            </div>
-            {s.adjustments !== 0 && (
-              <div className="hint">
-                Корректировки: <M amount={s.adjustments} signed /> (не входят)
+            <div className="card tile reports-balance" data-testid="report-balance">
+              <div className="tile-label">Сальдо</div>
+              <div className={s.income - s.expense < 0 ? "tile-value over" : "tile-value"}>
+                <M amount={s.income - s.expense} signed />
               </div>
-            )}
+              {s.adjustments !== 0 && (
+                <div className="hint">
+                  Корректировки: <M amount={s.adjustments} signed /> (не входят)
+                </div>
+              )}
+            </div>
+            <div className="card tile" data-testid="savings-rate">
+              <div className="tile-label">Норма сбережений</div>
+              <div className="tile-value">{s.savingsRate == null ? <span className="muted">—</span> : `${s.savingsRate} %`}</div>
+              <div className="hint">доля дохода, которая осталась</div>
+            </div>
           </div>
-          <div className="card tile" data-testid="savings-rate">
-            <div className="tile-label">Норма сбережений</div>
-            <div className="tile-value">{s.savingsRate == null ? <span className="muted">—</span> : `${s.savingsRate} %`}</div>
-            <div className="hint">доля дохода, которая осталась</div>
-          </div>
-        </div>
+        </section>
       )}
       {s && !noTiles && s.missingRates.length > 0 && (
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
+      {s && !noTiles && (
+        <p className="hint">Верхние итоги рассчитаны без фильтра по счёту и тегу. Нажмите на доходы или расходы, чтобы открыть операции за период. В списке показаны исходные суммы и даты. Из-за курсов и распределённых расходов список и отчёт могут различаться.</p>
+      )}
 
-      <SavedViews<ReportView>
-        kind="report"
-        current={{ tab, kind, custom: kind === "custom" ? custom : null }}
-        onApply={applyView}
-      />
-      <ReportTabs tab={tab} onPick={setTab} />
+      <section className="reports-detail" aria-labelledby="reports-detail-title">
+        <h2 id="reports-detail-title">Детализация</h2>
+        <SavedViews<ReportView>
+          kind="report"
+          current={{ tab, kind, custom: kind === "custom" ? custom : null }}
+          onApply={applyView}
+        />
+        <ReportTabs tab={tab} onPick={setTab} />
 
-      {period && tab === "structure" && <Structure period={period} onDraft={setCtx} />}
-      {period && tab === "months" && <Months period={period} kind={kind} onDraft={setCtx} />}
-      {period && tab === "balances" && <Balances period={period} />}
-      {tab === "compare" && <Compare />}
-      {period && tab === "fx" && <FxGain period={period} />}
-      {tab === "subs" && <SubscriptionsReport />}
-      {tab === "year" && <YearReviewReport />}
-      {period && tab === "tag" && <TagReport period={period} onDraft={setCtx} />}
-      {tab === "networth" && <NetWorthReport />}
+        {period && tab === "structure" && <Structure period={period} onDraft={setCtx} />}
+        {period && tab === "months" && <Months period={period} kind={kind} onDraft={setCtx} />}
+        {period && tab === "balances" && <Balances period={period} />}
+        {tab === "compare" && <Compare />}
+        {period && tab === "fx" && <FxGain period={period} />}
+        {tab === "subs" && <SubscriptionsReport />}
+        {tab === "year" && <YearReviewReport />}
+        {period && tab === "tag" && <TagReport period={period} onDraft={setCtx} />}
+        {tab === "networth" && <NetWorthReport />}
+      </section>
     </section>
   );
 }
@@ -396,7 +425,9 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
   });
   const showTransactions = useUi((u) => u.showTransactions);
   const catMap = useCategoryMap();
-  const go = (c: CategoryItem) => showTransactions({ categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end, ...filter });
+  const go = (c: CategoryItem) => showTransactions({
+    ...filter, categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end, types: [kind], counted: true,
+  });
   const r = report.data;
   const max = r?.items[0]?.amount ?? 0;
   const toggle = (id: string) => setOpen((o) => {
@@ -406,20 +437,24 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
     return n;
   });
 
-  const row = (c: CategoryItem, child = false) => (
-    <li key={child ? `c-${c.categoryId}` : c.categoryId} className={child ? "cat-row child" : "cat-row"} data-testid={child ? "cat-child" : "cat-row"} data-category={c.name}>
+  const row = (c: CategoryItem, parent?: CategoryItem) => (
+    <li key={parent ? `c-${c.categoryId}` : c.categoryId} className={parent ? "cat-row child" : "cat-row"} data-testid={parent ? "cat-child" : "cat-row"} data-category={c.name}>
       <span className="cat-name">
-        {!child && c.children.length > 0 ? (
+        {!parent && c.children.length > 0 ? (
           <button className="icon-btn small" aria-label={open.has(c.categoryId) ? "Свернуть" : "Раскрыть"} aria-expanded={open.has(c.categoryId)} onClick={() => toggle(c.categoryId)}>
             {open.has(c.categoryId) ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
           </button>
         ) : (
           <span className="icon-gap" />
         )}
-        <button className="link cat-link" title="Показать операции" onClick={() => go(c)}>
-          <LookMark look={lookOf(c.categoryId, catMap)} />
-          {c.name}
-        </button>
+        {parent?.categoryId === c.categoryId ? (
+          <span><LookMark look={lookOf(c.categoryId, catMap)} />{c.name}</span>
+        ) : (
+          <button type="button" className="link cat-link" title="Показать связанные операции" onClick={() => go(c)}>
+            <LookMark look={lookOf(c.categoryId, catMap)} />
+            {c.name}
+          </button>
+        )}
       </span>
       <span className="cat-bar" title={`${c.name}: ${c.percent} %`}>
         <span
@@ -448,21 +483,22 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
           ))}
         </div>
       </div>
-      <div className="filters-row">
+      <div className="filters-row reports-controls">
         <ReportFilterBar value={filter} onChange={setFilter} />
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="structure-chart" options={[["bars", "Полосы"], ["donut", "Доли"]]} />
       </div>
+      {report.isPending && <p className="muted reports-status" role="status">Загружаем разбивку по категориям…</p>}
       {report.error && <p className="error">{String(report.error)}</p>}
       {r && r.items.length === 0 && <p className="muted">За этот период операций нет.</p>}
       {r && r.items.length > 0 && (
         <>
           {chart === "donut" && <Donut items={r.items} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
           <ul className="cat-report" data-testid="structure">
-            {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, true)) : [])])}
+            {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, c)) : [])])}
           </ul>
           <div className="table-foot muted">
-            Итого: <M amount={r.total} />. Нажмите на категорию, чтобы увидеть её операции.
+            Итого: <M amount={r.total} />. Категории открывают операции с выбранными счётом и тегом.
           </div>
         </>
       )}
@@ -544,17 +580,21 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
   const [chart, setChart] = useChartKind("months");
   const report = useQuery({ queryKey: ["reportByMonth", from, to, filter], queryFn: () => api.reportByMonth(from, to, filter) });
   const showTransactions = useUi((u) => u.showTransactions);
+  const openMonth = (month: Period, type?: CategoryKind) => showTransactions({
+    ...filter, dateFrom: month.start, dateTo: month.end, types: type ? [type] : undefined, counted: type ? true : undefined,
+  });
   const r = report.data;
   return (
     <div className="card">
       <h2>
         Доходы и расходы по месяцам: {monthTitle(from).toLowerCase()} – {monthTitle(to).toLowerCase()}
       </h2>
-      <div className="filters-row">
+      <div className="filters-row reports-controls">
         <ReportFilterBar value={filter} onChange={setFilter} />
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="months-chart" options={[["bars", "Столбцы"], ["line", "Линия"]]} />
       </div>
+      {report.isPending && <p className="muted reports-status" role="status">Загружаем данные по месяцам…</p>}
       {report.error && <p className="error">{String(report.error)}</p>}
       {r && (
         <>
@@ -576,15 +616,34 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
                   className="clickable"
                   data-testid="month-row"
                   data-month={m.period.month}
-                  title="Показать операции месяца"
-                  onClick={() => showTransactions({ dateFrom: m.period.start, dateTo: m.period.end, ...filter })}
+                  title="Показать все операции месяца"
+                  onClick={() => openMonth(m.period)}
                 >
-                  <td className="main">{monthTitle(m.period.month)}</td>
+                  <td className="main">
+                    <button type="button" className="link" title="Показать все операции месяца" onClick={(e) => {
+                      e.stopPropagation();
+                      openMonth(m.period);
+                    }}>
+                      {monthTitle(m.period.month)}
+                    </button>
+                  </td>
                   <td className="num plus">
-                    <M amount={m.income} />
+                    <button type="button" className="link" title="Показать операции по доходам" onClick={(e) => {
+                      e.stopPropagation();
+                      openMonth(m.period, "income");
+                    }}>
+                      <M amount={m.income} />
+                      <span className="sr-only"> — открыть доходы за {monthTitle(m.period.month)}</span>
+                    </button>
                   </td>
                   <td className="num">
-                    <M amount={m.expense} />
+                    <button type="button" className="link" title="Показать операции по расходам" onClick={(e) => {
+                      e.stopPropagation();
+                      openMonth(m.period, "expense");
+                    }}>
+                      <M amount={m.expense} />
+                      <span className="sr-only"> — открыть расходы и возвраты за {monthTitle(m.period.month)}</span>
+                    </button>
                   </td>
                   <td className={m.balance < 0 ? "num over" : "num"}>
                     <M amount={m.balance} signed />

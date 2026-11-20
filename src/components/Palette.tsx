@@ -95,10 +95,13 @@ export function Palette() {
     ];
     // Переключатели — только по запросу, чтобы пустой список оставался коротким.
     if (n) {
-      const dark = savedTheme() === "dark";
+      const theme = savedTheme();
+      const themeTitle = theme === "system" ? "Переключить светлую и тёмную тему"
+        : theme === "dark" ? "Светлая тема" : "Тёмная тема";
       actions.push(
         { key: "a-hide", group: "Действия", title: hidden ? "Показать суммы" : "Скрыть суммы", detail: "Ctrl+H", words: "скрыть показать суммы деньги глаз", section: "settings", run: () => setSetting.run("hide_amounts", hidden ? "0" : "1") },
-        { key: "a-theme", group: "Действия", title: dark ? "Светлая тема" : "Тёмная тема", words: "тема светлая тёмная тёмный оформление цвет", section: "settings", run: () => applyTheme(dark ? "light" : "dark") },
+        { key: "a-theme", group: "Действия", title: themeTitle, words: "тема светлая тёмная тёмный оформление цвет", section: "settings", run: () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark") },
+        { key: "a-theme-system", group: "Действия", title: "Тема как в системе", words: "тема оформление windows цвет", section: "settings", run: () => applyTheme("system") },
         { key: "a-keys", group: "Действия", title: "Горячие клавиши", detail: "F1", words: "клавиши сочетания справка", section: "settings", run: () => setHelp(true) },
       );
     }

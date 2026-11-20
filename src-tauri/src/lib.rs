@@ -167,14 +167,23 @@ pub fn run() {
                     let _ = w.hide();
                     return;
                 }
-                if background::hide_instead_of_close(&w) {
-                    api.prevent_close();
-                    let _ = w.hide();
-                } else {
-                    // Окно закрывается вместе с приложением: копия сейчас, пока
-                    // процесс точно жив (до события выхода дело может не дойти).
-                    vault::sync_on_exit(w.app_handle());
+                if w.label() != "main" {
+                    return;
                 }
+                if background::hide_instead_of_close(&w) {
+                    match w.hide() {
+                        Ok(()) => {
+                            api.prevent_close();
+                            return;
+                        }
+                        Err(e) => eprintln!("не удалось свернуть окно в трей: {e}"),
+                    }
+                }
+                // Явно завершаем процесс, даже если окно быстрого ввода было
+                // открыто прежде и Tauri всё ещё держит его скрытым.
+                api.prevent_close();
+                vault::sync_on_exit(w.app_handle());
+                w.app_handle().exit(0);
             }
         })
         .invoke_handler(tauri::generate_handler![

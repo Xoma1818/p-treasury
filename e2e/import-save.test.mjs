@@ -33,12 +33,14 @@ test("сохранение выписки: повторный клик и сме
     await browser.waitUntil(() => browser.execute(() => window.__saveCalls === 1), { timeout: 5000 });
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Выбрать файл"]`).isEnabled(), false);
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Проверить снова"]`).isEnabled(), false);
+    assert.equal(await browser.$('[data-testid="open-import-history"]').isEnabled(), false);
+    assert.equal(await browser.$(`${dialog}//button[@aria-label="Закрыть"]`).isEnabled(), false);
     assert.equal(await browser.$('select[name="importAccount"]').isEnabled(), false);
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Загрузить 4"]`).isEnabled(), false);
     await browser.execute(() => { window.__releaseImport(); });
     await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 4/);
     assert.equal(await browser.execute(() => window.__saveCalls), 1);
-    assert.equal(await browser.$(`${dialog}//button[normalize-space()="Выбрать файл"]`).isEnabled(), true);
+    await browser.$(`${dialog}//button[normalize-space()="Выбрать файл"]`).waitForEnabled({ timeout: 5000 });
     await click(browser, "Проверить снова", dialog);
     await waitText(browser, '[data-testid="import-summary"]', /уже загружено раньше 4/);
   } finally {

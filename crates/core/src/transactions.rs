@@ -410,8 +410,9 @@ pub struct Filter {
     /// «recurring» — получатель встречался в трёх и больше разных месяцах,
     /// «note» — с комментарием, «foreign» — по счёту не в основной валюте.
     pub quick: Vec<String>,
-    /// Как в отчётах: возврат — минус расход и стоит на дате учёта (тип и даты отбора
-    /// сравниваются так же, как в итогах). Для перехода из сумм на Главной.
+    /// Тип и даты отбора как в итогах: возврат относится к расходам на дату учёта,
+    /// распределённый расход попадает в список, если подходит хотя бы одна часть.
+    /// В результате остаётся исходная операция с исходной суммой и датой.
     pub counted: bool,
     /// Р3 «Крупные»: сумма не меньше этой, в минимальных единицах основной валюты.
     /// Валютные операции сравниваются по курсу на конец отбора; без курса не попадают.
@@ -509,11 +510,33 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     } else {
         ("t.type", "t.date")
     };
-    if let Some(d) = &f.date_from {
-        wh.push(format!("{dt} >= {}", arg(d.clone().into())));
-    }
-    if let Some(d) = &f.date_to {
-        wh.push(format!("{dt} <= {}", arg(d.clone().into())));
+    let date_bounds: Vec<_> = [(">=", &f.date_from), ("<=", &f.date_to)]
+        .into_iter()
+        .filter_map(|(op, date)| date.as_ref().map(|date| (op, arg(date.clone().into()))))
+        .collect();
+    if !date_bounds.is_empty() {
+        let date_filter = |column: &str| {
+            date_bounds
+                .iter()
+                .map(|(op, param)| format!("{column} {op} {param}"))
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        };
+        let original_date = date_filter(dt);
+        if f.counted {
+            let part_date = date_filter("p.date");
+            // Один исходный ID может иметь несколько подходящих частей. IN
+            // проверяет принадлежность без размножения строк при пагинации.
+            wh.push(format!(
+                "((t.spread_months IS NULL AND {original_date}) OR
+                  (t.spread_months IS NOT NULL AND t.id IN (
+                    SELECT p.id FROM txn_by_month p
+                    WHERE p.spread_months IS NOT NULL AND {part_date}
+                  )))"
+            ));
+        } else {
+            wh.push(original_date);
+        }
     }
     if let Some(a) = &f.account_id {
         let p = arg(a.clone().into());

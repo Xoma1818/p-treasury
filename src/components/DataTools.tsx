@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { api, type ImportPreview, type ImportSaved, type UpdateInfo } from "../lib/api";
+import { FileUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, type ImportPreview, type ImportRow, type ImportSaved, type UpdateInfo } from "../lib/api";
+import { importRowExplanation } from "../lib/importRowExplanation";
 import { ImportHistoryDialog, MatchesDialog } from "./ImportHistory";
 import { formatDate, monthBounds, today } from "../lib/dates";
 import { baseName, CSV, OFX, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/files";
@@ -8,8 +10,10 @@ import { useAccounts, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
+import { DecorativeIcon } from "./DecorativeIcon";
 import { Hint } from "./Hint";
 import { ImportSaveGuard } from "../lib/importSaveGuard";
+import "./importOverview.css";
 
 type Kind = "month" | "quarter" | "year" | "custom";
 
@@ -85,10 +89,49 @@ export function SummaryDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+const IMPORT_ROW_FILTERS = [
+  { value: "all", label: "Все строки" },
+  { value: "error", label: "С ошибками" },
+  { value: "review", label: "Возможные совпадения" },
+  { value: "duplicate", label: "Пропускаемые повторы" },
+  { value: "link", label: "Связь с вашей записью" },
+  { value: "conversion", label: "Станут переводами" },
+  { value: "add", label: "Новые без совпадений" },
+] as const;
+
+type ImportRowFilter = (typeof IMPORT_ROW_FILTERS)[number]["value"];
+
+function importRowFilter(row: ImportRow): Exclude<ImportRowFilter, "all"> {
+  if (row.error) return "error";
+  if (row.toTransfer) return "conversion";
+  if (row.duplicate) return "duplicate";
+  if (row.linkedTo) return "link";
+  if (row.maybe > 0) return "review";
+  return "add";
+}
+
 /** Импорт: выписка Сбера или Т-Банка либо CSV по шаблону → предпросмотр с ошибками и повторами → загрузка. */
-export function ImportDialog({ onClose, initialPath }: { onClose: () => void; initialPath?: string }) {
+export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuard }: {
+  onClose: () => void;
+  initialPath?: string;
+  saveGuard?: ImportSaveGuard;
+}) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [rowFilter, setRowFilter] = useState<ImportRowFilter>("all");
+  const rowsByFilter = useMemo(() => {
+    const groups: Record<ImportRowFilter, ImportRow[]> = {
+      all: preview?.rows ?? [],
+      error: [],
+      review: [],
+      duplicate: [],
+      link: [],
+      conversion: [],
+      add: [],
+    };
+    for (const row of groups.all) groups[importRowFilter(row)].push(row);
+    return groups;
+  }, [preview]);
   const [accountId, setAccountId] = useState<string | null>(null);
   // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
   const [selfId, setSelfId] = useState<string | null>(null);
@@ -103,10 +146,14 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   // загрузки выключены, а ответ на устаревший запрос не показывается.
   const [pending, setPending] = useState(false);
   const request = useRef(0);
-  const saveGuard = useRef(new ImportSaveGuard());
+  const [localSaveGuard] = useState(() => new ImportSaveGuard());
+  const saveGuard = suppliedSaveGuard ?? localSaveGuard;
+  const dismiss = () => {
+    if (!saveGuard.busy) onClose();
+  };
   const [saving, setSaving] = useState(false);
   const load = async (p: string, account: string | null = accountId, self: string | null = selfId) => {
-    if (saveGuard.current.busy) return;
+    if (saveGuard.busy) return;
     const n = ++request.current;
     setError(null);
     setLoaded(null);
@@ -115,6 +162,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
       const r = await api.importPreview(p, account, self);
       if (n !== request.current) return;
       setPreview(r);
+      setRowFilter("all");
       setSelfId(self);
       setAccountId(r.accountId);
       setPath(p);
@@ -147,7 +195,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   };
   const commit = async (skipErrors: boolean) => {
     if (pending || !preview || !path) return;
-    await saveGuard.current.run(async () => {
+    await saveGuard.run(async () => {
     setSaving(true);
     setError(null);
     try {
@@ -165,26 +213,37 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
   if (next === "history") return <ImportHistoryDialog onClose={onClose} />;
   if (next === "matches") return <MatchesDialog onClose={onClose} />;
   return (
-    <Modal title="Импорт выписки или CSV" onClose={onClose} wide>
-      <p className="muted">
-        Выписка Сбера (PDF из СберБанк Онлайн), Т-Банка (CSV или Excel из личного кабинета, в том числе «Operations …») или таблица по шаблону приложения (CSV или Excel, подойдёт и выгрузка «Операций»). Категории подберутся по правилам и по категориям банка. Если в файле есть категория, которой нет в программе, возьмётся похожая, а если похожей нет, создастся новая: в таблице ниже она помечена «(новая)», поправить можно потом в «Категориях». Возврат покупки (деньги от того же магазина после покупки) записывается возвратом, а не доходом. Уже загруженные операции пропускаются, а покупки, которые вы уже записали вручную, свяжутся с вашими записями.
-      </p>
-      <div className="btn-group">
-        <button className="btn primary" disabled={saving} onClick={choose}>
-          Выбрать файл
-        </button>
-        {path && (
-          <button className="btn" disabled={saving} onClick={() => load(path)} title="Перечитать файл после исправлений">
-            Проверить снова
+    <Modal title="Импорт выписки или CSV" onClose={dismiss} dismissDisabled={saving} wide>
+      <section className="import-overview-source" aria-labelledby="import-source-title">
+        <div className="import-overview-intro">
+          <h2 id="import-source-title">Файл для загрузки</h2>
+          <p className="muted">Сбер — PDF, Т-Банк — CSV или Excel. Подойдёт и таблица по шаблону Kazna.</p>
+        </div>
+        <div className="import-overview-controls">
+          <button type="button" className="btn primary import-overview-pick" disabled={saving} onClick={choose}>
+            <DecorativeIcon icon={FileUp} size="control" />
+            Выбрать файл
           </button>
-        )}
-        <button className="link" onClick={template}>
-          Скачать шаблон CSV
-        </button>
-        <button className="link" data-testid="open-import-history" onClick={() => setNext("history")}>
-          История импорта
-        </button>
-      </div>
+          {path && (
+            <button type="button" className="btn" disabled={saving} onClick={() => load(path)} title="Перечитать файл после исправлений">
+              Проверить снова
+            </button>
+          )}
+          <button type="button" className="link" disabled={saving} onClick={template}>Скачать шаблон CSV</button>
+          <button type="button" className="link" disabled={saving} data-testid="open-import-history" onClick={() => {
+            if (!saveGuard.busy) setNext("history");
+          }}>История импорта</button>
+        </div>
+        <details className="import-overview-help">
+          <summary>Как Kazna разбирает файл</summary>
+          <p className="muted">
+            Можно использовать таблицу CSV или Excel, в том числе выгрузку из «Операций».
+            Kazna подбирает категории по правилам и данным банка, а новые помечает «(новая)».
+            Повторы пропускаются, возвраты отмечаются отдельно. Найденные ручные операции связываются со строками выписки.
+          </p>
+        </details>
+        {pending && <p className="muted import-overview-progress" role="status">Проверяем файл…</p>}
+      </section>
       {preview?.bank && (
         <fieldset className="row import-bank" disabled={saving} style={{ border: 0, padding: 0, margin: 0 }}>
           <span className="bank-chip" data-testid="import-bank">
@@ -201,16 +260,32 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
         </fieldset>
       )}
       {preview && (
-        <>
-          <p data-testid="import-summary" className={preview.errors ? "warn" : undefined}>
-            {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
-            {preview.errors > 0 && `, с ошибками ${preview.errors}`}
-            {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
-            {preview.toTransfers > 0 && `, станут переводами ${preview.toTransfers}`}
-            {preview.linked > 0 && `, свяжутся с вашими записями ${preview.linked}`}
-            {preview.doubtful > 0 && `, спросим про совпадения ${preview.doubtful}`}
-          </p>
-          <div className="import-table">
+        <section className="import-overview-preview" aria-labelledby="import-preview-title">
+          <div className="import-overview-heading">
+            <h2 id="import-preview-title">Проверка перед загрузкой</h2>
+            <p data-testid="import-summary" className={preview.errors ? "warn" : "muted"}>
+              {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
+              {preview.errors > 0 && `, с ошибками ${preview.errors}`}
+              {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
+              {preview.toTransfers > 0 && `, станут переводами ${preview.toTransfers}`}
+              {preview.linked > 0 && `, свяжутся с вашими записями ${preview.linked}`}
+              {preview.doubtful > 0 && `, спросим про совпадения ${preview.doubtful}`}
+            </p>
+          </div>
+          {preview.rows.length > 0 && (
+            <div className="row import-overview-filter">
+              <Field label="Показать строки" hint="Фильтр меняет только вид таблицы. При загрузке учитывается весь файл.">
+                {(id) => (
+                  <select id={id} name="importRowFilter" value={rowFilter} disabled={pending || saving}
+                    onChange={(e) => setRowFilter(e.target.value as ImportRowFilter)}>
+                    {IMPORT_ROW_FILTERS.filter(({ value }) => value === "all" || rowsByFilter[value].length > 0)
+                      .map(({ value, label }) => <option key={value} value={value}>{label} ({rowsByFilter[value].length})</option>)}
+                  </select>
+                )}
+              </Field>
+            </div>
+          )}
+          <div className="import-table" role="region" aria-label="Строки файла" tabIndex={0}>
             <table className="table" data-testid="import-preview">
               <thead>
                 <tr>
@@ -225,7 +300,7 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
                 </tr>
               </thead>
               <tbody>
-                {preview.rows.map((r) => (
+                {rowsByFilter[rowFilter].map((r) => (
                   <tr key={r.line} className={r.error ? "bad" : r.duplicate || r.linkedTo || r.toTransfer ? "dup" : undefined} data-testid="import-row" data-error={r.error ? "1" : "0"} data-duplicate={r.duplicate ? "1" : "0"} data-linked={r.linkedTo ? "1" : "0"}>
                     <td>{r.line}</td>
                     <td>{/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? formatDate(r.date) : r.date}</td>
@@ -234,13 +309,13 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
                     <td>{r.category}</td>
                     {preview.bank && <td className="import-payee">{r.payee}</td>}
                     <td className="num">{r.amount}</td>
-                    <td className={r.error ? "error" : "muted"}>{r.error ?? (r.toTransfer ? "уже есть, станет переводом" : r.duplicate ? "уже есть, пропустим" : r.linkedTo ? `ваша запись ${r.linkedTo}` : r.maybe > 0 ? `похоже на ваши записи (${r.maybe}), спросим` : "ок")}</td>
+                    <td className={r.error ? "error" : "muted"}>{importRowExplanation(r, Boolean(preview.bank))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
+        </section>
       )}
       {saved && (
         <p className="ok" data-testid="template-saved">
@@ -262,15 +337,16 @@ export function ImportDialog({ onClose, initialPath }: { onClose: () => void; in
           )}
         </p>
       )}
+      {saving && <p className="muted" role="status">Сохраняем операции…</p>}
       <ErrorText error={error} />
-      <div className="actions">
+      <div className="actions import-overview-actions">
         {preview && preview.errors > 0 && preview.valid + preview.toTransfers > 0 && (
           <button className="link" disabled={pending || saving} onClick={() => commit(true)}>
             Загрузить только правильные ({preview.valid + preview.toTransfers})
           </button>
         )}
         <span className="spacer" />
-        <button className="btn" onClick={onClose}>
+        <button className="btn" disabled={saving} onClick={dismiss}>
           Закрыть
         </button>
         {preview && (

@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { DecorativeIcon } from "./DecorativeIcon";
 
 /** Окно уходит так же мягко, как появилось (0.25): Esc, «×» и щелчок мимо окна
  *  сначала играют исчезновение, потом закрывают. Под автотестом — сразу.
  *  guardUnsaved: если в окне что-то вводили, Esc, «×» и щелчок мимо сначала
  *  спрашивают «Закрыть без сохранения?». Кнопка «Отмена» формы закрывает сразу. */
-const CLOSE_MS = 160;
+const CLOSE_MS = 160; // --motion-feedback в styles.css
 const FOCUSABLE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex]';
 
 /** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
@@ -16,6 +17,7 @@ export function Modal({
   wide,
   side,
   guardUnsaved,
+  dismissDisabled = false,
 }: {
   title: string;
   onClose: () => void;
@@ -23,6 +25,7 @@ export function Modal({
   wide?: boolean;
   side?: boolean;
   guardUnsaved?: boolean;
+  dismissDisabled?: boolean;
 }) {
   const [closing, setClosing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -37,6 +40,7 @@ export function Modal({
       setDirty(true);
   };
   const dismiss = (force = false) => {
+    if (dismissDisabled) return;
     if (guardUnsaved && dirty && !force) return setAsking(true);
     if (
       navigator.webdriver ||
@@ -102,8 +106,9 @@ export function Modal({
             className="icon-btn"
             onClick={() => dismiss()}
             aria-label="Закрыть"
+            disabled={dismissDisabled}
           >
-            <X size={16} strokeWidth={1.75} aria-hidden="true" />
+            <DecorativeIcon icon={X} size="control" />
           </button>
         </div>
         {asking && (

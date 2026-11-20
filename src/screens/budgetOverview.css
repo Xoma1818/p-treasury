@@ -1,0 +1,95 @@
+.budget-screen .budget-screen-head,
+.budget-screen .month-switch,
+.budget-screen .budget-start .btn-group,
+.budget-screen .budget-lines .notes-head,
+.budget-screen .budget-lines .btn-group {
+  flex-wrap: wrap;
+}
+
+.budget-screen .budget-screen-head {
+  row-gap: 16px;
+  margin-block-end: 16px;
+}
+
+.budget-screen .month-switch .main {
+  min-width: min(140px, 22vw);
+}
+
+.budget-screen .budget-overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.budget-overview .tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.budget-overview .tile-label {
+  flex-wrap: wrap;
+}
+
+.budget-overview .budget-today {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 28px;
+  border-color: var(--border);
+  background: linear-gradient(120deg, var(--accent-soft), transparent 74%), var(--card);
+}
+
+.budget-overview .budget-today .tile-value {
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.2;
+}
+
+.budget-today-detail .hint {
+  margin-block: 4px;
+}
+
+.budget-screen .budget-plan-summary .plan-fact {
+  overflow-x: auto;
+}
+
+.budget-screen .budget-plan-summary .notes-head {
+  flex-wrap: wrap;
+}
+
+.budget-fact-note {
+  margin-block: 12px;
+}
+
+.budget-table-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.budget-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.budget-table .budget-fact-column {
+  background: var(--fill);
+}
+
+.budget-screen .budget-lines .add-line {
+  margin-block-start: 12px;
+}
+
+.budget-screen .budget-details {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+@media (max-width: 860px) {
+  .budget-screen .budget-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .budget-screen .budget-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

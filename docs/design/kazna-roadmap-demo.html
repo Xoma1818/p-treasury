@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kazna — Главная и Операции</title>
+<style>
+  :root{color-scheme:dark;--bg:#15181c;--aside:#1a1e23;--panel:#20252b;--border:#343c45;--fg:#eef3f6;--muted:#acb8c2;--mint:#77dbc1;--wash:#233d38;--ink:#102720;--track:#36434a;--focus:#93ead4;font:15px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}
+  :root[data-theme="light"]{color-scheme:light;--bg:#f5f6f8;--aside:#eceef2;--panel:#fff;--border:#d9dfe5;--fg:#1c2430;--muted:#535e6d;--mint:#086b54;--wash:#dcefe9;--ink:#fff;--track:#d7e1e1;--focus:#086b54}
+  *{box-sizing:border-box} body{margin:0;color:var(--fg);background:var(--bg)} [hidden]{display:none!important}
+  h1,h2,p{margin:0} h1{font-size:clamp(27px,4vw,38px);letter-spacing:-.035em;font-weight:650;line-height:1.18} h2{font-size:17px;letter-spacing:-.015em}
+  button,input,select{font:inherit} button,select{cursor:pointer} button{color:inherit} button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+  .shell{display:grid;grid-template-columns:218px minmax(0,1fr);min-height:100vh} aside{background:var(--aside);border-right:1px solid var(--border);padding:28px 16px;display:flex;flex-direction:column;gap:30px}
+  .brand{display:flex;align-items:center;gap:12px;font-size:22px;font-weight:660;padding:0 9px}.mark{width:34px;height:34px;border:1px solid var(--mint);border-radius:10px;display:grid;place-items:center;color:var(--mint)}
+  svg.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  nav{display:grid;gap:5px} .nav,.theme,.link,.close{border:0;background:transparent;border-radius:9px;padding:10px 12px;text-align:left}
+  .nav,.theme{display:flex;align-items:center;gap:10px} .nav[aria-current=page]{background:var(--wash);color:var(--mint);font-weight:650}.theme{margin-top:auto;color:var(--muted)}
+  .nav:not([aria-current]):hover,.theme:hover,.link:hover,.close:hover{background:var(--wash)} .link{color:var(--mint);padding:6px 9px;font-weight:600}
+  main{width:min(100%,1290px);margin:auto;padding:32px clamp(18px,4.2vw,64px) 48px;align-self:start;margin-top:0}
+  .demo{font-size:13px;color:var(--muted);margin-bottom:20px}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+  .period{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px} select,input{border-radius:9px;border:1px solid var(--border);color:var(--fg);background:var(--panel);padding:8px 10px;max-width:100%}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;min-width:0}
+  .hero{display:grid;grid-template-columns:minmax(165px,.85fr) minmax(275px,1.4fr);align-items:center;gap:22px;padding:24px;margin-bottom:14px}
+  .label,.note,.empty,.desc{color:var(--muted)}.label{font-size:13px}.value{font-size:clamp(24px,3.3vw,43px);letter-spacing:-.04em;font-weight:670;white-space:nowrap;line-height:1.38}.note{font-size:13px}
+  .chart{margin:0;min-width:0}.chart svg{display:block;width:100%;max-height:126px;overflow:visible}.chart figcaption{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:12px}.chart svg line{stroke:var(--border);stroke-dasharray:3 5}.chart svg polyline{fill:none;stroke:var(--mint);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+  .summary{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:14px}.summary .value,.totals .value{font-size:clamp(19px,2.4vw,29px)}.summary .link{margin-top:8px;margin-left:-9px}.progress{height:7px;border-radius:20px;background:var(--track);overflow:hidden;margin:11px 0}.progress>span{background:var(--mint);height:100%;display:block;transition:width 180ms ease-out}
+  .recent{margin-top:14px}.between{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}.filters{display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:17px}.field{display:grid;gap:5px;color:var(--muted);font-size:13px}.field input{min-width:min(245px,75vw)}.filters .link{margin-bottom:3px}
+  .totals{display:flex;gap:clamp(20px,5vw,55px);flex-wrap:wrap;padding:13px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:8px}
+  .tablewrap{overflow-x:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)} th{font-size:12px;color:var(--muted);font-weight:600} tr:last-child td{border-bottom:0} td:last-child,th:last-child{text-align:right}.row-action{font:inherit;border:0;background:transparent;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--border);padding:2px 0}.row-action:hover{text-decoration-color:currentColor;color:var(--mint)} .money{font-variant-numeric:tabular-nums;font-weight:630}.income{color:var(--mint)}.empty{padding:22px 0}
+  dialog{width:min(410px,calc(100% - 28px));color:var(--fg);background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px} dialog::backdrop{background:#0008} dialog[open]{animation:arrive 130ms ease-out} .details{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin-bottom:0}.details dt{color:var(--muted)}.details dd{margin:0;text-align:right}.close{background:var(--bg)}
+  .enter{animation:arrive 140ms ease-out}@keyframes arrive{from{opacity:.55;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  @media(max-width:900px){.shell{grid-template-columns:160px minmax(0,1fr)}.hero{padding:18px}.summary{gap:8px}.panel{padding:14px}}
+  @media(max-width:670px){.shell{display:block}aside{padding:8px 12px;gap:8px;flex-direction:row;align-items:center;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--border)}.brand{font-size:17px;padding:0}.mark{width:27px;height:27px}nav{display:flex;gap:2px}.nav,.theme{padding:6px 8px}.theme{margin-left:auto}.nav .icon{display:none}main{padding-top:20px}.hero,.summary{grid-template-columns:1fr}.chart svg{height:105px}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand"><span class="mark"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></span>Kazna</div>
+    <nav aria-label="Разделы">
+      <button class="nav" id="nav-home" type="button" aria-current="page"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3zM10 20v-6h4v6"/></svg>Главная</button>
+      <button class="nav" id="nav-ops" type="button"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Операции</button>
+    </nav>
+    <button class="theme" id="theme" type="button">Светлая тема</button>
+  </aside>
+  <main>
+    <p class="demo">Прототип на вымышленных данных</p>
+    <div class="toolbar">
+      <h1 id="heading" tabindex="-1">Главная</h1>
+      <label class="period">Период
+        <select id="period"><option value="11">Ноябрь 2026</option><option value="10">Октябрь 2026</option></select>
+      </label>
+    </div>
+    <section id="home" aria-labelledby="heading">
+      <div class="panel hero">
+        <div><p class="label">Остаток на счетах</p><p class="value" id="balance"></p><p class="note" id="delta"></p></div>
+        <figure class="chart">
+          <svg viewBox="0 0 420 105" role="img" id="chart" aria-label="Динамика остатка"><line x1="2" x2="418" y1="90" y2="90"/><line x1="2" x2="418" y1="50" y2="50"/><line x1="2" x2="418" y1="10" y2="10"/><polyline id="curve"/></svg>
+          <figcaption><span>Остаток за 4 месяца</span><span id="chart-period"></span></figcaption>
+        </figure>
+      </div>
+      <div class="summary">
+        <div class="panel"><p class="label">Доходы</p><p class="value" id="home-in"></p><button class="link" id="to-income" type="button">К доходам →</button></div>
+        <div class="panel"><p class="label">Расходы</p><p class="value" id="home-out"></p><button class="link" id="to-expense" type="button">К расходам →</button></div>
+        <div class="panel"><p class="label">План расходов</p><p class="value" id="budget-left"></p><div class="progress" id="progress" role="progressbar" aria-label="Исполнение плана" aria-valuemin="0" aria-valuemax="100"><span></span></div><p class="note" id="budget-note"></p></div>
+      </div>
+      <div class="panel recent"><div class="between"><h2>Последние операции</h2><button class="link" id="to-all" type="button">Все операции →</button></div>
+        <div class="tablewrap"><table><thead><tr><th scope="col">Дата</th><th scope="col">Операция</th><th scope="col">Категория</th><th scope="col">Сумма</th></tr></thead><tbody id="recent"></tbody></table></div>
+      </div>
+    </section>
+    <section id="operations" class="panel" aria-labelledby="heading" hidden>
+      <div class="filters">
+        <label class="field">Тип<select id="kind"><option value="all">Все операции</option><option value="income">Доходы</option><option value="expense">Расходы</option></select></label>
+        <label class="field">Поиск<input id="search" type="search" placeholder="Например, продукты"></label>
+        <button class="link" id="reset" type="button">Сбросить фильтры</button>
+      </div>
+      <div class="totals" role="status"><div><p class="label">Доходы выборки</p><p class="value" id="list-in"></p></div><div><p class="label">Расходы выборки</p><p class="value" id="list-out"></p></div></div>
+      <div class="tablewrap"><table id="table"><thead><tr><th scope="col">Дата</th><th scope="col">Операция</th><th scope="col">Категория</th><th scope="col">Сумма</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <p class="empty" id="empty" role="status" hidden>Операций по этим фильтрам нет. Измените поиск или сбросьте фильтры.</p>
+    </section>
+  </main>
+</div>
+<dialog id="detail" aria-labelledby="detail-title">
+  <div class="between"><h2 id="detail-title"></h2><form method="dialog"><button type="submit" class="close" autofocus>Закрыть</button></form></div>
+  <p class="value" id="detail-value"></p>
+  <dl class="details"><dt>Дата</dt><dd id="detail-date"></dd><dt>Категория</dt><dd id="detail-category"></dd><dt>Счёт</dt><dd id="detail-account"></dd></dl>
+</dialog>
+<script>
+  const data = [
+    ["2026-11-20","Супермаркет","Продукты","Основная карта",-3520],
+    ["2026-11-18","Зарплата","Работа","Основная карта",108000],
+    ["2026-11-16","Метро","Транспорт","Основная карта",-1080],
+    ["2026-11-14","Коммунальные услуги","Жильё","Основная карта",-15400],
+    ["2026-11-12","Заказ для клиента","Подработка","Основная карта",12000],
+    ["2026-11-08","Аренда","Жильё","Основная карта",-32500],
+    ["2026-10-27","Продуктовый магазин","Продукты","Основная карта",-5260],
+    ["2026-10-18","Зарплата","Работа","Основная карта",103000],
+    ["2026-10-14","Коммунальные услуги","Жильё","Основная карта",-14500],
+    ["2026-10-08","Аренда","Жильё","Основная карта",-32500],
+  ].map(([date, title, category, account, amount]) => ({date, title, category, account, amount}));
+  const months = {
+    10: {budget: 65000, history: [112060,147300,178000,228740], caption: "Июль — октябрь"},
+    11: {budget: 68000, history: [147300,178000,228740,296240], caption: "Август — ноябрь"},
+  };
+  const rubles = new Intl.NumberFormat("ru-RU", {style:"currency", currency:"RUB", maximumFractionDigits:0});
+  const dateFormat = new Intl.DateTimeFormat("ru-RU", {day:"numeric", month:"long", timeZone:"UTC"});
+  const $ = id => document.getElementById(id);
+  const set = (id, value) => { $(id).textContent = value; };
+  const dateLabel = date => dateFormat.format(new Date(date));
+  const signed = amount => (amount > 0 ? "+" : "−") + rubles.format(Math.abs(amount));
+  function totals(rows) {
+    return rows.reduce((total, row) => {
+      if (row.amount > 0) total.income += row.amount;
+      else total.expense -= row.amount;
+      return total;
+    }, {income:0, expense:0});
+  }
+  function showDetails(row) {
+    set("detail-title", row.title);
+    set("detail-value", signed(row.amount));
+    set("detail-date", dateLabel(row.date));
+    set("detail-category", row.category);
+    set("detail-account", row.account);
+    $("detail").showModal();
+  }
+  function renderRows(id, rows) {
+    const elements = rows.map(row => {
+      const tr = document.createElement("tr");
+      tr.insertCell().textContent = dateLabel(row.date);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "row-action";
+      button.textContent = row.title;
+      button.addEventListener("click", () => showDetails(row));
+      tr.insertCell().append(button);
+      tr.insertCell().textContent = row.category;
+      const amountCell = tr.insertCell();
+      amountCell.className = row.amount > 0 ? "money income" : "money";
+      amountCell.textContent = signed(row.amount);
+      return tr;
+    });
+    $(id).replaceChildren(...elements);
+  }
+  function render() {
+    const month = $("period").value;
+    const periodRows = data.filter(row => row.date.slice(5,7) === month);
+    const {income, expense} = totals(periodRows);
+    const {history, budget, caption} = months[month];
+    const balance = history.at(-1);
+    set("balance", rubles.format(balance));
+    set("delta", signed(balance - history.at(-2)) + " за период");
+    set("home-in", rubles.format(income));
+    set("home-out", rubles.format(expense));
+    set("budget-left", rubles.format(budget - expense));
+    set("budget-note", "Осталось по плану · " + rubles.format(expense) + " из " + rubles.format(budget));
+    const progress = Math.round(100 * expense / budget);
+    $("progress").setAttribute("aria-valuenow", progress);
+    $("progress").firstElementChild.style.width = progress + "%";
+    const low = Math.min(...history);
+    const range = Math.max(...history) - low || 1;
+    $("curve").setAttribute("points", history.map((value, index) => (3 + index * 138) + "," + (91 - 79 * (value-low) / range)).join(" "));
+    $("chart").setAttribute("aria-label", "Остаток за четыре месяца: " + history.map(value => rubles.format(value)).join(", "));
+    set("chart-period", caption);
+    renderRows("recent", periodRows.slice(0,3));
+    renderOperations(periodRows);
+  }
+  function renderOperations(periodRows) {
+    const kind = $("kind").value;
+    const needle = $("search").value.trim().toLocaleLowerCase("ru");
+    const rows = periodRows.filter(row => (kind === "all" || (kind === "income" ? row.amount > 0 : row.amount < 0)) &&
+      (row.title + " " + row.category + " " + row.account).toLocaleLowerCase("ru").includes(needle));
+    const {income, expense} = totals(rows);
+    set("list-in", rubles.format(income));
+    set("list-out", rubles.format(expense));
+    $("empty").hidden = rows.length > 0;
+    $("table").hidden = rows.length === 0;
+    renderRows("rows", rows);
+  }
+  function navigate(screen, kind) {
+    const previous = $("operations").hidden ? "home" : "ops";
+    if (kind !== undefined) {
+      $("kind").value = kind;
+      $("search").value = "";
+      render();
+    }
+    for (const name of ["home", "ops"]) {
+      const button = $("nav-" + name);
+      if (name === screen) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    }
+    $("home").hidden = screen !== "home";
+    $("operations").hidden = screen !== "ops";
+    set("heading", screen === "home" ? "Главная" : "Операции");
+    if (screen !== previous) {
+      const section = $(screen === "home" ? "home" : "operations");
+      section.classList.remove("enter");
+      requestAnimationFrame(() => section.classList.add("enter"));
+      $("heading").focus();
+    }
+  }
+  $("nav-home").addEventListener("click", () => navigate("home"));
+  $("nav-ops").addEventListener("click", () => navigate("ops"));
+  $("to-all").addEventListener("click", () => navigate("ops", "all"));
+  $("to-income").addEventListener("click", () => navigate("ops", "income"));
+  $("to-expense").addEventListener("click", () => navigate("ops", "expense"));
+  $("period").addEventListener("change", render);
+  $("kind").addEventListener("change", render);
+  $("search").addEventListener("input", render);
+  $("reset").addEventListener("click", () => navigate("ops", "all"));
+  $("theme").addEventListener("click", () => {
+    const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
+    set("theme", theme === "dark" ? "Светлая тема" : "Тёмная тема");
+  });
+  render();
+</script>
+</body>
+</html>

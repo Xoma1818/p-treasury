@@ -32,16 +32,12 @@ async function figures() {
     ),
   );
   await openSection(browser, "Главная");
-  await waitText(browser, '[data-testid="month-expense"]', /₽/);
-  // Плашка «−3 %» (сравнение с прошлым месяцем) есть только в новых версиях — сравниваем суммы.
-  f.total = (await (await browser.$('[data-testid="total-balance"]')).getText())
-    .replace(/[−+]?\d+ %/, "")
-    // 0.27 добавила под балансом строку «Свободно до …»: в старой версии её нет.
-    .replace(/\s*(Свободно до[\s\S]*?в день|свободных денег нет)/, "");
-  f.expense = await (await browser.$('[data-testid="month-expense"]')).getText();
+  // Заголовки, объяснения и кнопки развиваются между версиями. Сверяем финансовые значения.
+  f.total = await waitText(browser, '[data-testid="total-balance"] .tile-value', /₽/);
+  f.expense = await waitText(browser, '[data-testid="month-expense"] .tile-value', /₽/);
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
-  f.report = await (await browser.$('[data-testid="report-balance"]')).getText();
+  f.report = await waitText(browser, '[data-testid="report-balance"] .tile-value', /₽/);
   await openSection(browser, "Займы и долги");
   await browser.$('[data-testid="debt-row"][data-name="Банк"]').waitForDisplayed({ timeout: 5000 });
   // Stable row data in 0.16 and current UI; no headings, action buttons or new payoff panel.
