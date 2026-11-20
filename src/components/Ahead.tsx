@@ -1,3 +1,5 @@
+import { today } from "../lib/dates";
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 // Главная → «Взгляд вперёд» (0.19): остаток через 3 месяца и линия прогноза на год.
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -8,7 +10,7 @@ import { Hint } from "./Hint";
 import { BaseMoney } from "./Money";
 
 export function AheadCard() {
-  const f = useQuery({ queryKey: ["forecast", null], queryFn: () => api.forecast(null) }).data;
+  const f = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["forecast", null, today()], queryFn: () => api.forecast(null) }).data;
   const { go } = useUi();
   if (!f) return null;
   const a = aheadSummary(f);

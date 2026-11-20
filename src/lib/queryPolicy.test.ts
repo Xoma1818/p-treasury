@@ -29,3 +29,19 @@ test("Home remount reuses aggregates but mutations and a new date fetch fresh da
     client.clear();
   }
 });
+
+test.each(["forecast", "cushion", "checks", "budgetWarnings", "netWorth"])("%s dated card cache still refreshes after prefix invalidation", async (key) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  let calls = 0;
+  const options = { queryKey: [key, "2026-11-20"], queryFn: async () => ++calls, staleTime: AGGREGATE_STALE_MS };
+  try {
+    await client.fetchQuery(options);
+    await client.fetchQuery(options);
+    expect(calls).toBe(1);
+    await client.invalidateQueries({ queryKey: [key] });
+    await client.fetchQuery(options);
+    expect(calls).toBe(2);
+  } finally {
+    client.clear();
+  }
+});

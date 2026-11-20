@@ -24,7 +24,10 @@ impl Trace {
             path: PathBuf::from(path),
             location,
             started: Instant::now(),
-            at_ms: SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis(),
+            at_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_millis(),
         })
     }
 
