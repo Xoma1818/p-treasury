@@ -15,6 +15,7 @@ import "./features.css";
 import "./invest.css";
 import "./loans.css";
 import "./forecast.css";
+import "./graphite.css";
 
 applyTheme(savedTheme());
 showLook(savedLook());

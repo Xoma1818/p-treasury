@@ -234,14 +234,15 @@ export function Transactions() {
   if (f.eventId) chips.push({ id: "filter-event", label: events.find((e) => e.id === f.eventId)?.name ?? "Событие", clear: () => set({ eventId: undefined }) });
 
   return (
-    <section className="screen wide">
-      <div className="screen-head">
+    <section className="screen wide txn-screen">
+      <div className="screen-head txn-screen-head">
         <ScreenTitle id="transactions" />
-        <span className="spacer" />
-        <TxnHeadBar onImport={() => setImportFile(null)} exp={exp} />
-        <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
-          + Операция
-        </button>
+        <div className="txn-actions">
+          <TxnHeadBar onImport={() => setImportFile(null)} exp={exp} />
+          <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
+            + Операция
+          </button>
+        </div>
       </div>
       {exp.done && (
         <p className="ok" data-testid="export-done">
@@ -264,14 +265,20 @@ export function Transactions() {
         onApply={applyView}
       />
       <div className="card filters" data-testid="filters">
-        <div className="filters-row">
+        <div className="filters-row txn-search-row">
           <input type="search" name="search" data-search aria-label="Поиск операций" placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => {
             cancelSelection();
             selectAllRef.current = false;
             setSel(EMPTY_SEL);
             setSearch(e.target.value);
           }} />
-          <div className="tabs small" role="group" aria-label="Период" data-testid="period">
+          <button type="button" className={showPanel ? "btn small active" : "btn small"} aria-expanded={showPanel} data-open={panelOpen || undefined} data-testid="filters-toggle" onClick={() => togglePanel(!panelOpen)} title="Счёт, категория, тип и тег">
+            <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden="true" /> Фильтры{activeCount > 0 ? ` · ${activeCount}` : ""}
+          </button>
+          <TableViewMenu layout={table} />
+        </div>
+        <div className="filters-row txn-period-row">
+          <div className="tabs small motion-segments" role="group" aria-label="Период" data-testid="period">
             {periods.map((p) => (
               <button key={p.key} type="button" className={periodKey === p.key ? "tab active" : "tab"} aria-pressed={periodKey === p.key} onClick={() => set({ dateFrom: p.from, dateTo: p.to })}>
                 {p.label}
@@ -281,13 +288,9 @@ export function Transactions() {
           <input type="date" aria-label="С даты" name="dateFrom" value={f.dateFrom ?? ""} onChange={(e) => set({ dateFrom: e.target.value || undefined })} />
           <span className="muted">—</span>
           <input type="date" aria-label="По дату" name="dateTo" value={f.dateTo ?? ""} onChange={(e) => set({ dateTo: e.target.value || undefined })} />
-          <button type="button" className={showPanel ? "btn small active" : "btn small"} aria-expanded={showPanel} data-open={panelOpen || undefined} data-testid="filters-toggle" onClick={() => togglePanel(!panelOpen)} title="Счёт, категория, тип и тег">
-            <SlidersHorizontal size={14} strokeWidth={1.75} aria-hidden="true" /> Фильтры{activeCount > 0 ? ` · ${activeCount}` : ""}
-          </button>
           <button className="link" onClick={() => (setSearch(""), set({ dateFrom: undefined, dateTo: undefined, accountId: undefined, categoryId: undefined, types: undefined, search: undefined, eventId: undefined, tagId: undefined, importId: undefined, payee: undefined, quick: undefined, minAmount: undefined, amount: undefined, currency: undefined, counted: undefined }))}>
             Сбросить
           </button>
-          <TableViewMenu layout={table} />
         </div>
         {showPanel && (
           <div className="filters-row" data-testid="filters-panel">

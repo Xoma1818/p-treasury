@@ -18,6 +18,7 @@ import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
 import { AssetsCard } from "../components/Assets";
 import { investKindLabel, ValueForm } from "../components/Invest";
+import "./secondaryScreens.css";
 
 export function Accounts() {
   const [showArchived, setShowArchived] = useState(false);
@@ -145,15 +146,17 @@ export function Accounts() {
   };
 
   return (
-    <section className="screen">
+    <section className="screen secondary-screen">
       <div className="screen-head">
         <ScreenTitle id="accounts" />
-        <button className="btn" onClick={() => setGroupsOpen(true)} data-testid="account-groups-open">
-          Группы
-        </button>
-        <button className="btn primary" onClick={() => setEditing("new")}>
-          + Новый счёт
-        </button>
+        <div className="btn-group secondary-screen-actions">
+          <button className="btn" onClick={() => setGroupsOpen(true)} data-testid="account-groups-open">
+            Группы
+          </button>
+          <button className="btn primary" onClick={() => setEditing("new")}>
+            + Новый счёт
+          </button>
+        </div>
       </div>
       <div className="card">
         {visible.length === 0 && <p className="muted">Счетов пока нет.</p>}

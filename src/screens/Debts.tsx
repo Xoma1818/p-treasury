@@ -17,6 +17,7 @@ import { LoanPlanner } from "./debts/LoanPlanner";
 import { PayForm } from "./debts/PayForm";
 import { ChangesList, History, HolidayForm, PlannedBlock, RateChangeForm, RowAmountForm, TermsForm, WhatIf } from "./debts/LoanTools";
 import { ExportDialog, savedText } from "./debts/ExportDialog";
+import "./secondaryScreens.css";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "plan"; example: boolean };
 
@@ -32,7 +33,7 @@ export function Debts() {
   }, [jump]);
 
   return (
-    <section className="screen wide">
+    <section className="screen wide secondary-screen">
       {view.kind === "list" && <DebtList open={(id) => setView({ kind: "detail", id })} onNew={() => setView({ kind: "plan", example: false })} onCalc={() => setView({ kind: "plan", example: true })} />}
       {view.kind === "detail" && <DebtView id={view.id} back={() => setView({ kind: "list" })} payNow={jump?.id === view.id && jump.pay} />}
       {view.kind === "plan" && <LoanPlanner key={String(view.example)} example={view.example} back={() => setView({ kind: "list" })} onCreated={(id) => setView({ kind: "detail", id })} />}
@@ -51,7 +52,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
     <>
       <div className="screen-head">
         <ScreenTitle id="debts" />
-        <div className="btn-group">
+        <div className="btn-group secondary-screen-actions">
           <button className="btn" onClick={onCalc}>
             Калькулятор
           </button>

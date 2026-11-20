@@ -107,6 +107,15 @@ export function Home() {
       showTransactions({ dateFrom: tileFrom, dateTo: tileTo, types: [type], counted: true });
     }
   };
+  const tilesVisible = modules.blockOn("tiles") && !layout.hidden.includes("tiles");
+  const budgetToday = budget?.id ? (
+    <div className="home-budget-today">
+      <span>Можно тратить сегодня</span>
+      <b data-testid="home-safe-to-spend">
+        {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
+      </b>
+    </div>
+  ) : null;
   const prevHint = homeKind === "month" ? "к тем же дням прошлого месяца" : "к тем же дням прошлого периода";
   const sparks = homeKind === "month";
   const hasBalanceChart = spark.balance.length > 1;
@@ -128,8 +137,9 @@ export function Home() {
     subs: <SubscriptionsCard />,
     tiles: (
           <>
+          {budgetToday}
           <div className="home-period">
-            <div className="tabs small" role="group" aria-label="Период плиток" data-testid="home-period">
+            <div className="tabs small motion-segments" role="group" aria-label="Период плиток" data-testid="home-period">
               {(
                 [
                   ["month", "Месяц"],
@@ -291,12 +301,7 @@ export function Home() {
               </h2>
               {budget?.id && (
                 <>
-                  <p className="home-budget-today">
-                    <span>Можно тратить сегодня</span>
-                    <b data-testid="home-safe-to-spend">
-                      {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
-                    </b>
-                  </p>
+                  {!tilesVisible && budgetToday}
                   <ul className="budget-brief">
                     {budget.lines
                       .filter((l) => l.kind === "expense" && !l.parentId)
@@ -360,15 +365,20 @@ export function Home() {
   };
 
   return (
-    <section className="screen wide">
-      <div className="screen-head">
+    <section className="screen wide home-screen">
+      <div className="screen-head home-screen-head">
         <ScreenTitle id="home" />
         {editing ? (
           <button className="btn primary" onClick={() => setEditing(false)} data-testid="home-customize">
             Готово
           </button>
         ) : (
-          <AddMenu />
+          <div className="home-actions">
+            <button type="button" className="btn" onClick={() => setEditing(true)} data-testid="home-customize">
+              Настроить Главную
+            </button>
+            <AddMenu />
+          </div>
         )}
       </div>
 
@@ -471,13 +481,6 @@ export function Home() {
           ),
         )}
       </div>
-      {!editing && (
-        <p className="home-foot">
-          <button className="link quiet" onClick={() => setEditing(true)} data-testid="home-customize">
-            Настроить Главную
-          </button>
-        </p>
-      )}
       {explain && tileFrom && tileTo && <ExplainDialog kind={explain} on={date} from={tileFrom} to={tileTo} onClose={() => setExplain(null)} />}
     </section>
   );

@@ -35,6 +35,8 @@ export function Budget() {
     <section className="screen wide budget-screen">
       <div className="screen-head budget-screen-head">
         <ScreenTitle id="budget" />
+      </div>
+      <div className="budget-toolbar">
         {month && (
           <div className="month-switch" role="group" aria-label="Бюджетный период">
             <button className="icon-btn" aria-label="Предыдущий месяц" onClick={() => setPicked(shiftMonth(month, -1))}>
@@ -58,12 +60,9 @@ export function Budget() {
                 Текущий
               </button>
             )}
-            <button className="btn" data-testid="month-review-open" onClick={() => setReview(true)} title="Сколько отложено, прогноз и факт, «Месяц завершён»">
-              Итоги месяца
-            </button>
           </div>
         )}
-        <div className="tabs small" role="group" aria-label="Вид бюджета" data-testid="budget-mode">
+        <div className="tabs small motion-segments" role="group" aria-label="Вид бюджета" data-testid="budget-mode">
           {(
             [
               ["month", "Месяц"],
@@ -75,8 +74,13 @@ export function Budget() {
             </button>
           ))}
         </div>
-        {review && month && <MonthReviewDialog month={month} onClose={() => setReview(false)} />}
+        {month && (
+          <button className="btn" data-testid="month-review-open" onClick={() => setReview(true)} title="Сколько отложено, прогноз и факт, «Месяц завершён»">
+            Итоги месяца
+          </button>
+        )}
       </div>
+      {review && month && <MonthReviewDialog month={month} onClose={() => setReview(false)} />}
       {budget.error && <p className="error">{String(budget.error)}</p>}
       {mode === "year" && month && (
         <YearView

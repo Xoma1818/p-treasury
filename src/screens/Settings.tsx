@@ -26,6 +26,7 @@ import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
 import { formatRate, rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import "./secondaryScreens.css";
 
 export function Settings() {
   const info = useAppInfo();
@@ -53,7 +54,7 @@ export function Settings() {
   }, [jump]);
 
   return (
-    <section className="screen">
+    <section className="screen secondary-screen settings-screen">
       <ScreenTitle id="settings" />
 
       <div className="settings-layout">
@@ -389,7 +390,7 @@ function SettingsNav() {
     return () => io.disconnect();
   }, []);
   return (
-    <aside className="settings-nav" aria-label="Разделы настроек">
+    <aside className="settings-nav" aria-label="Разделы настроек" role="navigation">
       {SETTINGS_SECTIONS.map(([id, label]) => (
         <button
           key={id}

@@ -1,0 +1,118 @@
+.secondary-screen {
+  container-type: inline-size;
+}
+
+.secondary-screen .screen-head {
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.secondary-screen .screen-head > .screen-title {
+  flex: 1 1 17rem;
+  min-width: 0;
+}
+
+.secondary-screen .screen-head :is(.btn-group, .secondary-screen-tabs) {
+  margin: 0;
+}
+
+.secondary-screen-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.secondary-screen .category-archive-filter {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.notes-toolbar {
+  max-width: 28rem;
+  margin: 0 0 16px;
+}
+
+.notes-toolbar .search {
+  margin: 0;
+}
+
+.settings-screen .settings-layout {
+  gap: clamp(12px, 3cqw, 24px);
+}
+
+.settings-screen .settings-nav {
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
+}
+
+.settings-screen .settings-nav-item.active {
+  background: var(--accent-soft);
+}
+
+.onboarding-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 22px;
+}
+
+.onboarding-header > :is(.brand, .steps) {
+  margin: 0;
+}
+
+.onboarding-progress {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+.onboarding-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--motion-surface) var(--ease);
+}
+
+.onboarding-table {
+  overflow-x: auto;
+}
+
+.onboarding-table .grid-form {
+  min-width: 28rem;
+}
+
+@container (max-width: 42rem) {
+  .settings-screen .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-screen .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@container (max-width: 30rem) {
+  .secondary-screen .tabs.secondary-screen-tabs .tab {
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-progress span {
+    transition: none;
+  }
+}

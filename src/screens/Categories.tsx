@@ -7,6 +7,7 @@ import { useCategories } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
+import "./secondaryScreens.css";
 import { CategoryRules, RulesCard } from "../components/Rules";
 import { TagsCard } from "../components/Tags";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
@@ -105,8 +106,14 @@ export function Categories() {
   );
 
   return (
-    <section className="screen">
-      <ScreenTitle id="categories" />
+    <section className="screen secondary-screen">
+      <div className="screen-head">
+        <ScreenTitle id="categories" />
+        <label className="check category-archive-filter">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          Показать архивные
+        </label>
+      </div>
       <ErrorText error={archive.error ?? moveUnder.error} />
       <RenameOffer />
       <div className="columns">
@@ -114,10 +121,6 @@ export function Categories() {
         {column("income", "Доходы")}
       </div>
       <p className="hint">Подкатегорию можно перетащить под другую категорию. «Объединить» переносит всё в другую категорию.</p>
-      <label className="check small">
-        <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-        Показать архивные
-      </label>
       <TagsCard />
       <RulesCard />
       {edit && <CategoryForm edit={edit} all={all} onClose={() => setEdit(null)} />}

@@ -1,3 +1,35 @@
+.home-screen .home-screen-head,
+.home-screen .home-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.home-screen .home-actions {
+  justify-content: flex-end;
+}
+
+.home-screen .home-screen-head {
+  margin-block-end: 20px;
+}
+
+.home-screen .home-budget-today {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-block-end: 16px;
+}
+
+.home-screen .home-budget-today > b {
+  font-size: clamp(28px, 5vw, 48px);
+  line-height: 1.2;
+  letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
 .home-overview.tiles {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   container-type: inline-size;
@@ -9,7 +41,7 @@
   gap: 12px;
   align-items: center;
   border-color: var(--border);
-  background: linear-gradient(125deg, var(--accent-soft), transparent 75%), var(--card);
+  background: var(--card);
 }
 
 .home-overview.tiles .home-balance:hover {
@@ -47,7 +79,7 @@
 }
 
 .home-balance-chart > .spark {
-  height: 56px;
+  height: clamp(72px, 13vw, 112px);
   margin: 0;
 }
 
@@ -108,13 +140,14 @@
 }
 
 .home-budget-card .home-budget-today {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
   padding: 8px 10px;
   border-radius: 8px;
   background-color: var(--accent-soft);
+}
+
+.home-budget-card .home-budget-today > b {
+  font-size: inherit;
+  letter-spacing: normal;
 }
 
 .home-budget-today > span {

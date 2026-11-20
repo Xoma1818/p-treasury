@@ -203,9 +203,14 @@ export function Reports() {
     <section className="screen wide reports-overview">
       <div className="screen-head reports-heading">
         <ScreenTitle id="reports" />
-        <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
-          На Главную
-        </button>
+        <div className="reports-actions">
+          <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
+            На Главную
+          </button>
+          {!ownPeriod && tab !== "balances" && tab !== "fx" && tab !== "tag" && (
+            <ExportButton exp={exp} disabled={!period} title="Отчёт на вкладке в CSV или Excel" />
+          )}
+        </div>
       </div>
       {!ownPeriod && (
         <div className="card reports-period-panel">
@@ -249,9 +254,6 @@ export function Reports() {
                   </button>
                 </div>
               )
-            )}
-            {tab !== "balances" && tab !== "fx" && tab !== "tag" && (
-              <ExportButton exp={exp} disabled={!period} title="Отчёт на вкладке в CSV или Excel" />
             )}
           </div>
         </div>
@@ -375,7 +377,7 @@ function useChartKind<K extends keyof ChartKinds>(key: K): [ChartKinds[K], (v: C
 /** Р12: выбор вида графика — несколько кнопок. */
 function ChartKindTabs<T extends string>({ value, options, onChange, testid }: { value: T; options: [T, string][]; onChange: (v: T) => void; testid: string }) {
   return (
-    <div className="tabs small" role="group" aria-label="Вид графика" data-testid={testid}>
+    <div className="tabs small motion-segments" role="group" aria-label="Вид графика" data-testid={testid}>
       {options.map(([k, label]) => (
         <button key={k} type="button" className={value === k ? "tab active" : "tab"} aria-pressed={value === k} onClick={() => onChange(k)} data-testid={`${testid}-${k}`}>
           {label}
@@ -475,9 +477,9 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
     <div className="card">
       <div className="screen-head">
         <h2>{kind === "expense" ? "Расходы по категориям" : "Доходы по категориям"}</h2>
-        <div className="tabs small">
+        <div className="tabs small motion-segments" role="group" aria-label="Тип операций">
           {(["expense", "income"] as CategoryKind[]).map((k) => (
-            <button key={k} className={kind === k ? "tab active" : "tab"} onClick={() => setKind(k)}>
+            <button key={k} className={kind === k ? "tab active" : "tab"} aria-pressed={kind === k} onClick={() => setKind(k)}>
               {k === "expense" ? "Расходы" : "Доходы"}
             </button>
           ))}
