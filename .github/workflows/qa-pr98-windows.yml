@@ -1,0 +1,164 @@
+name: Приёмка PR 98 на Windows
+on:
+  push:
+    branches: [codex/qa-pr98-windows]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      SOURCE_RUN: '44834455001'
+      SOURCE_SHA: e45f4f971e19c2f9b3529ffb5a498a2ed8300822
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Проверка сборки и архива
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $run = gh api "repos/$repo/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:SOURCE_SHA -or $run.conclusion -ne 'success') { throw 'Сборка кандидата не подтверждена' }
+          $artifacts = gh api "repos/$repo/actions/runs/$env:SOURCE_RUN/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Не получен список артефактов' }
+          $artifact = @($artifacts.artifacts | Where-Object { $_.name -eq 'kazna-windows-installer' -and !$_.expired })
+          if ($artifact.Count -ne 1 -or $artifact[0].digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Нет однозначного установщика с SHA-256' }
+          $zip = Join-Path $env:RUNNER_TEMP 'kazna-installer.zip'
+          $env:KAZNA_INSTALL_ARTIFACT_URL = "https://api.github.com/repos/$repo/actions/artifacts/$($artifact[0].id)/zip"
+          Invoke-WebRequest -Uri $env:KAZNA_INSTALL_ARTIFACT_URL -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'} -OutFile $zip
+          if ('sha256:' + (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $artifact[0].digest) { throw 'SHA-256 скачанного архива не совпал' }
+          $bundle = Join-Path $env:RUNNER_TEMP 'kazna-bundle'
+          Expand-Archive -LiteralPath $zip -DestinationPath $bundle
+      - name: Установка и проверка настоящего окна
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $env:RUNNER_TEMP 'kazna-bundle'
+          $installer = @(Get-ChildItem -LiteralPath $bundle -Recurse -File | Where-Object { $_.Name -match '^Kazna_.+_x64-setup\.exe$' })
+          if ($installer.Count -ne 1) { throw 'Не найден ровно один установщик Kazna' }
+          $dest = Join-Path $env:RUNNER_TEMP 'Kazna-Pr98'
+          if ($dest -match '\s' -or (Test-Path -LiteralPath $dest)) { throw 'Нужна пустая папка без пробелов' }
+          $p = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$dest") -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "NSIS завершился с кодом $($p.ExitCode)" }
+          if (!(Test-Path -LiteralPath (Join-Path $dest 'Kazna.exe')) -or !(Test-Path -LiteralPath (Join-Path $dest 'uninstall.exe'))) { throw 'Установка не создала ожидаемые файлы' }
+          $data = Join-Path $env:RUNNER_TEMP 'kazna-smoke-data'
+          $env:PTREASURY_CBR_URL = 'http://127.0.0.1:9'
+          $env:PTREASURY_UPDATE_URL = 'http://127.0.0.1:9'
+          $stdout = Join-Path $env:RUNNER_TEMP 'kazna-stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'kazna-stderr.log'
+          $app = Start-Process -FilePath (Join-Path $dest 'Kazna.exe') -ArgumentList "--data-dir=$data" -WorkingDirectory $dest -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              $app.Refresh()
+              if ($app.HasExited) { throw "Kazna завершилась с кодом $($app.ExitCode)" }
+              if ($app.MainWindowHandle -ne [IntPtr]::Zero -and $app.MainWindowTitle -match 'Kazna' -and (Test-Path -LiteralPath (Join-Path $data 'budget.db'))) { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($app.MainWindowHandle -eq [IntPtr]::Zero -or $app.MainWindowTitle -notmatch 'Kazna' -or !(Test-Path -LiteralPath (Join-Path $data 'budget.db'))) { throw 'Не открыто окно Kazna или не создана отдельная база' }
+            Write-Host "Установщик завершился с кодом 0, окно $($app.MainWindowTitle) открыто, создана тестовая SQLite."
+          } finally {
+            if (!$app.HasExited) { [void]$app.CloseMainWindow(); if (!$app.WaitForExit(5000)) { $app.Kill() } }
+            if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Tail 25 }
+          }
+  e2e:
+    name: Сквозные тесты в окне Windows
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: e45f4f971e19c2f9b3529ffb5a498a2ed8300822
+      - uses: actions/checkout@v5
+        with:
+          # v0.16.0, schema 9. Immutable baseline for upgrade acceptance.
+          ref: 98ddf2d4fb81e045a149af10d8dace195b2e81aa
+          path: old
+      - name: Проверяемый коммит
+        shell: bash
+        run: git log -1 --format='%H %s'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-e2e
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: msedgedriver под версию WebView2
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $ver = (Get-ItemProperty $key -ErrorAction SilentlyContinue).pv
+          if (-not $ver) { $ver = (Get-Item "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion }
+          Write-Host "WebView2 $ver"
+          $dir = "$env:RUNNER_TEMP\msedgedriver"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $ok = $false
+          foreach ($h in 'https://msedgedriver.microsoft.com', 'https://msedgedriver.azureedge.net') {
+            try { Invoke-WebRequest "$h/$ver/edgedriver_win64.zip" -OutFile "$dir\d.zip"; $ok = $true; break } catch { Write-Host "нет на $h" }
+          }
+          if (-not $ok) { throw "не скачался msedgedriver $ver" }
+          Expand-Archive "$dir\d.zip" -DestinationPath $dir -Force
+          & "$dir\msedgedriver.exe" --version
+          Add-Content $env:GITHUB_PATH $dir
+      - run: npm ci
+      - name: Интерфейс
+        run: npm run build
+      - name: Приложение со встроенным интерфейсом
+        run: cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Замена хранилища и история отмены
+        run: cargo test -p budget-app --lib replacement_tests --features custom-protocol --locked
+      - name: Адаптер WebDriver старой версии (только создание окна)
+        run: node scripts/prepare-old-windows-e2e.mjs old
+      - name: Старая версия 0.16.0
+        working-directory: old
+        shell: bash
+        run: |
+          npm ci
+          npx vite build --logLevel warn
+          cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Выпускная сборка для проверки скорости
+        run: cargo build --release -p budget-app --features custom-protocol --locked --quiet
+      - name: Большая база и тест производительности ядра
+        shell: bash
+        env:
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+        run: cargo test --release -p budget-core --test volume --locked -- --ignored --nocapture
+      - name: Сквозные тесты
+        shell: bash
+        env:
+          PTREASURY_OLD_BIN: ${{ github.workspace }}\old\target\debug\budget-app.exe
+          PTREASURY_REQUIRE_OLD: '1'
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+          PTREASURY_REQUIRE_VOLUME: "1"
+          PTREASURY_VOLUME_BIN: ${{ github.workspace }}\target\release\budget-app.exe
+          PTREASURY_BIN: ${{ github.workspace }}\target\debug\budget-app.exe
+        run: node --test --test-concurrency=1 e2e/*.test.mjs
+  tests:
+    name: Rust и интерфейс на Windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: e45f4f971e19c2f9b3529ffb5a498a2ed8300822
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: npm ci
+      - name: Rust, интерфейс и сборка
+        shell: bash
+        run: scripts/check.sh
