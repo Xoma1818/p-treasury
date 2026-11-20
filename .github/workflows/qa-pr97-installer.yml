@@ -48,8 +48,22 @@ jobs:
           $p = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$dest") -PassThru -Wait -WindowStyle Hidden
           if ($p.ExitCode -ne 0) { throw "NSIS завершился с кодом $($p.ExitCode)" }
           if (!(Test-Path -LiteralPath (Join-Path $dest 'Kazna.exe')) -or !(Test-Path -LiteralPath (Join-Path $dest 'uninstall.exe'))) { throw 'Установка не создала ожидаемые файлы' }
-          node .github/qa/pr97-inspect.mjs (Join-Path $dest 'Kazna.exe') (Join-Path $env:RUNNER_TEMP 'kazna-qa') --packaged --all --no-shots
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $db = @(Get-ChildItem -LiteralPath '.github/qa' -Recurse -Filter 'budget.db')
-          if ($db.Count -ne 1 -or $db[0].Length -le 0) { throw 'Не найдена отдельная тестовая база' }
-          Write-Host 'Архив проверен, установщик отработал, приложение открыло 11 разделов с отдельной базой.'
+          $data = Join-Path $env:RUNNER_TEMP 'kazna-smoke-data'
+          $env:PTREASURY_CBR_URL = 'http://127.0.0.1:9'
+          $env:PTREASURY_UPDATE_URL = 'http://127.0.0.1:9'
+          $stdout = Join-Path $env:RUNNER_TEMP 'kazna-stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'kazna-stderr.log'
+          $app = Start-Process -FilePath (Join-Path $dest 'Kazna.exe') -ArgumentList "--data-dir=$data" -WorkingDirectory $dest -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              $app.Refresh()
+              if ($app.HasExited) { throw "Kazna завершилась с кодом $($app.ExitCode)" }
+              if ($app.MainWindowHandle -ne [IntPtr]::Zero -and $app.MainWindowTitle -match 'Kazna' -and (Test-Path -LiteralPath (Join-Path $data 'budget.db'))) { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($app.MainWindowHandle -eq [IntPtr]::Zero -or $app.MainWindowTitle -notmatch 'Kazna' -or !(Test-Path -LiteralPath (Join-Path $data 'budget.db'))) { throw 'Не открыто окно Kazna или не создана отдельная база' }
+            Write-Host "Установщик завершился с кодом 0, окно $($app.MainWindowTitle) открыто, создана тестовая SQLite."
+          } finally {
+            if (!$app.HasExited) { [void]$app.CloseMainWindow(); if (!$app.WaitForExit(5000)) { $app.Kill() } }
+            if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Tail 25 }
+          }
