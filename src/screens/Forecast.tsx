@@ -15,21 +15,24 @@ import { amountToInput, parseAmount } from "../lib/money";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
+import "./secondaryScreens.css";
 
 type Tab = "forecast" | "flow";
 
 export function Forecast() {
   const [tab, setTab] = useState<Tab>("forecast");
   return (
-    <section className="screen forecast-screen">
-      <ScreenTitle id="forecast" />
-      <div className="tabs fit forecast-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "forecast"} className={tab === "forecast" ? "tab active" : "tab"} onClick={() => setTab("forecast")} data-testid="tab-forecast">
-          Прогноз и «что если»
-        </button>
-        <button role="tab" aria-selected={tab === "flow"} className={tab === "flow" ? "tab active" : "tab"} onClick={() => setTab("flow")} data-testid="tab-flow">
-          Поток денег
-        </button>
+    <section className="screen secondary-screen forecast-screen">
+      <div className="screen-head">
+        <ScreenTitle id="forecast" />
+        <div className="tabs fit forecast-tabs secondary-screen-tabs motion-segments" role="tablist" aria-label="Вид прогноза">
+          <button role="tab" aria-selected={tab === "forecast"} className={tab === "forecast" ? "tab active" : "tab"} onClick={() => setTab("forecast")} data-testid="tab-forecast">
+            Прогноз и «что если»
+          </button>
+          <button role="tab" aria-selected={tab === "flow"} className={tab === "flow" ? "tab active" : "tab"} onClick={() => setTab("flow")} data-testid="tab-flow">
+            Поток денег
+          </button>
+        </div>
       </div>
       {tab === "forecast" ? <ForecastTab /> : <FlowTab />}
     </section>

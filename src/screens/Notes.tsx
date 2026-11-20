@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { NoteForm, NoteList } from "../components/Notes";
 import { api, type Note } from "../lib/api";
 import { ScreenTitle } from "../components/SectionIcon";
+import "./secondaryScreens.css";
 
 /** Раздел «Заметки»: все заметки с поиском по словам. */
 export function Notes() {
@@ -16,15 +17,17 @@ export function Notes() {
   }, [text]);
   const notes = useQuery({ queryKey: ["notes", "search", query], queryFn: () => api.listNotes({ query }) });
   return (
-    <section className="screen">
+    <section className="screen secondary-screen notes-screen">
       <div className="screen-head">
         <ScreenTitle id="notes" />
         <button className="btn primary" onClick={() => setEdit("new")}>
           + Заметка
         </button>
       </div>
+      <div className="notes-toolbar">
+        <input type="search" name="noteSearch" data-search className="search" aria-label="Поиск по заметкам" placeholder="Поиск по заметкам" value={text} onChange={(e) => setText(e.target.value)} />
+      </div>
       <div className="card">
-        <input name="noteSearch" data-search className="search" placeholder="Поиск по заметкам" value={text} onChange={(e) => setText(e.target.value)} />
         {notes.data && notes.data.length === 0 && <p className="muted">{query.trim() ? "Ничего не нашлось." : "Заметок пока нет. Их можно добавить и в карточке операции, долга или дня календаря."}</p>}
         {notes.data && <NoteList notes={notes.data} onOpen={setEdit} />}
       </div>

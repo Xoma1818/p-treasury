@@ -7,6 +7,7 @@ import { useBudget, useMonthOf, useSettings } from "../lib/queries";
 import { MonthsChart } from "../screens/Reports";
 import { BaseMoney as M } from "./Money";
 import { Hint } from "./Hint";
+import "./chartMotion.css";
 
 /** Цвета долей в кольце «Куда ушли деньги»: последний — «Остальное». */
 const DONUT = ["var(--series-expense)", "#60a5fa", "#a78bfa", "#f472b6", "var(--muted)"];
@@ -58,7 +59,7 @@ export function Delta({ pct, lowerIsBetter, hint }: { pct: number | null; lowerI
   );
 }
 
-/** Мини-график в плитке: линия прорисовывается слева направо. */
+/** Мини-график в плитке виден сразу. */
 export function Sparkline({ values, className }: { values: number[]; className?: string }) {
   if (values.length < 2) return null;
   const max = Math.max(...values);
@@ -66,7 +67,7 @@ export function Sparkline({ values, className }: { values: number[]; className?:
   const d = values.map((v, i) => `${i ? "L" : "M"}${((i * 200) / (values.length - 1)).toFixed(1)} ${(36 - ((v - min) / (max - min || 1)) * 32).toFixed(1)}`).join(" ");
   return (
     <svg className={className ? `spark ${className}` : "spark"} viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
-      <path d={d} pathLength={1} className="draw" />
+      <path d={d} />
     </svg>
   );
 }
@@ -78,7 +79,7 @@ export function Ring({ percent, size = 120, children, label }: { percent: number
     <div className="ring" style={{ width: size, height: size }} role="img" aria-label={label}>
       <svg viewBox="0 0 140 140" aria-hidden="true">
         <circle cx="70" cy="70" r="58" className="ring-track" />
-        <circle cx="70" cy="70" r="58" className="ring-value sweep" pathLength={100} strokeDasharray={`${p} ${100 - p}`} />
+        <circle cx="70" cy="70" r="58" className="ring-value" pathLength={100} strokeDasharray={`${p} ${100 - p}`} />
       </svg>
       <div className="ring-center">{children}</div>
     </div>
@@ -118,7 +119,7 @@ export function SummaryCard({ period }: { period: Period }) {
   const title =
     exp == null ? `Сводка: ${monthTitle(period.month).toLowerCase()}` : exp < 0 ? "Месяц идёт экономнее прошлого" : exp > 0 ? "Тратите больше, чем в прошлом месяце" : "Траты как в прошлом месяце";
   return (
-    <div className="card summary-card fade-up" data-testid="home-summary">
+    <div className="card summary-card" data-testid="home-summary">
       <div className="summary-text">
         <div className="eyebrow">
           Сводка месяца{left >= 0 ? ` · осталось ${left} ${plural(left, "день", "дня", "дней")}` : ""}
@@ -191,14 +192,14 @@ export function TrendCard({ period }: { period: Period }) {
   let acc = 0;
   return (
     <div className="columns trend-row">
-      <div className="card fade-up" data-testid="home-trend">
+      <div className="card" data-testid="home-trend">
         <h2>
           Доходы и расходы за полгода
           <Hint of="home.trend" />
         </h2>
         {months && <MonthsChart r={months} />}
       </div>
-      <div className="card fade-up" data-testid="home-donut">
+      <div className="card" data-testid="home-donut">
         <h2>Куда ушли деньги</h2>
         {total === 0 && <p className="muted">В этом месяце расходов пока нет.</p>}
         {total > 0 && (
@@ -214,12 +215,11 @@ export function TrendCard({ period }: { period: Period }) {
                       cx="70"
                       cy="70"
                       r="54"
-                      className="donut-seg sweep"
+                      className="donut-seg"
                       stroke={DONUT[i === parts.length - 1 && rest > 0 ? 4 : i]}
                       pathLength={100}
                       strokeDasharray={`${Math.max(pct - 0.8, 0.1)} ${100 - Math.max(pct - 0.8, 0.1)}`}
                       strokeDashoffset={-acc}
-                      style={{ animationDelay: `${i * 90}ms` }}
                     />
                   );
                   acc += pct;
@@ -260,7 +260,7 @@ export function DaysCard() {
   const noSpend = cal.days.filter((d) => d.noSpend).length;
   const level = (v: number) => (v <= 0 ? 0 : Math.min(4, Math.ceil((v / max) * 4)));
   return (
-    <div className="card fade-up" data-testid="home-days">
+    <div className="card" data-testid="home-days">
       <div className="notes-head">
         <h2>
           Траты по дням, {monthTitle(month).toLowerCase()}
@@ -279,7 +279,7 @@ export function DaysCard() {
         {Array.from({ length: lead }, (_, i) => (
           <span key={`e${i}`} />
         ))}
-        {cal.days.map((d, i) => {
+        {cal.days.map((d) => {
           const future = d.date > t;
           const amount = hidden ? "•••" : formatShort(d.expense, cal.currencySymbol, cal.minorUnits);
           return (
@@ -287,7 +287,6 @@ export function DaysCard() {
               key={d.date}
               className={future ? "heat-cell future" : `heat-cell l${level(d.expense)}`}
               title={future ? undefined : `${Number(d.date.slice(8))}: ${d.expense > 0 ? amount : "без трат"}`}
-              style={{ animationDelay: `${i * 12}ms` }}
               data-testid="heat-cell"
             >
               {Number(d.date.slice(8))}

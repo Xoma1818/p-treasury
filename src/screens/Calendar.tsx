@@ -18,6 +18,7 @@ import { goalText, monthLine } from "../lib/forecast";
 import { heatWeeks } from "../lib/heat";
 import { formatMoney } from "../lib/money";
 import { useDefaultForecast } from "../lib/queries";
+import "./secondaryScreens.css";
 
 type Tab = "month" | "week" | "year" | "reminders";
 
@@ -29,7 +30,7 @@ export function Calendar() {
   const [reminderDate, setReminderDate] = useState<string | null>(null);
 
   return (
-    <section className="screen wide">
+    <section className="screen wide secondary-screen calendar-screen">
       <div className="screen-head">
         <ScreenTitle id="calendar" />
         <div className="btn-group">
@@ -38,7 +39,7 @@ export function Calendar() {
           </button>
         </div>
       </div>
-      <div className="tabs fit cal-tabs" role="tablist">
+      <div className="tabs fit cal-tabs secondary-screen-tabs motion-segments" role="tablist" aria-label="Режим календаря">
         {(
           [
             ["month", "Месяц"],

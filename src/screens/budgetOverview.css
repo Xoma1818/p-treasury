@@ -7,8 +7,21 @@
 }
 
 .budget-screen .budget-screen-head {
-  row-gap: 16px;
+  margin-block-end: 12px;
+}
+
+.budget-screen .budget-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
   margin-block-end: 16px;
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--border);
+}
+
+.budget-toolbar [data-testid="month-review-open"] {
+  margin-inline-start: auto;
 }
 
 .budget-screen .month-switch .main {
@@ -36,7 +49,7 @@
   align-items: baseline;
   gap: 8px 28px;
   border-color: var(--border);
-  background: linear-gradient(120deg, var(--accent-soft), transparent 74%), var(--card);
+  background: var(--card);
 }
 
 .budget-overview .budget-today .tile-value {
@@ -89,6 +102,10 @@
 }
 
 @media (max-width: 620px) {
+  .budget-toolbar [data-testid="month-review-open"] {
+    margin-inline-start: 0;
+  }
+
   .budget-screen .budget-overview {
     grid-template-columns: minmax(0, 1fr);
   }

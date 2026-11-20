@@ -1,0 +1,47 @@
+/* Данные рисуются сразу; движение показывает выбор или изменение уже видимой величины. */
+.chart > svg .hit {
+  transition: fill var(--motion-feedback) var(--ease);
+}
+
+.chart > svg :is(.nw-dot, .fc-dot) {
+  transition: r var(--motion-feedback) var(--ease), fill var(--motion-feedback) var(--ease), stroke var(--motion-feedback) var(--ease);
+}
+
+.ring > svg .ring-value {
+  transition: stroke-dasharray var(--motion-surface) var(--ease), stroke var(--motion-feedback) var(--ease);
+}
+
+.donut > svg .donut-seg {
+  transition: stroke-dasharray var(--motion-surface) var(--ease), stroke-dashoffset var(--motion-surface) var(--ease), stroke-width var(--motion-feedback) var(--ease);
+}
+
+.heat .heat-cell {
+  animation: none;
+  transition: background-color var(--motion-feedback) var(--ease), color var(--motion-feedback) var(--ease);
+}
+
+.heat-grid .heat-day:not(.empty) {
+  transition: background-color var(--motion-feedback) var(--ease), opacity var(--motion-feedback) var(--ease), box-shadow var(--motion-feedback) var(--ease);
+}
+
+.heat-grid .heat-day:not(.empty):is(:hover, :active) {
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+
+.loan-chart .hover {
+  pointer-events: none;
+  animation: chart-cursor-in var(--motion-feedback) var(--ease) both;
+}
+
+@keyframes chart-cursor-in {
+  from { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart > svg :is(.hit, .nw-dot, .fc-dot),
+  .ring > svg .ring-value,
+  .donut > svg .donut-seg,
+  .heat .heat-cell,
+  .heat-grid .heat-day:not(.empty) { transition: none; }
+  .loan-chart .hover { animation: none; }
+}

@@ -10,6 +10,7 @@ import { today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
 import { useCurrencies } from "../lib/queries";
 import { useAction } from "../lib/useAction";
+import "./secondaryScreens.css";
 
 interface Row {
   name: string;
@@ -58,8 +59,11 @@ export function Onboarding() {
   return (
     <div className="wizard">
       <div className="card wizard-card">
-        <div className="brand big">Kazna</div>
-        <div className="steps">Шаг {step} из 3</div>
+        <header className="onboarding-header">
+          <div className="brand big">Kazna</div>
+          <div className="steps" aria-live="polite">Шаг {step} из 3</div>
+          <div className="onboarding-progress" aria-hidden="true"><span style={{ width: `${(step / 3) * 100}%` }} /></div>
+        </header>
 
         {step === 1 && (
           <>
@@ -107,6 +111,7 @@ export function Onboarding() {
           <>
             <h1>Счета и текущие остатки</h1>
             <p className="muted">Заведите счета, которыми пользуетесь, и введите, сколько на них сейчас. Счета можно добавить и позже.</p>
+            <div className="onboarding-table">
             <table className="grid-form">
               <thead>
                 <tr>
@@ -153,6 +158,7 @@ export function Onboarding() {
                 ))}
               </tbody>
             </table>
+            </div>
             <button className="btn" onClick={() => setRows([...rows, { name: "", type: "debit", currencyCode: base, balance: "" }])}>
               + Добавить счёт
             </button>

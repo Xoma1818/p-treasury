@@ -3,8 +3,20 @@
   margin-block-end: 16px;
 }
 
+.reports-overview .reports-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
 .reports-overview .reports-period-panel {
   margin-block-end: 20px;
+}
+
+.reports-overview .reports-period-panel > h2 {
+  margin-block-end: 8px;
 }
 
 .reports-overview .period-picker {
@@ -40,7 +52,7 @@
 
 .reports-overview .reports-balance {
   border-color: var(--border);
-  background: linear-gradient(125deg, var(--accent-soft), transparent 75%), var(--card);
+  background: var(--card);
 }
 
 .reports-overview .reports-detail {

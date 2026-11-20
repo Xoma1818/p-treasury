@@ -35,7 +35,21 @@ export function Budget() {
     <section className="screen wide budget-screen">
       <div className="screen-head budget-screen-head">
         <ScreenTitle id="budget" />
-        {month && (
+      </div>
+      <div className="budget-toolbar">
+        <div className="tabs small motion-segments" role="group" aria-label="Вид бюджета" data-testid="budget-mode">
+          {(
+            [
+              ["month", "Месяц"],
+              ["year", "Год"],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} type="button" className={mode === k ? "tab active" : "tab"} aria-pressed={mode === k} onClick={() => setMode(k)} data-testid={`budget-mode-${k}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === "month" && month && (
           <div className="month-switch" role="group" aria-label="Бюджетный период">
             <button className="icon-btn" aria-label="Предыдущий месяц" onClick={() => setPicked(shiftMonth(month, -1))}>
               <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
@@ -58,25 +72,15 @@ export function Budget() {
                 Текущий
               </button>
             )}
-            <button className="btn" data-testid="month-review-open" onClick={() => setReview(true)} title="Сколько отложено, прогноз и факт, «Месяц завершён»">
-              Итоги месяца
-            </button>
           </div>
         )}
-        <div className="tabs small" role="group" aria-label="Вид бюджета" data-testid="budget-mode">
-          {(
-            [
-              ["month", "Месяц"],
-              ["year", "Год"],
-            ] as const
-          ).map(([k, label]) => (
-            <button key={k} type="button" className={mode === k ? "tab active" : "tab"} aria-pressed={mode === k} onClick={() => setMode(k)} data-testid={`budget-mode-${k}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {review && month && <MonthReviewDialog month={month} onClose={() => setReview(false)} />}
+        {mode === "month" && month && (
+          <button className="btn" data-testid="month-review-open" onClick={() => setReview(true)} title="Сколько отложено, прогноз и факт, «Месяц завершён»">
+            Итоги месяца
+          </button>
+        )}
       </div>
+      {review && month && <MonthReviewDialog month={month} onClose={() => setReview(false)} />}
       {budget.error && <p className="error">{String(budget.error)}</p>}
       {mode === "year" && month && (
         <YearView

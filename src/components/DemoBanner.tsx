@@ -27,7 +27,7 @@ export function DemoBanner() {
           </button>
         </span>
       ) : (
-        <button className="btn primary" onClick={() => setConfirm(true)}>
+        <button className="btn" onClick={() => setConfirm(true)}>
           Удалить пример и начать своё
         </button>
       )}

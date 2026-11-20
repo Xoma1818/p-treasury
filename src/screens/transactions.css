@@ -1,3 +1,29 @@
+.txn-screen .txn-screen-head,
+.txn-screen .txn-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.txn-screen .txn-actions {
+  justify-content: flex-end;
+}
+
+.txn-screen .txn-search-row input[type="search"] {
+  flex: 1 1 250px;
+  min-width: min(100%, 180px);
+}
+
+.txn-screen .txn-period-row {
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--border);
+}
+
+.txn-screen .txn-period-row > .tabs {
+  max-width: 100%;
+}
+
 .txn-results-header {
   display: flex;
   align-items: baseline;
