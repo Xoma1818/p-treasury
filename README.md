@@ -6,8 +6,8 @@
 
 | Сейчас | Где посмотреть |
 |---|---|
-| Стабильный выпуск **0.18.0 «Взгляд вперёд»** | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.18.0) |
-| Следующая версия | Выписки популярных банков (ВТБ, Альфа, Газпромбанк, Озон, Яндекс и др.) — ждём настоящие выписки |
+| Стабильный выпуск | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/latest) |
+| Развитие и приёмка | [План качества](https://github.com/Xoma1818/p-treasury/issues/68) |
 | Команда и порядок работы | [Команда](docs/team.md), [рабочий план](docs/work-plan.md), [текущее состояние](docs/project-state.md) |
 
 ## Что умеет приложение
@@ -26,12 +26,12 @@
 | Нужно | Документ |
 |---|---|
 | Узнать текущую работу и следующий шаг | [Состояние проекта](docs/project-state.md) |
-| Посмотреть задачи и приёмку 0.17 | [Приёмка 0.17](https://github.com/Xoma1818/p-treasury/issues/28), [очередь](https://github.com/Xoma1818/p-treasury/issues) |
+| Посмотреть открытые задачи и приёмку | [Очередь](https://github.com/Xoma1818/p-treasury/issues), [план качества](https://github.com/Xoma1818/p-treasury/issues/68) |
 | Понять роли и обязательный порядок работы | [Команда](docs/team.md), [план и регламент](docs/work-plan.md), [процесс](docs/process.md) |
 | Внести изменение или оформить ошибку | [Как участвовать](CONTRIBUTING.md) |
 | Разобраться в продукте и решениях | [Состав продукта](docs/product/mvp-features.md), [решения владельца](docs/decisions.md) |
 | Изучить устройство и запуск | [Архитектура](docs/architecture/architecture.md), [разработка](docs/development.md) |
-| Проверить интерфейс и поведение | [Дизайн](docs/design/README.md), [тестирование](docs/testing/README.md), [ручная проверка](docs/testing/owner-checklist.md) |
+| Проверить интерфейс и поведение | [Дизайн](docs/design/README.md), [руководство по тестированию](docs/testing/README.md) |
 | Выпустить версию | [Порядок выпуска](docs/releasing.md), [Actions](https://github.com/Xoma1818/p-treasury/actions) |
 | Продолжить после передачи от Claude | [Акт передачи](docs/handover/2026-10-25.md) |
 
