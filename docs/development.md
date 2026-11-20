@@ -123,8 +123,8 @@ git worktree add /tmp/old v0.11.1 && cd /tmp/old && npm ci && npx vite build
 cargo build -p budget-app --features custom-protocol --target-dir /tmp/old-target
 ```
 
-**Установщик для Windows** (`P-Treasury_0.10.0_x64-setup.exe`) собирается одним из двух способов:
-- на GitHub: пробный — `.github/workflows/windows-installer.yml` на каждый PR (Actions → «Установщик для Windows»), выпуск — `.github/workflows/release.yml` по тегу `vX.Y.Z` (см. [выпуски](releasing.md)); ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
+**Установщик для Windows** (`Kazna_X.Y.Z_x64-setup.exe`) собирается одним из двух способов:
+- на GitHub: пробный — `.github/workflows/windows-installer.yml` при изменениях приложения в PR (Actions → «Установщик для Windows»), выпуск — ручной запуск `.github/workflows/release.yml` на `main` (см. [выпуски](releasing.md)); ключ подписи обновлений кладётся в секрет `TAURI_SIGNING_PRIVATE_KEY`;
 - на компьютере с Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` (что установить заранее, написано в начале скрипта).
 
 **Дальше:** сборка установщика и ручная проверка по [списку](testing/owner-checklist.md).
