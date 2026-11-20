@@ -36,5 +36,5 @@ export function useAction<A extends unknown[], P extends Promise<unknown>>(
     },
     onError: (e) => setError(String(e)),
   });
-  return { run: (...args: A) => m.mutate(args), busy: m.isPending, done, error, setError };
+  return { run: (...args: A) => m.mutate(args), runAsync: (...args: A) => m.mutateAsync(args), busy: m.isPending, done, error, setError };
 }

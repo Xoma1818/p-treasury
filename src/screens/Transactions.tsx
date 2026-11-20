@@ -180,7 +180,8 @@ export function Transactions() {
   };
   const [defFrom, defTo] = [from, to];
   const filtered =
-    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId || f.importId || f.payee) || f.dateFrom !== defFrom || f.dateTo !== defTo;
+    !!(f.accountId || f.categoryId || f.types?.length || f.search || f.eventId || f.tagId || f.importId || f.payee ||
+      f.quick?.length || f.minAmount || f.amount || f.currency || f.counted) || f.dateFrom !== defFrom || f.dateTo !== defTo;
 
   // Быстрые периоды (0.29): месяц, прошлый месяц, год и всё время; свои даты — полями рядом.
   const periods = useMemo(() => {

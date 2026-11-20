@@ -423,6 +423,7 @@ pub fn run() {
             commands::import_accept,
             commands::import_reject,
             commands::create_transaction_full,
+            commands::save_quick_transaction,
             commands::update_transaction_full,
             commands::set_transaction_spread,
             commands::sum_selected,

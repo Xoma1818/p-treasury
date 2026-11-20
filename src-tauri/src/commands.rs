@@ -902,6 +902,18 @@ pub fn remember_rule(
 }
 
 #[tauri::command(async)]
+pub fn save_quick_transaction(
+    state: State<AppState>,
+    input: TxnInput,
+    extra: TxnExtra,
+    merchant: Option<String>,
+) -> CmdResult<String> {
+    with_undo(&state, "Новая операция", |c| {
+        quick::save(c, &input, &extra, merchant.as_deref())
+    })
+}
+
+#[tauri::command(async)]
 pub fn list_rules(state: State<AppState>) -> CmdResult<Vec<Rule>> {
     with_db(&state, |db| rules::list(db.conn()))
 }

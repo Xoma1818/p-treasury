@@ -2183,6 +2183,8 @@ export const api = {
   autoImportNow: () => invoke<ScanResult>("auto_import_now"),
   createTransactionFull: (input: TxnInput, extra: TxnExtra, eventId: string | null = null) =>
     invoke<string>("create_transaction_full", { input, eventId, extra }),
+  saveQuickTransaction: (input: TxnInput, extra: TxnExtra, merchant: string | null) =>
+    invoke<string>("save_quick_transaction", { input, extra, merchant }),
   updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra) =>
     invoke<void>("update_transaction_full", { id, input, extra }),
   setTransactionSpread: (id: string, months: number | null) => invoke<void>("set_transaction_spread", { id, months }),

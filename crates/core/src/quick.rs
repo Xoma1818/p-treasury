@@ -583,6 +583,23 @@ pub fn remember(
     )
 }
 
+/// Быстрый ввод: операция и правило сохраняются либо вместе, либо не сохраняются.
+pub fn save(
+    conn: &mut Connection,
+    input: &transactions::TxnInput,
+    extra: &transactions::TxnExtra,
+    merchant: Option<&str>,
+) -> Result<String> {
+    let tx = conn.transaction()?;
+    let id = transactions::create(&tx, input)?;
+    transactions::apply_extra(&tx, &id, extra)?;
+    if let (Some(merchant), Some(category)) = (merchant, input.category_id.as_deref()) {
+        remember(&tx, merchant, category, input.payee.as_deref())?;
+    }
+    tx.commit()?;
+    Ok(id)
+}
+
 /// Есть ли уже правило для этого магазина (чтобы не предлагать запомнить ещё раз).
 pub fn has_rule(conn: &Connection, merchant: &str) -> Result<bool> {
     Ok(conn
@@ -629,6 +646,46 @@ mod tests {
     }
 
     const TODAY: &str = "2026-10-20";
+
+    #[test]
+    fn quick_save_rolls_back_invalid_rule_and_undoes_both_changes() {
+        let mut f = fx();
+        let input = TxnInput {
+            kind: "expense".into(),
+            date: TODAY.into(),
+            account_id: f.card,
+            amount: 10_000,
+            category_id: Some(cat(f.db.conn(), "Общепит")),
+            to_account_id: None,
+            to_amount: None,
+            payee: Some("Кафе".into()),
+            note: None,
+        };
+        let extra = transactions::TxnExtra::default();
+        let mut journal = crate::undo::Journal::default();
+        let failed = journal.record(f.db.conn_mut(), "Операция", |c| {
+            save(c, &input, &extra, Some("я"))
+        });
+        assert!(failed.is_err());
+        assert!(journal.state().undo.is_none());
+        assert_eq!(
+            transactions::list(f.db.conn(), &Default::default())
+                .unwrap()
+                .total,
+            0
+        );
+
+        let id = journal
+            .record(f.db.conn_mut(), "Операция", |c| {
+                save(c, &input, &extra, Some("Кафе"))
+            })
+            .unwrap();
+        assert!(transactions::get(f.db.conn(), &id).is_ok());
+        assert!(has_rule(f.db.conn(), "Кафе").unwrap());
+        assert!(journal.undo(f.db.conn()).unwrap().is_some());
+        assert!(transactions::get(f.db.conn(), &id).is_err());
+        assert!(!has_rule(f.db.conn(), "Кафе").unwrap());
+    }
 
     #[test]
     fn line_with_amount_account_category_and_date() {
