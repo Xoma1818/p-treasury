@@ -4,6 +4,7 @@ import { api, type VaultFound } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { baseName, DB, pickFolder, pickOpen, pickSave, TRANSFER } from "../lib/files";
 import { useAction } from "../lib/useAction";
+import { afterUiPrefsSaved } from "../lib/uiPrefs";
 import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
 
@@ -78,7 +79,7 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
     }
   };
   const transfer = useAction(
-    () => api.vaultTransfer(chosen!),
+    () => afterUiPrefsSaved(() => api.vaultTransfer(chosen!)),
     () => {
       onDone?.(`Данные перенесены: ${contents(chosen!)}. Прежние данные этого компьютера сохранены в папке программы (backups).`);
       onClose();
@@ -324,7 +325,7 @@ function RestoreButton({ onDone }: { onDone: (msg: string) => void }) {
     if (path) setFound(await api.vaultInspect(path));
   });
   const restore = useAction(
-    () => api.restoreBackup(found!.path),
+    () => afterUiPrefsSaved(() => api.restoreBackup(found!.path)),
     () => {
       setFound(null);
       onDone("Данные восстановлены из копии. Прежние данные сохранены в папке программы (backups).");

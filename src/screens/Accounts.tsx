@@ -12,7 +12,7 @@ import { LookMark } from "../components/CategoryMark";
 import { LookPicker } from "../components/LookPicker";
 import { formatDate, today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
-import { useAccounts, useCurrencies } from "../lib/queries";
+import { useAccounts, useCurrencies, useInvestOverview } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -27,7 +27,7 @@ export function Accounts() {
   const [adjusting, setAdjusting] = useState<Account | null>(null);
   const [valuing, setValuing] = useState<string | null>(null);
   const [groupsOpen, setGroupsOpen] = useState(false);
-  const invest = useQuery({ queryKey: ["investOverview"], queryFn: api.investOverview }).data;
+  const invest = useInvestOverview().data;
   const reserves = useQuery({ queryKey: ["accountReserves"], queryFn: api.accountReserves }).data;
   const showTransactions = useUi((s) => s.showTransactions);
   const archive = useAction(api.archiveAccount);

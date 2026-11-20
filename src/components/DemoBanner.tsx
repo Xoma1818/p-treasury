@@ -3,13 +3,14 @@ import { api } from "../lib/api";
 import { useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { afterUiPrefsSaved } from "../lib/uiPrefs";
 import { ErrorText } from "./Modal";
 
 /** Плашка над экранами, пока открыт пример: удалить его и начать своё. */
 export function DemoBanner() {
   const demo = useSettings().data?.demo_data === "1";
   const [confirm, setConfirm] = useState(false);
-  const clear = useAction(api.clearDemo, () => useUi.getState().go("home"));
+  const clear = useAction(() => afterUiPrefsSaved(api.clearDemo), () => useUi.getState().go("home"));
   if (!demo) return null;
   return (
     <div className="card banner demo-banner" data-testid="demo-banner">

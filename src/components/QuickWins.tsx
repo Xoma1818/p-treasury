@@ -7,7 +7,7 @@ import { api, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
 import { backupRow, ratesRow, uncategorizedRow, type StatusRow } from "../lib/dataStatus";
-import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
+import { useAccounts, useMonthOf, useSettings, useSpendingVsUsual } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { Hint } from "./Hint";
@@ -18,7 +18,7 @@ import { Sparkline } from "./Dashboard";
 /** А2: до трёх категорий, где траты с начала месяца заметно не как обычно. */
 export function UnusualCard() {
   const month = useMonthOf(today()).data?.month;
-  const r = useQuery({ queryKey: ["usual", month], queryFn: () => api.spendingVsUsual(month!), enabled: !!month }).data;
+  const r = useSpendingVsUsual(month).data;
   const showTransactions = useUi((s) => s.showTransactions);
   const editPlan = useUi((s) => s.editPlan);
   return (

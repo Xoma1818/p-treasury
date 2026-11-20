@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, type BudgetFileRow } from "../lib/api";
 import { pickOpen, DB } from "../lib/files";
 import { useAction } from "../lib/useAction";
+import { afterUiPrefsSaved } from "../lib/uiPrefs";
 import { ErrorText } from "./Modal";
 import { Hint } from "./Hint";
 
@@ -18,13 +19,13 @@ export function BudgetFilesCard() {
   const info = useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo }).data;
   const [name, setName] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
-  const create = useAction((n: string) => api.createFile(n), reload);
+  const create = useAction((n: string) => afterUiPrefsSaved(() => api.createFile(n)), reload);
   const open = useAction(async () => {
     const path = await pickOpen([DB]);
-    if (path) await api.openFile(path);
+    if (path) await afterUiPrefsSaved(() => api.openFile(path));
     return path;
   }, (path) => path && reload());
-  const switchTo = useAction((f: BudgetFileRow) => api.switchFile(f.path), reload);
+  const switchTo = useAction((f: BudgetFileRow) => afterUiPrefsSaved(() => api.switchFile(f.path)), reload);
   const rename = useAction((path: string, n: string) => api.renameFile(path, n), () => setRenaming(null));
   const forget = useAction((path: string) => api.forgetFile(path));
   const error = create.error ?? open.error ?? switchTo.error ?? rename.error ?? forget.error;

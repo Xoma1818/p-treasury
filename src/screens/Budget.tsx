@@ -9,7 +9,7 @@ import { Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode, type LimitKind } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
-import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/queries";
+import { useBudget, useCategories, useCurrencies, useMonthOf, useSpendingVsUsual } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -277,7 +277,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   const sym = b.currencySymbol;
   const [filled, setFilled] = useState<string | null>(null);
   // А2: пометка «+34 % к обычному» у категорий, где траты заметно не как обычно.
-  const usual = useQuery({ queryKey: ["usual", b.period.month], queryFn: () => api.spendingVsUsual(b.period.month), enabled: !income }).data;
+  const usual = useSpendingVsUsual(b.period.month, !income).data;
   const notable = new Map((usual?.monthsCounted ? usual.items : []).filter((u) => u.notable).map((u) => [u.categoryId, u]));
   const rollover = useAction((categoryId: string, on: boolean) => api.setBudgetRollover(b.id!, categoryId, on));
   const fill = useAction(

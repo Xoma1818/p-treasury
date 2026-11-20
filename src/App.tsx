@@ -7,7 +7,7 @@ import { FINE_KEY, notifyFine } from "./lib/fine";
 import { LOOK_KEY, savedLook, showLook } from "./lib/look";
 import { actionFor, comboOf, KEYS_KEY, notifyKeys, usable, useKeyMap } from "./lib/keymap";
 import { ADD_KEY, NAV_KEY, navSections, notifyNav, savedNav } from "./lib/navLayout";
-import { loadPrefs, prefsLoaded, prefsToApply } from "./lib/uiPrefs";
+import { loadPrefs, prefsLoaded, prefsToApply, uiPrefsReadRevision } from "./lib/uiPrefs";
 import { applyTheme, savedTheme } from "./lib/theme";
 import { applyScale, savedScale } from "./lib/scale";
 import { useModules } from "./lib/modules";
@@ -21,7 +21,7 @@ import { UpdatePrompt } from "./components/DataTools";
 import { Sidebar } from "./components/Sidebar";
 import { TxnForm } from "./components/TxnForm";
 import { api, isTauri } from "./lib/api";
-import { useAppInfo, useSettings } from "./lib/queries";
+import { useAppInfo, useSettingsSnapshot } from "./lib/queries";
 import { useAction } from "./lib/useAction";
 import { type SectionId } from "./lib/sections";
 import { useUi } from "./lib/store";
@@ -67,14 +67,14 @@ function focusSearch(go: (s: SectionId) => void) {
 export function App() {
   const info = useAppInfo();
   const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
-  const hidden = useSettings().data?.hide_amounts === "1";
+  const settingsSnapshot = useSettingsSnapshot().data;
+  const hidden = settingsSnapshot?.settings.hide_amounts === "1";
   const setSetting = useAction(api.setSetting);
   // Г13: настройки вида — копия в базе; после восстановления копии берём их оттуда.
-  const settingsData = useSettings().data;
   // Копия вида в базе: при запуске и после восстановления копии в открытой программе.
   useEffect(() => {
-    if (!settingsData) return;
-    const raw = settingsData.ui_prefs;
+    if (!settingsSnapshot || settingsSnapshot.prefsRevision === null || settingsSnapshot.prefsRevision !== uiPrefsReadRevision()) return;
+    const raw = settingsSnapshot.settings.ui_prefs;
     if (!prefsToApply(raw)) return;
     // Уже работающее окно получило другую копию из базы (восстановление): база главнее.
     const restored = loadPrefs(raw, localStorage, { restore: prefsLoaded() });
@@ -87,7 +87,7 @@ export function App() {
     if (restored.includes(KEYS_KEY)) notifyKeys();
     if (restored.includes(TABLE_KEY)) notifyTable();
     if (restored.includes(FINE_KEY)) notifyFine();
-  }, [settingsData]);
+  }, [settingsSnapshot]);
   // Г3: выключенный модуль — его раздел недоступен; если он открыт, возвращаемся на Главную.
   const { sectionOn } = useModules();
   const sectionHidden = !sectionOn(section);

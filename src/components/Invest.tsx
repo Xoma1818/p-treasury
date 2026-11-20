@@ -4,20 +4,13 @@ import { api, INVEST_KINDS, type InvestAccount, type InvestMonth, type InvestOve
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { leftToSave, projectGrowth, tenthsText } from "../lib/invest";
 import { parseAmount } from "../lib/money";
-import { useAccounts } from "../lib/queries";
-import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
+import { useAccounts, useInvestOverview } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 import { Hint } from "./Hint";
-
-const useOverview = () => useQuery({
-  queryKey: ["investOverview", today()],
-  queryFn: api.investOverview,
-  staleTime: AGGREGATE_STALE_MS,
-}).data;
 
 /** «Отложено 15 000 из 20 000 ₽» с полоской; без плана — только сумма. */
 function MonthLine({ m, symbol, onPlan }: { m: InvestMonth; symbol: string; onPlan: () => void }) {
@@ -100,7 +93,7 @@ function TaxLine({ o }: { o: InvestOverview }) {
 
 /** Главная → «Инвестиции»: план месяца, вложено и стоимость, лимит ИИС. */
 export function InvestCard() {
-  const o = useOverview();
+  const o = useInvestOverview().data;
   const go = useUi((s) => s.go);
   const openTxnForm = useUi((s) => s.openTxnForm);
   const [dialog, setDialog] = useState<"plan" | "value" | "calc" | null>(null);
@@ -172,7 +165,7 @@ export function InvestCard() {
 /** Бюджет → строка «Инвестиции» за выбранный месяц. */
 export function InvestBudgetCard({ month }: { month: string }) {
   const m = useQuery({ queryKey: ["investMonth", month], queryFn: () => api.investMonth(month) }).data;
-  const symbol = useOverview()?.baseSymbol ?? "₽";
+  const symbol = useInvestOverview().data?.baseSymbol ?? "₽";
   const [planning, setPlanning] = useState(false);
   if (!m) return null;
   return (

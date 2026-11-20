@@ -52,12 +52,12 @@ export function Home() {
     enabled: !!period,
   });
   const budget = useBudget(period?.month).data;
-  const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
+  const debts = useQuery({ queryKey: ["debtSummary", date], queryFn: api.debtSummary, staleTime: AGGREGATE_STALE_MS }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
   const vault = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus }).data;
   const syncVault = useAction(api.vaultSync);
-  const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
+  const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }), staleTime: AGGREGATE_STALE_MS });
   const accounts = useAccounts().data ?? [];
   const { showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);

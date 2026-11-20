@@ -20,6 +20,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import "./transactions.css";
@@ -77,7 +78,7 @@ export function Transactions() {
   }, [search]);
 
   const query = { ...f, sort: sortParam(table), limit };
-  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
+  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData, staleTime: AGGREGATE_STALE_MS });
   const finding = search !== (f.search ?? "") || page.isPlaceholderData;
   const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path), ["csv", "xlsx", "ofx"]);
   // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
@@ -385,6 +386,7 @@ export function Transactions() {
         ids={[...sel.ids]}
         filter={{ ...f, limit: undefined, offset: undefined }}
         filtered={filtered}
+        pageReady={page.isError || (page.isSuccess && !page.isPlaceholderData)}
         onClear={() => {
           cancelSelection();
           selectAllRef.current = false;
