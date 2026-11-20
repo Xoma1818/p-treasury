@@ -5,6 +5,11 @@ name: Сквозные тесты на Windows
 on:
   workflow_dispatch:
     inputs:
+      suite:
+        description: Набор проверок (volume — только скорость)
+        type: choice
+        options: [full, volume]
+        default: full
       ref:
         description: Ветка, тег или коммит для проверки (по умолчанию — выбранная ветка)
         required: false
@@ -26,6 +31,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
       - uses: actions/checkout@v5
+        if: ${{ inputs.suite != 'volume' }}
         with:
           # v0.16.0, schema 9. Immutable baseline for upgrade acceptance.
           ref: 98ddf2d4fb81e045a149af10d8dace195b2e81aa
@@ -64,12 +70,16 @@ jobs:
       - name: Интерфейс
         run: npm run build
       - name: Приложение со встроенным интерфейсом
+        if: ${{ inputs.suite != 'volume' }}
         run: cargo build -p budget-app --features custom-protocol --locked --quiet
       - name: Замена хранилища и история отмены
+        if: ${{ inputs.suite != 'volume' }}
         run: cargo test -p budget-app --lib replacement_tests --features custom-protocol --locked
       - name: Адаптер WebDriver старой версии (только создание окна)
+        if: ${{ inputs.suite != 'volume' }}
         run: node scripts/prepare-old-windows-e2e.mjs old
       - name: Старая версия 0.16.0
+        if: ${{ inputs.suite != 'volume' }}
         working-directory: old
         shell: bash
         run: |
@@ -87,9 +97,15 @@ jobs:
         shell: bash
         env:
           PTREASURY_OLD_BIN: ${{ github.workspace }}\old\target\debug\budget-app.exe
-          PTREASURY_REQUIRE_OLD: "1"
+          PTREASURY_REQUIRE_OLD: ${{ inputs.suite == 'volume' && '0' || '1' }}
           PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
           PTREASURY_REQUIRE_VOLUME: "1"
           PTREASURY_VOLUME_BIN: ${{ github.workspace }}\target\release\budget-app.exe
           PTREASURY_BIN: ${{ github.workspace }}\target\debug\budget-app.exe
-        run: node --test --test-concurrency=1 e2e/*.test.mjs
+          TEST_SUITE: ${{ inputs.suite }}
+        run: |
+          if [[ "$TEST_SUITE" == "volume" ]]; then
+            node --test e2e/volume.test.mjs
+          else
+            node --test --test-concurrency=1 e2e/*.test.mjs
+          fi

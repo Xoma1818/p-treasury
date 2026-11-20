@@ -68,13 +68,29 @@ use crate::AppState;
 
 type CmdResult<T> = Result<T, String>;
 
+#[path = "perf_trace.rs"]
+mod perf_trace;
+
+#[track_caller]
 fn with_db<T>(
     state: &State<AppState>,
     f: impl FnOnce(&mut Storage) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
+    let Some(trace) = perf_trace::Trace::begin(std::panic::Location::caller()) else {
+        let mut guard = state.lock_db();
+        let db = guard.as_mut().map_err(|e| e.clone())?;
+        return f(db).map_err(|e| e.to_string());
+    };
     let mut guard = state.lock_db();
-    let db = guard.as_mut().map_err(|e| e.clone())?;
-    f(db).map_err(|e| e.to_string())
+    let acquired = std::time::Instant::now();
+    let result = match guard.as_mut() {
+        Ok(db) => f(db).map_err(|e| e.to_string()),
+        Err(e) => Err(e.clone()),
+    };
+    let finished = std::time::Instant::now();
+    drop(guard);
+    trace.finish(acquired, finished);
+    result
 }
 
 /// Действие пользователя, которое можно отменить (Ctrl+Z): изменения записываются в журнал.
