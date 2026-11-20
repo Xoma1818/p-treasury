@@ -2,7 +2,7 @@
 //! Уведомления приходят, пока приложение запущено (в том числе свёрнуто в трей).
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use budget_core::reminders::{self, Key, Occurrence, Paid};
@@ -23,8 +23,7 @@ const MAX_SEPARATE: usize = 3;
 const IMPORT_EVERY: u32 = 15;
 static TICKS: AtomicU32 = AtomicU32::new(0);
 
-/// Значок в трее создан: только тогда закрытие окна сворачивает его.
-static TRAY_READY: AtomicBool = AtomicBool::new(false);
+const MAIN_TRAY_ID: &str = "main";
 
 pub fn start_scheduler(app: AppHandle) {
     std::thread::spawn(move || loop {
@@ -312,9 +311,16 @@ fn scan_folder(app: &AppHandle) {
 
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
+        if let Err(e) = w.unminimize() {
+            eprintln!("не удалось развернуть главное окно: {e}");
+        }
+        if let Err(e) = w.show() {
+            eprintln!("не удалось показать главное окно: {e}");
+            return;
+        }
+        if let Err(e) = w.set_focus() {
+            eprintln!("не удалось перевести фокус в главное окно: {e}");
+        }
     }
 }
 
@@ -324,7 +330,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quick = MenuItem::with_id(app, "quick", "Быстрый ввод", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &add, &quick, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main")
+    let mut tray = TrayIconBuilder::with_id(MAIN_TRAY_ID)
         .tooltip("Kazna")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -354,13 +360,12 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    TRAY_READY.store(true, Ordering::SeqCst);
     Ok(())
 }
 
 /// Закрыть окно или свернуть в трей — по настройке «сворачивать в трей при закрытии».
 pub fn hide_instead_of_close(window: &WebviewWindow) -> bool {
-    if !TRAY_READY.load(Ordering::SeqCst) {
+    if window.app_handle().tray_by_id(MAIN_TRAY_ID).is_none() {
         return false;
     }
     let state = window.state::<AppState>();

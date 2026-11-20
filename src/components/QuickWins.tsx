@@ -1,3 +1,4 @@
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -6,7 +7,7 @@ import { api, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
 import { backupRow, ratesRow, uncategorizedRow, type StatusRow } from "../lib/dataStatus";
-import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
+import { useAccounts, useMonthOf, useSettings, useSpendingVsUsual } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { Hint } from "./Hint";
@@ -17,7 +18,7 @@ import { Sparkline } from "./Dashboard";
 /** А2: до трёх категорий, где траты с начала месяца заметно не как обычно. */
 export function UnusualCard() {
   const month = useMonthOf(today()).data?.month;
-  const r = useQuery({ queryKey: ["usual", month], queryFn: () => api.spendingVsUsual(month!), enabled: !!month }).data;
+  const r = useSpendingVsUsual(month).data;
   const showTransactions = useUi((s) => s.showTransactions);
   const editPlan = useUi((s) => s.editPlan);
   return (
@@ -89,8 +90,8 @@ const CHECKS_SHOWN = 5;
 export function ChecksCard() {
   const hidden = useSettings().data?.hide_amounts === "1";
   const show = (t: string) => (hidden ? maskAmounts(t) : t);
-  const checks = useQuery({ queryKey: ["checks"], queryFn: api.listChecks }).data;
-  const warnings = useQuery({ queryKey: ["budgetWarnings"], queryFn: api.budgetWarnings }).data ?? [];
+  const checks = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["checks", today()], queryFn: api.listChecks }).data;
+  const warnings = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["budgetWarnings", today()], queryFn: api.budgetWarnings }).data ?? [];
   const openTxnForm = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
   const editPlan = useUi((s) => s.editPlan);
@@ -270,7 +271,7 @@ function WarningRow({ w, show, onOps, onPlan, onOk, busy }: { w: BudgetWarning; 
 
 /** В3: мини-график чистых активов за 12 месяцев у плитки баланса; нажатие открывает отчёт. */
 export function NetWorthSpark() {
-  const h = useQuery({ queryKey: ["netWorth", 12], queryFn: () => api.netWorthHistory(12) }).data;
+  const h = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["netWorth", 12, today()], queryFn: () => api.netWorthHistory(12) }).data;
   const openReport = useUi((s) => s.openReport);
   const values = h?.points.map((p) => p.net) ?? [];
   if (values.length < 2) return null;

@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import { useModules } from "../lib/modules";
-import { Keyboard, Moon, Search, Star, Sun } from "lucide-react";
+import { Keyboard, Monitor, Moon, Search, Star, Sun } from "lucide-react";
 import { useEffect, Fragment, useState } from "react";
 import { api } from "../lib/api";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
+import { DecorativeIcon } from "./DecorativeIcon";
 
 /** Логотип «Дверца, тише» (src-tauri/icons/icon.svg): мятный в обеих темах, как значок в Windows. */
 function Logo() {
@@ -23,7 +24,7 @@ function Logo() {
   );
 }
 
-/** Тема: два значка «Светлая» / «Тёмная», выбранная подсвечена. Подписи — в подсказке и для экранного диктора. */
+/** Ручные темы и режим, который следует оформлению системы. */
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
   useEffect(() => {
@@ -45,12 +46,16 @@ function ThemeSwitch() {
   return (
     <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
       <button aria-pressed={theme === "light"} data-testid="theme-light" title="Светлая тема" onClick={() => pick("light")}>
-        <Sun className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
+        <DecorativeIcon icon={Sun} className="foot-icon" size="control" />
         <span className="sr-only">Светлая</span>
       </button>
       <button aria-pressed={theme === "dark"} data-testid="theme-dark" title="Тёмная тема" onClick={() => pick("dark")}>
-        <Moon className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
+        <DecorativeIcon icon={Moon} className="foot-icon" size="control" />
         <span className="sr-only">Тёмная</span>
+      </button>
+      <button aria-pressed={theme === "system"} data-testid="theme-system" title="Как в системе" onClick={() => pick("system")}>
+        <DecorativeIcon icon={Monitor} className="foot-icon" size="control" />
+        <span className="sr-only">Как в системе</span>
       </button>
     </div>
   );
@@ -68,7 +73,7 @@ function NavViews() {
         {views.map((v) => (
           <li key={v.id}>
             <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
-              <Star className="nav-view-mark" strokeWidth={1.75} aria-hidden="true" />
+              <DecorativeIcon icon={Star} className="nav-view-mark" />
               {v.name}
             </button>
           </li>
@@ -92,7 +97,7 @@ export function Sidebar() {
         Kazna
       </div>
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
-        <Search strokeWidth={1.75} aria-hidden="true" />
+        <DecorativeIcon icon={Search} size="inline" />
         <span>Поиск</span>
         <kbd>Ctrl+K</kbd>
       </button>
@@ -123,7 +128,7 @@ export function Sidebar() {
         <span className="foot-spacer" />
         <HideAmountsSwitch />
         <button className="foot-btn" onClick={() => setHelp(true)} title="Горячие клавиши · F1" aria-label="Горячие клавиши" data-testid="hotkeys-open">
-          <Keyboard className="foot-icon" strokeWidth={1.75} aria-hidden="true" />
+          <DecorativeIcon icon={Keyboard} className="foot-icon" size="control" />
         </button>
       </div>
     </nav>

@@ -1,6 +1,5 @@
 // Главная → «Взгляд вперёд» (0.19): остаток через 3 месяца и линия прогноза на год.
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { useDefaultForecast } from "../lib/queries";
 import { genitive, prepositional, aheadSummary } from "../lib/forecast";
 import { useUi } from "../lib/store";
 import { Sparkline } from "./Dashboard";
@@ -8,7 +7,7 @@ import { Hint } from "./Hint";
 import { BaseMoney } from "./Money";
 
 export function AheadCard() {
-  const f = useQuery({ queryKey: ["forecast", null], queryFn: () => api.forecast(null) }).data;
+  const f = useDefaultForecast().data;
   const { go } = useUi();
   if (!f) return null;
   const a = aheadSummary(f);

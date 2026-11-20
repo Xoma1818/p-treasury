@@ -1,0 +1,80 @@
+.reports-overview .reports-heading {
+  flex-wrap: wrap;
+  margin-block-end: 16px;
+}
+
+.reports-overview .reports-period-panel {
+  margin-block-end: 20px;
+}
+
+.reports-overview .period-picker {
+  flex-wrap: wrap;
+}
+
+.reports-overview .period-picker .month-switch {
+  padding-inline: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.reports-overview .period-picker .month-switch .main {
+  min-width: 0;
+}
+
+.reports-overview .period-picker .month-switch > div {
+  padding-block: 4px;
+}
+
+.reports-overview .reports-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr));
+  gap: 12px;
+}
+
+.reports-overview .reports-tiles > .tile {
+  min-width: 0;
+}
+
+.reports-overview .reports-tiles .tile-value {
+  overflow-wrap: anywhere;
+}
+
+.reports-overview .reports-balance {
+  border-color: var(--border);
+  background: linear-gradient(125deg, var(--accent-soft), transparent 75%), var(--card);
+}
+
+.reports-overview .reports-detail {
+  margin-block-start: 24px;
+}
+
+.reports-overview .report-tabs,
+.reports-overview .reports-controls {
+  flex-wrap: wrap;
+}
+
+.reports-overview .report-tabs > .tab,
+.reports-overview .report-tabs .tab-more {
+  flex-basis: max-content;
+}
+
+.reports-overview .reports-controls {
+  margin-block-end: 12px;
+}
+
+.reports-overview .reports-controls .report-filter {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.reports-overview .reports-controls select {
+  max-width: 100%;
+}
+
+.reports-overview .reports-status {
+  margin-block: 12px;
+}
+
+.reports-overview .tile-explain:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

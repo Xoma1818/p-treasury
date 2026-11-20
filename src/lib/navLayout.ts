@@ -2,7 +2,7 @@
 // копия уходит в базу через uiPrefs, поэтому переживает перенос и восстановление копии.
 import { useEffect, useState } from "react";
 import { SECTIONS, type SectionId } from "./sections";
-import { pushPref } from "./uiPrefs";
+import { pushPrefs } from "./uiPrefs";
 
 export const NAV_KEY = "kazna.navLayout";
 export const ADD_KEY = "kazna.addMain";
@@ -50,20 +50,23 @@ function read(key: string): string | null {
   }
 }
 
-function write(key: string, value: string) {
-  pushPref(key, value);
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* без запоминания */
+function write(values: Record<string, string>) {
+  for (const [key, value] of Object.entries(values)) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* без запоминания */
+    }
   }
-  window.dispatchEvent(new Event(NAV_EVENT));
+  pushPrefs(values);
+  notifyNav();
 }
 
 export const savedNav = () => parseNav(read(NAV_KEY));
 export const savedAddMain = () => parseAddMain(read(ADD_KEY));
-export const saveNav = (l: NavLayout) => write(NAV_KEY, JSON.stringify(l));
-export const saveAddMain = (v: AddMain) => write(ADD_KEY, v);
+export const saveNav = (l: NavLayout) => write({ [NAV_KEY]: JSON.stringify(l) });
+export const saveAddMain = (v: AddMain) => write({ [ADD_KEY]: v });
+export const resetNavPrefs = () => write({ [NAV_KEY]: JSON.stringify(DEFAULT_NAV), [ADD_KEY]: "expense" });
 
 /** Сообщить меню и кнопке «+», что настройки пришли из базы (после восстановления копии). */
 export const notifyNav = () => window.dispatchEvent(new Event(NAV_EVENT));

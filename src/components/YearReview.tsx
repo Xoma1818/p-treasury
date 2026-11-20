@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type YearReview } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
@@ -127,33 +127,37 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   const settings = useSettings().data;
   const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
   const [hide, setHide] = useState(settings?.hide_amounts === "1");
+  const [pending, setPending] = useState<"save" | "copy" | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (canvas.current) drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
-    setStatus(null);
+  useLayoutEffect(() => {
+    if (!canvas.current) return;
+    drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
   }, [r, base, hide]);
-  const save = async () => {
+
+  const share = async (action: "save" | "copy") => {
+    const preview = canvas.current;
+    if (!preview || pending) return;
+    setPending(action);
+    setStatus(null);
     setError(null);
-    const path = await pickSave(`Kazna — итоги ${r.year} года.png`, [PNG]);
-    if (!path) return;
     try {
-      const blob = await cardPng(canvas.current!);
-      await api.saveBytes(path, new Uint8Array(await blob.arrayBuffer()));
-      setStatus(`Сохранено: ${baseName(path)}`);
+      if (action === "save") {
+        const path = await pickSave(`Kazna — итоги ${r.year} года.png`, [PNG]);
+        if (!path) return;
+        const blob = await cardPng(preview);
+        await api.saveBytes(path, new Uint8Array(await blob.arrayBuffer()));
+        setStatus(`Сохранено: ${baseName(path)}`);
+      } else {
+        // Clipboard.write нужен жест пользователя, поэтому передаём PNG как Promise сразу.
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": cardPng(preview) })]);
+        setStatus("Картинка скопирована: вставьте её в чат через Ctrl+V");
+      }
     } catch (e) {
-      setError(String(e));
-    }
-  };
-  const copy = async () => {
-    setError(null);
-    try {
-      const blob = await cardPng(canvas.current!);
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      setStatus("Картинка скопирована: вставьте её в чат через Ctrl+V");
-    } catch {
-      setError("Не получилось скопировать в буфер обмена: сохраните картинку файлом");
+      setError(action === "save" ? `Не удалось сохранить PNG: ${e}` : "Не получилось скопировать в буфер обмена: сохраните картинку файлом");
+    } finally {
+      setPending(null);
     }
   };
   return (
@@ -163,22 +167,30 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
         <div className="share-side">
           <p className="muted">Картинку можно отправить в мессенджер или выложить. Цифры берутся из ваших данных, ничего не уходит в интернет.</p>
           <label className="check">
-            <input type="checkbox" name="shareHide" checked={hide} onChange={(e) => setHide(e.target.checked)} />
+            <input
+              type="checkbox"
+              name="shareHide"
+              checked={hide}
+              disabled={pending !== null}
+              onChange={(e) => {
+                setHide(e.target.checked);
+                setStatus(null);
+                setError(null);
+              }}
+            />
             Без сумм: только проценты и доли
           </label>
           <div className="btn-group">
-            <button className="btn primary" onClick={save}>
+            <button className="btn primary" disabled={pending !== null} onClick={() => void share("save")}>
               Сохранить PNG
             </button>
-            <button className="btn" onClick={copy}>
+            <button className="btn" disabled={pending !== null} onClick={() => void share("copy")}>
               Копировать
             </button>
           </div>
-          {status && (
-            <p className="ok" data-testid="share-status">
-              {status}
-            </p>
-          )}
+          <p className={status ? "ok" : "muted"} role="status" data-testid="share-status" hidden={!status && !pending}>
+            {status ?? (pending === "save" ? "Сохраняем PNG…" : pending === "copy" ? "Копируем картинку…" : "")}
+          </p>
           <ErrorText error={error} />
         </div>
       </div>

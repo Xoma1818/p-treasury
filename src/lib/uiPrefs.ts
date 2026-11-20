@@ -20,14 +20,37 @@ function parse(raw: string | undefined): Record<string, string> {
 
 /** Пока своя запись в базу не дошла, перечитанные настройки ещё старые: их не применяем. */
 let pending = 0;
+let writeQueue = Promise.resolve();
+let revision = 0;
+let replacing = 0;
+
+export const uiPrefsReadRevision = () => (pending || replacing ? null : revision);
+
+/** Команды смены базы ждут сохранения настроек в прежнем бюджете. */
+export async function afterUiPrefsSaved<T>(replace: () => Promise<T>): Promise<T> {
+  replacing++;
+  revision++;
+  try {
+    await writeQueue;
+    return await replace();
+  } finally {
+    replacing--;
+  }
+}
 
 function write() {
   if (!db) return;
+  const snapshot = JSON.stringify(db);
+  revision++;
   pending++;
-  api
-    .setSetting("ui_prefs", JSON.stringify(db))
+  // Снимок содержит все настройки. Следующий снимок пишем только после предыдущего,
+  // иначе более ранний запрос может завершиться последним и вернуть старые значения.
+  writeQueue = writeQueue
+    .then(() => api.setSetting("ui_prefs", snapshot))
     .catch(() => {})
-    .finally(() => pending--);
+    .finally(() => {
+      pending--;
+    });
 }
 
 /** Копию из базы надо применить: при запуске, и когда она поменялась не из этого окна
@@ -42,8 +65,14 @@ export function prefsToApply(raw: string | undefined): boolean {
 
 /** Записать изменённую настройку вида и в базу. До загрузки настроек — только в окно. */
 export function pushPref(key: string, value: string) {
-  if (!db || db[key] === value) return;
-  db = { ...db, [key]: value };
+  pushPrefs({ [key]: value });
+}
+
+/** Записать связанные изменения одним снимком. */
+export function pushPrefs(values: Record<string, string>) {
+  const current = db;
+  if (replacing || !current || Object.entries(values).every(([key, value]) => current[key] === value)) return;
+  db = { ...current, ...values };
   write();
 }
 

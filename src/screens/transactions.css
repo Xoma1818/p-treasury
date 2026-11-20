@@ -1,0 +1,16 @@
+.txn-results-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-block-end: 12px;
+}
+
+.txn-results-header h2 {
+  margin: 0;
+}
+
+.txn-results-status {
+  flex: 1;
+}

@@ -208,8 +208,8 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
 
 test("уменьшение движения: правило для prefers-reduced-motion гасит анимации и переходы", async () => {
   const { browser } = app;
-  const rules = await browser.execute(() => {
-    const found = [];
+  const result = await browser.execute(() => {
+    const overrides = [];
     for (const sheet of document.styleSheets) {
       let list;
       try {
@@ -217,17 +217,33 @@ test("уменьшение движения: правило для prefers-reduc
       } catch {
         continue;
       }
-      for (const r of list)
-        if (
-          r.media &&
-          /prefers-reduced-motion:\s*reduce/.test(r.media.mediaText)
-        )
-          found.push(r.cssText);
+      for (const rule of list) {
+        if (!rule.media || !/prefers-reduced-motion:\s*reduce/.test(rule.media.mediaText)) continue;
+        for (const override of rule.cssRules) {
+          if (override.selectorText?.split(",").some((part) => part.trim() === "*")) {
+            overrides.push(override.cssText);
+          }
+        }
+      }
     }
-    return found.join("\n");
+    if (!overrides.length) return null;
+
+    // Проверяем реальные вычисленные свойства, применив правила к пробному
+    // элементу независимо от настройки движения на машине CI.
+    const target = document.createElement("div");
+    target.style.cssText = "position: fixed; animation: motion-probe 5s infinite; transition: opacity 5s";
+    const style = document.createElement("style");
+    style.textContent = overrides.join("\n");
+    document.body.append(target);
+    try {
+      document.head.append(style);
+      const after = getComputedStyle(target);
+      return { animation: after.animationName, transition: after.transitionProperty };
+    } finally {
+      style.remove();
+      target.remove();
+    }
   });
-  // Порядок свойств в cssText зависит от браузера.
-  const all = rules.match(/(^|\s)\*[^{]*\{[^}]*\}/)?.[0] ?? "";
-  assert.match(all, /animation-duration:\s*1ms/, `общее правило: ${rules}`);
-  assert.match(all, /transition-duration:\s*1ms/, `общее правило: ${rules}`);
+  assert.ok(result, "Не найдено общее правило prefers-reduced-motion");
+  assert.deepEqual(result, { animation: "none", transition: "none" });
 });

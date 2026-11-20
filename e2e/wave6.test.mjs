@@ -2,7 +2,7 @@
 // Системные окна выбора файла тест не нажимает: ответы подкладываются в window.__ptPick.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { start, stop, openSection, onboard, click, choose, waitText, waitContent } from "./app.mjs";
@@ -101,13 +101,34 @@ test("итоги года: картинка 1080×1350, «Без сумм» и �
     return [c.width, c.height];
   });
   assert.deepEqual(size, [1080, 1350]);
-  await (await browser.$('input[name="shareHide"]')).click();
+  const hide = await browser.$('input[name="shareHide"]');
+  assert.equal(await hide.isSelected(), false);
+  await hide.click();
+  assert.equal(await hide.isSelected(), true);
   const file = join(out, "итоги.png");
   await pick(file);
   await click(browser, "Сохранить PNG", dialog);
-  await waitText(browser, '[data-testid="share-status"]', /Сохранено: итоги\.png/);
+  let outcome;
+  // WebView2 кодирует canvas.toBlob в фоне и может отложить PNG дольше 5 секунд.
+  await browser.waitUntil(async () => {
+    outcome = await browser.execute(() => {
+      const box = document.querySelector('[role="dialog"]');
+      return {
+        status: box?.querySelector('[data-testid="share-status"]')?.textContent?.trim(),
+        error: box?.querySelector('[role="alert"]')?.textContent?.trim(),
+        pendingPicks: window.__ptPick?.length,
+      };
+    });
+    return Boolean(outcome.error || outcome.status === "Сохранено: итоги.png");
+  }, { timeout: 20_000, interval: 200 }).catch((error) => {
+    throw new Error(`Нет результата сохранения PNG: ${JSON.stringify(outcome)}, файл существует: ${existsSync(file)}`, { cause: error });
+  });
+  assert.ok(!outcome.error, outcome.error);
+  assert.equal(outcome.pendingPicks, 0, "в диалоге использован выбранный путь");
   const png = readFileSync(file);
-  assert.deepEqual([...png.subarray(1, 4)], [0x50, 0x4e, 0x47], "это PNG");
-  assert.ok(statSync(file).size > 20_000, "картинка не пустая");
+  assert.ok(png.length > 20_000, "картинка не пустая");
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], "это PNG");
+  assert.equal(png.toString("ascii", 12, 16), "IHDR");
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1080, 1350]);
   await browser.keys("Escape");
 });

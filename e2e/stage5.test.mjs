@@ -1,6 +1,7 @@
 // Приёмочные тесты этапа 5 «Календарь, напоминания, заметки»: сценарии из product/mvp-features.md, раздел 10.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
+import { Key } from "webdriverio";
 import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate, waitCount, newDebt } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -51,10 +52,18 @@ test("коммуналка: «ЖКХ» ежемесячно, «Создать о
   await waitText(browser, '[data-testid="rem-all"]', /ЖКХ · ежемесячно, следующее/);
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
   await click(browser, "Создать операцию", occ("rem-overdue", "ЖКХ"));
-  assert.equal(await (await browser.$('[role="dialog"] [name="amount"]')).getValue(), "6000");
+  const amount = await browser.$('[role="dialog"] [name="amount"]');
+  assert.equal(await amount.getValue(), "6000");
   assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "ЖКХ");
   assert.match(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), /.+/);
-  await fill(browser, "amount", "6230");
+  // Заменяем предзаполненную сумму клавишами. Очистка через setValue в WebKit
+  // может потерять первую цифру при перерисовке управляемого поля React.
+  await amount.click();
+  const enteredAmount = "6230";
+  const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
+  for (const digit of enteredAmount) keys.down(digit).up(digit);
+  await keys.perform();
+  assert.equal(await amount.getValue(), enteredAmount);
   await save(browser);
   await waitText(browser, '[data-testid="rem-done"]', /ЖКХ/);
   await waitText(browser, '[data-testid="rem-overdue"]', /Всё сделано/);

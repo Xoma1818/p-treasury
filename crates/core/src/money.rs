@@ -178,17 +178,48 @@ impl Rate {
 
     /// Пересчитать сумму из валюты с `from_minor` знаками в валюту с `to_minor`.
     /// Округление до минимальной единицы: половина от нуля.
-    pub fn convert(&self, amount: i64, from_minor: u32, to_minor: u32) -> i64 {
-        let num = amount as i128 * self.mantissa * 10i128.pow(to_minor);
-        let den = 10i128.pow(self.scale) * 10i128.pow(from_minor);
-        div_round(num, den) as i64
+    pub fn convert(&self, amount: i64, from_minor: u32, to_minor: u32) -> Result<i64> {
+        self.convert_checked(amount, from_minor, to_minor, false)
     }
 
-    /// Пересчёт по обратному курсу (курс задан как to→from).
-    pub fn convert_inverse(&self, amount: i64, from_minor: u32, to_minor: u32) -> i64 {
-        let num = amount as i128 * 10i128.pow(self.scale) * 10i128.pow(to_minor);
-        let den = self.mantissa * 10i128.pow(from_minor);
-        div_round(num, den) as i64
+    /// Пересчёт по обратному курсу с проверкой диапазона.
+    pub fn convert_inverse(&self, amount: i64, from_minor: u32, to_minor: u32) -> Result<i64> {
+        self.convert_checked(amount, from_minor, to_minor, true)
+    }
+
+    fn convert_checked(
+        &self,
+        amount: i64,
+        from_minor: u32,
+        to_minor: u32,
+        inverse: bool,
+    ) -> Result<i64> {
+        let overflow = || Error::Validation("сумма после пересчёта слишком велика".into());
+        let from = 10i128.checked_pow(from_minor).ok_or_else(overflow)?;
+        let to = 10i128.checked_pow(to_minor).ok_or_else(overflow)?;
+        let scale = 10i128.checked_pow(self.scale).ok_or_else(overflow)?;
+        let (factor, divisor) = if inverse {
+            (scale, self.mantissa)
+        } else {
+            (self.mantissa, scale)
+        };
+        let num = (amount as i128)
+            .checked_mul(factor)
+            .and_then(|n| n.checked_mul(to))
+            .ok_or_else(overflow)?;
+        let den = divisor.checked_mul(from).ok_or_else(overflow)?;
+        if den <= 0 {
+            return Err(Error::Validation("курс должен быть больше нуля".into()));
+        }
+        let q = num / den;
+        let r = num % den;
+        // Compare to ceil(den/2) without overflowing 2*remainder.
+        let rounded = if r.abs() >= den / 2 + den % 2 {
+            q.checked_add(num.signum()).ok_or_else(overflow)?
+        } else {
+            q
+        };
+        i64::try_from(rounded).map_err(|_| overflow())
     }
 }
 
@@ -276,14 +307,14 @@ mod tests {
         let r = Rate::parse("92,15").unwrap();
         assert_eq!(r.to_string(), "92.15");
         // 1 000 $ → 92 150 ₽
-        assert_eq!(r.convert(100_000, 2, 2), 9_215_000);
+        assert_eq!(r.convert(100_000, 2, 2).unwrap(), 9_215_000);
         // 9 215 ₽ → 100 $ по обратному курсу
-        assert_eq!(r.convert_inverse(921_500, 2, 2), 10_000);
+        assert_eq!(r.convert_inverse(921_500, 2, 2).unwrap(), 10_000);
         // 1 ¥ (JPY, без копеек) по 0,62 ₽ → 0,62 ₽
-        assert_eq!(Rate::parse("0.62").unwrap().convert(1, 0, 2), 62);
+        assert_eq!(Rate::parse("0.62").unwrap().convert(1, 0, 2).unwrap(), 62);
         // Округление: 0,01 $ по 92,15 = 0,9215 ₽ → 0,92 ₽
-        assert_eq!(r.convert(1, 2, 2), 92);
-        assert_eq!(r.convert(-1, 2, 2), -92);
+        assert_eq!(r.convert(1, 2, 2).unwrap(), 92);
+        assert_eq!(r.convert(-1, 2, 2).unwrap(), -92);
         assert_eq!(Rate::parse("100.000").unwrap().to_string(), "100");
         for bad in ["", "0", "-1", "abc", "1,2,3", "0,00"] {
             assert!(Rate::parse(bad).is_err(), "{bad:?}");

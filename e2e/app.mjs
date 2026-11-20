@@ -1,5 +1,6 @@
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,20 +36,14 @@ function winRunning(image) {
 /** Закрыть всё от прошлого запуска и дождаться, пока процессы исчезнут: живой
  *  tauri-driver держит порт 4444 (новая сессия попала бы в него), а WebView2 —
  *  свою папку, и тогда msedgedriver отвечает «DevToolsActivePort file doesn't exist». */
-async function winCleanup(timeout = 20000) {
-  const until = Date.now() + timeout;
-  for (;;) {
-    const left = WIN_IMAGES.filter(winRunning);
-    if (!left.length) return;
-    if (Date.now() > until) {
-      console.error(`# после прогона остались процессы: ${left.join(", ")}`);
-      return;
-    }
-    for (const image of left) spawnSync("taskkill", ["/IM", image, "/T", "/F"]);
-    await new Promise((r) => setTimeout(r, 500));
+async function winCleanup() {
+  // Only the driver spawned by this test owns the application/WebView children.
+  // Never terminate processes by image name: other applications use WebView2.
+  if (driver?.pid && driver.exitCode === null && driver.signalCode === null) {
+    spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
-
 /** Windows: запускается ли программа сама по себе (без WebDriver). Проверяется один раз;
  *  если она сразу закрывается, сессия всё равно не создастся — тесты падают сразу, а не по таймауту. */
 let winProbe;
@@ -113,8 +108,10 @@ async function winProbeDevtools(bin, env) {
  * Windows: после первой неудачной сессии start() падает сразу, не тратя минуты
  * на таймауты, — и в других файлах тестов того же прогона (метка у общего родителя).
  */
-const WIN_FAIL_MARK = join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}.txt`);
-let winSessionError = WIN && existsSync(WIN_FAIL_MARK) ? readFileSync(WIN_FAIL_MARK, "utf8") : undefined;
+function winFailureMark(bin) {
+  const key = createHash("sha256").update(resolve(bin).toLowerCase()).digest("hex").slice(0, 16);
+  return join(tmpdir(), `kazna-e2e-session-failed-${process.ppid}-${key}.txt`);
+}
 
 let driver;
 let currentDir;
@@ -159,7 +156,10 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
       return `журнала нет: ${e.message}`;
     }
   };
-  if (WIN && winSessionError) throw new Error(`сессия WebDriver в Windows не создаётся: ${winSessionError}`);
+  const failureMark = winFailureMark(bin);
+  if (WIN && existsSync(failureMark)) {
+    throw new Error(`сессия WebDriver для ${bin} не создаётся: ${readFileSync(failureMark, "utf8")}`);
+  }
   if (WIN) {
     await winCleanup();
     const dead = winProbeApp(bin, { ...process.env, ...cbr, ...wv2, ...env });
@@ -176,9 +176,8 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     await winCleanup();
     await winProbeDevtools(bin, { ...process.env, ...cbr, ...wv2, ...env });
     await winCleanup();
-    winSessionError = e.message;
     try {
-      writeFileSync(WIN_FAIL_MARK, e.message);
+      writeFileSync(failureMark, e.message);
     } catch {
       // метка не обязательна
     }
@@ -211,7 +210,7 @@ export async function stop(browser) {
       // kill() в Windows не трогает дочерние процессы: msedgedriver и приложение
       // пережили бы прогон, а с 0.26 следующий запуск отдавался бы старой копии
       // (одна копия программы) — «session not created: DevToolsActivePort».
-      if (driver?.pid) spawnSync("taskkill", ["/PID", String(driver.pid), "/T", "/F"]);
+
       await winCleanup();
       return;
     }

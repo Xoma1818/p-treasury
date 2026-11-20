@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useModules } from "../lib/modules";
-import { DEFAULT_NAV, isDefaultNav, NAV_FIXED, saveAddMain, saveNav, useNavPrefs, type AddMain, type NavLayout } from "../lib/navLayout";
+import { isDefaultNav, NAV_FIXED, resetNavPrefs, saveAddMain, saveNav, useNavPrefs, type AddMain, type NavLayout } from "../lib/navLayout";
 import { section } from "../lib/sections";
 import { ADD_LABEL, ADD_TYPES } from "./AddMenu";
 
@@ -72,10 +72,7 @@ export function NavCard() {
         <button
           className="btn"
           data-testid="nav-reset"
-          onClick={() => {
-            saveNav(DEFAULT_NAV);
-            saveAddMain("expense");
-          }}
+          onClick={resetNavPrefs}
         >
           Как было
         </button>

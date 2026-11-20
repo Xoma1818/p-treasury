@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { section, type SectionId } from "../lib/sections";
 import { Hint } from "./Hint";
+import { DecorativeIcon } from "./DecorativeIcon";
 
 // Значки разделов (0.25): набор Lucide, линия 1.75, без цветных плашек.
 // Серые; у открытого раздела — цвет акцента (styles.css, «Лаконичный»).
@@ -33,10 +34,9 @@ const ICONS: Record<SectionId, LucideIcon> = {
 
 /** Значок раздела. */
 export function SectionIcon({ id }: { id: SectionId }) {
-  const Icon = ICONS[id];
   return (
     <span className="icon-tile" aria-hidden="true">
-      <Icon strokeWidth={1.75} />
+      <DecorativeIcon icon={ICONS[id]} />
     </span>
   );
 }

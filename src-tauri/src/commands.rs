@@ -68,13 +68,29 @@ use crate::AppState;
 
 type CmdResult<T> = Result<T, String>;
 
+#[path = "perf_trace.rs"]
+mod perf_trace;
+
+#[track_caller]
 fn with_db<T>(
     state: &State<AppState>,
     f: impl FnOnce(&mut Storage) -> budget_core::Result<T>,
 ) -> CmdResult<T> {
+    let Some(trace) = perf_trace::Trace::begin(std::panic::Location::caller()) else {
+        let mut guard = state.lock_db();
+        let db = guard.as_mut().map_err(|e| e.clone())?;
+        return f(db).map_err(|e| e.to_string());
+    };
     let mut guard = state.lock_db();
-    let db = guard.as_mut().map_err(|e| e.clone())?;
-    f(db).map_err(|e| e.to_string())
+    let acquired = std::time::Instant::now();
+    let result = match guard.as_mut() {
+        Ok(db) => f(db).map_err(|e| e.to_string()),
+        Err(e) => Err(e.clone()),
+    };
+    let finished = std::time::Instant::now();
+    drop(guard);
+    trace.finish(acquired, finished);
+    result
 }
 
 /// Действие пользователя, которое можно отменить (Ctrl+Z): изменения записываются в журнал.
@@ -266,9 +282,11 @@ pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
 /// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
 #[tauri::command(async)]
 pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
-    with_db(&state, |db| demo::clear(db.conn_mut()))?;
-    state.lock_undo().clear();
-    Ok(())
+    let mut guard = state.lock_db();
+    state.replace_data(&mut guard, |slot| {
+        let db = slot.as_mut().map_err(|e| e.clone())?;
+        demo::clear(db.conn_mut()).map_err(|e| e.to_string())
+    })
 }
 
 // --- Счета ---
@@ -1826,15 +1844,14 @@ pub fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
 #[tauri::command(async)]
 pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String> {
     let opts = state.open_options();
-    let safety = with_db(&state, |db| {
-        Ok(db
-            .restore_from(Path::new(&path), &opts)?
-            .display()
-            .to_string())
-    })?;
-    // Данные заменены целиком: прежние шаги отмены к ним не относятся.
-    state.lock_undo().clear();
-    Ok(safety)
+    let mut guard = state.lock_db();
+    state.replace_data(&mut guard, |slot| {
+        let db = slot.as_mut().map_err(|e| e.clone())?;
+        let safety = db
+            .restore_from(Path::new(&path), &opts)
+            .map_err(|e| e.to_string())?;
+        Ok(safety.display().to_string())
+    })
 }
 
 #[derive(Serialize)]

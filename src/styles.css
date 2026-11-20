@@ -35,6 +35,8 @@
   color-scheme: light;
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --fast: 120ms;
+  --motion-feedback: 160ms;
+  --motion-surface: 200ms;
   --over: #c2410c;
   --radius: 12px;
   /* Серии графиков (проверены на различимость, в том числе при нарушениях цветового зрения). */
@@ -560,8 +562,6 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
 .hint.warn .cbr-result { font-size: 12px; }
 
 /* 0.9: живость интерфейса */
-/* Только прозрачность: сдвиг сделал бы раздел опорой для fixed-окон на время анимации. */
-.screen { animation: fade-in 200ms var(--ease); }
 @keyframes slide-up { from { opacity: 0; transform: translate(-50%, 12px); } }
 .tile { transition: box-shadow 160ms var(--ease), transform 160ms var(--ease); }
 .tile:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
@@ -571,7 +571,7 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
 .cal-cell:not(.empty):hover { border-color: var(--border-strong); }
 .account-list li { transition: background-color var(--fast) var(--ease); }
 .table tbody tr { transition: background-color var(--fast) var(--ease); }
-.bar > span, .bar-fill, .dbar { transition: width 400ms var(--ease); }
+.bar > span, .bar-fill, .dbar { transition: width var(--motion-surface) var(--ease); }
 .tree .row-actions { opacity: 0; visibility: visible; transition: opacity var(--fast) var(--ease); }
 .tree li:hover .row-actions, .tree li:focus-within .row-actions { opacity: 1; }
 ::selection { background: var(--accent-soft); }
@@ -586,25 +586,14 @@ kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px sol
   border-width: 0 2px 2px 0;
   border-radius: 0;
   transform: rotate(45deg);
-  animation: check-pop 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: feedback-in var(--motion-feedback) var(--ease) both;
 }
-@keyframes check-pop { from { opacity: 0; transform: rotate(45deg) scale(0.6); } }
+@keyframes feedback-in { from { opacity: 0.65; } }
 
-/* 0.12: графики и полосы появляются плавно. */
-@keyframes grow-y { from { transform: scaleY(0); } }
-@keyframes grow-x { from { transform: scaleX(0); } }
-@keyframes draw-line { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-@keyframes sweep { from { stroke-dasharray: 0 100; } }
-@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-.chart .bar-income, .chart .bar-expense { transform-box: fill-box; transform-origin: bottom; animation: grow-y 600ms var(--ease) both; animation-delay: calc(var(--i, 0) * 50ms); transition: opacity var(--fast) var(--ease); }
+/* Данные видны сразу; подсветка выбранного столбца меняется плавно. */
+.chart .bar-income, .chart .bar-expense { transition: opacity var(--fast) var(--ease); }
 .chart svg:has(.hit.active) g:not(:has(.hit.active)) :is(.bar-income, .bar-expense) { opacity: 0.4; }
-.bar > span, .bar-fill, .dbar.up { transform-origin: left; animation: grow-x 700ms var(--ease) both; }
-.dbar.down { transform-origin: right; animation: grow-x 700ms var(--ease) both; }
-.bar > span { position: relative; overflow: hidden; }
-.bar > span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); transform: translateX(-100%); animation: shine 900ms 500ms var(--ease) both; }
-.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-line 1100ms 150ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.sweep { animation: sweep 900ms var(--ease) both; }
-.fade-up { animation: pop-in 400ms var(--ease) both; }
+.fade-up { animation: feedback-in var(--motion-surface) var(--ease) both; }
 
 /* 0.12: выключатель с пружинкой, галочка с щелчком. */
 .switch::after { transition: transform 260ms cubic-bezier(0.3, 1.6, 0.5, 1); }
@@ -648,8 +637,10 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 
 /* Кто попросил систему меньше анимации, тот её не видит. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
-  .btn[aria-busy="true"]::before { animation: spin 1.4s linear infinite !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  :root :is(.btn, .chip-btn, .tab, .template-main, .spend-chip, .fc-chip, .place, .qw-row, .nav-item):active,
+  :root :is(.hint-q:hover, .hint-q.open, .hint-q:focus-visible, .tile:hover),
+  :root :is(.brand:hover .brand-logo, .nav-item:hover .icon-tile) { transform: none !important; }
 }
 
 /* «Тёмный графит» (0.9): основная тема. Светлая остаётся по кнопке в меню. */
@@ -708,7 +699,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
   transition: border-color var(--fast), color var(--fast), box-shadow var(--fast);
 }
 .nav-search:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
-.nav-search svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.nav-search svg { width: 15px; height: 15px; }
 .nav-search span { flex: 1; text-align: left; }
 .nav-search kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; }
 .quick-card { position: relative; }
@@ -752,9 +743,6 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .nav-item { transition: background-color 180ms var(--ease), color 180ms var(--ease), transform 120ms var(--ease); }
 .nav-item:active { transform: scale(0.985); }
 .nav-item:hover .icon-tile { transform: scale(1.04); }
-.screen { animation: screen-in 260ms cubic-bezier(0.22, 1, 0.36, 1); }
-@keyframes screen-in { from { opacity: 0; transform: translateY(4px); } }
-.bar > span::after { display: none; }
 input[type="checkbox"]:checked { animation: none; }
 
 /* 0.15.2: ровные пропорции. Пункты меню в одну строку, номер клавиши не занимает место;
@@ -820,21 +808,19 @@ h2 { font-size: 16px; }
 .chip-btn, .tab, .template-main { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
 .btn::after, .chip-btn::after, .tab::after, .template-main::after { display: none; }
 
-/* Окна и плашки выезжают мягкой пружиной без отскока. */
-.overlay { animation: fade-in 200ms var(--ease); }
-.modal { border-color: transparent; animation: sheet-in 320ms var(--spring); }
+/* Короткое появление окон. Время закрытия согласовано с Modal.tsx. */
+.overlay { animation: fade-in var(--motion-feedback) var(--ease); }
+.modal { border-color: transparent; animation: sheet-in var(--motion-surface) var(--ease); }
 :root[data-theme="dark"] .modal { border-color: var(--border); }
-@keyframes sheet-in { from { opacity: 0; transform: translateY(16px) scale(0.98); } }
-.undo-bar { animation: slide-up 320ms var(--spring); }
-.screen { animation: fade-in 180ms var(--ease); }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(6px); } }
+.undo-bar { animation: slide-up var(--motion-surface) var(--ease); }
+.screen { animation: fade-in var(--fast) var(--ease); }
 
 /* Новая сумма проявляется на месте прежней (Money.tsx). */
-.money-swap { display: inline-block; animation: money-in 260ms var(--ease); }
-@keyframes money-in { from { opacity: 0; filter: blur(3px); } }
+.money-swap { display: inline-block; animation: feedback-in var(--motion-feedback) var(--ease); }
 
-/* Графики растут один раз за сеанс: при повторном открытии раздела — сразу (lib/motion.ts). */
-:root[data-seen] :is(.chart .bar-income, .chart .bar-expense, .bar > span, .bar-fill, .dbar, .sweep, .fade-up, .heat-cell, .loan-chart .area) { animation: none; }
-:root[data-seen] :is(.draw, .nw-line) { animation: none; stroke-dashoffset: 0; }
+/* При повторном открытии раздела карточки и календарь показываются сразу. */
+:root[data-seen] :is(.fade-up, .heat-cell) { animation: none; }
 
 /* Значок «?»: серый, мятный при наведении. */
 .hint-q { color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--muted); opacity: 0.6; }
@@ -861,10 +847,10 @@ h2 { font-size: 16px; }
 /* Вложенные блоки в окнах и карточках (разбивка чека, найденные данные, сценарии, подтверждения): тоже заливка. */
 :root .demo-offer, :root .split, :root .found-row, :root .receipt-split, :root .confirm-box, :root .scenario-row, :root .loan-sub { border-color: transparent; background: var(--fill); }
 /* Всплывающее: поиск Ctrl+K, полоса выделения, подсказки тегов и «?» — та же пружина. */
-:root .palette-box { border-color: transparent; animation: palette-in 300ms var(--spring); }
+:root .palette-box { border-color: transparent; animation: palette-in var(--motion-surface) var(--ease); }
 :root[data-theme="dark"] .palette-box { border-color: var(--border); }
-:root .sel-bar { border-color: transparent; animation: sel-in 320ms var(--spring); }
-:root .tag-hints { border-color: transparent; transform-origin: top; animation: pop-in 220ms var(--spring); }
+:root .sel-bar { border-color: transparent; animation: sel-in var(--motion-surface) var(--ease); }
+:root .tag-hints { border-color: transparent; transform-origin: top; animation: pop-in var(--motion-feedback) var(--ease); }
 :root[data-theme="dark"] .tag-hints, :root[data-theme="dark"] .sel-bar { border-color: var(--border); }
 :root .hint-tip { transition: opacity 180ms var(--ease), transform 260ms var(--spring); }
 /* Без отскока: выключатель и «?» двигаются пружиной, но не «прыгают». */
@@ -872,10 +858,10 @@ h2 { font-size: 16px; }
 :root .hint-q { transition: opacity var(--fast), background var(--fast), color var(--fast), box-shadow var(--fast), transform 220ms var(--spring); }
 :root .hint-q:hover, :root .hint-q.open, :root .hint-q:focus-visible { transform: scale(1.06); }
 /* Окно уходит мягко (Modal.tsx). */
-.overlay.closing { animation: fade-out 160ms var(--ease) forwards; pointer-events: none; }
-.overlay.closing .modal { animation: sheet-out 160ms var(--ease) forwards; }
+.overlay.closing { animation: fade-out var(--motion-feedback) var(--ease) forwards; pointer-events: none; }
+.overlay.closing .modal { animation: sheet-out var(--motion-feedback) var(--ease) forwards; }
 @keyframes fade-out { to { opacity: 0; } }
-@keyframes sheet-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(4px); } }
 /* Смена темы: цвета перетекают (Sidebar.tsx). */
 .theme-fade, .theme-fade * { transition: background-color 280ms var(--ease), color 280ms var(--ease), border-color 280ms var(--ease), fill 280ms var(--ease), stroke 280ms var(--ease) !important; }
 /* 0.25: Главная, Счета и Цели (бывшие экраны 0.24). */
@@ -938,10 +924,10 @@ h2 { font-size: 16px; }
 
 /* Р4: операция открывается панелью справа (настройка «Открывать операцию»). */
 .overlay.side { justify-content: flex-end; align-items: stretch; padding: 0; background: color-mix(in srgb, var(--overlay) 45%, transparent); }
-.modal.side { width: 440px; max-width: 100vw; max-height: none; height: 100vh; border-radius: 0; border-width: 0 0 0 1px; animation: side-in 240ms var(--ease); }
-.overlay.closing .modal.side { animation: side-out 160ms var(--ease) forwards; }
-@keyframes side-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes side-out { to { transform: translateX(24px); opacity: 0; } }
+.modal.side { width: 440px; max-width: 100vw; max-height: none; height: 100vh; border-radius: 0; border-width: 0 0 0 1px; animation: side-in var(--motion-surface) var(--ease); }
+.overlay.closing .modal.side { animation: side-out var(--motion-feedback) var(--ease) forwards; }
+@keyframes side-in { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes side-out { to { transform: translateX(12px); opacity: 0; } }
 .similar { margin: 8px 0 4px; border-top: 1px solid var(--border); padding-top: 12px; }
 .similar h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
 .similar ul { list-style: none; margin: 0; padding: 0; }

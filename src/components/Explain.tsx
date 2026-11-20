@@ -106,10 +106,14 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
   const outside = (useAccounts().data ?? []).filter((a) => !a.includeInTotal).map((a) => `«${a.name}»`);
   const startDay = useSettings().data?.month_start_day ?? "1";
   if (!data) return null;
+  const openRelated = (categoryId?: string) => {
+    showTransactions({ dateFrom: from, dateTo: to, types: [kind], counted: true, categoryId });
+    onClose();
+  };
   const notes: string[] = [];
   if (startDay !== "1") notes.push(`Месяц считается с ${startDay}-го числа (Настройки → «Первый день месяца»).`);
   if (outside.length > 0) notes.push(`Счета вне общего баланса (${outside.join(", ")}) здесь учтены: их ${kind === "income" ? "доходы" : "расходы"} тоже ваши.`);
-  if (data.spreadParts > 0) notes.push(`Траты «по месяцам»: в этот месяц вошли их части (${data.spreadParts}), а не полные суммы.`);
+  if (data.spreadParts > 0) notes.push(`В итог вошли части трат «по месяцам» (${data.spreadParts}). В «Операциях» видны исходные суммы и даты, поэтому список может отличаться.`);
   if (data.splitParts > 0) notes.push(`Разбитые чеки: каждая часть (${data.splitParts}) — в своей категории.`);
   if (data.transfers > 0) notes.push(`Переводы между своими счетами (${data.transfers}) не доход и не расход — не вошли.`);
   if (data.planned > 0) notes.push(`Запланированные, ещё не проведённые операции (${data.planned}) не вошли.`);
@@ -125,9 +129,11 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
           {data.categories.map((c) => (
             <tr key={c.categoryId} data-testid="explain-row">
               <td>
-                <button className="link" onClick={() => (showTransactions({ categoryId: c.categoryId, dateFrom: from, dateTo: to, types: [kind] }), onClose())}>
-                  {c.name}
-                </button>
+                {c.categoryId ? (
+                  <button type="button" className="link" title="Открыть операции категории и её подкатегорий" onClick={() => openRelated(c.categoryId)}>
+                    {c.name}
+                  </button>
+                ) : c.name || "Без категории"}
               </td>
               <td className="num muted">{c.count}</td>
               <td className="num">
@@ -146,6 +152,9 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
           </tr>
         </tfoot>
       </table>
+      <button type="button" className="btn" onClick={() => openRelated()}>
+        {kind === "income" ? "Открыть доходы за период" : "Открыть расходы и возвраты за период"}
+      </button>
       {notes.length > 0 && (
         <ul className="explain-notes" data-testid="explain-notes">
           {notes.map((n) => (
@@ -171,7 +180,7 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
         <tbody>
           <tr data-testid="explain-row">
             <td>
-              <button className="link" onClick={() => (showTransactions({ dateFrom: from, dateTo: to, types: ["income"] }), onClose())}>
+              <button className="link" onClick={() => (showTransactions({ dateFrom: from, dateTo: to, types: ["income"], counted: true }), onClose())}>
                 Доходы
               </button>
             </td>
@@ -181,7 +190,7 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
           </tr>
           <tr data-testid="explain-row">
             <td>
-              <button className="link" onClick={() => (showTransactions({ dateFrom: from, dateTo: to, types: ["expense"] }), onClose())}>
+              <button className="link" title="Открыть расходы и возвраты за период" onClick={() => (showTransactions({ dateFrom: from, dateTo: to, types: ["expense"], counted: true }), onClose())}>
                 Расходы
               </button>
             </td>

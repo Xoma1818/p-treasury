@@ -9,7 +9,7 @@ import { Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode, type LimitKind } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
-import { useBudget, useCategories, useCurrencies, useMonthOf } from "../lib/queries";
+import { useBudget, useCategories, useCurrencies, useMonthOf, useSpendingVsUsual } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ScreenTitle } from "../components/SectionIcon";
@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CornerDownRight } from "lucide-react";
 import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
 import { MonthReviewDialog } from "../components/MonthReview";
+import "./budgetOverview.css";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
 export function Budget() {
@@ -31,11 +32,11 @@ export function Budget() {
   const [mode, setMode] = useState<"month" | "year">("month");
 
   return (
-    <section className="screen wide">
-      <div className="screen-head">
+    <section className="screen wide budget-screen">
+      <div className="screen-head budget-screen-head">
         <ScreenTitle id="budget" />
         {month && (
-          <div className="month-switch">
+          <div className="month-switch" role="group" aria-label="Бюджетный период">
             <button className="icon-btn" aria-label="Предыдущий месяц" onClick={() => setPicked(shiftMonth(month, -1))}>
               <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
@@ -103,8 +104,8 @@ function NoBudget({ month }: { month: string }) {
   });
   const busy = create.busy || byAverage.busy;
   return (
-    <div className="card empty-budget">
-      <p>Бюджета на {monthTitle(month).toLowerCase()} пока нет.</p>
+    <div className="card empty-budget budget-start">
+      <h2>Бюджета на {monthTitle(month).toLowerCase()} пока нет.</h2>
       <div className="btn-group">
         <button className="btn primary" onClick={() => create.run(true)} disabled={busy}>
           Скопировать из {monthGenitive(shiftMonth(month, -1))}
@@ -154,7 +155,22 @@ function BudgetView({ b }: { b: BudgetData }) {
           В прошлых месяцах есть траты в {b.carryMissingRates.join(", ")} без курса: остаток из этих месяцев не перенесён, пока курс не введён в Настройках.
         </div>
       )}
-      <div className="tiles">
+      <div className="tiles budget-overview">
+        <div className="card tile budget-today" data-testid="safe-to-spend">
+          <div>
+            <div className="tile-label">
+              Можно тратить сегодня
+              <Hint of="budget.today" />
+            </div>
+            <div className={(b.safeToSpendToday ?? 0) < 0 ? "tile-value over" : "tile-value"}>
+              {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} minorUnits={minor} /> : <span className="muted">—</span>}
+            </div>
+          </div>
+          <div className="budget-today-detail">
+            <div className="hint">{b.safeToSpendToday != null ? "остаток лимитов на оставшиеся дни" : "только для текущего месяца"}</div>
+            <Forecast b={b} minor={minor} />
+          </div>
+        </div>
         <div className="card tile" data-testid="budget-planned">
           <div className="tile-label">
             Лимиты расходов
@@ -189,25 +205,23 @@ function BudgetView({ b }: { b: BudgetData }) {
             <Money amount={b.plannedExpense - spentInBudget} symbol={sym} minorUnits={minor} />
           </div>
         </div>
-        <div className="card tile" data-testid="safe-to-spend">
-          <div className="tile-label">
-            Можно тратить сегодня
-            <Hint of="budget.today" />
-          </div>
-          <div className={(b.safeToSpendToday ?? 0) < 0 ? "tile-value over" : "tile-value"}>
-            {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} minorUnits={minor} /> : <span className="muted">—</span>}
-          </div>
-          <div className="hint">{b.safeToSpendToday != null ? "остаток лимитов на оставшиеся дни" : "только для текущего месяца"}</div>
-          <Forecast b={b} minor={minor} />
-        </div>
       </div>
 
-      <PlanFactCard b={b} minor={minor} />
+      <div className="budget-plan-summary">
+        <PlanFactCard b={b} minor={minor} />
+      </div>
       <GroupsCard b={b} minor={minor} />
+      {b.lines.length > 0 && (
+        <p className="hint budget-fact-note" id="budget-fact-note">
+          Нажмите сумму в колонке «Факт», чтобы открыть операции категории за этот период.
+          Список может отличаться от расчёта бюджета из-за распределения расходов по месяцам,
+          пересчёта валют, событий или исключённых счетов.
+        </p>
+      )}
       <Lines b={b} kind="expense" minor={minor} />
       <Lines b={b} kind="income" minor={minor} />
 
-      <div className="columns">
+      <div className="columns budget-details">
         <Note b={b} />
         <div className="card">
           <h2>Бюджет</h2>
@@ -263,7 +277,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   const sym = b.currencySymbol;
   const [filled, setFilled] = useState<string | null>(null);
   // А2: пометка «+34 % к обычному» у категорий, где траты заметно не как обычно.
-  const usual = useQuery({ queryKey: ["usual", b.period.month], queryFn: () => api.spendingVsUsual(b.period.month), enabled: !income }).data;
+  const usual = useSpendingVsUsual(b.period.month, !income).data;
   const notable = new Map((usual?.monthsCounted ? usual.items : []).filter((u) => u.notable).map((u) => [u.categoryId, u]));
   const rollover = useAction((categoryId: string, on: boolean) => api.setBudgetRollover(b.id!, categoryId, on));
   const fill = useAction(
@@ -279,7 +293,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   };
 
   return (
-    <div className="card" data-testid={`budget-${kind}`}>
+    <div className="card budget-lines" data-testid={`budget-${kind}`}>
       <div className="notes-head">
         <h2>
           {income ? "Доходы" : "Расходы"}
@@ -305,93 +319,104 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
       {filled && !fill.error && <p className="hint" data-testid="budget-filled">{filled}</p>}
       {lines.length === 0 && <p className="muted">{income ? "Ожидаемые доходы не заданы." : "Лимитов пока нет. Добавьте категорию ниже."}</p>}
       {lines.length > 0 && (
-        <table className="table budget-table">
-          <thead>
-            <tr>
-              <th>Категория</th>
-              <th className="num">{income ? "План" : "Лимит"}</th>
-              <th className="num">Факт</th>
-              <th className="num">{income ? "Разница" : "Остаток"}</th>
-              <th className="bar-col" />
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l) => (
-              <tr
-                key={l.categoryId}
-                data-testid="budget-line"
-                data-category={l.categoryName}
-                data-focus={focusCat === l.categoryId || undefined}
-                className={[!income && barLevel(l.percent) === "over" && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
-              >
-                <td className={l.parentId ? "child-name" : "main"}>
-                  {l.categoryName}
-                  {notable.has(l.categoryId) && (
-                    <span
-                      className={(notable.get(l.categoryId)!.percent ?? 0) > 0 ? "usual-pill up" : "usual-pill down"}
-                      data-testid="usual-pill"
-                      title={`Обычно к этому дню: ${formatAmount(notable.get(l.categoryId)!.usual, 2)} ${usual?.baseSymbol ?? sym}`}
-                    >
-                      {usualLabel(notable.get(l.categoryId)!.percent)}
-                    </span>
-                  )}
-                  {!income && (
-                    <button
-                      className="icon-btn row-action rollover-btn"
-                      aria-pressed={l.rollover}
-                      aria-label={`Переносить остаток «${l.categoryName}» на следующий месяц`}
-                      title={l.rollover ? "Остаток переносится на следующий месяц. Нажмите, чтобы не переносить" : "Переносить неистраченный остаток на следующий месяц"}
-                      data-testid="budget-rollover"
-                      onClick={() => rollover.run(l.categoryId, !l.rollover)}
-                      disabled={rollover.busy}
-                    >
-                      <CornerDownRight size={14} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                  )}
-                  {!l.parentId && (
-                    <button
-                      className="icon-btn row-action"
-                      aria-label={`Лимит «${l.categoryName}» по среднему за 3 месяца`}
-                      title="Поставить лимит по среднему за 3 месяца"
-                      onClick={() => fill.run("average3", l.categoryId)}
-                      disabled={fill.busy}
-                    >
-                      ↺
-                    </button>
-                  )}
-                </td>
-                <td className="num">
-                  <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} basis={b.incomeBasis} days={periodDays(b)} />
-                  {l.carried > 0 && (
-                    <span className="carried" data-testid="budget-carried" title="Остаток прошлого месяца">
-                      + <Money amount={l.carried} symbol={sym} minorUnits={minor} /> с прошлого месяца
-                    </span>
-                  )}
-                </td>
-                <td className="num">
-                  <button
-                    className="link fact"
-                    title="Показать операции"
-                    onClick={() => showTransactions({ categoryId: l.categoryId, dateFrom: b.period.start, dateTo: b.period.end })}
-                  >
-                    <Money amount={l.actual} symbol={sym} minorUnits={minor} />
-                  </button>
-                </td>
-                <td className={l.over && !income ? "num over" : "num"}>
-                  <Money amount={l.remaining} symbol={sym} minorUnits={minor} />
-                </td>
-                <td className="bar-col">
-                  <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
-                    <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                  </div>
-                  <span className={income || barLevel(l.percent) === "ok" ? "percent" : `percent ${barLevel(l.percent)}`} data-testid="percent">
-                    {l.percent} %
-                  </span>
-                </td>
+        <div className="budget-table-scroll" role="region" aria-label={income ? "Таблица доходов" : "Таблица расходов"} tabIndex={0}>
+          <table className="table budget-table">
+            <thead>
+              <tr>
+                <th>Категория</th>
+                <th className="num">{income ? "План" : "Лимит"}</th>
+                <th className="num budget-fact-column">Факт</th>
+                <th className="num">{income ? "Разница" : "Остаток"}</th>
+                <th className="bar-col" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lines.map((l) => (
+                <tr
+                  key={l.categoryId}
+                  data-testid="budget-line"
+                  data-category={l.categoryName}
+                  data-focus={focusCat === l.categoryId || undefined}
+                  className={[!income && barLevel(l.percent) === "over" && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
+                >
+                  <td className={l.parentId ? "child-name" : "main"}>
+                    {l.categoryName}
+                    {notable.has(l.categoryId) && (
+                      <span
+                        className={(notable.get(l.categoryId)!.percent ?? 0) > 0 ? "usual-pill up" : "usual-pill down"}
+                        data-testid="usual-pill"
+                        title={`Обычно к этому дню: ${formatAmount(notable.get(l.categoryId)!.usual, 2)} ${usual?.baseSymbol ?? sym}`}
+                      >
+                        {usualLabel(notable.get(l.categoryId)!.percent)}
+                      </span>
+                    )}
+                    {!income && (
+                      <button
+                        className="icon-btn row-action rollover-btn"
+                        aria-pressed={l.rollover}
+                        aria-label={`Переносить остаток «${l.categoryName}» на следующий месяц`}
+                        title={l.rollover ? "Остаток переносится на следующий месяц. Нажмите, чтобы не переносить" : "Переносить неистраченный остаток на следующий месяц"}
+                        data-testid="budget-rollover"
+                        onClick={() => rollover.run(l.categoryId, !l.rollover)}
+                        disabled={rollover.busy}
+                      >
+                        <CornerDownRight size={14} strokeWidth={2} aria-hidden="true" />
+                      </button>
+                    )}
+                    {!l.parentId && (
+                      <button
+                        className="icon-btn row-action"
+                        aria-label={`Лимит «${l.categoryName}» по среднему за 3 месяца`}
+                        title="Поставить лимит по среднему за 3 месяца"
+                        onClick={() => fill.run("average3", l.categoryId)}
+                        disabled={fill.busy}
+                      >
+                        ↺
+                      </button>
+                    )}
+                  </td>
+                  <td className="num">
+                    <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} basis={b.incomeBasis} days={periodDays(b)} />
+                    {l.carried > 0 && (
+                      <span className="carried" data-testid="budget-carried" title="Остаток прошлого месяца">
+                        + <Money amount={l.carried} symbol={sym} minorUnits={minor} /> с прошлого месяца
+                      </span>
+                    )}
+                  </td>
+                  <td className="num budget-fact-column">
+                    <button
+                      type="button"
+                      className="link fact"
+                      title={`Открыть ${income ? "доходы" : "расходы с возвратами"} категории «${l.categoryName}»`}
+                      aria-describedby="budget-fact-note"
+                      onClick={() => showTransactions({
+                        categoryId: l.categoryId,
+                        dateFrom: b.period.start,
+                        dateTo: b.period.end,
+                        types: [kind],
+                        counted: true,
+                      })}
+                    >
+                      <Money amount={l.actual} symbol={sym} minorUnits={minor} />
+                      <span className="sr-only"> — открыть операции категории «{l.categoryName}»</span>
+                    </button>
+                  </td>
+                  <td className={l.over && !income ? "num over" : "num"}>
+                    <Money amount={l.remaining} symbol={sym} minorUnits={minor} />
+                  </td>
+                  <td className="bar-col">
+                    <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
+                      <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
+                    </div>
+                    <span className={income || barLevel(l.percent) === "ok" ? "percent" : `percent ${barLevel(l.percent)}`} data-testid="percent">
+                      {l.percent} %
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {!income && b.unbudgetedExpense > 0 && (
         <p className="hint">

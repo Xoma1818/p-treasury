@@ -12,6 +12,7 @@ import { loadAllTransactionIds } from "../lib/transactionSelection";
 import { ImportDialog, useExport } from "../components/DataTools";
 import { TxnHeadBar } from "../components/TxnHeadBar";
 import { onFileDrop, statementOf } from "../lib/fileDrop";
+import { ImportSaveGuard } from "../lib/importSaveGuard";
 import { AccountSelect, CategorySelect } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
@@ -19,8 +20,10 @@ import { TxnTable } from "../components/TxnTable";
 import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
 import { monthBounds, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
+import "./transactions.css";
 
 const PAGE = 100;
 
@@ -75,26 +78,28 @@ export function Transactions() {
   }, [search]);
 
   const query = { ...f, sort: sortParam(table), limit };
-  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData });
+  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData, staleTime: AGGREGATE_STALE_MS });
+  const finding = search !== (f.search ?? "") || page.isPlaceholderData;
   const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions(f, path), ["csv", "xlsx", "ofx"]);
   // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
   const [importFile, setImportFile] = useState<string | null | undefined>(undefined);
   const [importKey, setImportKey] = useState(0);
+  const [importSaveGuard] = useState(() => new ImportSaveGuard());
   const [dropping, setDropping] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
   useEffect(
     () =>
       onFileDrop((s) => {
-        if (s === "over") return setDropping(true);
+        if (s === "over") return setDropping(!importSaveGuard.busy);
         setDropping(false);
-        if (s === "leave") return;
+        if (s === "leave" || importSaveGuard.busy) return;
         const file = statementOf(s.paths);
         if (!file) return setDropError("Этот файл не выписка: подойдёт Excel (.xlsx, .xls), CSV или PDF");
         setDropError(null);
         setImportKey((k) => k + 1);
         setImportFile(file);
       }),
-    [],
+    [importSaveGuard],
   );
   const set = (patch: Partial<TxnFilter>) => {
     setLimit(PAGE);
@@ -250,7 +255,7 @@ export function Transactions() {
           Отпустите файл, чтобы загрузить выписку
         </p>
       )}
-      {importFile !== undefined && <ImportDialog key={importKey} initialPath={importFile ?? undefined} onClose={() => setImportFile(undefined)} />}
+      {importFile !== undefined && <ImportDialog key={importKey} initialPath={importFile ?? undefined} saveGuard={importSaveGuard} onClose={() => setImportFile(undefined)} />}
       <ErrorText error={selectionError} />
       {selectingAll && <p className="hint" role="status" data-testid="select-all-loading">Выделяем все найденные операции…</p>}
       <SavedViews
@@ -260,7 +265,7 @@ export function Transactions() {
       />
       <div className="card filters" data-testid="filters">
         <div className="filters-row">
-          <input type="search" name="search" data-search placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => {
+          <input type="search" name="search" data-search aria-label="Поиск операций" placeholder="Поиск: получатель, комментарий, сумма" value={search} onChange={(e) => {
             cancelSelection();
             selectAllRef.current = false;
             setSel(EMPTY_SEL);
@@ -344,20 +349,36 @@ export function Transactions() {
           </div>
         )}
       </div>
-      <div className="card">
+      <div className="card" role="region" aria-labelledby="txn-results-title">
+        <header className="txn-results-header">
+          <h2 id="txn-results-title">Результаты</h2>
+          <span className="muted txn-results-status" role="status">
+            {page.isPending ? "Загружаем операции…" : finding && page.data ? "Обновляем список. Пока показаны предыдущие результаты." : null}
+          </span>
+          {page.data && (
+            <div className="muted" data-testid="txn-count">
+              Показано {page.data.items.length} из {page.data.total}
+              {sel.ids.size === 0 && <Hint of="txn.select" />}
+            </div>
+          )}
+        </header>
+        {f.counted && f.types?.includes("expense") && (
+          <p className="hint">
+            Возвраты подобраны по дате учёта, распределённые расходы — по датам их частей.
+            В таблице показаны исходные даты и полные суммы операций.
+          </p>
+        )}
         {page.error && <p className="error">{String(page.error)}</p>}
         {page.data && (
           <>
             <TxnTable items={page.data.items} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />
-            <div className="table-foot muted" data-testid="txn-count">
-              Показано {page.data.items.length} из {page.data.total}
-              {sel.ids.size === 0 && <Hint of="txn.select" />}
-              {page.data.items.length < page.data.total && (
-                <button className="link" onClick={() => setLimit(limit + PAGE)}>
+            {page.data.items.length < page.data.total && (
+              <div className="table-foot muted">
+                <button className="link" disabled={finding} onClick={() => setLimit(limit + PAGE)}>
                   Показать ещё
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -365,6 +386,7 @@ export function Transactions() {
         ids={[...sel.ids]}
         filter={{ ...f, limit: undefined, offset: undefined }}
         filtered={filtered}
+        pageReady={page.isError || (page.isSuccess && !page.isPlaceholderData)}
         onClear={() => {
           cancelSelection();
           selectAllRef.current = false;

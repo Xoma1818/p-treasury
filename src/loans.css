@@ -63,8 +63,7 @@
 .loan-chart .grid { stroke: var(--border); stroke-width: 1; }
 .loan-chart .axis-line { stroke: var(--border-strong); stroke-width: 1; }
 .loan-chart .axis { font-size: 11px; fill: var(--muted); }
-.loan-chart .area { animation: fade-in 700ms 300ms var(--ease) both; }
-.loan-chart .line-base { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 5 5; opacity: 0.8; animation: fade-in 500ms var(--ease) both; }
+.loan-chart .line-base { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 5 5; opacity: 0.8; }
 .loan-chart .line-main { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
 .loan-chart .hover line { stroke: var(--border-strong); stroke-width: 1; }
 .loan-chart .hover circle { fill: var(--card); stroke: var(--accent); stroke-width: 2; }

@@ -1,3 +1,5 @@
+import { today } from "../lib/dates";
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAction } from "../lib/useAction";
@@ -24,7 +26,7 @@ export function monthsWord(tenths: number): string {
 
 /** Главная → «Финансовая подушка»: деньги на счетах / средние расходы, с целью в месяцах. */
 export function CushionCard() {
-  const c = useQuery({ queryKey: ["cushion"], queryFn: api.cushion }).data;
+  const c = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["cushion", today()], queryFn: api.cushion }).data;
   const setGoal = useAction((m: number) => api.setSetting("cushion_goal_months", String(m)));
   if (!c) return null;
   const tenths = c.monthsTenths;

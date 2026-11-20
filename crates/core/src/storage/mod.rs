@@ -156,6 +156,16 @@ impl Storage {
                 "копию не удалось обновить до текущей версии, данные не изменены: {e}"
             ))
         })?;
+        let violations: i64 = prepared.conn.query_row(
+            "SELECT count(*) FROM pragma_foreign_key_check",
+            [],
+            |row| row.get(0),
+        )?;
+        if violations != 0 {
+            return Err(Error::Validation(
+                "копия содержит нарушенные связи, данные не изменены".into(),
+            ));
+        }
         {
             let local = local_settings(&self.conn)?;
             let tx = prepared.conn.transaction()?;

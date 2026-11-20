@@ -1,3 +1,4 @@
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { weekdayIndex } from "../lib/fine";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MonthsReport, type Period } from "../lib/api";
@@ -14,6 +15,7 @@ const DONUT = ["var(--series-expense)", "#60a5fa", "#a78bfa", "#f472b6", "var(--
 export function useDashboard(period: Period | undefined) {
   const date = today();
   const months = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["dashMonths", period?.month],
     queryFn: () => api.reportByMonth(shiftMonth(period!.month, -5), period!.month),
     enabled: !!period,
@@ -23,6 +25,7 @@ export function useDashboard(period: Period | undefined) {
   const elapsed = period ? daysBetween(period.start, date <= period.end ? date : period.end) : 0;
   const prevEnd = prev ? minDate(addDays(prev.start, elapsed), prev.end) : undefined;
   const prevSame = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", prev?.start, prevEnd],
     queryFn: () => api.periodSummary(prev!.start, prevEnd!),
     enabled: !!period && !!prev && !!prevEnd,
@@ -101,7 +104,8 @@ export function sparkSeries(r: MonthsReport | undefined, total: number | undefin
 
 /** «Сводка месяца»: главное о месяце словами и норма сбережений кольцом. */
 export function SummaryCard({ period }: { period: Period }) {
-  const month = useQuery({ queryKey: ["summary", period.start, period.end], queryFn: () => api.periodSummary(period.start, period.end) }).data;
+  const month = useQuery({ staleTime: AGGREGATE_STALE_MS,
+    queryKey: ["summary", period.start, period.end], queryFn: () => api.periodSummary(period.start, period.end) }).data;
   const { prevSame } = useDashboard(period);
   const cats = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) }).data;
   const budget = useBudget(period.month).data;

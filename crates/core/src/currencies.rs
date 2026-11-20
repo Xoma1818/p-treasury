@@ -185,7 +185,7 @@ pub fn current_rates(conn: &Connection, codes: &[String], on: &str) -> Result<Ve
                 Some(f) => CurrentRate {
                     code: code.clone(),
                     rate: Some(if f.inverse {
-                        invert_string(&f.rate)
+                        invert_string(&f.rate)?
                     } else {
                         f.rate.to_string()
                     }),
@@ -205,21 +205,23 @@ pub fn current_rates(conn: &Connection, codes: &[String], on: &str) -> Result<Ve
 
 /// Курс `1 from = ? to` на дату строкой (для подстановки в форму).
 pub fn rate_on(conn: &Connection, from: &str, to: &str, on: &str) -> Result<Option<String>> {
-    Ok(find_rate(conn, from, to, on)?.map(|(rate, inverse)| {
-        if inverse {
-            invert_string(&rate)
-        } else {
-            rate.to_string()
-        }
-    }))
+    find_rate(conn, from, to, on)?
+        .map(|(rate, inverse)| {
+            if inverse {
+                invert_string(&rate)
+            } else {
+                Ok(rate.to_string())
+            }
+        })
+        .transpose()
 }
 
-fn invert_string(rate: &Rate) -> String {
+fn invert_string(rate: &Rate) -> Result<String> {
     // 1 / rate с шестью знаками: пересчитываем 1,000000 единицу по обратному курсу.
-    let micro = rate.convert_inverse(1_000_000, 0, 0);
-    Rate::from_amounts(1_000_000, 0, micro.max(1), 0)
+    let micro = rate.convert_inverse(1_000_000, 0, 0)?;
+    Ok(Rate::from_amounts(1_000_000, 0, micro.max(1), 0)
         .map(|r| r.to_string())
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
 /// Пересчитать сумму между валютами по курсу на дату. `None`, если курса нет.
@@ -234,13 +236,15 @@ pub fn convert(
         return Ok(Some(amount));
     }
     let (from_minor, to_minor) = (minor_units(conn, from)?, minor_units(conn, to)?);
-    Ok(find_rate(conn, from, to, on)?.map(|(rate, inverse)| {
-        if inverse {
-            rate.convert_inverse(amount, from_minor, to_minor)
-        } else {
-            rate.convert(amount, from_minor, to_minor)
-        }
-    }))
+    find_rate(conn, from, to, on)?
+        .map(|(rate, inverse)| {
+            if inverse {
+                rate.convert_inverse(amount, from_minor, to_minor)
+            } else {
+                rate.convert(amount, from_minor, to_minor)
+            }
+        })
+        .transpose()
 }
 
 #[cfg(test)]

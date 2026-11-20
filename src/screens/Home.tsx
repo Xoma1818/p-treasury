@@ -1,3 +1,4 @@
+import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { CrashGuard } from "../components/Crash";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useModules } from "../lib/modules";
@@ -32,6 +33,7 @@ import { AddMenu } from "../components/AddMenu";
 import { FiguresCard } from "../components/Figures";
 import { useFine } from "../lib/fine";
 import type { HomePeriodKind } from "../lib/api";
+import "./homeOverview.css";
 
 const BLOCK_DRAG = "application/x-p-treasury-block";
 
@@ -41,20 +43,21 @@ export function Home() {
   const [cbrUsed, setCbrUsed] = useState(false);
   // Месяц считается от настройки «первый день месяца», как в бюджете.
   const period = useMonthOf(date).data;
-  const totals = useQuery({ queryKey: ["totals", date], queryFn: () => api.totals(date) });
-  const free = useQuery({ queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
+  const totals = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["totals", date], queryFn: () => api.totals(date) });
+  const free = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["freeUntilIncome", date], queryFn: api.freeUntilIncome }).data;
   const month = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", period?.start, period?.end],
     queryFn: () => api.periodSummary(period!.start, period!.end),
     enabled: !!period,
   });
   const budget = useBudget(period?.month).data;
-  const debts = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary }).data;
+  const debts = useQuery({ queryKey: ["debtSummary", date], queryFn: api.debtSummary, staleTime: AGGREGATE_STALE_MS }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
   const vault = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus }).data;
   const syncVault = useAction(api.vaultSync);
-  const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }) });
+  const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }), staleTime: AGGREGATE_STALE_MS });
   const accounts = useAccounts().data ?? [];
   const { showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);
@@ -72,11 +75,13 @@ export function Home() {
   }).data;
   const custom = homeKind !== "month" && range?.kind === homeKind ? range : null;
   const rangeSum = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", custom?.from, custom?.to],
     queryFn: () => api.periodSummary(custom!.from, custom!.to),
     enabled: !!custom,
   }).data;
   const rangePrev = useQuery({
+    staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", custom?.prevFrom, custom?.prevTo],
     queryFn: () => api.periodSummary(custom!.prevFrom, custom!.prevTo),
     enabled: !!custom,
@@ -97,8 +102,14 @@ export function Home() {
   const tileWhen = homeKind === "month" ? monthShort : homeKind === "week" ? "неделя" : "с зарплаты";
   const tileFrom = homeKind === "month" ? period?.start : custom?.from;
   const tileTo = homeKind === "month" ? period?.end : custom?.to;
+  const openPeriodOperations = (type: "income" | "expense") => {
+    if (tileFrom && tileTo) {
+      showTransactions({ dateFrom: tileFrom, dateTo: tileTo, types: [type], counted: true });
+    }
+  };
   const prevHint = homeKind === "month" ? "к тем же дням прошлого месяца" : "к тем же дням прошлого периода";
   const sparks = homeKind === "month";
+  const hasBalanceChart = spark.balance.length > 1;
 
   const blocks: Record<HomeBlock, React.ReactNode> = {
     quick: (
@@ -138,17 +149,23 @@ export function Home() {
               </span>
             )}
           </div>
-          <div className="tiles">
-            <div className="card tile" data-testid="total-balance">
-              <div className="tile-label">
-                Общий баланс
-                <Hint of="home.balance" />
-                <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
+          <div className="tiles home-overview">
+            <div className={hasBalanceChart ? "card tile home-balance has-chart" : "card tile home-balance"} data-testid="total-balance">
+              <div className="home-balance-main">
+                <div className="tile-label">
+                  Общий баланс
+                  <Hint of="home.balance" />
+                  <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
+                </div>
+                <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-balance" onClick={() => setExplain("balance")}>{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</button>
               </div>
-              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-balance" onClick={() => setExplain("balance")}>{totals.data && <Money amount={totals.data.total} symbol={symbol} animate />}</button>
-              <Sparkline values={spark.balance} />
+              {hasBalanceChart && (
+                <div className="home-balance-chart" role="img" aria-label="Динамика общего баланса по месяцам" title="Динамика общего баланса по месяцам">
+                  <Sparkline values={spark.balance} />
+                </div>
+              )}
               {free && (
-                <button type="button" className="link free-line" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитано">
+                <button type="button" className="link free-line home-balance-detail" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитано">
                   {free.free > 0 ? (
                     <>
                       Свободно до {free.income ? formatDate(free.until) : "конца месяца"}: <Money amount={free.free} symbol={symbol} /> · <Money amount={free.perDay} symbol={symbol} /> в день
@@ -160,13 +177,13 @@ export function Home() {
               )}
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
-                <div className={totals.data.missingRates.length > 0 ? "hint warn" : "hint"} data-testid="home-missing-rates">
+                <div className={totals.data.missingRates.length > 0 ? "hint warn home-balance-detail" : "hint home-balance-detail"} data-testid="home-missing-rates">
                   {totals.data.missingRates.length > 0 && <>Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли.</>}
                   <CbrButton small label="Загрузить курс ЦБ" onLoaded={() => setCbrUsed(true)} />
                 </div>
               )}
               {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0 || debts.assets !== 0) && (
-                <div className="hint" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
+                <div className="hint home-balance-detail" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
                   Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <Money amount={debts.netWorth} symbol={symbol} />
                   <NetWorthSpark />
                 </div>
@@ -185,6 +202,11 @@ export function Home() {
                   Норма сбережений {shown.savingsRate} %
                 </div>
               )}
+              {shown && tileFrom && tileTo && (
+                <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("income")}>
+                  Открыть доходы за период
+                </button>
+              )}
             </div>
             <div className="card tile" data-testid="month-expense">
               <div className="tile-label">
@@ -194,6 +216,11 @@ export function Home() {
               </div>
               <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{shown && <Money amount={shown.expense} symbol={symbol} animate />}</button>
               {sparks && <Sparkline values={spark.expense} className="expense" />}
+              {shown && tileFrom && tileTo && (
+                <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("expense")}>
+                  Открыть расходы и возвраты
+                </button>
+              )}
             </div>
             <div className="card tile">
               <div className="tile-label">
@@ -255,12 +282,17 @@ export function Home() {
               Бюджета на {monthShort} нет <span className="go">Составить →</span>
             </button>
           ) : (
-            <div className="card clickable" data-testid="home-budget" onClick={() => go("budget")}>
-              <h2>Бюджет, {monthName}</h2>
+            <div className="card home-budget-card" data-testid="home-budget">
+              <h2>
+                <button type="button" className="home-budget-link" onClick={() => go("budget")}>
+                  Бюджет{monthName && `, ${monthName}`}
+                  <span aria-hidden="true">→</span>
+                </button>
+              </h2>
               {budget?.id && (
                 <>
-                  <p>
-                    Можно тратить сегодня:{" "}
+                  <p className="home-budget-today">
+                    <span>Можно тратить сегодня</span>
                     <b data-testid="home-safe-to-spend">
                       {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
                     </b>
