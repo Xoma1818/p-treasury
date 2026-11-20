@@ -110,7 +110,8 @@ input[type="range"]:active:not(:disabled)::-moz-range-thumb { transform: scale(1
   }
   :root .motion-segments > .tab:is(.active, :hover),
   :root .theme-switch > button[aria-pressed="true"] { background: transparent; }
-  :root .motion-segments > .tab { white-space: normal; }
+  :root .motion-segments > .tab { white-space: normal; font-weight: 500; }
+  :root .motion-segments > .tab.active:not(:focus-visible) { box-shadow: none; }
   :root .motion-segments > .tab:is(.active, [aria-selected="true"], [aria-pressed="true"]) { color: var(--text); }
 }
 

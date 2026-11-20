@@ -31,8 +31,12 @@
 }
 
 .home-overview.tiles {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   container-type: inline-size;
+}
+
+@media (max-width: 900px) {
+  .home-overview.tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); }
 }
 
 .home-overview .home-balance {
