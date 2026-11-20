@@ -1,0 +1,55 @@
+name: Проверка установщика PR 97
+on:
+  push:
+    branches: [codex/qa-pr97-installer]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      SOURCE_RUN: '44824907007'
+      SOURCE_SHA: ed2628126ba1d03187eb8cc02ef772e00ea918b0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Проверка сборки и архива
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $run = gh api "repos/$repo/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:SOURCE_SHA -or $run.conclusion -ne 'success') { throw 'Сборка кандидата не подтверждена' }
+          $artifacts = gh api "repos/$repo/actions/runs/$env:SOURCE_RUN/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Не получен список артефактов' }
+          $artifact = @($artifacts.artifacts | Where-Object { $_.name -eq 'kazna-windows-installer' -and !$_.expired })
+          if ($artifact.Count -ne 1 -or $artifact[0].digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Нет однозначного установщика с SHA-256' }
+          $zip = Join-Path $env:RUNNER_TEMP 'kazna-installer.zip'
+          $env:KAZNA_INSTALL_ARTIFACT_URL = "https://api.github.com/repos/$repo/actions/artifacts/$($artifact[0].id)/zip"
+          Invoke-WebRequest -Uri $env:KAZNA_INSTALL_ARTIFACT_URL -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'} -OutFile $zip
+          if ('sha256:' + (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $artifact[0].digest) { throw 'SHA-256 скачанного архива не совпал' }
+          $bundle = Join-Path $env:RUNNER_TEMP 'kazna-bundle'
+          Expand-Archive -LiteralPath $zip -DestinationPath $bundle
+      - name: Установка и проверка настоящего окна
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $env:RUNNER_TEMP 'kazna-bundle'
+          $installer = @(Get-ChildItem -LiteralPath $bundle -Recurse -File | Where-Object { $_.Name -match '^Kazna_.+_x64-setup\.exe$' })
+          if ($installer.Count -ne 1) { throw 'Не найден ровно один установщик Kazna' }
+          $dest = Join-Path $env:RUNNER_TEMP 'Kazna-Pr97'
+          if ($dest -match '\s' -or (Test-Path -LiteralPath $dest)) { throw 'Нужна пустая папка без пробелов' }
+          $p = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$dest") -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "NSIS завершился с кодом $($p.ExitCode)" }
+          if (!(Test-Path -LiteralPath (Join-Path $dest 'Kazna.exe')) -or !(Test-Path -LiteralPath (Join-Path $dest 'uninstall.exe'))) { throw 'Установка не создала ожидаемые файлы' }
+          node .github/qa/pr97-inspect.mjs (Join-Path $dest 'Kazna.exe') (Join-Path $env:RUNNER_TEMP 'kazna-qa') --packaged --all --no-shots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $db = @(Get-ChildItem -LiteralPath '.github/qa' -Recurse -Filter 'budget.db')
+          if ($db.Count -ne 1 -or $db[0].Length -le 0) { throw 'Не найдена отдельная тестовая база' }
+          Write-Host 'Архив проверен, установщик отработал, приложение открыло 11 разделов с отдельной базой.'
