@@ -7,7 +7,8 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type DebtCard, type DebtDetail, type LoanChangeInput, type LoanCompare, type LoanSnap, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { annualHint, earlyLines, keptRate, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
+import { useFine } from "../../lib/fine";
+import { annualHint, earlyLines, forecastChartRows, keptRate, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
 import { parseAmount } from "../../lib/money";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -15,7 +16,7 @@ import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor } from "./Editors";
 import { PayEverySelect, RatePeriodSelect } from "./LoanPlanner";
 
-const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} minorUnits={card.minorUnits} />;
+const money = (card: DebtCard, symbol = card.currencySymbol) => (v: number) => <Money amount={v} symbol={symbol} minorUnits={card.minorUnits} />;
 
 /** Строка «было → стало» с подсветкой того, что изменилось. */
 function Diff({ label, was, now, testid, changed }: { label: string; was: ReactNode; now: ReactNode; testid?: string; changed?: boolean }) {
@@ -389,15 +390,18 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
 export function PlannedBlock({ detail }: { detail: DebtDetail }) {
   const c = detail.card;
   const mu = c.minorUnits;
+  const symbol = useFine().code ? c.currencyCode : c.currencySymbol;
   const [lines, setLines] = useState<EarlyLine[]>(() => earlyLines(detail.plannedEarly, mu));
   const forecast = useQuery({ queryKey: ["debtForecast", c.id], queryFn: () => api.debtForecast(c.id) });
   const save = useAction(() => api.setDebtPlannedEarly(c.id, plannedEarly(lines, mu)));
-  const m = money(c);
+  const m = money(c, symbol);
   // Пока досрочки не сохранены — «было → станет» по прогнозу.
   const draft = plannedEarly(lines, mu);
   const dirty = JSON.stringify(draft) !== JSON.stringify(detail.plannedEarly.map((p) => ({ amount: p.amount, startDate: p.startDate, frequency: p.frequency, endDate: p.endDate, mode: p.mode })));
   const preview = useChangePreview(c, dirty ? { kind: "plannedEarly", list: draft } : null);
   const fc = forecast.data;
+  const chartFrom = fc && fc.from > c.issueDate ? fc.from : c.issueDate;
+  const hasOverdue = detail.schedule.some((row) => row.status === "pending" && row.dueDate < chartFrom);
   const hasPlanned = detail.plannedEarly.length > 0;
   return (
     <div className="columns loan-two">
@@ -406,7 +410,7 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
           Плановые досрочки
           <Hint of="loan.planned" />
         </h2>
-        <EarlyEditor lines={lines} onChange={setLines} minorUnits={mu} symbol={c.currencySymbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
+        <EarlyEditor lines={lines} onChange={setLines} minorUnits={mu} symbol={symbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
         {preview.compare && <LoanCompareTable card={c} compare={preview.compare} after="После сохранения" />}
         {preview.error && <p className="hint warn">{String(preview.error)}</p>}
         <div className="actions">
@@ -441,7 +445,15 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
                 <dd>{m(fc.savings)}</dd>
               </div>
             </dl>
-            <BalanceChart base={{ rows: detail.schedule, early: [] }} withEarly={{ rows: fc.rows, early: fc.early }} issueDate={c.issueDate} principal={c.principal} symbol={c.currencySymbol} minorUnits={mu} />
+            <p className="sub">Прогноз с {formatDate(chartFrom)}{hasOverdue && ". Предполагаем, что в этот день будут внесены все просроченные платежи."}</p>
+            <BalanceChart
+              base={{ rows: forecastChartRows(detail.schedule, chartFrom), early: [] }}
+              withEarly={{ rows: forecastChartRows(fc.rows, chartFrom), early: fc.early.filter((p) => p.planned && p.date >= chartFrom) }}
+              issueDate={chartFrom}
+              principal={c.outstanding}
+              symbol={symbol}
+              minorUnits={mu}
+            />
           </>
         ) : (
           <p className="muted">Добавьте плановые досрочки и сохраните: здесь появятся дата закрытия и экономия.</p>

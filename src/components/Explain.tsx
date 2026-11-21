@@ -216,7 +216,7 @@ function FreeParts() {
   const data = useQuery({ queryKey: ["freeUntilIncome", today()], queryFn: api.freeUntilIncome }).data;
   const currency = useCurrencies().data?.find((c) => c.code === data?.baseCurrency);
   if (!data) return null;
-  const money = { symbol: currency?.symbol ?? data.baseCurrency, minorUnits: currency?.minorUnits };
+  const money = { symbol: currency?.symbol ?? data.baseCurrency, currencyCode: data.baseCurrency, minorUnits: currency?.minorUnits };
   const end = addDays(data.until, -1);
   return (
     <>

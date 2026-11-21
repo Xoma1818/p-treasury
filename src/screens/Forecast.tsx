@@ -257,7 +257,7 @@ function ForecastView({ f, second }: { f: ForecastData; second: ForecastData | n
         )}
       </div>
 
-      <MonthsTable f={f} showAmounts={showAmounts} />
+      <MonthsTable f={f} second={second} showAmounts={showAmounts} />
       <HowCounted f={f} />
     </>
   );
@@ -408,7 +408,7 @@ const ITEM_KIND: Record<ForecastItem["kind"], string> = {
   change: "сценарий",
 };
 
-function MonthsTable({ f, showAmounts }: { f: ForecastData; showAmounts: boolean }) {
+function MonthsTable({ f, second, showAmounts }: { f: ForecastData; second: ForecastData | null; showAmounts: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const detailPrefix = useId();
   const withScenario = f.scenarioId != null;
@@ -432,6 +432,7 @@ function MonthsTable({ f, showAmounts }: { f: ForecastData; showAmounts: boolean
           {f.months.map((m, i) => {
             const isOpen = open === m.month;
             const detailId = `${detailPrefix}-${m.month}`;
+            const comparison = second?.months.find((month) => month.month === m.month)?.scenario;
             const season = (m.seasonIncome || m.seasonExpense) && (showAmounts
               ? seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits)
               : "как год назад. Сумма скрыта");
@@ -471,6 +472,20 @@ function MonthsTable({ f, showAmounts }: { f: ForecastData; showAmounts: boolean
                     <td colSpan={withScenario ? 5 : 4}>
                       <div className="fc-detail-grid">
                         <div>
+                          <div className="fc-detail-row">
+                            <span>На начало месяца</span>
+                            <M amount={m.opening} />
+                          </div>
+                          {comparison && <div className="fc-detail-row" data-testid="fc-second-closing">
+                            <span>{second?.scenarioName} · на конец месяца</span>
+                            <M amount={comparison.closing} />
+                          </div>}
+                          {f.goals.filter((goal) => goal.month === m.month).map((goal) => (
+                            <div className="fc-detail-row" key={goal.id}>
+                              <span>Цель «{goal.name}»</span>
+                              <M amount={goal.need} />
+                            </div>
+                          ))}
                           <div className="fc-detail-row">
                             <span>Обычные доходы {i === 0 ? "(ещё ожидаются)" : "(среднее)"}</span>
                             <M amount={m.regularIncome} />

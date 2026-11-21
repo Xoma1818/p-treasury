@@ -115,7 +115,7 @@ export function Home() {
     <div className="home-budget-today">
       <span>Дневной лимит по бюджету</span>
       <b data-testid="home-safe-to-spend">
-        {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} minorUnits={budgetCurrency?.minorUnits} /> : "—"}
+        {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={budgetCurrency?.minorUnits} /> : "—"}
       </b>
       <small className="hint">{budget.safeToSpendToday == null ? "Доступен в текущем бюджетном месяце." : `Остаток лимитов расходов распределён по дням с ${formatDate(date)} по ${formatDate(budget.period.end)} включительно.`}</small>
       {budget.missingRates.length > 0 && <small className="hint warn">Часть расходов не учтена. Нет курса для {budget.missingRates.join(", ")}.</small>}
@@ -184,7 +184,7 @@ export function Home() {
                 <div className="home-balance-detail">
                   <button type="button" className="link free-line" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитан свободный остаток" aria-haspopup="dialog">
                     {free.income ? `Свободно до дохода ${formatDate(free.until)}` : `Свободно до конца бюджетного месяца · по ${formatDate(addDays(free.until, -1))}`}{" · "}
-                    <Money amount={free.free} symbol={freeCurrency?.symbol ?? free.baseCurrency} minorUnits={freeCurrency?.minorUnits} />
+                    <Money amount={free.free} symbol={freeCurrency?.symbol ?? free.baseCurrency} currencyCode={free.baseCurrency} minorUnits={freeCurrency?.minorUnits} />
                   </button>
                   {free.missingRates.length > 0 && <span className="hint warn">Неполный расчёт. Нет курса для {free.missingRates.join(", ")}.</span>}
                 </div>

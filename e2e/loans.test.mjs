@@ -189,6 +189,20 @@ test("плановые досрочки дают прогноз, «а что е�
   await choose(browser, "early-freq-0", "раз в месяц");
   await click(browser, "Сохранить досрочки");
   await waitText(browser, '[data-testid="forecast-savings"]', /\d/);
+  const snapshot = await browser.executeAsync((done) => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    invoke("list_debts").then((debts) => {
+      const { id } = debts.find((d) => d.counterparty === "Банк");
+      return Promise.all([invoke("get_debt", { id }), invoke("debt_forecast", { id })]);
+    }).then(([{ card }, forecast]) => done({ from: forecast.from, balance: card.outstanding, principal: card.principal }), (error) => done({ error: String(error) }));
+  });
+  assert.ifError(snapshot.error);
+  assert.deepEqual([snapshot.principal, snapshot.balance], [30_000_000, 25_000_000]);
+  const readout = '[data-testid="forecast"] [data-testid="loan-chart-readout"]';
+  assert.equal(await (await browser.$(readout + " time")).getAttribute("datetime"), snapshot.from);
+  for (const i of ["first-child", "last-child"]) {
+    await waitText(browser, readout + " .legend > span:" + i, money("250 000 ₽"));
+  }
 
   await (await browser.$('[data-testid="tab-whatif"]')).click();
   const outstanding = await (await browser.$('[data-testid="debt-outstanding"]')).getText();
@@ -224,4 +238,63 @@ test("«Скачать график»: PDF с подписями и Excel по �
 test("деньги: выдача пришла на карту, досрочка ушла с неё", async () => {
   await openSection(browser, "Счета");
   await waitText(browser, '//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="Карта"]]', money("350 000 ₽"));
+});
+
+test("остаток на день обычного и досрочного платежа учитывает обе суммы", async () => {
+  await openSection(browser, "Займы и долги");
+  await click(browser, "Калькулятор");
+  await fill(browser, "principal", "12000");
+  await fill(browser, "rate", "0");
+  await choose(browser, "termUnit", "месяцев");
+  await fill(browser, "term", "3");
+  await setDate(browser, "issueDate", "2026-11-14");
+  await setDate(browser, "firstPayment", "2026-11-15");
+  await click(browser, "+ Досрочное погашение");
+  await fill(browser, "early-amount-0", "1000");
+  await setDate(browser, "early-date-0", "2026-11-15");
+  await choose(browser, "early-mode-0", "уменьшать срок");
+  await waitText(browser, '[data-testid="plan-early"]', money("1 000 ₽"));
+  const slider = await browser.$('[aria-label="Дата остатка долга"]');
+  await browser.execute((input) => input.focus(), slider);
+  await browser.keys("Home");
+  await waitText(browser, '[data-testid="loan-chart-readout"]', money("12 000 ₽"));
+  for (const day of ["15.11.2026", "16.11.2026"]) {
+    await browser.keys("ArrowRight");
+    await browser.waitUntil(async () => (await slider.getAttribute("aria-valuetext")).startsWith(day), { timeout: 5000 });
+    await waitText(browser, '[data-testid="loan-chart-readout"] .legend > span:first-child', money("8 000 ₽"));
+    await waitText(browser, '[data-testid="loan-chart-readout"] .legend > span:last-child', money("7 000 ₽"));
+  }
+});
+
+test("при смене RUB на JPY график и действия ждут расчёт в новой валюте", async () => {
+  await openSection(browser, "Настройки");
+  const fineCard = await browser.$('[data-testid="fine-card"]');
+  await fineCard.waitForExist({ timeout: 5000 });
+  if (!(await browser.execute((card) => card.open, fineCard))) await (await fineCard.$("summary")).click();
+  await choose(browser, "fineCode", "Кодом: 1 200 RUB");
+  await openSection(browser, "Займы и долги");
+  await click(browser, "Калькулятор");
+  await fill(browser, "principal", "12000");
+  const readout = '[data-testid="loan-chart-readout"]';
+  await waitText(browser, readout, money("12 000 RUB"));
+  const transition = await browser.executeAsync((done) => {
+    const el = document.querySelector('select[name="currency"]');
+    el.value = "JPY";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    queueMicrotask(() => {
+      const buttons = [...document.querySelectorAll(".loan-actions button")].filter((b) =>
+        ["Записать заём", "Скачать график", "PDF для подписи"].includes(b.textContent.trim()));
+      done({ hasChart: !!document.querySelector('[data-testid="loan-chart"]'), buttons: buttons.map((b) => b.disabled) });
+    });
+  });
+  assert.deepEqual(transition, { hasChart: false, buttons: [true, true, true] });
+  await waitText(browser, readout, money("12 000 JPY"));
+  const slider = await browser.$('[aria-label="Дата остатка долга"]');
+  assert.match(await slider.getAttribute("aria-valuetext"), money("12 000 JPY"));
+  await click(browser, "+ Досрочное погашение");
+  await waitText(browser, '[data-testid="loan-totals"]', /Укажите дату и сумму/);
+  assert.equal(await (await browser.$('[data-testid="loan-chart"]')).isExisting(), false);
+  for (const label of ["Записать заём", "Скачать график", "PDF для подписи"]) {
+    assert.equal(await (await browser.$(`//button[normalize-space()="${label}"]`)).isEnabled(), false);
+  }
 });

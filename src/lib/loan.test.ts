@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, keptRate, annualHint, balanceOnDate, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, keptRate, annualHint, balanceOnDate, balancePoints, daysBetween, earlyLines, forecastChartRows, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -119,24 +119,42 @@ describe("форма → CalcInput", () => {
     expect(toCalcInput(form({ rate: "" })).input?.rateBp).toBe(0);
     expect(toCalcInput(form({ firstPayment: "" })).input?.firstPaymentDate).toBeNull();
   });
+  it("новый расчёт учитывает точность валюты и требует заполнить каждую ставку и досрочку", () => {
+    const early = { amount: "1000", frequency: "once", date: "2026-11-15", mode: "reduce_term" } as const;
+    const f = form({ amount: "12000", early: [early] });
+    expect(toCalcInput(f, 2).input).toMatchObject({ principal: 1_200_000, plannedEarly: [{ amount: 100_000 }] });
+    expect(toCalcInput(f, 0).input).toMatchObject({ principal: 12_000, plannedEarly: [{ amount: 1_000 }] });
+    expect(toCalcInput({ ...f, rates: [{ from: "2026-11-15", rate: "" }] }).error).toMatch(/ставку/);
+    expect(toCalcInput({ ...f, early: [early, { ...early, amount: "" }] }).error).toMatch(/досрочного/);
+  });
 });
 
 describe("точки диаграммы остатка", () => {
-  it("выдача, досрочка раньше строки в тот же день, строки по дате", () => {
-    const row = (seq: number, dueDate: string, balanceAfter: number) => ({ seq, dueDate, balanceAfter, payment: 0, principalPart: 0, interestPart: 0, status: "pending" as const, kind: "regular" as const });
-    const pts = balancePoints(
-      { rows: [row(1, "2026-11-15", 900), row(2, "2026-12-15", 300)], early: [{ date: "2026-12-15", principal: 200, interest: 0, balanceAfter: 700, planned: true }] },
-      "2026-10-15",
-      1000,
-    );
-    expect(pts).toEqual([
-      { date: "2026-10-15", balance: 1000 },
-      { date: "2026-11-15", balance: 900 },
-      { date: "2026-12-15", balance: 700 },
-      { date: "2026-12-15", balance: 300 },
-    ]);
-    expect(balanceOnDate(pts, "2026-12-14")).toBe(900);
-    expect(balanceOnDate(pts, "2026-12-15")).toBe(300);
+  const row = (seq: number, dueDate: string, balanceAfter: number) => ({ seq, dueDate, balanceAfter, payment: 0, principalPart: 0, interestPart: 0, status: "pending" as const, kind: "regular" as const });
+  it("сохраняет конечный остаток при обычном и нескольких досрочных платежах одной датой", () => {
+    // 12 000 ₽ под 0%, первый платёж 4 000 ₽ и досрочно ещё 1 000 ₽.
+    const date = "2026-11-15";
+    const rows = [row(1, date, 800_000)];
+    const early = { date, principal: 100_000, interest: 0, balanceAfter: 700_000, planned: true };
+    const points = balancePoints({ rows, early: [early] }, "2026-10-15", 1_200_000);
+    expect(points).toEqual([{ date: "2026-10-15", balance: 1_200_000 }, { date, balance: 700_000 }]);
+    expect(balanceOnDate(points, "2026-11-14")).toBe(1_200_000);
+    expect(balanceOnDate(points, "2026-11-16")).toBe(700_000);
+    const second = { ...early, principal: 50_000, balanceAfter: 650_000 };
+    const multiple = balancePoints({ rows, early: [second, early] }, "2026-10-15", 1_200_000);
+    expect(balanceOnDate(multiple, date)).toBe(650_000);
+  });
+  it("погашение просрочки в начале прогноза и следующая выплата отражаются по отдельности", () => {
+    const from = "2026-11-16";
+    const rows = forecastChartRows([
+      { ...row(1, "2026-10-15", 1_200_000), status: "partial" },
+      row(2, "2026-11-15", 800_000),
+      row(3, "2026-12-15", 400_000),
+    ], from);
+    expect(rows).toHaveLength(2);
+    const base = balancePoints({ rows, early: [] }, from, 1_200_000);
+    expect(base).toEqual([{ date: from, balance: 800_000 }, { date: "2026-12-15", balance: 400_000 }]);
+    expect(balanceOnDate(base, "2026-12-14")).toBe(800_000);
   });
   it("сравнивает варианты на одну дату между платежами и после досрочного закрытия", () => {
     const base = [{ date: "2026-01-01", balance: 1000 }, { date: "2026-03-01", balance: 0 }];

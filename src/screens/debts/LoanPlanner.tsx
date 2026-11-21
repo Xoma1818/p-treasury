@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { AccountSelect, AmountInput, Field } from "../../components/Fields";
@@ -7,6 +7,7 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type CalcInput, type CalcResult, type DebtInput, type Direction, type InterestMethod, type PayEvery, type RatePeriod, type Repayment, type SimView } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
+import { useFine } from "../../lib/fine";
 import { addDays, addMonths, annualHint, daysBetween, METHODS, PAY_EVERY, paymentsText, RATE_PERIODS, rateLabel, toCalcInput, type LoanForm, type Solve, type TermUnit } from "../../lib/loan";
 import { useAccounts, useCurrencies, useSettings } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
@@ -48,12 +49,12 @@ export function initialForm(example: boolean): LoanForm {
  *  «Записать заём», «Скачать график» (CSV или Excel), «PDF для подписи». Расчёт живой (planLoan). */
 export function LoanPlanner({ back, example, onCreated }: { back: () => void; example: boolean; onCreated: (id: string) => void }) {
   const currencies = useCurrencies().data ?? [];
-  const base = useSettings().data?.base_currency ?? "RUB";
+  const base = useSettings().data?.base_currency;
   const [currency, setCurrency] = useState<string | null>(null);
-  const cur = currency ?? base;
+  const cur = currency ?? base ?? "RUB";
   const c = currencies.find((x) => x.code === cur);
   const mu = c?.minorUnits ?? 2;
-  const sym = c?.symbol ?? "₽";
+  const sym = useFine().code ? cur : c?.symbol ?? "₽";
   const [f, setF] = useState<LoanForm>(() => initialForm(example));
   const set = (patch: Partial<LoanForm>) => setF((x) => ({ ...x, ...patch }));
   const [showRates, setShowRates] = useState(false);
@@ -62,19 +63,21 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   const [status, setStatus] = useState<string | null>(null);
 
   const parsed = toCalcInput(f, mu);
-  const key = useDebounced(parsed.input ? JSON.stringify(parsed.input) : null, 250);
-  const input = useMemo(() => (key ? (JSON.parse(key) as CalcInput) : null), [key]);
+  const input = parsed.input;
+  const request = input && c && (currency || base) ? JSON.stringify({ currency: cur, minorUnits: mu, input }) : null;
+  const key = useDebounced(request, 250);
+  const stableInput = useMemo(() => key ? (JSON.parse(key) as { input: CalcInput }).input : null, [key]);
+  const current = !!key && key === request;
   const plan = useQuery({
     queryKey: ["planLoan", key],
-    queryFn: async () => ({ ...await api.planLoan(input!), issueDate: input!.issueDate }),
-    enabled: !!input,
+    queryFn: () => api.planLoan(stableInput!),
+    enabled: current,
     retry: false,
-    placeholderData: keepPreviousData,
   });
-  const r = input ? plan.data : undefined;
+  const r = current && !plan.isError ? plan.data : undefined;
   const bullet = f.repayment === "bullet";
   const solve: Solve = bullet ? "payment" : f.solve;
-  const excel = useAction(async (format: "xlsx" | "csv") => input && exportSchedule({ kind: "calc", input, currency: cur }, format), (p) => p && setStatus(savedText(p)));
+  const excel = useAction(async (format: "xlsx" | "csv") => r && input && exportSchedule({ kind: "calc", input, currency: cur }, format), (p) => p && setStatus(savedText(p)));
 
   return (
     <>
@@ -265,19 +268,20 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
               <Hint of="loan.totals" />
             </h2>
             {!input && <p className="hint">{parsed.error}</p>}
-            {input && plan.error && (
+            {input && !r && !(current && plan.isError) && <p className="hint" role="status">Пересчитываем…</p>}
+            {current && plan.error && (
               <p className="hint warn" role="status">
                 {String(plan.error)}
               </p>
             )}
             {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} period={f.ratePeriod} every={f.payEvery} sym={sym} mu={mu} />}
-            {r && !plan.error && (
+            {r && input && (
               <>
                 <div className="loan-chart-head">
                   Остаток долга
                   <Hint of="loan.chart" />
                 </div>
-                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={r.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} />
+                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={input.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} />
               </>
             )}
             <div className="loan-actions">
@@ -319,7 +323,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
       )}
 
       {record && input && r && <RecordDialog input={input} result={r} currency={cur} sym={sym} mu={mu} onClose={() => setRecord(false)} onCreated={onCreated} />}
-      {pdf && input && <ExportDialog source={{ kind: "calc", input, currency: cur } satisfies ExportSource} format="pdf" onClose={() => setPdf(false)} onSaved={(p) => (setPdf(false), setStatus(savedText(p)))} />}
+      {pdf && r && input && <ExportDialog source={{ kind: "calc", input, currency: cur } satisfies ExportSource} format="pdf" onClose={() => setPdf(false)} onSaved={(p) => (setPdf(false), setStatus(savedText(p)))} />}
     </>
   );
 }

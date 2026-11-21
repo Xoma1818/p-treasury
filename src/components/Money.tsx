@@ -8,6 +8,7 @@ import { formatMoney, HIDDEN_AMOUNT } from "../lib/money";
 export function Money({
   amount,
   symbol = "₽",
+  currencyCode,
   minorUnits = 2,
   signed,
   className,
@@ -15,6 +16,7 @@ export function Money({
 }: {
   amount: number;
   symbol?: string;
+  currencyCode?: string;
   minorUnits?: number;
   /** Показывать «+» у положительных сумм (доходы). */
   signed?: boolean;
@@ -23,10 +25,10 @@ export function Money({
   animate?: boolean;
 }) {
   const { data: settings } = useSettings();
-  useFine(); // Г12: копейки и «RUB» меняются сразу
-  const hidden = settings?.hide_amounts === "1";
+  const label = useFine().code ? currencyCode ?? symbol : symbol;
+  const hidden = !settings || settings.hide_amounts === "1";
   const swap = useSwap(amount, !!animate && !hidden);
-  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(amount, symbol, minorUnits);
+  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(amount, label, minorUnits);
   const cls = ["money", className, swap > 0 && "money-swap"].filter(Boolean).join(" ");
   return (
     <span key={swap} className={cls}>
@@ -55,5 +57,5 @@ export function BaseMoney(props: { amount: number; signed?: boolean; className?:
   const { data: settings } = useSettings();
   useFine(); // Г12: копейки и «RUB» меняются сразу
   const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
-  return <Money {...props} symbol={base?.symbol ?? "₽"} minorUnits={base?.minorUnits ?? 2} />;
+  return <Money {...props} symbol={base?.symbol ?? "₽"} currencyCode={base?.code} minorUnits={base?.minorUnits ?? 2} />;
 }

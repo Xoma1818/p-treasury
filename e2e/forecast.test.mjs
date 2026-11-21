@@ -81,11 +81,18 @@ test("горизонт 5 лет и два сценария на одном гр�
       await click(browser, "+ Сценарий");
       await click(browser, "Ипотека или кредит", '//*[@role="dialog"]');
       await fill(browser, "scenario-name", name);
+      if (name === "Ипотека 2") await fill(browser, "scenario-amount", "20000");
       await save(browser);
       await browser.waitUntil(async () => !(await browser.$('[role="dialog"]').isExisting()), { timeout: 5000 });
     }
     await choose(browser, "scenario2", "Ипотека");
     await browser.$('[data-testid="fc-second-line"]').waitForExist({ timeout: 5000 });
+    const nextMonth = (await browser.$$('[data-testid="fc-row"] button'))[1];
+    await browser.execute((button) => button.focus(), nextMonth);
+    await browser.keys("Enter");
+    await waitText(browser, '[data-testid="fc-second-closing"]', money("55 000 ₽"));
+    await waitText(browser, ".fc-detail", /На начало месяца/);
+    await browser.keys(" ");
   } finally {
     for (const name of ["Ипотека 2", "Ипотека"]) {
       const edit = await browser.$(`button[aria-label="Изменить сценарий «${name}»"]`);
