@@ -94,8 +94,9 @@ test("выписка сохраняет только предложенную с
 
   await pick(second);
   await waitText(browser, summary, /строк 2, без ошибок 1, уже загружено раньше 1/);
-  const rows = await browser.$$('[data-testid="import-row"]');
-  assert.deepEqual(await Promise.all(rows.map((r) => r.getAttribute("data-duplicate"))), ["0", "1"]);
+  const duplicates = await browser.execute(() =>
+    [...document.querySelectorAll('[data-testid="import-row"]')].map((row) => row.dataset.duplicate));
+  assert.deepEqual(duplicates, ["0", "1"]);
   await click(browser, "Загрузить 1", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 1/);
   await pick(second);
