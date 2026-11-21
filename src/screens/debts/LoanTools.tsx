@@ -16,7 +16,7 @@ import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor } from "./Editors";
 import { PayEverySelect, RatePeriodSelect } from "./LoanPlanner";
 
-const money = (card: DebtCard, symbol = card.currencySymbol) => (v: number) => <Money amount={v} symbol={symbol} minorUnits={card.minorUnits} />;
+const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} currencyCode={card.currencyCode} minorUnits={card.minorUnits} />;
 
 /** Строка «было → стало» с подсветкой того, что изменилось. */
 function Diff({ label, was, now, testid, changed }: { label: string; was: ReactNode; now: ReactNode; testid?: string; changed?: boolean }) {
@@ -394,7 +394,7 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
   const [lines, setLines] = useState<EarlyLine[]>(() => earlyLines(detail.plannedEarly, mu));
   const forecast = useQuery({ queryKey: ["debtForecast", c.id], queryFn: () => api.debtForecast(c.id) });
   const save = useAction(() => api.setDebtPlannedEarly(c.id, plannedEarly(lines, mu)));
-  const m = money(c, symbol);
+  const m = money(c);
   // Пока досрочки не сохранены — «было → станет» по прогнозу.
   const draft = plannedEarly(lines, mu);
   const dirty = JSON.stringify(draft) !== JSON.stringify(detail.plannedEarly.map((p) => ({ amount: p.amount, startDate: p.startDate, frequency: p.frequency, endDate: p.endDate, mode: p.mode })));
@@ -548,7 +548,7 @@ export function History({ card }: { card: DebtCard }) {
   const signed = (x: number) => (
     <span className={x < 0 ? "good-text" : x > 0 ? "over" : "muted"}>
       {x > 0 ? "+" : x < 0 ? "−" : ""}
-      <Money amount={Math.abs(x)} symbol={card.currencySymbol} minorUnits={card.minorUnits} />
+      {m(Math.abs(x))}
     </span>
   );
   const when = (iso: string) => {
@@ -638,7 +638,7 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
   return (
     <Modal title={`Платёж №${row.seq}, ${formatDate(row.dueDate)}`} onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
-        <Field label="Сколько заплатить" help="loan.rowAmount" hint={`По графику ${amountText(row.payment, c.minorUnits)} ${c.currencySymbol}, из них проценты ${amountText(row.interestPart, c.minorUnits)} ${c.currencySymbol}`}>
+        <Field label="Сколько заплатить" help="loan.rowAmount" hint={<>По графику {m(row.payment)}, из них проценты {m(row.interestPart)}</>}>
           {(id) => <AmountInput id={id} name="rowAmount" value={amount} onChange={setAmount} minorUnits={c.minorUnits} autoFocus />}
         </Field>
         {v !== null && v < row.interestPart && <p className="hint warn">Меньше процентов: в этот раз уйдут только проценты {m(row.interestPart)}, долг не уменьшится.</p>}

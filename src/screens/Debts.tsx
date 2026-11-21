@@ -5,12 +5,12 @@ import { Field } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
-import { api, REPAYMENTS, type DebtCard, type ScheduleRow } from "../lib/api";
+import { api, REPAYMENTS, type Currency, type DebtCard, type ScheduleRow } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
 import { METHODS, PAY_EVERY, paymentsText, rateLabel, rateShort } from "../lib/loan";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
-import { useSettings } from "../lib/queries";
+import { useCurrencies, useSettings } from "../lib/queries";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { LoanPlanner } from "./debts/LoanPlanner";
@@ -45,7 +45,10 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
   const debts = useQuery({ queryKey: ["debts"], queryFn: api.listDebts });
   const summary = useQuery({ queryKey: ["debtSummary"], queryFn: api.debtSummary });
   const s = summary.data;
-  const sym = s?.baseSymbol ?? "₽";
+  const base = useCurrencies().data?.find((c) => c.code === s?.baseCurrency);
+  const baseMoney = (amount: number, signed = false) => base && (
+    <Money amount={amount} symbol={base.symbol} currencyCode={base.code} minorUnits={base.minorUnits} signed={signed} />
+  );
   const list = debts.data ?? [];
 
   return (
@@ -66,19 +69,19 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
           <div className="card tile" data-testid="owed-to-me">
             <div className="tile-label">Мне должны</div>
             <div className="tile-value plus">
-              <Money amount={s.owedToMe} symbol={sym} />
+              {baseMoney(s.owedToMe)}
             </div>
           </div>
           <div className="card tile" data-testid="i-owe">
             <div className="tile-label">Я должен</div>
             <div className="tile-value">
-              <Money amount={s.iOwe} symbol={sym} />
+              {baseMoney(s.iOwe)}
             </div>
           </div>
           <div className="card tile" data-testid="debts-net">
             <div className="tile-label">Итог по долгам</div>
             <div className={s.owedToMe - s.iOwe < 0 ? "tile-value over" : "tile-value"}>
-              <Money amount={s.owedToMe - s.iOwe} symbol={sym} signed />
+              {baseMoney(s.owedToMe - s.iOwe, true)}
             </div>
           </div>
           <div className="card tile" data-testid="net-worth">
@@ -87,7 +90,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
               <Hint of="debts.net" />
             </div>
             <div className="tile-value">
-              <Money amount={s.netWorth} symbol={sym} />
+              {baseMoney(s.netWorth)}
             </div>
             <div className="hint">счета плюс долги мне минус мои долги</div>
           </div>
@@ -106,7 +109,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
                   <span className="main">{formatDate(u.dueDate)}</span> · {u.counterparty}
                   {u.overdue && <span className="badge over">просрочен</span>}
                 </span>
-                <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
+                <Money amount={u.payment} symbol={u.currencySymbol} currencyCode={u.currencyCode} minorUnits={u.minorUnits} />
               </li>
             ))}
           </ul>
@@ -130,10 +133,10 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
                     </td>
                     <td className="num">
                       <div className={d.direction === "lent" ? "plus" : undefined}>
-                        <Money amount={d.outstanding} symbol={d.currencySymbol} minorUnits={d.minorUnits} />
+                        <Money amount={d.outstanding} symbol={d.currencySymbol} currencyCode={d.currencyCode} minorUnits={d.minorUnits} />
                       </div>
                       <div className="sub">
-                        из <Money amount={d.principal} symbol={d.currencySymbol} minorUnits={d.minorUnits} />
+                        из <Money amount={d.principal} symbol={d.currencySymbol} currencyCode={d.currencyCode} minorUnits={d.minorUnits} />
                       </div>
                     </td>
                     <td className="num">
@@ -143,7 +146,7 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
                         <>
                           <div className={d.overdueCount ? "over" : undefined}>{formatDate(d.nextPayment.dueDate)}</div>
                           <div className="sub">
-                            <Money amount={d.nextPayment.payment} symbol={d.currencySymbol} minorUnits={d.minorUnits} />
+                            <Money amount={d.nextPayment.payment} symbol={d.currencySymbol} currencyCode={d.currencyCode} minorUnits={d.minorUnits} />
                           </div>
                         </>
                       ) : null}
@@ -155,26 +158,20 @@ function DebtList({ open, onNew, onCalc }: { open: (id: string) => void; onNew: 
           )}
         </div>
       </div>
-      {list.filter((d) => d.direction === "borrowed" && d.status !== "closed").length >= 2 && <PayoffCard />}
+      {base && list.filter((d) => d.direction === "borrowed" && d.status !== "closed").length >= 2 && <PayoffCard base={base} />}
     </>
   );
 }
 
 /** Р17: как быстрее расплатиться с несколькими долгами — лишняя сумма каждый месяц
  *  в один долг по очереди, «сначала дорогие» или «сначала маленькие». */
-function PayoffCard() {
-  // Сумма в основной валюте как её ввели (5 000 ₽); в минимальные единицы — по
-  // знакам основной валюты из прошлого ответа (у иены их нет, у рубля два).
+function PayoffCard({ base }: { base: Currency }) {
   const [extraMajor, setExtraMajor] = useState(5000);
-  const [minorUnits, setMinorUnits] = useState(2);
-  const extra = Math.round(extraMajor * 10 ** minorUnits);
+  const extra = Math.round(extraMajor * 10 ** base.minorUnits);
   const [strategy, setStrategy] = useState<"costly" | "small">("costly");
-  const q = useQuery({ queryKey: ["debtPayoff", extra, strategy], queryFn: () => api.debtPayoff(extra, strategy) });
+  const q = useQuery({ queryKey: ["debtPayoff", base.code, extra, strategy], queryFn: () => api.debtPayoff(extra, strategy) });
   const p = q.data;
-  useEffect(() => {
-    if (p && p.minorUnits !== minorUnits) setMinorUnits(p.minorUnits);
-  }, [p, minorUnits]);
-  const m = (v: number) => <Money amount={v} symbol={p?.currencySymbol ?? "₽"} minorUnits={p?.minorUnits ?? 2} />;
+  const m = (v: number) => <Money amount={v} symbol={base.symbol} currencyCode={base.code} minorUnits={base.minorUnits} />;
   return (
     <div className="card payoff" data-testid="payoff">
       <h2>
@@ -262,7 +259,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
   if (detail.error) return <p className="error">{String(detail.error)}</p>;
   if (!d) return null;
   const c = d.card;
-  const m = (v: number) => <Money amount={v} symbol={c.currencySymbol} minorUnits={c.minorUnits} />;
+  const m = (v: number) => <Money amount={v} symbol={c.currencySymbol} currencyCode={c.currencyCode} minorUnits={c.minorUnits} />;
   const lent = c.direction === "lent";
   const active = c.status === "active";
   const close = () => setDialog(null);

@@ -6,7 +6,7 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, type DebtCard, type PaymentInput, type RecalcMode } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { formatAmount, parseAmount } from "../../lib/money";
+import { parseAmount } from "../../lib/money";
 import { useAccounts } from "../../lib/queries";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -81,7 +81,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
     if (!accountId) return save.setError(`Выберите счёт в ${card.currencyCode}`);
     save.run({ date, accountId, principal: p, interest: i, scheduleId: early ? null : (next?.id ?? null), recalcMode: monthly && differs ? mode : null });
   };
-  const m = (v: number) => <Money amount={v} symbol={card.currencySymbol} minorUnits={mu} />;
+  const m = (v: number) => <Money amount={v} symbol={card.currencySymbol} currencyCode={card.currencyCode} minorUnits={mu} />;
   const q = early && qKey ? quote.data : undefined;
   const title = !early ? "Платёж по графику" : monthly ? "Досрочный платёж" : "Частичный возврат";
 
@@ -98,7 +98,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
           <div className="pay-kind">
             {!early && beforeDue && (
               <p className="hint" data-testid="pay-towards">
-                Платёж пойдёт в счёт платежа от {formatDate(next.dueDate)} ({formatAmount(next.payment, mu)} {card.currencySymbol}).
+                Платёж пойдёт в счёт платежа от {formatDate(next.dueDate)} ({m(next.payment)}).
               </p>
             )}
             <label className="check">
@@ -113,7 +113,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
           </Field>
         )}
         <div className="row">
-          <Field label="Основной долг" hint={`Остаток ${formatAmount(card.outstanding, mu)} ${card.currencySymbol}`}>
+          <Field label="Основной долг" hint={<>Остаток {m(card.outstanding)}</>}>
             {(id) => <AmountInput id={id} name="principal" value={principal} onChange={setPrincipal} minorUnits={mu} autoFocus={!early} />}
           </Field>
           <Field label="Проценты" hint={lent ? "доход «Проценты по займам»" : "расход «Проценты по кредитам»"}>

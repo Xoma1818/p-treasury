@@ -266,17 +266,36 @@ test("остаток на день обычного и досрочного пл
   }
 });
 
-test("при смене RUB на JPY график и действия ждут расчёт в новой валюте", async () => {
+test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async () => {
+  // В справочнике иена появляется для баз, где уже есть данные в JPY.
+  const debt = await browser.executeAsync((issueDate, firstPaymentDate, done) => {
+    window.__TAURI_INTERNALS__.invoke("create_debt", { input: {
+      direction: "borrowed", counterparty: "Заём в иенах", currencyCode: "JPY", principal: 12000,
+      rateBp: 0, repaymentType: "annuity", termMonths: 3, issueDate, firstPaymentDate,
+      maturityDate: null, accountId: null, note: null,
+    } }).then((id) => done({ id }), (error) => done({ error: String(error) }));
+  }, inDays(-35), inDays(-5));
+  assert.ifError(debt.error);
+  assert.ok(debt.id);
+  await browser.refresh();
   await openSection(browser, "Настройки");
   const fineCard = await browser.$('[data-testid="fine-card"]');
   await fineCard.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fineCard))) await (await fineCard.$("summary")).click();
   await choose(browser, "fineCode", "Кодом: 1 200 RUB");
   await openSection(browser, "Займы и долги");
+  const row = '[data-testid="debt-row"][data-name="Заём в иенах"]';
+  await waitText(browser, row, money("12 000 JPY"));
+  await waitText(browser, '//*[@data-testid="upcoming"]//li[contains(., "Заём в иенах")]', money("4 000 JPY"));
+  await (await browser.$(row)).click();
+  await waitText(browser, '[data-testid="debt-outstanding"]', money("12 000 JPY"));
+  await waitText(browser, '[data-testid="debt-next"]', money("4 000 JPY"));
+  await click(browser, "Все долги");
   await click(browser, "Калькулятор");
   await fill(browser, "principal", "12000");
   const readout = '[data-testid="loan-chart-readout"]';
   await waitText(browser, readout, money("12 000 RUB"));
+  assert.ok(await browser.$('select[name="currency"] option[value="JPY"]').isExisting());
   const transition = await browser.executeAsync((done) => {
     const el = document.querySelector('select[name="currency"]');
     el.value = "JPY";

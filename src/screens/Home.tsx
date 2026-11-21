@@ -341,7 +341,7 @@ export function Home() {
                     <span>
                       {formatDate(u.dueDate)} · {u.counterparty}
                     </span>
-                    <Money amount={u.payment} symbol={u.currencySymbol} minorUnits={u.minorUnits} />
+                    <Money amount={u.payment} symbol={u.currencySymbol} currencyCode={u.currencyCode} minorUnits={u.minorUnits} />
                   </li>
                 ))}
               </ul>

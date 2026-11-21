@@ -26,6 +26,10 @@ export async function exportSchedule(s: ExportSource, format: ExportFormat, opts
   const doc = await loadDoc(s, !!opts.withForecast);
   const patched: ScheduleDoc = {
     ...doc,
+    // Для договора различаем иену и юань даже при отображении сумм знаком ¥.
+    terms: format === "pdf" && doc.terms.currencySymbol === "¥"
+      ? { ...doc.terms, currencySymbol: doc.terms.currencyCode }
+      : doc.terms,
     lenderName: opts.lender ?? doc.lenderName,
     borrowerName: opts.borrower ?? doc.borrowerName,
     withSignatures: opts.withSignatures ?? doc.withSignatures,

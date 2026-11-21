@@ -931,6 +931,7 @@ pub struct Upcoming {
     pub direction: String,
     pub due_date: String,
     pub payment: i64,
+    pub currency_code: String,
     pub currency_symbol: String,
     pub minor_units: u32,
     pub overdue: bool,
@@ -986,7 +987,7 @@ pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<
         }
     }
     let mut stmt = conn.prepare(
-        "SELECT s.debt_id, s.id, d.counterparty, d.direction, s.due_date, s.payment, c.symbol, c.minor_units
+        "SELECT s.debt_id, s.id, d.counterparty, d.direction, s.due_date, s.payment, c.symbol, c.minor_units, c.code
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
          WHERE s.status = 'pending' AND d.status = 'active'
            AND s.seq = (SELECT min(seq) FROM debt_schedule x WHERE x.debt_id = s.debt_id AND x.status = 'pending')
@@ -1003,6 +1004,7 @@ pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<
                 overdue: due.as_str() < today,
                 due_date: due,
                 payment: r.get(5)?,
+                currency_code: r.get(8)?,
                 currency_symbol: r.get(6)?,
                 minor_units: r.get(7)?,
             })

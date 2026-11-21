@@ -720,6 +720,7 @@ export interface UpcomingPayment {
   direction: Direction;
   dueDate: string;
   payment: number;
+  currencyCode: string;
   currencySymbol: string;
   minorUnits: number;
   overdue: boolean;
