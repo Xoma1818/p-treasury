@@ -189,9 +189,14 @@ test("окно пропущенных напоминаний при запуск
   // Выполненное и оплаченное в список не попали.
   const text = await browser.$(dialog).getText();
   assert.ok(!/ЖКХ|Сбер/.test(text), text);
-  await click(browser, "Выполнено", `//*[@data-testid="missed"]//li[@data-title="Продлить ОСАГО"]`);
+  const missedPayment = occ("missed", "Продлить ОСАГО");
+  await click(browser, "Ещё", missedPayment);
+  await click(browser, "Отметить выполненным без записи", missedPayment);
   // Последнее пропущенное выполнено — окно закрылось само.
   await browser.$(dialog).waitForExist({ timeout: 5000, reverse: true });
   await openReminders();
   await waitText(browser, '[data-testid="rem-done"]', /Продлить ОСАГО/);
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Продлить ОСАГО");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
 });
