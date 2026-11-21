@@ -54,7 +54,7 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
     queryFn: () => (selected ? api.sumSelected(ids) : api.sumFiltered(filter)),
     enabled: selected || (filtered && pageReady),
   }).data;
-  const [action, setAction] = useState<{ key: string; mode: Mode }>({ key, mode: null });
+  const [action, setAction] = useState<{ key: string; mode: Mode; focusDelete?: boolean }>({ key, mode: null });
   if (action.key !== key) setAction({ key, mode: null });
   const mode = action.key === key ? action.mode : null;
   const setMode = (next: Mode) => setAction({ key, mode: next });
@@ -90,7 +90,7 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
               <button className="btn small" onClick={() => (setMessage(null), setMode("tag"))}>
                 Тег
               </button>
-              <button className="btn small danger" onClick={() => (setMessage(null), setMode("delete"))} data-testid="bulk-delete">
+              <button className="btn small danger" autoFocus={action.key === key && action.focusDelete} onClick={() => (setMessage(null), setMode("delete"))} data-testid="bulk-delete">
                 Удалить
               </button>
               <Hint of="txn.bulk" />
@@ -103,7 +103,7 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
             <BulkForm
               mode={mode}
               ids={ids}
-              onCancel={() => setMode(null)}
+              onCancel={() => setAction({ key, mode: null, focusDelete: mode === "delete" })}
               onDone={(r) => {
                 if (activeAction.current === action) {
                   setMessage(resultText(mode, r));
@@ -176,7 +176,7 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
   );
   const busy = act.busy;
   const cancel = (
-    <button className="btn small" onClick={onCancel} disabled={busy}>
+    <button className="btn small" autoFocus={mode === "delete"} onClick={onCancel} disabled={busy}>
       Отмена
     </button>
   );
@@ -255,7 +255,8 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
           <span className="sel-confirm">
             Удалить {n} {word}? Отменить можно через Ctrl+Z.
           </span>
-          <button className="btn small danger" autoFocus disabled={busy || checking} aria-busy={busy} data-testid="bulk-delete-confirm" onClick={() => act.run(() => api.bulkDelete(ids))}>
+          {cancel}
+          <button className="btn small danger" disabled={busy || checking} aria-busy={busy} data-testid="bulk-delete-confirm" onClick={() => act.run(() => api.bulkDelete(ids))}>
             Да, удалить
           </button>
         </>
@@ -263,14 +264,18 @@ function BulkForm({ mode, ids, onCancel, onDone }: { mode: Exclude<Mode, null>; 
       break;
   }
   return (
-    <div className="sel-form" data-testid={`bulk-${mode}`} onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onCancel())}>
+    <div className="sel-form" data-testid={`bulk-${mode}`} onKeyDown={(e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      if (!busy) onCancel();
+    }}>
       {mode !== "delete" && (
         <span className="muted">
           {n} {word}:
         </span>
       )}
       {body}
-      {cancel}
+      {mode !== "delete" && cancel}
       {extraNote}
       <ErrorText error={act.error} />
     </div>

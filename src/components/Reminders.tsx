@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
 import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
 import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
-import { parseAmount } from "../lib/money";
+import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { useAccounts, useCategories, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -482,6 +482,10 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
   onLinked: () => void;
   onCreate: (revision: string, allowSeparate: boolean) => void;
 }) {
+  const groupId = useId();
+  const settings = useSettings().data;
+  const showAmounts = settings !== undefined && settings.hide_amounts !== "1";
+  const hiddenMoney = <span className="money"><span aria-hidden="true">{HIDDEN_AMOUNT}</span><span className="sr-only">Сумма скрыта</span></span>;
   const query = useQuery({
     queryKey: ["reminderPaymentReview", o.key],
     queryFn: () => api.reminderPaymentReview(o.key),
@@ -508,25 +512,27 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
         <p className="muted" data-testid="occ-match-empty">Подходящих операций нет.</p>
       )}
       {candidates.length > 1 && <p className="muted">Выберите проведённую операцию для связи.</p>}
-      {candidates.map((match) => (
-        <div className="card" data-testid="occ-match-candidate" key={match.transactionId}>
+      {candidates.map((match, index) => {
+        const id = `${groupId}-${index}`;
+        const note = showAmounts && match.note;
+        return <div className="card" data-testid="occ-match-candidate" key={match.transactionId}>
           {candidates.length > 1 && (
             <label className="small">
               <input type="radio" name="reminderPaymentCandidate" checked={selectedId === match.transactionId}
-                aria-label={`${match.payee || "Операция"} от ${formatDate(match.date)}, ${amountText(match.amount, match.minorUnits)} ${match.currencySymbol}${match.note ? `, ${match.note}` : ""}`}
+                aria-labelledby={`${id}-choice ${id}-payee ${id}-amount${note ? ` ${id}-note` : ""}`}
                 disabled={attach.busy} onChange={() => setSelectedId(match.transactionId)} />
-              Выбрать эту операцию
+              <span id={`${id}-choice`}>Выбрать операцию {index + 1}</span>
             </label>
           )}
-          <p><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
-          {match.note && <p className="muted">{match.note}</p>}
+          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
+          {note && <p className="muted" id={`${id}-note`}>{note}</p>}
           <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
-          <p>В учёте · <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /></p>
+          <p id={`${id}-amount`}>В учёте · {showAmounts ? <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /> : hiddenMoney}</p>
           {match.amount !== match.expectedAmount && (
-            <p className="warn">Сумма отличается. Ожидалось <Money amount={match.expectedAmount} symbol={match.currencySymbol} minorUnits={match.minorUnits} />.</p>
+            <p className="warn">Сумма отличается. Ожидалось {showAmounts ? <Money amount={match.expectedAmount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /> : hiddenMoney}.</p>
           )}
-        </div>
-      ))}
+        </div>;
+      })}
       {review?.moreCandidates && <p className="muted">Показаны 10 последних совпадений.</p>}
       <ErrorText error={error} />
       {error && <button type="button" className="link" disabled={query.isFetching || attach.busy} onClick={() => {

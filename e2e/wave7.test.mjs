@@ -299,7 +299,21 @@ test("удаление пачки спрашивает подтверждени�
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
-  await (await browser.$('[data-testid="bulk-delete"]')).click();
+  const deleteTrigger = 'button[data-testid="bulk-delete"]';
+  const cancel = '//*[@data-testid="bulk-delete"]//button[normalize-space()="Отмена"]';
+  await browser.execute((selector) => document.querySelector(selector).focus(), deleteTrigger);
+  await browser.keys("Enter");
+  await browser.waitUntil(() => browser.$(cancel).isFocused(), { timeout: 5000 });
+  await browser.keys("Enter");
+  await browser.$(deleteTrigger).waitForDisplayed({ timeout: 5000 });
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  assert.ok(await browser.$(deleteTrigger).isFocused(), "отмена вернула фокус к действию");
+  await browser.keys("Enter");
+  await browser.waitUntil(() => browser.$(cancel).isFocused(), { timeout: 5000 });
+  await browser.keys("Escape");
+  await browser.waitUntil(() => browser.$(deleteTrigger).isFocused(), { timeout: 5000 });
+  await waitText(browser, '[data-testid="sel-sum"]', /Выбрано 2/);
+  await browser.keys("Enter");
   await waitText(browser, '[data-testid="bulk-delete"]', /Удалить 2 операции\? Отменить можно через Ctrl\+Z\./);
   // Изменившееся выделение не может унаследовать подтверждение удаления.
   await browser.execute(() => document.querySelector('[data-testid="txn-select"]').click());
