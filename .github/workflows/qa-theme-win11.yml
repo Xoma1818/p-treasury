@@ -1,0 +1,58 @@
+name: Календарь и смена темы в чистой Windows 11
+on:
+  push:
+    branches: [codex/qa-pr104-theme-win11]
+    paths: ['.github/workflows/qa-theme-win11.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  theme:
+    runs-on: windows-11-arm
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Проверить Windows и отсутствие RivaTuner
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "$($os.Caption), build $($os.BuildNumber), $env:RUNNER_ARCH"
+          if ($os.Caption -notmatch 'Windows 11' -or $env:RUNNER_ARCH -ne 'ARM64') { throw 'Ожидалась клиентская Windows 11 ARM64' }
+          if (Get-Process -Name 'RTSS*' -ErrorAction SilentlyContinue) { throw 'Обнаружен активный оверлей' }
+      - name: Получить проверенную переносную сборку
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: '44956608254'
+          SOURCE_HEAD: 34ace59776b2d5185d079e22287d90ee39ff819f
+          ZIP_ID: '14728865459'
+          SHA256: 66bcb0a0b4388dcc02867092a31102639df227d4fddff6ac3ffea340b5158758
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ZIP_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $meta.name -ne 'kazna-windows-portable' -or $meta.workflow_run.id -ne [long]$env:SOURCE_RUN -or $meta.workflow_run.head_sha -ne $env:SOURCE_HEAD -or $meta.digest -ne "sha256:$env:SHA256") { throw 'Не подтверждён артефакт этого коммита' }
+          $zip = Join-Path $env:RUNNER_TEMP 'kazna-portable.zip'
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ZIP_ID/zip" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept="application/vnd.github+json"} -OutFile $zip
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $env:SHA256) { throw 'Контрольная сумма не совпала' }
+          $folder = Join-Path $env:RUNNER_TEMP 'portable'
+          Expand-Archive -LiteralPath $zip -DestinationPath $folder
+          $exe = Join-Path $folder 'Kazna.exe'
+          if ((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -ne '0.39.0') { throw 'Неверная версия приложения' }
+          Add-Content $env:GITHUB_ENV "PTREASURY_BIN=$exe"
+          Add-Content $env:GITHUB_ENV "PTREASURY_PR_SHA=$env:SOURCE_HEAD"
+      - name: Закрыть платёж, сменить тему и вновь открыть
+        run: node qa-window/theme-hint-acceptance.mjs theme
+
+      - name: Сохранить снимки и журнал
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: kazna-theme-win11
+          path: .test-artifacts/ux039-qa/evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
