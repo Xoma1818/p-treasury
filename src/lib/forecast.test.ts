@@ -10,6 +10,7 @@ const flow = (over: Partial<MoneyFlow>): MoneyFlow => ({
   period: { month: "2026-09", start: "2026-09-01", end: "2026-09-30" },
   income: [],
   expense: [],
+  expenseCredits: [],
   totalIncome: 0,
   totalExpense: 0,
   invested: 0,
@@ -91,6 +92,17 @@ describe("поток денег", () => {
   it("пустой период ничего не рисует", () => {
     expect(flowIsEmpty(flow({}))).toBe(true);
     expect(flowLayout(flow({}), 100)).toEqual({ left: [], right: [], total: 0 });
+  });
+
+  it("возвраты сверх расходов остаются видимыми даже при нулевом итоге", () => {
+    const f = flow({
+      expense: [{ id: "a", name: "Питание", amount: 500 }],
+      expenseCredits: [{ id: "b", name: "Одежда", amount: -500 }],
+    });
+    const l = flowLayout(f, 100);
+    expect(flowIsEmpty(f)).toBe(false);
+    expect(l.left[0]).toMatchObject({ kind: "refunds", amount: 500, m1: 100 });
+    expect(l.right[0]).toMatchObject({ kind: "expense", amount: 500, m1: 100 });
   });
 
   it("месяц только с переводом в инвестиции не пустой: «Из накоплений» → «Инвестиции»", () => {

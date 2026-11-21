@@ -47,6 +47,7 @@ pub mod payoff;
 pub mod pdf;
 pub mod quick;
 pub mod receipts;
+pub mod reconciliation;
 pub mod refunds;
 pub mod reminders;
 pub mod reports;

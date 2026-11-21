@@ -109,7 +109,7 @@ test("корректировка видна отдельной строкой и
   const card = `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="Карта"]]`;
   await (await browser.$(`${card}//button[normalize-space()="Сверить"]`)).click();
   await fill(browser, "actualBalance", "106500");
-  await save(browser, "Сверить");
+  await save(browser, "Записать корректировку");
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-balance"]', money("Корректировки: −500 ₽"));
   await waitText(browser, '[data-testid="report-expense"]', money("10 000 ₽"));

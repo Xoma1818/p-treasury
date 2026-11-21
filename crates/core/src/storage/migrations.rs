@@ -141,6 +141,21 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "budget_start_provenance",
         sql: include_str!("../../migrations/0025_budget_start_provenance.sql"),
     },
+    Migration {
+        version: 26,
+        name: "account_reconciliations",
+        sql: include_str!("../../migrations/0026_account_reconciliations.sql"),
+    },
+    Migration {
+        version: 27,
+        name: "reminder_actual_links",
+        sql: include_str!("../../migrations/0027_reminder_actual_links.sql"),
+    },
+    Migration {
+        version: 28,
+        name: "goal_funding",
+        sql: include_str!("../../migrations/0028_goal_funding.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

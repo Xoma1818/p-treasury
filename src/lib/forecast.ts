@@ -1,6 +1,6 @@
 // «Взгляд вперёд» (0.18): подписи изменений сценария, заготовки «что если»
 // и раскладка диаграммы «Поток денег». Чистые функции — проверяются тестами.
-import type { ChangeInput, ChangeKind, Forecast, GoalMark, MoneyFlow } from "./api";
+import type { ChangeInput, ChangeKind, FlowNode, Forecast, GoalMark, MoneyFlow } from "./api";
 import { formatDate, monthTitle, shiftMonth } from "./dates";
 import { formatMoney } from "./money";
 
@@ -85,8 +85,8 @@ export interface FlowBand {
   key: string;
   name: string;
   amount: number;
-  /** `income`, `expense`, `invest`, `saved`, `fromSavings`, `fromInvest`. */
-  kind: string;
+  kind: "income" | "expense" | "refunds" | "invest" | "saved" | "fromSavings" | "fromInvest";
+  node?: FlowNode;
   /** Полоса у своего края. */
   y0: number;
   y1: number;
@@ -107,8 +107,17 @@ export interface FlowLayout {
  * расходы, вложения и «Осталось». Суммы обеих сторон равны.
  */
 export function flowLayout(f: MoneyFlow, height: number, gap = 6): FlowLayout {
-  const left: Omit<FlowBand, "y0" | "y1" | "m0" | "m1">[] = f.income.map((n) => ({ key: `i-${n.id}`, name: n.name, amount: n.amount, kind: "income" }));
-  const right: Omit<FlowBand, "y0" | "y1" | "m0" | "m1">[] = f.expense.map((n) => ({ key: `e-${n.id}`, name: n.name, amount: n.amount, kind: "expense" }));
+  const left: Omit<FlowBand, "y0" | "y1" | "m0" | "m1">[] = f.income.map((n) => ({ key: `i-${n.id}`, name: n.name, amount: n.amount, kind: "income", node: n }));
+  const right: typeof left = f.expense.map((n) => ({ key: `e-${n.id}`, name: n.name, amount: n.amount, kind: "expense", node: n }));
+  if (f.expenseCredits.length > 0) {
+    const node = {
+      id: "expense-credits",
+      name: "Возвраты сверх расходов",
+      amount: -f.expenseCredits.reduce((sum, n) => sum + n.amount, 0),
+      children: f.expenseCredits,
+    };
+    left.push({ key: node.id, name: node.name, amount: node.amount, kind: "refunds", node });
+  }
   if (f.invested > 0) right.push({ key: "invest", name: "Инвестиции", amount: f.invested, kind: "invest" });
   if (f.invested < 0) left.push({ key: "from-invest", name: "С инвестиций", amount: -f.invested, kind: "fromInvest" });
   if (f.saved > 0) right.push({ key: "saved", name: "Осталось", amount: f.saved, kind: "saved" });
@@ -138,7 +147,7 @@ export function flowLayout(f: MoneyFlow, height: number, gap = 6): FlowLayout {
 
 /** Рисовать нечего: ни доходов, ни расходов, ни переводов в инвестиции и обратно. */
 export function flowIsEmpty(f: MoneyFlow): boolean {
-  return f.totalIncome === 0 && f.totalExpense === 0 && f.invested === 0;
+  return f.income.length === 0 && f.expense.length === 0 && f.expenseCredits.length === 0 && f.invested === 0;
 }
 
 /** Лента между двумя вертикальными отрезками: от (x0, a0–a1) к (x1, b0–b1). */

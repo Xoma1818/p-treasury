@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Goal } from "../lib/api";
+import { api, type Goal, type GoalFunding } from "../lib/api";
 import { formatDate, monthGenitive, today } from "../lib/dates";
 import { formatAmount, parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
@@ -90,9 +90,19 @@ export function GoalsCard() {
                 <div className={g.status === "behind" ? "sub warn" : "sub"} data-testid="goal-need">
                   {g.status === "behind" ? "Не успеваете " : "Срок "}
                   {byMonth(g.deadline)}
-                  {g.needPerMonth != null && (
+                  {g.needPerMonth != null && !g.fundingMode && (
                     <>
                       : нужно {formatAmount(g.needPerMonth, g.minorUnits)} {g.currencySymbol} в месяц
+                    </>
+                  )}
+                </div>
+              )}
+              {g.fundingMode && g.needThisPeriod != null && g.status !== "reached" && (
+                <div className="sub" data-testid="goal-funding">
+                  {g.needThisPeriod === 0 ? "План на месяц выполнен" : (
+                    <>
+                      {g.fundingMode === "monthly" ? "В этом бюджетном месяце отложить ещё " : "До суммы цели пополнить на "}
+                      <Money amount={g.needThisPeriod} symbol={g.currencySymbol} minorUnits={g.minorUnits} />
                     </>
                   )}
                 </div>
@@ -139,15 +149,18 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
   // Резерв — только на быстрых счетах: деньги лежат вместе с остальными.
   const canReserve = !!account && RESERVE_TYPES.includes(account.type);
   const [reserve, setReserve] = useState(goal?.reserve ?? false);
+  const canChooseFunding = !accountId || (canReserve && reserve);
+  const [fundingMode, setFundingMode] = useState<GoalFunding["mode"]>(goal?.fundingMode ?? "off");
+  const [monthlyAmount, setMonthlyAmount] = useState(amountText(goal?.monthlyAmount ?? null, minor));
   const [share, setShare] = useState(goal?.shareBp != null ? String(goal.shareBp / 100).replace(".", ",") : "");
   const save = useAction(
-    async (t: number) => {
+    async (t: number, funding: GoalFunding) => {
       const input = { name, target: t, currencyCode: code, accountId: accountId || null, deadline: deadline || null, reserve: canReserve && reserve };
       const bp = share.trim() === "" ? null : Math.round(Number(share.replace(",", ".").replace("%", "").trim()) * 100);
       if (bp != null && (!Number.isFinite(bp) || bp < 0 || bp > 10_000)) throw "Доля — от 0 до 100 %";
       const shareArg = bp !== (goal?.shareBp ?? null) ? bp : undefined;
-      if (goal) await api.updateGoal(goal.id, input, shareArg);
-      else await api.createGoal(input, shareArg);
+      if (goal) await api.updateGoal(goal.id, input, shareArg, funding);
+      else await api.createGoal(input, shareArg, funding);
     },
     onClose,
     { celebrate: true },
@@ -156,7 +169,14 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
   const submit = () => {
     const t = parseAmount(target, minor);
     if (t === null || t <= 0) return save.setError("Укажите, сколько накопить");
-    save.run(t);
+    const mode = canChooseFunding ? fundingMode : "off";
+    if (mode === "monthly") {
+      const amount = parseAmount(monthlyAmount, minor);
+      if (amount == null || amount <= 0) return save.setError("Укажите, сколько откладывать в месяц");
+      save.run(t, { mode, amount });
+    } else {
+      save.run(t, { mode });
+    }
   };
   return (
     <Modal title={goal ? goal.name : "Новая цель"} onClose={onClose}>
@@ -203,6 +223,24 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
             <input type="checkbox" name="goalReserve" checked={reserve} onChange={(e) => setReserve(e.target.checked)} />
             Резерв внутри счёта: деньги лежат вместе с остальными
           </label>
+        )}
+        {canChooseFunding && (
+          <>
+            <Field label="Подсказка по пополнению" hint="Показывает сумму на карточке цели. Отложенное вы отмечаете сами.">
+              {(id) => (
+                <select id={id} name="goalFunding" value={fundingMode} onChange={(e) => setFundingMode(e.target.value as GoalFunding["mode"])}>
+                  <option value="off">Без подсказки</option>
+                  <option value="monthly">Откладывать каждый месяц</option>
+                  <option value="refill">Пополнять до суммы цели</option>
+                </select>
+              )}
+            </Field>
+            {fundingMode === "monthly" && (
+              <Field label="Сколько в месяц">
+                {(id) => <AmountInput id={id} name="goalMonthlyAmount" value={monthlyAmount} onChange={setMonthlyAmount} minorUnits={minor} />}
+              </Field>
+            )}
+          </>
         )}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">

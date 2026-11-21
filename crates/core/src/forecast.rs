@@ -272,8 +272,12 @@ fn regular_by_periods(
            AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1
            AND t.debt_id IS NULL AND t.event_id IS NULL
            AND t.date BETWEEN ?1 AND ?2
-           AND t.id NOT IN (SELECT transaction_id FROM reminder_occurrences
-                            WHERE transaction_id IS NOT NULL)",
+           AND t.id NOT IN (SELECT o.transaction_id FROM reminder_occurrences o
+                            WHERE o.transaction_id IS NOT NULL AND (
+                                o.linked_actual_amount IS NULL OR o.id IN (
+                                    SELECT occurrence_id FROM valid_reminder_actual_links
+                                )
+                            ))",
     )?;
     type Row = (String, String, String, i64, String, String);
     let rows: Vec<Row> = stmt
@@ -1121,6 +1125,8 @@ pub struct FlowNode {
     pub id: String,
     pub name: String,
     pub amount: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<FlowNode>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1132,6 +1138,8 @@ pub struct Flow {
     pub period: Period,
     pub income: Vec<FlowNode>,
     pub expense: Vec<FlowNode>,
+    /// Категории, где возвраты за период превысили расходы.
+    pub expense_credits: Vec<FlowNode>,
     pub total_income: i64,
     pub total_expense: i64,
     /// Переведено на брокерские счета за период (минус выведенное обратно).
@@ -1141,23 +1149,24 @@ pub struct Flow {
     pub missing_rates: Vec<String>,
 }
 
-fn top_nodes(items: Vec<reports::CategoryItem>) -> Vec<FlowNode> {
-    let mut nodes: Vec<FlowNode> = items
-        .into_iter()
-        .filter(|i| i.amount > 0)
-        .map(|i| FlowNode {
-            id: i.category_id,
-            name: i.name,
-            amount: i.amount,
-        })
-        .collect();
+fn flow_node(item: reports::CategoryItem) -> FlowNode {
+    FlowNode {
+        id: item.category_id,
+        name: item.name,
+        amount: item.amount,
+        children: Vec::new(),
+    }
+}
+
+fn top_nodes(mut nodes: Vec<FlowNode>) -> Vec<FlowNode> {
     nodes.sort_by_key(|n| std::cmp::Reverse(n.amount));
     if nodes.len() > FLOW_TOP {
-        let rest: i64 = nodes.drain(FLOW_TOP - 1..).map(|n| n.amount).sum();
+        let children = nodes.split_off(FLOW_TOP - 1);
         nodes.push(FlowNode {
             id: "other".into(),
             name: "Прочее".into(),
-            amount: rest,
+            amount: children.iter().map(|n| n.amount).sum(),
+            children,
         });
     }
     nodes
@@ -1233,12 +1242,25 @@ pub fn flow(conn: &Connection, kind: &str, month: &str) -> Result<Flow> {
     }
     let invested = invested(conn, &base, &period.start, &period.end, &mut missing)?;
     let (total_income, total_expense) = (inc.total, exp.total);
+    let (expense, expense_credits): (Vec<_>, Vec<_>) = exp
+        .items
+        .into_iter()
+        .filter(|item| item.amount != 0)
+        .map(flow_node)
+        .partition(|node| node.amount > 0);
     Ok(Flow {
         base_currency: base,
         currency_symbol: bc.symbol,
         minor_units: bc.minor_units,
-        income: top_nodes(inc.items),
-        expense: top_nodes(exp.items),
+        income: top_nodes(
+            inc.items
+                .into_iter()
+                .filter(|item| item.amount > 0)
+                .map(flow_node)
+                .collect(),
+        ),
+        expense: top_nodes(expense),
+        expense_credits,
         total_income,
         total_expense,
         invested,
@@ -2073,7 +2095,40 @@ mod tests {
         assert_eq!(other.id, "other");
         // Три самые маленькие: 100 000 + 200 000 + 300 000.
         assert_eq!(other.amount, 600_000);
+        assert_eq!(
+            other.children.iter().map(|n| n.amount).collect::<Vec<_>>(),
+            vec![300_000, 200_000, 100_000]
+        );
         assert_eq!(f.saved, -f.total_expense, "без доходов — всё из накоплений");
+    }
+
+    #[test]
+    fn money_flow_keeps_refund_only_category_even_when_expenses_net_to_zero() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let purchase = txn(c, "expense", "2026-08-10", &card, 10_000, "Одежда и обувь");
+        crate::refunds::create(
+            c,
+            &crate::refunds::RefundInput {
+                of: purchase,
+                date: "2026-09-10".into(),
+                account_id: None,
+                amount: 10_000,
+                in_purchase_month: false,
+                note: None,
+            },
+        )
+        .unwrap();
+        txn(c, "expense", "2026-09-10", &card, 10_000, "Питание");
+
+        let f = flow(c, "month", "2026-09").unwrap();
+        assert_eq!(
+            (f.expense[0].amount, f.expense_credits[0].amount),
+            (10_000, -10_000)
+        );
+        assert_eq!((f.total_expense, f.saved), (0, 0));
     }
 
     /// Сочетание: прогноз и выключенный счёт. Напоминание о платеже с этого

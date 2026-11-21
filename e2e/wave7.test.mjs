@@ -61,6 +61,15 @@ after(async () => {
   await stop(browser);
 });
 
+test("из «Проверьте» открывается общий список операций на проверке", async () => {
+  await openSection(browser, "Главная");
+  await (await browser.$('[data-testid="open-operations-review"]')).click();
+  await waitText(browser, '[data-testid="operations-review"]', /Операции на проверке/);
+  await (await browser.$('[data-testid="transactions-review-toggle"]')).click();
+  await browser.$('[data-testid="operations-review"]').waitForExist({ reverse: true, timeout: 5000 });
+  await openSection(browser, "Главная");
+});
+
 test("Главная, «Проверьте»: подорожание и дубль из примера; «Всё в порядке» убирает строку насовсем", async () => {
   await waitText(browser, '[data-testid="home-checks"]', /Проверьте/);
   await waitText(browser, yandex, /Яндекс Плюс: было 399 ₽, стало 449 ₽ \(\+50 ₽ в месяц, \+600 ₽ в год\)/);

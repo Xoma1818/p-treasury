@@ -880,7 +880,45 @@ pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
         base_currency: crate::currencies::base_currency(conn)?,
         ..Default::default()
     };
-    let (where_sql, args) = where_clause(conn, f)?;
+    let (where_sql, mut args) = where_clause(conn, f)?;
+    if f.counted {
+        // Операции отбираются так же, как в списке. Их вклад в итог берётся из
+        // той же раскладки, что в отчётах, с курсом на дату учёта каждой части.
+        let from = args.len() + 1;
+        let to = from + 1;
+        args.push(
+            f.date_from
+                .as_deref()
+                .map_or(Value::Null, |d| d.to_string().into()),
+        );
+        args.push(
+            f.date_to
+                .as_deref()
+                .map_or(Value::Null, |d| d.to_string().into()),
+        );
+        let mut stmt = conn.prepare(&format!(
+            "WITH matched AS (
+                 SELECT t.id FROM transactions t
+                 JOIN accounts a ON a.id = t.account_id JOIN currencies ca ON ca.code = a.currency_code
+                 LEFT JOIN categories c ON c.id = t.category_id WHERE {where_sql}
+             )
+             SELECT p.type, p.date, p.amount, a.currency_code, (SELECT count(*) FROM matched)
+             FROM txn_by_month p JOIN accounts a ON a.id = p.account_id
+             WHERE p.id IN (SELECT id FROM matched)
+               AND (?{from} IS NULL OR p.date >= ?{from})
+               AND (?{to} IS NULL OR p.date <= ?{to})"
+        ))?;
+        let mut count = 0;
+        let rows = stmt
+            .query_map(params_from_iter(args.iter()), |r| {
+                count = r.get(4)?;
+                sum_row(r)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        add_rows(conn, &mut out, rows)?;
+        out.count = count;
+        return Ok(out);
+    }
     let mut stmt = conn.prepare(&format!(
         "SELECT CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END, t.date,
                     CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code
@@ -1631,6 +1669,58 @@ mod tests {
         // Расход стал переводом — «по месяцам» снимается само.
         update(c, &id, &transfer(&f.card, &f.cash, 1_200_000, None)).unwrap();
         assert_eq!(get(c, &id).unwrap().spread_months, None);
+    }
+
+    #[test]
+    fn counted_filter_uses_report_parts_refund_dates_and_rates() {
+        let mut f = fx();
+        let c = f.db.conn_mut();
+        crate::currencies::set_rate(c, "2026-01-01", "USD", "RUB", "70").unwrap();
+        crate::currencies::set_rate(c, "2026-02-01", "USD", "RUB", "80").unwrap();
+        crate::currencies::set_rate(c, "2026-03-01", "USD", "RUB", "90").unwrap();
+        create_with(
+            c,
+            &txn("expense", "2026-01-15", &f.usd, 30_000, Some(&f.food)),
+            &TxnExtra {
+                spread_months: Some(3),
+                tags: vec![],
+            },
+        )
+        .unwrap();
+        let purchase = create(
+            c,
+            &txn("expense", "2026-02-10", &f.usd, 10_000, Some(&f.food)),
+        )
+        .unwrap();
+        crate::refunds::create(
+            c,
+            &crate::refunds::RefundInput {
+                of: purchase,
+                date: "2026-03-10".into(),
+                account_id: None,
+                amount: 2_500,
+                in_purchase_month: true,
+                note: None,
+            },
+        )
+        .unwrap();
+        let mut filter = Filter {
+            category_id: Some(f.food.clone()),
+            date_from: Some("2026-02-01".into()),
+            date_to: Some("2026-02-28".into()),
+            types: vec!["expense".into()],
+            counted: true,
+            ..Default::default()
+        };
+        let counted = sum_filter(c, &filter).unwrap();
+        let report = crate::reports::by_category(c, "expense", "2026-02-01", "2026-02-28").unwrap();
+        assert_eq!(counted.count, list(c, &filter).unwrap().total);
+        assert_eq!(counted.count, 3);
+        assert_eq!(counted.expense, 1_400_000);
+        assert_eq!(counted.expense, report.total);
+        filter.counted = false;
+        let raw = sum_filter(c, &filter).unwrap();
+        assert_eq!((raw.count, raw.expense), (1, 800_000));
     }
 
     #[test]

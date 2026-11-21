@@ -43,6 +43,7 @@ use budget_core::notes::{self, Note, NoteFilter, NoteInput};
 use budget_core::onboarding::{self, Setup};
 use budget_core::quick::{self, Draft};
 use budget_core::receipts::{self, Receipt, ReceiptInput};
+use budget_core::reconciliation;
 use budget_core::refunds::{self, RefundInfo, RefundInput};
 use budget_core::reminders::{self, Key, Occurrence, Overview, ReminderInput};
 use budget_core::reports::{self, BalancesReport, CategoryReport, MonthsReport, PeriodSummary};
@@ -406,6 +407,50 @@ pub fn adjust_balance(
 ) -> CmdResult<Option<String>> {
     with_undo(&state, "Сверка баланса", |c| {
         accounts::adjust_balance(c, &id, actual_balance, &date, note.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn reconciliation_preview(
+    state: State<AppState>,
+    id: String,
+    date: String,
+) -> CmdResult<reconciliation::Preview> {
+    with_db(&state, |db| {
+        reconciliation::preview(db.conn_mut(), &id, &date)
+    })
+}
+
+#[tauri::command(async)]
+pub fn list_reconciliations(
+    state: State<AppState>,
+) -> CmdResult<Vec<reconciliation::Reconciliation>> {
+    with_db(&state, |db| reconciliation::list(db.conn_mut()))
+}
+
+#[tauri::command(async)]
+pub fn complete_reconciliation(
+    state: State<AppState>,
+    id: String,
+    date: String,
+    actual_balance: i64,
+    revision: String,
+) -> CmdResult<()> {
+    with_undo(&state, "Сверка счёта", |c| {
+        reconciliation::complete(c, &id, &date, actual_balance, &revision)
+    })
+}
+
+#[tauri::command(async)]
+pub fn adjust_balance_checked(
+    state: State<AppState>,
+    id: String,
+    date: String,
+    actual_balance: i64,
+    revision: String,
+) -> CmdResult<Option<String>> {
+    with_undo(&state, "Корректировка баланса", |c| {
+        reconciliation::adjust_checked(c, &id, &date, actual_balance, &revision)
     })
 }
 
@@ -930,6 +975,27 @@ pub fn delete_rule(state: State<AppState>, id: String) -> CmdResult<()> {
     with_undo(&state, "Удаление правила", |c| {
         rules::delete(c, &id)
     })
+}
+
+#[tauri::command(async)]
+pub fn rule_history_preview(
+    state: State<AppState>,
+    id: String,
+) -> CmdResult<rules::HistoryPreview> {
+    with_db(&state, |db| rules::history_preview(db.conn_mut(), &id))
+}
+
+#[tauri::command(async)]
+pub fn apply_rule_history(
+    state: State<AppState>,
+    id: String,
+    selection: Vec<rules::HistorySelection>,
+) -> CmdResult<usize> {
+    with_undo(
+        &state,
+        "Применение правила к операциям",
+        |c| rules::apply_history(c, &id, &selection),
+    )
 }
 
 // async: окно, созданное из синхронной команды, в Windows подвешивает программу.
@@ -1697,6 +1763,28 @@ pub fn pay_reminder(state: State<AppState>, key: Key) -> CmdResult<reminders::Pa
 }
 
 #[tauri::command(async)]
+pub fn reminder_payment_candidate(
+    state: State<AppState>,
+    key: Key,
+) -> CmdResult<Option<reminders::PaymentCandidate>> {
+    with_db(&state, |db| {
+        reminders::payment_candidate(db.conn_mut(), &key, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
+pub fn attach_reminder_payment(
+    state: State<AppState>,
+    key: Key,
+    transaction_id: String,
+    revision: String,
+) -> CmdResult<()> {
+    with_undo(&state, "Связь с операцией", |c| {
+        reminders::attach_payment(c, &key, &transaction_id, &revision, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
 pub fn list_notes(state: State<AppState>, filter: NoteFilter) -> CmdResult<Vec<Note>> {
     with_db(&state, |db| notes::list(db.conn(), &filter))
 }
@@ -1812,6 +1900,22 @@ fn verified_statement(
     Ok((dir, snapshot))
 }
 
+fn csv_preview_digest(
+    raw: &str,
+    source: &Path,
+    account: &str,
+    mapping: &csv_import::profiles::CsvMapping,
+) -> CmdResult<String> {
+    use sha2::{Digest, Sha256};
+    let name = source.file_name().ok_or("не удалось определить имя CSV")?;
+    let mapping = serde_json::to_vec(&(name.to_string_lossy(), account, mapping))
+        .map_err(|_| "не удалось проверить настройки CSV".to_string())?;
+    let mut hash = Sha256::new();
+    hash.update(raw);
+    hash.update(mapping);
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatementPreview {
@@ -1826,8 +1930,19 @@ pub fn import_preview(
     path: String,
     account_id: Option<String>,
     self_account_id: Option<String>,
+    csv_mapping: Option<csv_import::profiles::CsvMapping>,
 ) -> CmdResult<StatementPreview> {
     let (_dir, snapshot, file_digest) = statement_snapshot(Path::new(&path))?;
+    if let Some(mapping) = csv_mapping {
+        let account = account_id.as_deref().ok_or("выберите счёт для CSV")?;
+        let preview = with_db(&state, |db| {
+            csv_import::profiles::preview(db.conn(), &snapshot, account, &mapping)
+        })?;
+        return Ok(StatementPreview {
+            preview,
+            file_digest: csv_preview_digest(&file_digest, &snapshot, account, &mapping)?,
+        });
+    }
     let preview = with_db(&state, |db| {
         csv_import::preview_with(
             db.conn(),
@@ -1836,6 +1951,10 @@ pub fn import_preview(
             self_account_id.as_deref(),
         )
     })?;
+    let file_digest = match &preview.bank_plan_digest {
+        Some(plan) => format!("{file_digest}:{plan}"),
+        None => file_digest,
+    };
     Ok(StatementPreview {
         preview,
         file_digest,
@@ -1850,17 +1969,75 @@ pub fn import_csv(
     skip_errors: bool,
     account_id: Option<String>,
     self_account_id: Option<String>,
+    csv_mapping: Option<csv_import::profiles::CsvImportOptions>,
 ) -> CmdResult<import_log::Saved> {
-    let (_dir, snapshot) = verified_statement(Path::new(&path), &file_digest)?;
+    if let Some(options) = csv_mapping {
+        let account = account_id.as_deref().ok_or("выберите счёт для CSV")?;
+        let (_dir, snapshot, raw) = statement_snapshot(Path::new(&path))?;
+        if csv_preview_digest(&raw, &snapshot, account, &options.mapping)? != file_digest {
+            return Err("файл или настройки CSV изменились. Проверьте строки заново".into());
+        }
+        return with_undo(&state, "Импорт операций", |conn| {
+            csv_import::profiles::import(conn, &snapshot, skip_errors, account, &options)
+        });
+    }
+    let (raw_digest, bank_plan) = match file_digest.split_once(':') {
+        Some((raw, plan)) => (raw, Some(plan)),
+        None => (file_digest.as_str(), None),
+    };
+    let (_dir, snapshot) = verified_statement(Path::new(&path), raw_digest)?;
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import_with(
+        csv_import::import_with_review(
             c,
             &snapshot,
             skip_errors,
             account_id.as_deref(),
             self_account_id.as_deref(),
+            bank_plan,
         )
     })
+}
+
+#[tauri::command(async)]
+pub fn inspect_csv_profile(
+    path: String,
+    delimiter: Option<csv_import::profiles::Delimiter>,
+    encoding: Option<csv_import::profiles::CsvEncoding>,
+) -> CmdResult<csv_import::profiles::CsvSample> {
+    csv_import::profiles::inspect(Path::new(&path), delimiter, encoding).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn list_csv_profiles(
+    state: State<AppState>,
+) -> CmdResult<Vec<csv_import::profiles::CsvProfile>> {
+    with_db(&state, |db| csv_import::profiles::list(db.conn()))
+}
+
+#[tauri::command(async)]
+pub fn save_csv_profile(
+    state: State<AppState>,
+    path: String,
+    id: Option<String>,
+    name: String,
+    account_id: String,
+    mapping: csv_import::profiles::CsvMapping,
+) -> CmdResult<csv_import::profiles::CsvProfile> {
+    with_db(&state, |db| {
+        csv_import::profiles::save(
+            db.conn(),
+            Path::new(&path),
+            id.as_deref(),
+            &name,
+            &account_id,
+            mapping,
+        )
+    })
+}
+
+#[tauri::command(async)]
+pub fn delete_csv_profile(state: State<AppState>, id: String) -> CmdResult<()> {
+    with_db(&state, |db| csv_import::profiles::remove(db.conn(), &id))
 }
 
 /// Сохранить готовый файл, собранный в окне (картинка «Итоги года»).
@@ -2031,6 +2208,57 @@ mod tests {
         assert!(super::verified_statement(&source, &digest).is_err());
     }
 
+    #[test]
+    fn mapped_preview_binds_source_account_and_columns() {
+        use budget_core::csv_import::profiles::{
+            AmountColumn, CsvEncoding, CsvMapping, DateFormat, Delimiter,
+        };
+        let mapping = CsvMapping {
+            headers: vec!["Дата".into(), "Сумма".into(), "Детали".into()],
+            encoding: CsvEncoding::Utf8,
+            delimiter: Delimiter::Semicolon,
+            date_format: DateFormat::Standard,
+            date: 0,
+            amount: AmountColumn::Signed { column: 1 },
+            payee: Some(2),
+            note: None,
+            currency: None,
+        };
+        let path = std::path::Path::new("source.csv");
+        let digest = super::csv_preview_digest("source", path, "account", &mapping).unwrap();
+        assert_eq!(
+            digest,
+            super::csv_preview_digest("source", path, "account", &mapping).unwrap()
+        );
+        assert_ne!(
+            digest,
+            super::csv_preview_digest("source", path, "second", &mapping).unwrap()
+        );
+        assert_ne!(
+            digest,
+            super::csv_preview_digest("updated", path, "account", &mapping).unwrap()
+        );
+        assert_ne!(
+            digest,
+            super::csv_preview_digest(
+                "source",
+                std::path::Path::new("other.csv"),
+                "account",
+                &mapping
+            )
+            .unwrap()
+        );
+        let changed = CsvMapping {
+            payee: None,
+            note: Some(2),
+            ..mapping
+        };
+        assert_ne!(
+            digest,
+            super::csv_preview_digest("source", path, "account", &changed).unwrap()
+        );
+    }
+
     /// Сервер на один ответ вместо cbr.ru (из тестовой среды сайт ЦБ недоступен).
     fn serve_once(status: &str, body: &'static [u8]) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2165,10 +2393,11 @@ pub fn create_goal(
     state: State<AppState>,
     input: GoalInput,
     share_bp: Option<i64>,
+    funding: Option<goals::FundingInput>,
 ) -> CmdResult<String> {
-    // Цель и её доля — один шаг отмены.
+    // Цель, доля и режим пополнения — один шаг отмены.
     with_undo(&state, "Новая цель", |c| {
-        goals::save_with_share(c, None, &input, share_bp.map(Some))
+        goals::save_with_options(c, None, &input, share_bp.map(Some), funding.as_ref())
     })
 }
 
@@ -2179,10 +2408,11 @@ pub fn update_goal(
     input: GoalInput,
     share_bp: Option<i64>,
     with_share: Option<bool>,
+    funding: Option<goals::FundingInput>,
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение цели", |c| {
         let share = (with_share == Some(true)).then_some(share_bp);
-        goals::save_with_share(c, Some(id.as_str()), &input, share).map(|_| ())
+        goals::save_with_options(c, Some(id.as_str()), &input, share, funding.as_ref()).map(|_| ())
     })
 }
 

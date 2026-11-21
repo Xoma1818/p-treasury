@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, type Rule, type RuleHistorySelection } from "../lib/api";
+import { formatDate } from "../lib/dates";
 import { useCategories } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { CategorySelect } from "./Fields";
-import { ErrorText } from "./Modal";
+import { ErrorText, Modal } from "./Modal";
 import { Hint } from "./Hint";
+import { Money } from "./Money";
 
 /**
  * Правила автокатегорий: «если в получателе есть „пятерочка“ — категория Продукты».
@@ -17,6 +19,7 @@ export function RulesCard() {
   const [pattern, setPattern] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [payee, setPayee] = useState("");
+  const [history, setHistory] = useState<Rule | null>(null);
   const create = useAction(
     () => api.createRule({ pattern, categoryId, payee: payee.trim() || null }),
     () => {
@@ -53,9 +56,14 @@ export function RulesCard() {
                 <td>{r.categoryName}</td>
                 <td className="muted">{r.payee ?? "как в тексте"}</td>
                 <td>
-                  <button className="link danger" onClick={() => remove.run(r.id)} aria-label={`Удалить правило «${r.pattern}»`}>
-                    Удалить
-                  </button>
+                  <span className="row-actions">
+                    <button type="button" className="link" onClick={() => setHistory(r)} aria-label={`Прошлые операции для правила «${r.pattern}»`} data-testid="rule-history-open">
+                      Прошлые операции
+                    </button>
+                    <button type="button" className="link danger" onClick={() => remove.run(r.id)} aria-label={`Удалить правило «${r.pattern}»`}>
+                      Удалить
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
@@ -77,7 +85,89 @@ export function RulesCard() {
         </button>
       </form>
       <ErrorText error={create.error ?? remove.error} />
+      {history && <RuleHistoryDialog key={history.id} rule={history} onClose={() => setHistory(null)} />}
     </div>
+  );
+}
+
+function RuleHistoryDialog({ rule, onClose }: { rule: Rule; onClose: () => void }) {
+  const [selected, setSelected] = useState<Map<string, string>>(() => new Map());
+  const [applied, setApplied] = useState<number | null>(null);
+  const preview = useQuery({
+    queryKey: ["ruleHistory", rule.id],
+    queryFn: () => api.ruleHistoryPreview(rule.id),
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const apply = useAction(
+    (selection: RuleHistorySelection[]) => api.applyRuleHistory(rule.id, selection),
+    (count) => {
+      setSelected(new Map());
+      setApplied(count);
+    },
+  );
+  const rows = preview.data?.rows ?? [];
+  const selection = rows.filter((r) => selected.get(r.id) === r.revision).map(({ id, revision }) => ({ id, revision }));
+  const disabled = apply.busy || preview.isFetching;
+  const reload = () => {
+    apply.setError(null);
+    setApplied(null);
+    setSelected(new Map());
+    void preview.refetch();
+  };
+  return (
+    <Modal title={`Прошлые операции · ${rule.pattern}`} onClose={onClose} wide dismissDisabled={apply.busy}>
+      <p className="muted">Отметьте проведённые операции, в которых нужно изменить категорию или получателя.</p>
+      {preview.isFetching && <p role="status">Проверяем прошлые операции…</p>}
+      {applied !== null && <p role="status">Изменено операций: {applied}. Можно отменить через Ctrl+Z.</p>}
+      {preview.isSuccess && rows.length === 0 && <p className="muted">Подходящих операций для изменения нет.</p>}
+      {preview.data?.hasMore && <p className="muted">Показаны 100 последних подходящих операций.</p>}
+      {rows.length > 0 && (
+        <div className="import-table" role="region" aria-label="Предпросмотр правила" tabIndex={0}>
+          <table className="table" data-testid="rule-history-preview">
+            <thead>
+              <tr><th>Выбрать</th><th>Операция</th><th>Было</th><th>Станет</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Выбрать ${r.oldPayee}, ${formatDate(r.date)}, ${r.accountName}`}
+                      data-testid="rule-history-select"
+                      checked={selected.get(r.id) === r.revision}
+                      disabled={disabled}
+                      onChange={(e) => {
+                        const next = new Map(selected);
+                        if (e.target.checked) next.set(r.id, r.revision);
+                        else next.delete(r.id);
+                        setSelected(next);
+                      }}
+                    />
+                  </td>
+                  <td>
+                    {formatDate(r.date)} · <Money amount={r.amount} symbol={r.currencySymbol} minorUnits={r.minorUnits} />
+                    <div className="muted">{r.accountName}</div>
+                  </td>
+                  <td>{r.oldCategory}<div className="muted">{r.oldPayee}</div></td>
+                  <td>{r.newCategory}<div className="muted">{r.newPayee}</div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <ErrorText error={apply.error ?? (preview.error ? String(preview.error) : null)} />
+      <div className="actions">
+        {(apply.error || preview.isError) && <button type="button" className="link" onClick={reload} disabled={disabled}>Обновить предпросмотр</button>}
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={onClose} disabled={apply.busy}>Закрыть</button>
+        <button type="button" className="btn primary" data-testid="rule-history-apply" disabled={disabled || selection.length === 0} onClick={() => apply.run(selection)}>
+          Применить выбранные ({selection.length})
+        </button>
+      </div>
+    </Modal>
   );
 }
 

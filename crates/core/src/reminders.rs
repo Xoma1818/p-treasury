@@ -15,8 +15,9 @@
 use std::collections::HashMap;
 
 use chrono::{Datelike, Duration, Months, NaiveDate, NaiveDateTime};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::error::invalid;
 use crate::{categories, ids, settings, time, Error, Result};
@@ -597,6 +598,8 @@ pub struct Occurrence {
     pub notified_at: Option<String>,
     pub completed_at: Option<String>,
     pub transaction_id: Option<String>,
+    /// Явно привязано к действующей операции, записанной отдельно.
+    pub linked_actual: bool,
     /// День и время самого платежа: по расписанию или куда его перенесли.
     pub pay_at: String,
     /// Сумма или дата этого платежа изменены отдельно от серии.
@@ -622,17 +625,23 @@ struct State {
     notified_at: Option<String>,
     completed_at: Option<String>,
     transaction_id: Option<String>,
+    linked_actual: bool,
     amount_override: Option<i64>,
     moved_to: Option<String>,
 }
 
 fn states(conn: &Connection) -> Result<HashMap<Key, State>> {
     let mut stmt = conn.prepare(
-        "SELECT source, COALESCE(reminder_id, debt_schedule_id), scheduled_at, status, snoozed_until, notified_at,
-                completed_at, transaction_id, amount_override, moved_to
-         FROM reminder_occurrences",
+        "SELECT o.source, COALESCE(o.reminder_id, o.debt_schedule_id), o.scheduled_at, o.status,
+                o.snoozed_until, o.notified_at, o.completed_at, o.transaction_id,
+                o.amount_override, o.moved_to,
+                o.status = 'done' AND o.linked_actual_amount IS NOT NULL AND v.occurrence_id IS NULL,
+                v.occurrence_id IS NOT NULL
+         FROM reminder_occurrences o
+         LEFT JOIN valid_reminder_actual_links v ON v.occurrence_id = o.id",
     )?;
     let rows = stmt.query_map([], |r| {
+        let stale_link: bool = r.get(10)?;
         Ok((
             Key {
                 source: r.get(0)?,
@@ -640,11 +649,16 @@ fn states(conn: &Connection) -> Result<HashMap<Key, State>> {
                 scheduled_at: r.get(2)?,
             },
             State {
-                status: r.get(3)?,
+                status: if stale_link {
+                    "pending".into()
+                } else {
+                    r.get(3)?
+                },
                 snoozed_until: r.get(4)?,
                 notified_at: r.get(5)?,
-                completed_at: r.get(6)?,
-                transaction_id: r.get(7)?,
+                completed_at: if stale_link { None } else { r.get(6)? },
+                transaction_id: if stale_link { None } else { r.get(7)? },
+                linked_actual: r.get(11)?,
                 amount_override: r.get(8)?,
                 moved_to: r.get(9)?,
             },
@@ -696,6 +710,7 @@ pub fn occurrences(
             o.notified_at = s.notified_at.clone();
             o.completed_at = s.completed_at.clone();
             o.transaction_id = s.transaction_id.clone();
+            o.linked_actual = s.linked_actual;
         }
         o.key = key;
         out.push(o);
@@ -762,6 +777,7 @@ pub fn occurrences(
                     notified_at: None,
                     completed_at: None,
                     transaction_id: None,
+                    linked_actual: false,
                     pay_at: format_dt(at),
                     edited: false,
                     last,
@@ -846,6 +862,7 @@ pub fn occurrences(
                 notified_at: None,
                 completed_at: None,
                 transaction_id: None,
+                linked_actual: false,
                 pay_at: format!("{due}T{DEBT_HOUR}"),
                 edited: false,
                 last: false,
@@ -901,7 +918,8 @@ pub fn complete(conn: &Connection, key: &Key, transaction_id: Option<&str>) -> R
     upsert(
         conn,
         key,
-        "status = 'done', completed_at = ?2, transaction_id = ?3, snoozed_until = NULL",
+        "status = 'done', completed_at = ?2, transaction_id = ?3, snoozed_until = NULL,
+         linked_actual_amount = NULL, linked_actual_date = NULL",
         &[&time::now_utc(), &transaction_id],
     )
 }
@@ -913,7 +931,9 @@ pub fn snooze(conn: &Connection, key: &Key, until: &str) -> Result<()> {
     upsert(
         conn,
         key,
-        "status = 'snoozed', snoozed_until = ?2, notified_at = NULL",
+        "status = 'snoozed', snoozed_until = ?2, notified_at = NULL,
+         transaction_id = CASE WHEN linked_actual_amount IS NULL THEN transaction_id END,
+         linked_actual_amount = NULL, linked_actual_date = NULL",
         &[&until],
     )
 }
@@ -922,7 +942,9 @@ pub fn dismiss(conn: &Connection, key: &Key) -> Result<()> {
     upsert(
         conn,
         key,
-        "status = 'dismissed', completed_at = ?2",
+        "status = 'dismissed', completed_at = ?2,
+         transaction_id = CASE WHEN linked_actual_amount IS NULL THEN transaction_id END,
+         linked_actual_amount = NULL, linked_actual_date = NULL",
         &[&time::now_utc()],
     )
 }
@@ -932,7 +954,8 @@ pub fn reopen(conn: &Connection, key: &Key) -> Result<()> {
     upsert(
         conn,
         key,
-        "status = 'pending', completed_at = NULL, snoozed_until = NULL, transaction_id = NULL",
+        "status = 'pending', completed_at = NULL, snoozed_until = NULL, transaction_id = NULL,
+         linked_actual_amount = NULL, linked_actual_date = NULL",
         &[],
     )
 }
@@ -1295,6 +1318,180 @@ pub fn occurrence(conn: &Connection, key: &Key) -> Result<Occurrence> {
         .ok_or(Error::NotFound("напоминание"))
 }
 
+/// Предложение связать напоминание с уже записанной операцией.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentCandidate {
+    pub transaction_id: String,
+    pub date: String,
+    pub payee: Option<String>,
+    pub amount: i64,
+    pub expected_amount: i64,
+    pub currency_symbol: String,
+    pub minor_units: u32,
+    pub match_reason: &'static str,
+    pub revision: String,
+}
+
+// Тот же интервал используется в valid_reminder_actual_links.
+const PAYMENT_MATCH_DAYS: i64 = 3;
+
+fn merchant_key(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn find_payment_candidate(
+    conn: &Connection,
+    key: &Key,
+    today: &str,
+) -> Result<Option<PaymentCandidate>> {
+    if key.source != "reminder" {
+        return Ok(None);
+    }
+    let o = occurrence(conn, key)?;
+    let (Some(expected), Some(account)) = (o.amount, o.account_id.as_deref()) else {
+        return Ok(None);
+    };
+    if !matches!(o.status.as_str(), "pending" | "snoozed") {
+        return Ok(None);
+    }
+    let currency: Option<(String, String, u32)> = conn
+        .query_row(
+            "SELECT c.code, c.symbol, c.minor_units FROM accounts a
+             JOIN currencies c ON c.code = a.currency_code
+             WHERE a.id = ?1 AND a.archived_at IS NULL AND a.type NOT IN ('debt', 'investment')",
+            [account],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((currency, symbol, minor_units)) = currency else {
+        return Ok(None);
+    };
+    let base = crate::currencies::base_currency(conn)?;
+    let due = parse_dt(&o.pay_at)?.date();
+    let window = Duration::days(PAYMENT_MATCH_DAYS);
+    let from = (due - window).to_string();
+    let to = (due + window).to_string();
+    let kind = o.txn_type.as_deref().unwrap_or("expense");
+    let title = merchant_key(&o.title);
+    let useful_title = title.chars().count() >= 3;
+    let mut stmt = conn.prepare_cached(
+        "SELECT t.id, t.date, t.payee, t.amount, t.category_id
+         FROM transactions t
+         WHERE t.account_id = ?1 AND t.type = ?2 AND t.date BETWEEN ?3 AND ?4 AND t.date <= ?5
+           AND t.status = 'cleared' AND t.debt_id IS NULL AND t.refund = 0 AND t.split_id IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM reminder_occurrences linked
+               LEFT JOIN valid_reminder_actual_links valid ON valid.occurrence_id = linked.id
+               WHERE linked.transaction_id = t.id
+                 AND (linked.linked_actual_amount IS NULL OR valid.occurrence_id IS NOT NULL)
+           )",
+    )?;
+    let mut rows = stmt.query(params![account, kind, from, to, today])?;
+    let mut found = None;
+    while let Some(row) = rows.next()? {
+        let payee: Option<String> = row.get(2)?;
+        let category: Option<String> = row.get(4)?;
+        let payee_matches =
+            useful_title && payee.as_deref().is_some_and(|p| merchant_key(p) == title);
+        let category_matches = category.is_some() && category == o.category_id;
+        if !payee_matches && !category_matches {
+            continue;
+        }
+        let date: String = row.get(1)?;
+        let amount: i64 = row.get(3)?;
+        let Some(expected_amount) =
+            crate::currencies::convert(conn, expected, &base, &currency, &date)?
+        else {
+            continue;
+        };
+        // По одной лишь категории предлагаем только точную сумму. Для того же
+        // получателя показываем умеренное расхождение как вариант для проверки.
+        if expected_amount <= 0
+            || (amount != expected_amount
+                && (!payee_matches
+                    || amount.abs_diff(expected_amount) > expected_amount as u64 / 2))
+        {
+            continue;
+        }
+        if found.is_some() {
+            return Ok(None);
+        }
+        found = Some(PaymentCandidate {
+            transaction_id: row.get(0)?,
+            date,
+            payee,
+            amount,
+            expected_amount,
+            currency_symbol: symbol.clone(),
+            minor_units,
+            match_reason: if payee_matches { "payee" } else { "category" },
+            revision: String::new(),
+        });
+    }
+    if let Some(candidate) = &mut found {
+        let snapshot =
+            serde_json::to_vec(&(key, &o.pay_at, account, expected, &currency, &*candidate))
+                .map_err(|e| Error::Validation(e.to_string()))?;
+        candidate.revision = format!("{:x}", Sha256::digest(snapshot));
+    }
+    Ok(found)
+}
+
+pub fn payment_candidate(
+    conn: &mut Connection,
+    key: &Key,
+    today: &str,
+) -> Result<Option<PaymentCandidate>> {
+    let tx = conn.transaction()?;
+    let found = find_payment_candidate(&tx, key, today)?;
+    tx.commit()?;
+    Ok(found)
+}
+
+pub fn attach_payment(
+    conn: &mut Connection,
+    key: &Key,
+    transaction_id: &str,
+    revision: &str,
+    today: &str,
+) -> Result<()> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let candidate = find_payment_candidate(&tx, key, today)?
+        .filter(|c| c.transaction_id == transaction_id && c.revision == revision)
+        .ok_or_else(|| {
+            Error::Validation("совпадение изменилось. Проверьте платёж снова.".into())
+        })?;
+
+    // У операции могла остаться потерявшая силу связь. Снимаем её, чтобы
+    // последующая правка расписания не могла снова закрыть оба напоминания.
+    tx.execute(
+        "UPDATE reminder_occurrences
+         SET status = 'pending', transaction_id = NULL, completed_at = NULL,
+             linked_actual_amount = NULL, linked_actual_date = NULL
+         WHERE transaction_id = ?1 AND linked_actual_amount IS NOT NULL
+           AND id NOT IN (SELECT occurrence_id FROM valid_reminder_actual_links)",
+        [transaction_id],
+    )?;
+    upsert(
+        &tx,
+        key,
+        "status = 'done', completed_at = ?2, transaction_id = ?3, snoozed_until = NULL,
+         linked_actual_amount = ?4, linked_actual_date = ?5",
+        &[
+            &time::now_utc(),
+            &candidate.transaction_id,
+            &candidate.amount,
+            &candidate.date,
+        ],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 /// Чем кончилось «Оплачено» из уведомления.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "id")]
@@ -1497,6 +1694,164 @@ mod tests {
             note: None,
             ..Default::default()
         }
+    }
+
+    fn internet_payment(
+        conn: &Connection,
+        account: &str,
+        expected: i64,
+        amount: i64,
+    ) -> (Key, crate::transactions::TxnInput) {
+        crate::categories::seed_defaults(conn).unwrap();
+        let category: String = conn
+            .query_row(
+                "SELECT id FROM categories WHERE name = 'Связь' AND kind = 'expense' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let mut input = reminder("Дом-Связь", "2026-10-20T09:00", "monthly", Some(expected));
+        input.account_id = Some(account.into());
+        input.category_id = Some(category.clone());
+        let id = create(conn, &input).unwrap();
+        (
+            Key {
+                source: "reminder".into(),
+                ref_id: id,
+                scheduled_at: input.start_at,
+            },
+            crate::transactions::TxnInput {
+                kind: "expense".into(),
+                date: "2026-10-19".into(),
+                amount,
+                account_id: account.into(),
+                category_id: Some(category),
+                to_account_id: None,
+                to_amount: None,
+                payee: Some("Дом связь".into()),
+                note: None,
+            },
+        )
+    }
+
+    #[test]
+    fn linking_payment_keeps_one_transaction_and_reopens_the_forecast_on_delete() {
+        use crate::transactions;
+        use crate::undo::Journal;
+        use std::collections::HashSet;
+
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let (key, input) = internet_payment(c, &card, 10_000, 11_000);
+        let id = transactions::create(c, &input).unwrap();
+        let today = "2026-10-19";
+        let planned = |c: &Connection| {
+            crate::forecast::known_items(
+                c,
+                "RUB",
+                today,
+                "2026-10-21",
+                &HashSet::new(),
+                &mut Vec::new(),
+            )
+            .unwrap()
+        };
+        assert_eq!(planned(c).len(), 1);
+        let candidate = payment_candidate(c, &key, today).unwrap().unwrap();
+        assert_eq!(
+            (
+                candidate.amount,
+                candidate.expected_amount,
+                candidate.match_reason
+            ),
+            (11_000, 10_000, "payee")
+        );
+        let mut journal = Journal::default();
+        journal
+            .record(c, "Связь", |c| {
+                attach_payment(c, &key, &id, &candidate.revision, today)
+            })
+            .unwrap();
+        let linked = occurrence(c, &key).unwrap();
+        assert!(linked.linked_actual);
+        assert_eq!(linked.transaction_id.as_deref(), Some(id.as_str()));
+        assert!(planned(c).is_empty());
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 89_000);
+        assert_eq!(journal.undo(c).unwrap().as_deref(), Some("Связь"));
+        assert_eq!(planned(c).len(), 1);
+        assert_eq!(journal.redo(c).unwrap().as_deref(), Some("Связь"));
+        assert!(planned(c).is_empty());
+        transactions::delete(c, &id).unwrap();
+        let pending = occurrence(c, &key).unwrap();
+        assert!(!pending.linked_actual);
+        assert_eq!(
+            (pending.status.as_str(), pending.transaction_id),
+            ("pending", None)
+        );
+        assert_eq!(planned(c).len(), 1);
+    }
+
+    #[test]
+    fn candidate_is_unique_uses_historical_currency_and_rejects_a_changed_quote() {
+        use crate::currencies;
+        use crate::transactions;
+
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let card = accounts::create(c, &input("Доллары", "debit", "USD", 10_000)).unwrap();
+        let (key, mut payment) = internet_payment(c, &card, 9_000, 120);
+        let id = transactions::create(c, &payment).unwrap();
+        let today = "2026-10-19";
+        assert!(payment_candidate(c, &key, today).unwrap().is_none());
+        currencies::set_rate(c, today, "USD", "RUB", "90").unwrap();
+        let first = payment_candidate(c, &key, today).unwrap().unwrap();
+        assert_eq!(
+            (
+                first.amount,
+                first.expected_amount,
+                first.currency_symbol.as_str()
+            ),
+            (120, 100, "$")
+        );
+        let ambiguous = transactions::create(c, &payment).unwrap();
+        assert!(payment_candidate(c, &key, today).unwrap().is_none());
+        assert!(attach_payment(c, &key, &id, &first.revision, today).is_err());
+        transactions::delete(c, &ambiguous).unwrap();
+        payment.amount = 130;
+        transactions::update(c, &id, &payment).unwrap();
+        assert!(attach_payment(c, &key, &id, &first.revision, today).is_err());
+        let fresh = payment_candidate(c, &key, today).unwrap().unwrap();
+        attach_payment(c, &key, &id, &fresh.revision, today).unwrap();
+
+        let (other, _) = internet_payment(c, &card, 9_000, 130);
+        assert!(payment_candidate(c, &other, today).unwrap().is_none());
+        payment.amount = 135;
+        transactions::update(c, &id, &payment).unwrap();
+        assert_eq!(occurrence(c, &key).unwrap().status, "pending");
+        let new = payment_candidate(c, &other, today).unwrap().unwrap();
+        attach_payment(c, &other, &id, &new.revision, today).unwrap();
+        payment.amount = 130;
+        transactions::update(c, &id, &payment).unwrap();
+        assert_eq!(occurrence(c, &other).unwrap().status, "pending");
+        assert_eq!(occurrence(c, &key).unwrap().status, "pending");
+        reopen(c, &other).unwrap();
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 9_870);
+    }
+
+    #[test]
+    fn legacy_completion_with_deleted_transaction_stays_completed() {
+        use crate::transactions;
+
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let (key, payment) = internet_payment(c, &card, 10_000, 10_000);
+        let id = transactions::create(c, &payment).unwrap();
+        complete(c, &key, Some(&id)).unwrap();
+        transactions::delete(c, &id).unwrap();
+        let o = occurrence(c, &key).unwrap();
+        assert_eq!((o.status.as_str(), o.linked_actual), ("done", false));
     }
 
     #[test]

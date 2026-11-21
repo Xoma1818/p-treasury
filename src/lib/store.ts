@@ -55,6 +55,10 @@ interface UiState {
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
   txnFilter: TxnJump | null;
   showTransactions: (f: TxnJump) => void;
+  operationReview: boolean;
+  openOperationReview: () => void;
+  reconciliationAccount: string | null;
+  openReconciliation: (accountId: string) => void;
   /** «Изменить план» из предупреждения: Бюджет открывается на лимите этой категории. */
   planFocus: string | null;
   editPlan: (categoryId: string | null) => void;
@@ -89,9 +93,13 @@ export interface SettingsJump {
 export const useUi = create<UiState>((set) => ({
   section: startSection(),
   visit: 0,
-  go: (section) => set((s) => ({ section, visit: s.visit + 1 })),
+  go: (section) => set((s) => ({ section, visit: s.visit + 1, operationReview: false, reconciliationAccount: null })),
   txnFilter: null,
-  showTransactions: (txnFilter) => set({ txnFilter, section: "transactions" }),
+  showTransactions: (txnFilter) => set({ txnFilter, section: "transactions", operationReview: false }),
+  operationReview: false,
+  openOperationReview: () => set({ operationReview: true, txnFilter: null, section: "transactions" }),
+  reconciliationAccount: null,
+  openReconciliation: (reconciliationAccount) => set({ section: "accounts", reconciliationAccount }),
   planFocus: null,
   editPlan: (planFocus) => set((s) => (planFocus ? { planFocus, section: "budget", visit: s.visit + 1 } : { planFocus })),
   txnForm: null,
@@ -99,7 +107,7 @@ export const useUi = create<UiState>((set) => ({
   debtJump: null,
   openDebt: (id, pay = false) => set((s) => ({ debtJump: { id, pay }, section: "debts", visit: s.visit + 1 })),
   viewJump: null,
-  openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1 })),
+  openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1, operationReview: false })),
   reportTab: null,
   openReport: (reportTab) => set((s) => ({ reportTab, section: "reports", visit: s.visit + 1 })),
   palette: false,
