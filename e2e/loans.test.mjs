@@ -297,7 +297,10 @@ test("сохранённая иена верно подписана, при см
   const row = '[data-testid="debt-row"][data-name="Заём в иенах"]';
   await waitText(browser, row, money("12 000 JPY"));
   await waitText(browser, '//*[@data-testid="upcoming"]//li[contains(., "Заём в иенах")]', money("4 000 JPY"));
-  await (await browser.$(row)).click();
+  const debtName = await browser.$(row + " .main");
+  await browser.execute((el) => el.scrollIntoView({ block: "center" }), debtName);
+  await debtName.waitForClickable({ timeout: 5000 });
+  await debtName.click();
   await waitText(browser, '[data-testid="debt-outstanding"]', money("12 000 JPY"));
   await waitText(browser, '[data-testid="debt-next"]', money("4 000 JPY"));
   await click(browser, "Все долги");
