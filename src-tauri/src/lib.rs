@@ -359,6 +359,7 @@ pub fn run() {
             commands::split_reminder,
             commands::pay_reminder,
             commands::reminder_payment_candidate,
+            commands::reminder_payment_review,
             commands::attach_reminder_payment,
             commands::list_notes,
             commands::create_note,

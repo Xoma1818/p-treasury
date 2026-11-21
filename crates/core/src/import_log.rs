@@ -9,9 +9,9 @@
 //! своими счетами — по своей стороне), связывается с ней: запись остаётся как
 //! есть, а данные строки банка запоминаются в `import_links`. Сами
 //! связываются только однозначные совпадения: у строки одна подходящая запись,
-//! и на эту запись не претендует другая строка той же выписки. Остальные
-//! строки добавляются, а возможные совпадения ждут подтверждения — как и две
-//! стороны перевода, пришедшие отдельными строками выписок.
+//! и на эту запись не претендует другая строка той же выписки. Неоднозначные
+//! строки новых выписок требуют решения до записи. Ранее сохранённые
+//! совпадения и пары переводов по-прежнему доступны для разбора.
 
 use std::{
     borrow::Cow,
@@ -21,6 +21,7 @@ use std::{
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
+use crate::csv_import::{BankImportDecision, BankImportDecisions};
 use crate::error::invalid;
 use crate::transactions::{self, TxnInput};
 use crate::{ids, time, Error, Result};
@@ -34,6 +35,9 @@ pub const SAME_DAYS: i64 = 3;
 pub const TRANSFER_DAYS: i64 = 2;
 /// Больше вариантов к одной строке не предлагаем.
 const MAX_CANDIDATES: usize = 5;
+
+pub(crate) const BANK_REVIEW_REQUIRED: &str =
+    "выберите действие для каждой строки с возможным совпадением";
 
 /// Откуда импорт: окно «Импорт операций» или папка автоимпорта.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,7 +94,7 @@ fn candidates(
         "SELECT t.id FROM transactions t
          WHERE t.account_id = ?1 AND t.type = ?2 AND t.amount = ?5 AND t.split_id IS NULL
            AND {near} AND {free}
-         ORDER BY abs(julianday(t.date) - julianday(?3)), t.created_at"
+         ORDER BY abs(julianday(t.date) - julianday(?3)), t.created_at, t.id"
     ))?;
     for id in stmt.query_map(
         params![t.account_id, t.kind, t.date, SAME_DAYS, t.amount],
@@ -147,8 +151,14 @@ fn candidates(
             !reserved.contains(candidate.split_id.as_ref().unwrap_or(&candidate.id))
         });
     }
-    out.truncate(MAX_CANDIDATES);
     Ok(out)
+}
+
+fn candidate_key<'a>(input: &'a TxnInput, candidate: &'a Candidate) -> (&'a str, &'a str) {
+    (
+        &input.account_id,
+        candidate.split_id.as_deref().unwrap_or(&candidate.id),
+    )
 }
 
 /// Запомнить у записи `c` строку выписки `t` (у разбитого чека — у всех частей).
@@ -160,14 +170,17 @@ fn link(
     import_id: &str,
     auto: bool,
 ) -> Result<()> {
-    let ids: Vec<String> = match &c.split_id {
-        Some(split) => {
-            let mut stmt = conn.prepare("SELECT id FROM transactions WHERE split_id = ?1")?;
-            let rows = stmt.query_map([split], |r| r.get(0))?;
-            rows.collect::<std::result::Result<_, _>>()?
-        }
-        None => vec![c.id.clone()],
-    };
+    let occupied: bool = conn.query_row(
+        "SELECT EXISTS (
+           SELECT 1 FROM import_links l JOIN transactions old ON old.id = l.transaction_id
+           WHERE l.account_id = ?2 AND (old.id = ?1 OR old.split_id = ?3)
+         )",
+        params![c.id, t.account_id, c.split_id],
+        |r| r.get(0),
+    )?;
+    if occupied {
+        return invalid("запись уже связана с другой строкой выписки на этом счёте");
+    }
     let bank_payee = match source_payee {
         // Идентификатор строки профиля уже содержит исходное имя и безопасно
         // переносится как есть. Пустое имя остаётся совместимо со старыми ключами.
@@ -181,23 +194,37 @@ fn link(
         Some(raw) => Cow::Owned(format!("{RAW_LINK_PREFIX}{raw}")),
         None => Cow::Borrowed(t.payee.as_deref().unwrap_or("")),
     };
-    for id in ids {
-        conn.execute(
-            "INSERT OR REPLACE INTO import_links
-               (transaction_id, account_id, import_id, kind, bank_date, bank_amount, bank_payee, auto)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, coalesce(?7, ''), ?8)",
-            params![
-                id,
-                t.account_id,
-                import_id,
-                t.kind,
-                t.date,
-                t.amount,
-                bank_payee.as_ref(),
-                auto
-            ],
-        )?;
+    // Все части чека добавляются одной командой. Конфликт отменяет вставку целиком.
+    let changed = conn.execute(
+        "INSERT INTO import_links
+           (transaction_id, account_id, import_id, kind, bank_date, bank_amount, bank_payee, auto)
+         SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM transactions
+         WHERE id = ?1 OR split_id = ?9",
+        params![
+            c.id,
+            t.account_id,
+            import_id,
+            t.kind,
+            t.date,
+            t.amount,
+            bank_payee.as_ref(),
+            auto,
+            c.split_id,
+        ],
+    )?;
+    if changed == 0 {
+        return invalid("запись для связи изменилась. Проверьте выписку снова");
     }
+    // Старые предложения больше не могут занять уже связанную сторону.
+    conn.execute(
+        "WITH linked_group AS (SELECT id FROM transactions WHERE id = ?1 OR split_id = ?3)
+         DELETE FROM import_suggestions
+         WHERE (kind = 'same' AND old_id IN (SELECT id FROM linked_group)
+                AND new_id IN (SELECT id FROM transactions WHERE account_id = ?2))
+            OR (kind = 'transfer' AND (old_id IN (SELECT id FROM linked_group)
+                                   OR new_id IN (SELECT id FROM linked_group)))",
+        params![c.id, t.account_id, c.split_id],
+    )?;
     Ok(())
 }
 
@@ -216,15 +243,16 @@ fn plan(
         .iter()
         .map(|t| candidates(conn, t, reserved.get(&t.account_id)))
         .collect::<Result<_>>()?;
-    let claims = |c: &Candidate| {
-        found
-            .iter()
-            .filter(|list| list.iter().any(|x| x == c))
-            .count()
-    };
+    let mut claims = HashMap::new();
+    for (input, list) in inputs.iter().zip(&found) {
+        for candidate in list {
+            *claims.entry(candidate_key(input, candidate)).or_insert(0) += 1;
+        }
+    }
     let sure: Vec<bool> = found
         .iter()
-        .map(|list| list.len() == 1 && claims(&list[0]) == 1)
+        .zip(inputs)
+        .map(|(list, input)| list.len() == 1 && claims[&candidate_key(input, &list[0])] == 1)
         .collect();
     Ok(found.into_iter().zip(sure).collect())
 }
@@ -235,7 +263,7 @@ pub(crate) enum Mark {
     New,
     /// Свяжется сама с этой записью: «19.10 · Продукты».
     Link(String, Box<Side>),
-    /// Добавится, а возможные совпадения (сколько) попросят подтверждения.
+    /// До записи нужно выбрать, что сделать с этой строкой.
     Doubt(usize, Vec<Side>),
 }
 
@@ -314,6 +342,7 @@ pub fn save_with_raw(
             raws,
             skipped,
             reserved: &ReservedSources::new(),
+            review: None,
         },
     )
 }
@@ -323,6 +352,70 @@ pub(crate) struct ImportEntries<'a> {
     pub(crate) raws: &'a [Option<String>],
     pub(crate) skipped: usize,
     pub(crate) reserved: &'a ReservedSources,
+    pub(crate) review: Option<BankReview<'a>>,
+}
+
+pub(crate) struct BankReview<'a> {
+    pub(crate) lines: &'a [usize],
+    pub(crate) decisions: &'a BankImportDecisions,
+}
+
+enum WriteDecision<'a> {
+    Add,
+    Skip,
+    Link(&'a Candidate, bool),
+}
+
+fn write_decisions<'a>(
+    inputs: &'a [TxnInput],
+    found: &'a [(Vec<Candidate>, bool)],
+    review: Option<&BankReview<'_>>,
+) -> Result<Vec<WriteDecision<'a>>> {
+    let mut used_candidates = HashSet::new();
+    let mut decisions_used = 0;
+    let choices = inputs
+        .iter()
+        .zip(found)
+        .enumerate()
+        .map(|(i, (input, (candidates, sure)))| {
+            let choice = if *sure {
+                WriteDecision::Link(&candidates[0], true)
+            } else if let Some(review) = review.filter(|_| !candidates.is_empty()) {
+                decisions_used += 1;
+                match review.decisions.get(&review.lines[i]) {
+                    Some(BankImportDecision::Add) => WriteDecision::Add,
+                    Some(BankImportDecision::Skip) => WriteDecision::Skip,
+                    Some(BankImportDecision::Link { transaction_id }) => {
+                        let candidate = candidates
+                            .iter()
+                            .take(MAX_CANDIDATES)
+                            .find(|candidate| &candidate.id == transaction_id)
+                            .ok_or_else(|| {
+                                Error::Validation(
+                                    "выбранное совпадение изменилось. Проверьте выписку снова"
+                                        .into(),
+                                )
+                            })?;
+                        WriteDecision::Link(candidate, false)
+                    }
+                    None => return invalid(BANK_REVIEW_REQUIRED),
+                }
+            } else {
+                WriteDecision::Add
+            };
+            if let WriteDecision::Link(candidate, _) = &choice {
+                let first_use = used_candidates.insert(candidate_key(input, candidate));
+                if !first_use {
+                    return invalid("одна операция уже выбрана для другой строки выписки");
+                }
+            }
+            Ok(choice)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if review.is_some_and(|review| review.decisions.len() != decisions_used) {
+        return invalid("действия не соответствуют строкам выписки. Проверьте её снова");
+    }
+    Ok(choices)
 }
 
 pub(crate) fn save_entries(
@@ -337,7 +430,15 @@ pub(crate) fn save_entries(
         raws,
         skipped,
         reserved,
+        review,
     } = entries;
+    let found = plan(conn, bank.is_some(), inputs, reserved)?;
+    let decisions = write_decisions(inputs, &found, review.as_ref())?;
+    let skipped = skipped
+        + decisions
+            .iter()
+            .filter(|d| matches!(d, WriteDecision::Skip))
+            .count();
     let import_id = ids::new_id();
     let now = time::now_utc();
     conn.execute(
@@ -356,15 +457,18 @@ pub(crate) fn save_entries(
         import_id: import_id.clone(),
         ..Default::default()
     };
-    let found = plan(conn, bank.is_some(), inputs, reserved)?;
     let mut new_ids = Vec::new();
-    for (i, (t, (list, sure))) in inputs.iter().zip(&found).enumerate() {
+    for (i, ((t, (list, _)), decision)) in inputs.iter().zip(&found).zip(decisions).enumerate() {
         let source_payee = raws.get(i).and_then(Option::as_deref);
         let raw = source_payee.or(t.payee.as_deref());
-        if *sure {
-            link(conn, &list[0], t, source_payee, &import_id, true)?;
-            out.linked += 1;
-            continue;
+        match decision {
+            WriteDecision::Link(candidate, automatic) => {
+                link(conn, candidate, t, source_payee, &import_id, automatic)?;
+                out.linked += 1;
+                continue;
+            }
+            WriteDecision::Skip => continue,
+            WriteDecision::Add => {}
         }
         let id = transactions::create(conn, t)?;
         conn.execute(
@@ -379,9 +483,11 @@ pub(crate) fn save_entries(
             params![id, t.account_id, t.kind, t.date, t.amount, raw],
         )?;
         out.added += 1;
-        for c in list {
-            suggest(conn, &import_id, "same", &id, &c.id, &now)?;
-            out.suggested += 1;
+        if review.is_none() {
+            for c in list.iter().take(MAX_CANDIDATES) {
+                suggest(conn, &import_id, "same", &id, &c.id, &now)?;
+                out.suggested += 1;
+            }
         }
         // Перевод уже записан переводом: вторую сторону искать не нужно.
         if list.is_empty() && bank.is_some() && t.kind != "transfer" {
@@ -445,6 +551,7 @@ fn transfer_candidates(conn: &Connection, id: &str, t: &TxnInput) -> Result<Vec<
          WHERE t.type = ?2 AND t.amount = ?3 AND t.account_id <> ?1 AND t.id <> ?4
            AND a.currency_code = me.currency_code AND a.type <> 'debt'
            AND t.status = 'cleared' AND t.split_id IS NULL AND t.debt_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM import_links l WHERE l.transaction_id = t.id)
            AND abs(julianday(t.date) - julianday(?5)) <= ?6
          ORDER BY abs(julianday(t.date) - julianday(?5)) LIMIT ?7",
     )?;
@@ -746,16 +853,10 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
         )?;
         let old = Candidate {
             id: s.old_id.clone(),
-            split_id: split_id.clone(),
+            split_id,
         };
         let source = imported_payee(conn, &s.new_id, &bank)?;
         link(conn, &old, &bank, source.as_deref(), &s.import_id, false)?;
-        // Другие предложения к этой же ручной записи больше не нужны.
-        conn.execute(
-            "DELETE FROM import_suggestions WHERE kind = 'same' AND (old_id = ?1
-               OR old_id IN (SELECT id FROM transactions WHERE ?2 IS NOT NULL AND split_id = ?2))",
-            params![s.old_id, split_id],
-        )?;
         // Что успели прикрепить к строке выписки, переходит к ручной записи.
         carry_attached(conn, &s.new_id, &s.old_id)?;
         conn.execute(
@@ -769,6 +870,14 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
             [&s.import_id],
         )?;
         return Ok(s.old_id);
+    }
+    let occupied: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM import_links WHERE transaction_id IN (?1, ?2))",
+        params![s.new_id, s.old_id],
+        |r| r.get(0),
+    )?;
+    if occupied {
+        return invalid("одна из сторон перевода уже связана со строкой выписки");
     }
     let other = as_input(conn, &s.old_id)?;
     let (out, into, out_id, into_id) = if bank.kind == "expense" {
@@ -1281,6 +1390,224 @@ mod tests {
     use super::*;
     use crate::accounts::{self, AccountInput};
     use crate::storage::Storage;
+
+    #[test]
+    fn one_bank_side_cannot_satisfy_two_review_decisions() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = account(c, "Карта");
+        let food = cat(c, "Питание");
+        let purchase = op("expense", "2026-10-17", &card, 100, &food, "ручная запись");
+        let existing = transactions::create(c, &purchase).unwrap();
+        let inputs = [
+            op("expense", "2026-10-16", &card, 100, &food, "из банка 1"),
+            op("expense", "2026-10-18", &card, 100, &food, "из банка 2"),
+        ];
+        let link = || BankImportDecision::Link {
+            transaction_id: existing.clone(),
+        };
+        let write = |decisions: &BankImportDecisions| {
+            save_entries(
+                c,
+                Origin::Manual,
+                "выписка.csv",
+                Some("Т-Банк"),
+                ImportEntries {
+                    inputs: &inputs,
+                    raws: &[],
+                    skipped: 0,
+                    reserved: &ReservedSources::new(),
+                    review: Some(BankReview {
+                        lines: &[2, 3],
+                        decisions,
+                    }),
+                },
+            )
+        };
+        let saved = write(&[(2, link()), (3, link())].into());
+        assert!(saved.unwrap_err().to_string().contains("уже выбрана"));
+        let batches: i64 = c
+            .query_row("SELECT count(*) FROM import_batches", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(batches, 0);
+
+        let saved = write(&[(2, link()), (3, BankImportDecision::Add)].into()).unwrap();
+        assert_eq!((saved.added, saved.linked, saved.suggested), (1, 1, 0));
+    }
+
+    #[test]
+    fn legacy_reviews_cannot_replace_or_remove_an_existing_bank_link() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = account(c, "Карта");
+        let savings = account(c, "Копилка");
+        let food = cat(c, "Питание");
+        let income = cat(c, "Заработная плата");
+        let purchase = op("expense", "2026-10-17", &card, 100, &food, "ручная");
+        let manual = transactions::create(c, &purchase).unwrap();
+        let old_rows = [
+            op(
+                "expense",
+                "2026-10-16",
+                &card,
+                100,
+                &food,
+                "из старой выписки",
+            ),
+            op("income", "2026-10-17", &savings, 100, &income, "зачисление"),
+        ];
+        let old = save(c, Origin::Manual, "старая.csv", None, &old_rows, 0).unwrap();
+        let archived_row = |account: &str| {
+            c.query_row(
+                "SELECT id FROM transactions WHERE import_id = ?1 AND account_id = ?2",
+                params![old.import_id, account],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap()
+        };
+        let same = archived_row(&card);
+        let other = archived_row(&savings);
+        let old_proposals = || {
+            for (kind, new) in [("same", &same), ("transfer", &other)] {
+                assert!(suggest(c, &old.import_id, kind, new, &manual, &time::now_utc()).unwrap());
+            }
+        };
+        old_proposals();
+        let fresh = [op(
+            "expense",
+            "2026-10-18",
+            &card,
+            100,
+            &food,
+            "из новой выписки",
+        )];
+        let saved = save_entries(
+            c,
+            Origin::Manual,
+            "новая.csv",
+            Some("Т-Банк"),
+            ImportEntries {
+                inputs: &fresh,
+                raws: &[],
+                skipped: 0,
+                reserved: &ReservedSources::new(),
+                review: Some(BankReview {
+                    lines: &[2],
+                    decisions: &BankImportDecisions::new(),
+                }),
+            },
+        )
+        .unwrap();
+        assert_eq!((saved.added, saved.linked), (0, 1));
+        assert!(suggestions(c).unwrap().is_empty());
+        assert!(!transfer_candidates(c, &other, &old_rows[1])
+            .unwrap()
+            .contains(&manual));
+
+        // Такая устаревшая очередь могла сохраниться в базе до обновления.
+        old_proposals();
+        for suggestion in suggestions(c).unwrap() {
+            assert!(accept(c, &suggestion.id)
+                .unwrap_err()
+                .to_string()
+                .contains("уже связана"));
+        }
+        assert_eq!(count(c), 3);
+        let retained: String = c
+            .query_row(
+                "SELECT import_id FROM import_links WHERE transaction_id = ?1 AND account_id = ?2",
+                params![manual, card],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(retained, saved.import_id);
+    }
+
+    #[test]
+    fn linking_one_transfer_side_keeps_suggestions_for_the_other_side() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = account(c, "Карта");
+        let savings = account(c, "Копилка");
+        let expense = op(
+            "expense",
+            "2026-10-17",
+            &card,
+            100,
+            &cat(c, "Питание"),
+            "списание",
+        );
+        let income = op(
+            "income",
+            "2026-10-17",
+            &savings,
+            100,
+            &cat(c, "Заработная плата"),
+            "зачисление",
+        );
+        let transfer = transactions::create(
+            c,
+            &TxnInput {
+                kind: "transfer".into(),
+                category_id: None,
+                to_account_id: Some(savings.clone()),
+                ..expense.clone()
+            },
+        )
+        .unwrap();
+        let old = save(
+            c,
+            Origin::Manual,
+            "старая.csv",
+            None,
+            &[expense.clone(), income],
+            0,
+        )
+        .unwrap();
+        for account in [&card, &savings] {
+            let old_row: String = c
+                .query_row(
+                    "SELECT id FROM transactions WHERE import_id = ?1 AND account_id = ?2",
+                    params![old.import_id, account],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(suggest(
+                c,
+                &old.import_id,
+                "same",
+                &old_row,
+                &transfer,
+                &time::now_utc()
+            )
+            .unwrap());
+        }
+        let linked = save(
+            c,
+            Origin::Manual,
+            "новая.csv",
+            Some("Т-Банк"),
+            &[expense],
+            0,
+        )
+        .unwrap();
+        assert_eq!(linked.linked, 1);
+        let pending = suggestions(c).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].new.account_id, savings);
+        assert_eq!(accept(c, &pending[0].id).unwrap(), transfer);
+        let sides: i64 = c
+            .query_row(
+                "SELECT count(*) FROM import_links WHERE transaction_id = ?1",
+                [&transfer],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(sides, 2);
+    }
 
     fn account(c: &Connection, name: &str) -> String {
         accounts::create(

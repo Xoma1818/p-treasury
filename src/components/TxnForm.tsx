@@ -45,6 +45,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const openDebt = useUi((s) => s.openDebt);
   const editing = state.mode === "edit" ? state.txn : null;
   const prefill = state.mode === "new" ? state.prefill : undefined;
+  const reminder = state.mode === "new" ? state.reminder : undefined;
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories().data ?? [];
 
@@ -192,7 +193,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         eventId: event,
       };
       if (splitId) await api.updateReceipt(splitId, r);
-      else await api.createReceipt(r);
+      else await api.createReceipt(r, reminder);
       return;
     }
     const extra: TxnExtra = { spreadMonths: type === "expense" && spreadMonths ? spreadMonths : null, tags };
@@ -211,12 +212,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         total: input.amount,
         myShare: split.mine,
         friends: split.shares,
-      });
+      }, reminder);
       return;
     }
-    const id = await api.createTransactionFull(input, extra, event);
-    // Операция из напоминания отмечает его выполненным.
-    if (state.mode === "new" && state.onSaved) await state.onSaved(id);
+    await api.createTransactionFull(input, extra, event, reminder);
   }, onClose, { celebrate: true });
   const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)), onClose);
 

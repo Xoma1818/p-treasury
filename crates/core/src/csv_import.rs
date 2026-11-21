@@ -2,12 +2,12 @@
 //! выгрузке операций): сначала предпросмотр с ошибками по строкам, затем
 //! загрузка правильных строк одной транзакцией.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::invalid;
@@ -16,6 +16,20 @@ use crate::transactions::TxnInput;
 use crate::{bank_import, import_log, money, Error, Result};
 
 pub mod profiles;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum BankImportDecision {
+    Add,
+    Skip,
+    Link { transaction_id: String },
+}
+
+pub type BankImportDecisions = BTreeMap<usize, BankImportDecision>;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -864,8 +878,32 @@ pub(crate) fn save_rows(
     refunds: &Refunds,
     skipped: usize,
 ) -> Result<import_log::Saved> {
+    save_reviewed_rows(
+        conn,
+        origin,
+        file_name,
+        bank,
+        parsed,
+        refunds,
+        skipped,
+        &BTreeMap::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_reviewed_rows(
+    conn: &Connection,
+    origin: import_log::Origin,
+    file_name: &str,
+    bank: Option<&str>,
+    parsed: Vec<Parsed>,
+    refunds: &Refunds,
+    skipped: usize,
+    decisions: &BankImportDecisions,
+) -> Result<import_log::Saved> {
     let reserved = reserved_sources(&parsed);
     let mut plain = (Vec::new(), Vec::new());
+    let mut lines = Vec::new();
     let mut back = Vec::new();
     let mut converts = Vec::new();
     for (i, p) in parsed.into_iter().enumerate() {
@@ -879,6 +917,7 @@ pub(crate) fn save_rows(
             None => {
                 plain.0.push(input);
                 plain.1.push(p.raw_payee);
+                lines.push(p.row.line);
             }
         }
     }
@@ -892,6 +931,10 @@ pub(crate) fn save_rows(
             raws: &plain.1,
             skipped,
             reserved: &reserved,
+            review: Some(import_log::BankReview {
+                lines: &lines,
+                decisions,
+            }),
         },
     )?;
     for (line, t, budget) in back {
@@ -1119,6 +1162,26 @@ pub fn import_with_review(
     self_id: Option<&str>,
     expected_plan: Option<&str>,
 ) -> Result<import_log::Saved> {
+    import_with_decisions(
+        conn,
+        path,
+        skip_errors,
+        account_id,
+        self_id,
+        expected_plan,
+        &BTreeMap::new(),
+    )
+}
+
+pub fn import_with_decisions(
+    conn: &mut Connection,
+    path: &Path,
+    skip_errors: bool,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+    expected_plan: Option<&str>,
+    decisions: &BankImportDecisions,
+) -> Result<import_log::Saved> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let data = parse_any(&tx, path, account_id, self_id)?;
     if let Some(expected) = expected_plan {
@@ -1126,8 +1189,10 @@ pub fn import_with_review(
         if review.bank_plan_digest.as_deref() != Some(expected) {
             return invalid("совпадения или настройки импорта изменились. Проверьте выписку снова");
         }
+    } else if !decisions.is_empty() {
+        return invalid("сначала проверьте выписку в предпросмотре");
     }
-    let result = apply_parsed(&tx, path, skip_errors, data, account_id, self_id)?;
+    let result = apply_parsed(&tx, path, skip_errors, data, account_id, self_id, decisions)?;
     tx.commit()?;
     Ok(result)
 }
@@ -1141,7 +1206,15 @@ fn import_parsed(
     self_id: Option<&str>,
 ) -> Result<import_log::Saved> {
     let tx = conn.transaction()?;
-    let result = apply_parsed(&tx, path, skip_errors, data, account_id, self_id)?;
+    let result = apply_parsed(
+        &tx,
+        path,
+        skip_errors,
+        data,
+        account_id,
+        self_id,
+        &BTreeMap::new(),
+    )?;
     tx.commit()?;
     Ok(result)
 }
@@ -1150,9 +1223,10 @@ fn apply_parsed(
     conn: &Connection,
     path: &Path,
     skip_errors: bool,
-    (mut parsed, extra, bank): Parsed3,
+    (mut parsed, mut extra, bank): Parsed3,
     account_id: Option<&str>,
     self_id: Option<&str>,
+    decisions: &BankImportDecisions,
 ) -> Result<import_log::Saved> {
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
@@ -1160,6 +1234,13 @@ fn apply_parsed(
             "в файле строк с ошибками: {errors}; исправьте их или загрузите только правильные"
         ));
     }
+    // Связь или пропуск не должны создавать категории из описания банковской строки.
+    extra.categories.retain(|(i, _)| {
+        !matches!(
+            decisions.get(&parsed[*i].row.line),
+            Some(BankImportDecision::Skip | BankImportDecision::Link { .. })
+        )
+    });
     // Недостающие категории — в той же транзакции, что и операции.
     create_categories(conn, &mut parsed, &extra.categories)?;
     let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
@@ -1167,7 +1248,7 @@ fn apply_parsed(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let saved = save_rows(
+    let saved = save_reviewed_rows(
         conn,
         import_log::Origin::Manual,
         &name,
@@ -1175,6 +1256,7 @@ fn apply_parsed(
         parsed,
         &extra.refunds,
         skipped,
+        decisions,
     )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
         bank_import::remember(conn, *bank, ops, id)?;

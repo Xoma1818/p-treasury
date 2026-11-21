@@ -48,15 +48,17 @@ test("строка выписки узнаёт ручную запись, сом
   await pick(join(fixtures, "tbank.csv"));
   await click(browser, "Выбрать файл", dialog);
   await choose(browser, "importAccount", "Карта (₽)");
-  await waitText(browser, '[data-testid="import-summary"]', /свяжутся с вашими записями 1, спросим про совпадения 1/);
+  await waitText(browser, '[data-testid="import-summary"]', /свяжутся с вашими записями 1, возможные совпадения 1/);
   await waitCount(browser, '[data-testid="import-row"][data-linked="1"]', 1);
-  await click(browser, "Загрузить 3", dialog);
-  await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 3, связано с вашими записями: 1\. Совпадений на проверку: 2/);
+  const save = await browser.$(`${dialog}//button[normalize-space()="Загрузить 2"]`);
+  assert.equal(await save.isEnabled(), false, "без решения запись недоступна");
+  const before = await invoke("list_transactions", { filter: { accountId: card, types: ["expense"], limit: 100 } });
+  assert.equal(before.items.filter((t) => t.amount === 120_000).length, 2);
 
-  await click(browser, "Разобрать", dialog);
-  await waitCount(browser, '[data-testid="match"]', 2);
-  await (await browser.$('[data-testid="match-accept"]')).click();
-  await waitText(browser, '[data-testid="matches-empty"]', /Всё разобрано/);
+  const select = await browser.$('[data-testid="bank-similar-decision"]');
+  await select.selectByAttribute("value", `link:${before.items.find((t) => t.payee === "Игра").id}`);
+  await click(browser, "Загрузить 2", dialog);
+  await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 2, связано с вашими записями: 2/);
   await browser.keys("Escape");
 
   // Своя запись с заметкой осталась, покупка не задвоилась.

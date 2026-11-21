@@ -363,9 +363,15 @@ pub fn apply_extra(conn: &Connection, id: &str, extra: &TxnExtra) -> Result<()> 
 /// Новая операция вместе с дополнениями формы (одна запись, одна отмена).
 pub fn create_with(conn: &mut Connection, input: &TxnInput, extra: &TxnExtra) -> Result<String> {
     let tx = conn.transaction()?;
-    let id = create(&tx, input)?;
-    apply_extra(&tx, &id, extra)?;
+    let id = create_with_in(&tx, input, extra)?;
     tx.commit()?;
+    Ok(id)
+}
+
+/// Записать операцию внутри уже открытой транзакции вызывающего кода.
+pub fn create_with_in(conn: &Connection, input: &TxnInput, extra: &TxnExtra) -> Result<String> {
+    let id = create(conn, input)?;
+    apply_extra(conn, &id, extra)?;
     Ok(id)
 }
 

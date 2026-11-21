@@ -108,6 +108,20 @@ fn with_undo<T>(
         .map_err(|e| e.to_string())
 }
 
+fn save_with_reminder<T>(
+    conn: &mut Connection,
+    reminder: Option<&reminders::PaymentCreation>,
+    save: impl FnOnce(&Connection) -> budget_core::Result<(T, Option<String>)>,
+) -> budget_core::Result<T> {
+    if let Some(reminder) = reminder {
+        return reminders::create_payment_checked(conn, reminder, &time::today_local(), save);
+    }
+    let tx = conn.transaction()?;
+    let (result, _) = save(&tx)?;
+    tx.commit()?;
+    Ok(result)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
@@ -573,9 +587,17 @@ pub fn move_transaction(state: State<AppState>, id: String, date: String) -> Cmd
 }
 
 #[tauri::command(async)]
-pub fn split_expense(state: State<AppState>, input: SplitInput) -> CmdResult<SplitResult> {
+pub fn split_expense(
+    state: State<AppState>,
+    input: SplitInput,
+    reminder: Option<reminders::PaymentCreation>,
+) -> CmdResult<SplitResult> {
     with_undo(&state, "Общая трата", |c| {
-        split::create(c, &input)
+        save_with_reminder(c, reminder.as_ref(), |tx| {
+            let result = split::create_in(tx, &input)?;
+            let expense_id = result.expense_id.clone();
+            Ok((result, expense_id))
+        })
     })
 }
 
@@ -1773,6 +1795,16 @@ pub fn reminder_payment_candidate(
 }
 
 #[tauri::command(async)]
+pub fn reminder_payment_review(
+    state: State<AppState>,
+    key: Key,
+) -> CmdResult<reminders::PaymentReview> {
+    with_db(&state, |db| {
+        reminders::payment_review(db.conn_mut(), &key, &time::today_local())
+    })
+}
+
+#[tauri::command(async)]
 pub fn attach_reminder_payment(
     state: State<AppState>,
     key: Key,
@@ -1962,6 +1994,7 @@ pub fn import_preview(
 }
 
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 pub fn import_csv(
     state: State<AppState>,
     path: String,
@@ -1970,6 +2003,7 @@ pub fn import_csv(
     account_id: Option<String>,
     self_account_id: Option<String>,
     csv_mapping: Option<csv_import::profiles::CsvImportOptions>,
+    bank_decisions: Option<csv_import::BankImportDecisions>,
 ) -> CmdResult<import_log::Saved> {
     if let Some(options) = csv_mapping {
         let account = account_id.as_deref().ok_or("выберите счёт для CSV")?;
@@ -1986,14 +2020,16 @@ pub fn import_csv(
         None => (file_digest.as_str(), None),
     };
     let (_dir, snapshot) = verified_statement(Path::new(&path), raw_digest)?;
+    let bank_decisions = bank_decisions.unwrap_or_default();
     with_undo(&state, "Импорт операций", |c| {
-        csv_import::import_with_review(
+        csv_import::import_with_decisions(
             c,
             &snapshot,
             skip_errors,
             account_id.as_deref(),
             self_account_id.as_deref(),
             bank_plan,
+            &bank_decisions,
         )
     })
 }
@@ -2493,13 +2529,17 @@ pub fn create_transaction_full(
     input: TxnInput,
     event_id: Option<String>,
     extra: TxnExtra,
+    reminder: Option<reminders::PaymentCreation>,
 ) -> CmdResult<String> {
     with_undo(&state, "Новая операция", |c| {
-        let id = transactions::create_with(c, &input, &extra)?;
-        if let Some(e) = event_id.as_deref() {
-            events::assign(c, Some(e), std::slice::from_ref(&id))?;
-        }
-        Ok(id)
+        save_with_reminder(c, reminder.as_ref(), |tx| {
+            let id = transactions::create_with_in(tx, &input, &extra)?;
+            if let Some(e) = event_id.as_deref() {
+                events::assign(tx, Some(e), std::slice::from_ref(&id))?;
+            }
+            let linked_id = reminder.is_some().then(|| id.clone());
+            Ok((id, linked_id))
+        })
     })
 }
 
@@ -2597,9 +2637,15 @@ pub fn bulk_delete(state: State<AppState>, ids: Vec<String>) -> CmdResult<BulkRe
 }
 
 #[tauri::command(async)]
-pub fn create_receipt(state: State<AppState>, input: ReceiptInput) -> CmdResult<String> {
+pub fn create_receipt(
+    state: State<AppState>,
+    input: ReceiptInput,
+    reminder: Option<reminders::PaymentCreation>,
+) -> CmdResult<String> {
     with_undo(&state, "Разбитый чек", |c| {
-        receipts::create(c, &input)
+        save_with_reminder(c, reminder.as_ref(), |tx| {
+            Ok((receipts::create_in(tx, &input)?, None))
+        })
     })
 }
 

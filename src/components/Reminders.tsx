@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
 import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
@@ -365,13 +365,12 @@ const SNOOZE: [string, () => string][] = [
   ["на 3 дня", () => `${addDays(today(), 3)}T09:00`],
 ];
 
-/** «Создать операцию»: для своего напоминания — форма операции с суммой, для долга — отметка платежа. */
+/** Форма платежа открывается после проверки совпадений. */
 function useCreateFromReminder() {
-  const { openTxnForm, openDebt } = useUi();
+  const openTxnForm = useUi((s) => s.openTxnForm);
   const accounts = useAccounts().data ?? [];
   const base = useSettings().data?.base_currency;
-  return (o: Occurrence) => {
-    if (o.key.source === "debt" && o.debtId) return openDebt(o.debtId, true);
+  return (o: Occurrence, revision: string, allowSeparate: boolean) => {
     // Сумма напоминания — в основной валюте: на счёт в другой валюте её не подставляем.
     const foreign = accounts.find((a) => a.id === o.accountId)?.currencyCode !== base && o.accountId != null;
     openTxnForm({
@@ -379,7 +378,7 @@ function useCreateFromReminder() {
       type: o.txnType ?? "expense",
       date: today(),
       prefill: { amount: foreign ? null : o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
-      onSaved: (id) => api.completeReminder(o.key, id),
+      reminder: { key: o.key, revision, allowSeparate },
     });
   };
 }
@@ -388,11 +387,12 @@ function useCreateFromReminder() {
 export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () => void }) {
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [matching, setMatching] = useState(false);
+  const [matching, setMatching] = useState<"find" | "create" | null>(null);
   const done = useAction(() => api.completeReminder(o.key), onAction);
   const reopen = useAction(() => api.reopenReminder(o.key), onAction);
   const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), onAction);
   const create = useCreateFromReminder();
+  const openDebt = useUi((s) => s.openDebt);
   const open = o.status === "pending" || o.status === "snoozed";
   const late = open && o.dueAt <= nowLocal();
   return (
@@ -416,7 +416,10 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
       <div className="occ-actions">
         {open && !snoozing && (
           <>
-            <button className="btn small primary" onClick={() => create(o)}>
+            <button className="btn small primary" onClick={() => {
+              if (o.key.source === "debt" && o.debtId) openDebt(o.debtId, true);
+              else setMatching("create");
+            }}>
               {o.key.source === "debt" ? "Оплачено" : "Создать операцию"}
             </button>
             <button className="btn small" onClick={() => done.run()}>
@@ -428,7 +431,7 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
             {o.key.source === "reminder" && (
               <>
                 {o.accountId && o.amount != null && o.payAt.slice(0, 10) <= addDays(today(), 3) && (
-                  <button className="btn small" onClick={() => setMatching(true)} data-testid="occ-match-payment">Найти операцию</button>
+                  <button className="btn small" onClick={() => setMatching("find")} data-testid="occ-match-payment">Найти операцию</button>
                 )}
                 <button className="btn small" onClick={() => setEditing(true)} data-testid="occ-edit">
                   Изменить
@@ -451,8 +454,11 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
       </div>
       <ErrorText error={done.error ?? snooze.error ?? reopen.error} />
       {matching && (
-        <PaymentMatch o={o} onClose={() => setMatching(false)} onLinked={() => {
-          setMatching(false);
+        <PaymentMatch o={o} autoCreate={matching === "create"} onClose={() => setMatching(null)} onCreate={(revision, allowSeparate) => {
+          setMatching(null);
+          create(o, revision, allowSeparate);
+        }} onLinked={() => {
+          setMatching(null);
           onAction?.();
         }} />
       )}
@@ -469,31 +475,59 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
   );
 }
 
-function PaymentMatch({ o, onClose, onLinked }: { o: Occurrence; onClose: () => void; onLinked: () => void }) {
+function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
+  o: Occurrence;
+  autoCreate: boolean;
+  onClose: () => void;
+  onLinked: () => void;
+  onCreate: (revision: string, allowSeparate: boolean) => void;
+}) {
   const query = useQuery({
-    queryKey: ["reminderPaymentCandidate", o.key],
-    queryFn: () => api.reminderPaymentCandidate(o.key),
+    queryKey: ["reminderPaymentReview", o.key],
+    queryFn: () => api.reminderPaymentReview(o.key),
+    refetchOnMount: "always",
     retry: false,
   });
   const attach = useAction(api.attachReminderPayment, onLinked);
-  const match = query.isSuccess && !query.isFetching ? query.data : null;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const review = query.isSuccess && !query.isFetching ? query.data : null;
+  const candidates = review?.candidates ?? [];
+  const selected = candidates.length === 1 ? candidates[0] : candidates.find((c) => c.transactionId === selectedId);
   const error = attach.error ?? (query.error ? String(query.error) : null);
+  const openedForm = useRef(false);
+  useEffect(() => {
+    if (autoCreate && review && review.candidates.length === 0 && !error && !openedForm.current) {
+      openedForm.current = true;
+      onCreate(review.revision, false);
+    }
+  }, [autoCreate, review, error, onCreate]);
   return (
     <Modal title={`Операция для «${o.title}»`} onClose={onClose} dismissDisabled={attach.busy}>
       {query.isFetching && !attach.busy && <p className="muted" role="status">Ищем в операциях…</p>}
-      {query.isSuccess && !query.isFetching && !match && (
-        <p className="muted" data-testid="occ-match-empty">Однозначная операция пока не найдена.</p>
+      {review && candidates.length === 0 && (
+        <p className="muted" data-testid="occ-match-empty">Подходящих операций нет.</p>
       )}
-      {match && (
-        <div className="card" data-testid="occ-match-candidate">
+      {candidates.length > 1 && <p className="muted">Выберите проведённую операцию для связи.</p>}
+      {candidates.map((match) => (
+        <div className="card" data-testid="occ-match-candidate" key={match.transactionId}>
+          {candidates.length > 1 && (
+            <label className="small">
+              <input type="radio" name="reminderPaymentCandidate" checked={selectedId === match.transactionId}
+                aria-label={`${match.payee || "Операция"} от ${formatDate(match.date)}, ${amountText(match.amount, match.minorUnits)} ${match.currencySymbol}${match.note ? `, ${match.note}` : ""}`}
+                disabled={attach.busy} onChange={() => setSelectedId(match.transactionId)} />
+              Выбрать эту операцию
+            </label>
+          )}
           <p><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
+          {match.note && <p className="muted">{match.note}</p>}
           <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
           <p>В учёте · <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /></p>
           {match.amount !== match.expectedAmount && (
             <p className="warn">Сумма отличается. Ожидалось <Money amount={match.expectedAmount} symbol={match.currencySymbol} minorUnits={match.minorUnits} />.</p>
           )}
         </div>
-      )}
+      ))}
+      {review?.moreCandidates && <p className="muted">Показаны 10 последних совпадений.</p>}
       <ErrorText error={error} />
       {error && <button type="button" className="link" disabled={query.isFetching || attach.busy} onClick={() => {
         attach.setError(null);
@@ -502,8 +536,12 @@ function PaymentMatch({ o, onClose, onLinked }: { o: Occurrence; onClose: () => 
       <div className="actions">
         <span className="spacer" />
         <button type="button" className="btn" disabled={attach.busy} onClick={onClose}>Закрыть</button>
-        {match && <button type="button" className="btn primary" disabled={attach.busy || !!error} aria-busy={attach.busy}
-          onClick={() => attach.run(o.key, match.transactionId, match.revision)}>Связать</button>}
+        {review && <button type="button" className="btn" disabled={attach.busy || !!error}
+          onClick={() => onCreate(review.revision, candidates.length > 0)}>
+          {candidates.length > 0 ? "Создать отдельную операцию" : "Создать операцию"}
+        </button>}
+        {candidates.length > 0 && <button type="button" className="btn primary" disabled={!selected || attach.busy || !!error} aria-busy={attach.busy}
+          onClick={() => selected && attach.run(o.key, selected.transactionId, selected.revision)}>Связать</button>}
       </div>
     </Modal>
   );

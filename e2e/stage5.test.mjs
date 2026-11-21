@@ -53,6 +53,7 @@ test("коммуналка: «ЖКХ» ежемесячно, «Создать о
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
   await click(browser, "Создать операцию", occ("rem-overdue", "ЖКХ"));
   const amount = await browser.$('[role="dialog"] [name="amount"]');
+  await amount.waitForDisplayed({ timeout: 5000 });
   assert.equal(await amount.getValue(), "6000");
   assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "ЖКХ");
   assert.match(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), /.+/);
