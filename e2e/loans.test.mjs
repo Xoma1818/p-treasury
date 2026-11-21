@@ -266,7 +266,7 @@ test("остаток на день обычного и досрочного пл
   }
 });
 
-test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async () => {
+test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async (t) => {
   // В справочнике иена появляется для баз, где уже есть данные в JPY.
   const debt = await browser.executeAsync((issueDate, firstPaymentDate, done) => {
     window.__TAURI_INTERNALS__.invoke("create_debt", { input: {
@@ -282,6 +282,16 @@ test("сохранённая иена верно подписана, при см
   const fineCard = await browser.$('[data-testid="fine-card"]');
   await fineCard.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fineCard))) await (await fineCard.$("summary")).click();
+  const previousCodeMode = await (await browser.$('[name="fineCode"]')).getValue();
+  t.after(async () => {
+    await openSection(browser, "Настройки");
+    const card = await browser.$('[data-testid="fine-card"]');
+    await card.waitForExist({ timeout: 5000 });
+    if (!(await browser.execute((el) => el.open, card))) await (await card.$("summary")).click();
+    const select = await browser.$('[name="fineCode"]');
+    await select.selectByAttribute("value", previousCodeMode);
+    assert.equal(await select.getValue(), previousCodeMode);
+  });
   await choose(browser, "fineCode", "Кодом: 1 200 RUB");
   await openSection(browser, "Займы и долги");
   const row = '[data-testid="debt-row"][data-name="Заём в иенах"]';
