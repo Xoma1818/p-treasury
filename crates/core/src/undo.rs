@@ -55,6 +55,9 @@ fn shift_setting(
     from: &Option<String>,
     to: &Option<String>,
 ) -> Result<()> {
+    // Настройки не было до шага, и после отмены список пуст — убираем её,
+    // а не оставляем пустой список "[]".
+    let absent = to.is_none();
     let (from, to) = (ids_of(from), ids_of(to));
     let mut now = ids_of(&crate::settings::get(conn, key)?);
     now.retain(|id| to.contains(id) || !from.contains(id));
@@ -62,6 +65,10 @@ fn shift_setting(
         if !from.contains(id) && !now.contains(id) {
             now.push(id.clone());
         }
+    }
+    if absent && now.is_empty() {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+        return Ok(());
     }
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
@@ -562,6 +569,11 @@ mod tests {
         assert_eq!(
             crate::settings::get(db.conn(), key).unwrap().as_deref(),
             Some(r#"["other"]"#)
+        );
+        // Настройки бюджета до шага не было — после отмены её снова нет, а не "[]".
+        assert_eq!(
+            crate::settings::get(db.conn(), accounts::BUDGET_EXCLUDED_KEY).unwrap(),
+            None
         );
         let a = accounts::get(db.conn(), &card).unwrap();
         assert!(
