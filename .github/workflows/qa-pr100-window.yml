@@ -24,7 +24,6 @@ jobs:
       ARTIFACT_ID: '14701120477'
       INSTALL_SHA: d09788b026c0375c79b0b960b29a39cb6309b681be6a45c90261e130a7635fb7
       OLD_SHA: 3f06efffbc55ecd75090cc70d75638974054265c0b7065280057ca4f163e1dc7
-      PTREASURY_INSTALL_DIR: ${{ runner.temp }}\Kazna-Pr100
     steps:
       - uses: actions/checkout@v5
         with:
@@ -67,9 +66,11 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath $folder
           $setup = @(Get-ChildItem -LiteralPath $folder -Recurse -File -Filter 'Kazna_0.37.0_x64-setup.exe')
           if ($setup.Count -ne 1) { throw 'Не найден ровно один установщик 0.37.0' }
-          if ($env:PTREASURY_INSTALL_DIR -match '\s' -or (Test-Path -LiteralPath $env:PTREASURY_INSTALL_DIR)) { throw 'Нужен чистый путь без пробелов' }
+          $dest = Join-Path $env:RUNNER_TEMP 'Kazna-Pr100'
+          if ($dest -match '\s' -or (Test-Path -LiteralPath $dest)) { throw 'Нужен чистый путь без пробелов' }
+          Add-Content $env:GITHUB_ENV ('PTREASURY_INSTALL_DIR=' + $dest)
           Add-Content $env:GITHUB_ENV ('KAZNA_CANDIDATE_INSTALLER=' + $setup[0].FullName)
-          Add-Content $env:GITHUB_ENV ('PTREASURY_BIN=' + (Join-Path $env:PTREASURY_INSTALL_DIR 'Kazna.exe'))
+          Add-Content $env:GITHUB_ENV ('PTREASURY_BIN=' + (Join-Path $dest 'Kazna.exe'))
       - name: Чистая установка 0.37.0
         if: matrix.mode != 'upgrade'
         shell: pwsh
