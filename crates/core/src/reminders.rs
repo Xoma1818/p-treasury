@@ -1746,7 +1746,7 @@ mod tests {
         let (key, input) = internet_payment(c, &card, 10_000, 11_000);
         let id = transactions::create(c, &input).unwrap();
         let today = "2026-10-19";
-        let planned = |c| {
+        let planned = |c: &Connection| {
             crate::forecast::known_items(
                 c,
                 "RUB",
