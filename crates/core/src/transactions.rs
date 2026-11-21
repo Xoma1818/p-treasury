@@ -236,6 +236,7 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
         input.amount,
         &input.date,
         c.category_id.as_deref(),
+        &input.account_id,
     )?;
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,

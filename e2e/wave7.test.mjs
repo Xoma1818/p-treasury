@@ -292,6 +292,13 @@ test("удаление пачки спрашивает подтверждени�
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
   await (await browser.$('[data-testid="bulk-delete"]')).click();
   await waitText(browser, '[data-testid="bulk-delete"]', /Удалить 2 операции\? Отменить можно через Ctrl\+Z\./);
+  // Изменившееся выделение не может унаследовать подтверждение удаления.
+  await browser.execute(() => document.querySelector('[data-testid="txn-select"]').click());
+  await browser.$('[data-testid="bulk-delete-confirm"]').waitForExist({ reverse: true, timeout: 5000 });
+  await browser.execute(() => document.querySelector('[data-testid="txn-select"]').click());
+  assert.equal(await browser.$('[data-testid="bulk-delete-confirm"]').isExisting(), false);
+  await (await browser.$('[data-testid="bulk-delete"]')).click();
+  await waitText(browser, '[data-testid="bulk-delete"]', /Удалить 2 операции\?/);
   assert.match(await (await browser.$('[data-testid="txn-count"]')).getText(), /Показано 2 из 2/, "до подтверждения ничего не удалено");
   // Подтверждение доступно, когда проверены части разбитых чеков.
   await (await browser.$('[data-testid="bulk-delete-confirm"]')).waitForEnabled({ timeout: 5000 });

@@ -215,6 +215,7 @@ pub fn update(conn: &mut Connection, split_id: &str, input: &ReceiptInput) -> Re
             amount,
             &input.date,
             category.as_deref(),
+            &input.account_id,
         )?;
     }
     tx.commit()?;

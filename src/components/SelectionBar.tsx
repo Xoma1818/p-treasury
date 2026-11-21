@@ -1,7 +1,7 @@
 // Полоса под списком операций (Г1, Г2): сумма выделенного или найденного
 // и действия с пачкой. Всё действие — один шаг журнала, отмена одним Ctrl+Z.
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, type BulkResult, type Sums, type TxnFilter } from "../lib/api";
 import { useAccounts, useCategories } from "../lib/queries";
 import { plural } from "../lib/receipt";
@@ -53,9 +53,13 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
     queryKey: selected ? ["sumSelected", key] : ["sumFiltered", filter],
     queryFn: () => (selected ? api.sumSelected(ids) : api.sumFiltered(filter)),
     enabled: selected || (filtered && pageReady),
-    placeholderData: keepPreviousData,
   }).data;
-  const [mode, setMode] = useState<Mode>(null);
+  const [action, setAction] = useState<{ key: string; mode: Mode }>({ key, mode: null });
+  if (action.key !== key) setAction({ key, mode: null });
+  const mode = action.key === key ? action.mode : null;
+  const setMode = (next: Mode) => setAction({ key, mode: next });
+  const activeAction = useRef(action);
+  useLayoutEffect(() => { activeAction.current = action; }, [action]);
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     if (!message) return;
@@ -101,9 +105,11 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
               ids={ids}
               onCancel={() => setMode(null)}
               onDone={(r) => {
-                setMessage(resultText(mode, r));
-                setMode(null);
-                onDone();
+                if (activeAction.current === action) {
+                  setMessage(resultText(mode, r));
+                  setMode(null);
+                  onDone();
+                }
               }}
             />
           )}

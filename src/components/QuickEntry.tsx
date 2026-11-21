@@ -19,11 +19,13 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
   const openTxnForm = useUi((s) => s.openTxnForm);
   const [text, setText] = useState("");
   const [draft, setDraft] = useState<QuickDraft | null>(null);
+  const [parsedText, setParsedText] = useState("");
   const [amount, setAmount] = useState("");
   const [remember, setRemember] = useState(true);
   const [saved, setSaved] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const submitting = useRef(false);
 
   const account = accounts.find((a) => a.id === draft?.accountId);
   const minor = account?.minorUnits ?? 2;
@@ -34,32 +36,38 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
       setDraft(null);
       return;
     }
+    let current = true;
     const t = setTimeout(
       () =>
         api
           .quickParse(text)
           .then((d) => {
+            if (!current) return;
             setParseError(null);
             setDraft(d);
+            setParsedText(text);
             setAmount(d.amount != null ? amountToInput(d.amount, accounts.find((a) => a.id === d.accountId)?.minorUnits ?? 2) : "");
           })
-          .catch((e) => setParseError(String(e))),
+          .catch((e) => { if (current) setParseError(String(e)); }),
       180,
     );
-    return () => clearTimeout(t);
+    return () => {
+      current = false;
+      clearTimeout(t);
+    };
     // accounts нужен только для знаков после запятой.
   }, [text]);
 
   const amountValue = parseAmount(amount, minor);
   const transfer = draft?.type === "transfer";
-  const ready = !!draft && amountValue != null && amountValue > 0 && !!draft.accountId && (transfer ? !!draft.toAccountId : !!draft.categoryId);
-  const canRemember = !!draft && !transfer && !!draft.merchant && !draft.ruleId && !!draft.categoryId;
+  const ready = parsedText === text && !!draft && amountValue != null && amountValue > 0 && !!draft.accountId && (transfer ? !!draft.toAccountId : !!draft.categoryId);
+  const canRemember = !!draft && !transfer && [...(draft.merchant?.trim() ?? "")].length >= 2 && !draft.ruleId && !!draft.categoryId;
   const patch = (p: Partial<QuickDraft>) => draft && setDraft({ ...draft, ...p });
 
   const save = useAction(
     async () => {
       if (!draft || !ready) return null;
-      const id = await api.createTransactionFull({
+      await api.saveQuickTransaction({
         type: draft.type,
         date: draft.date,
         accountId: draft.accountId!,
@@ -69,14 +77,13 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         toAmount: null,
         payee: draft.payee,
         note: null,
-      }, { spreadMonths: null, tags: draft.tags ?? [] });
-      if (canRemember && remember) await api.rememberRule(draft.merchant!, draft.categoryId!, draft.payee);
-      return id;
+      }, { spreadMonths: null, tags: draft.tags ?? [] }, canRemember && remember ? draft.merchant : null);
+      const what = draft.payee || categories.find((c) => c.id === draft.categoryId)?.name || TXN_TYPES[draft.type];
+      return `Записано: ${what}, ${amount}`;
     },
-    (id) => {
-      if (!id) return;
-      const what = draft?.payee || categories.find((c) => c.id === draft?.categoryId)?.name || TXN_TYPES[draft!.type];
-      setSaved(`Записано: ${what}, ${amount}`);
+    (message) => {
+      if (!message) return;
+      setSaved(message);
       setText("");
       setDraft(null);
       setAmount("");
@@ -85,8 +92,20 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
     },
   );
 
+  const submit = async () => {
+    if (!ready || submitting.current) return;
+    submitting.current = true;
+    try {
+      await save.runAsync();
+    } catch {
+      // useAction показывает ошибку.
+    } finally {
+      submitting.current = false;
+    }
+  };
+
   const more = () => {
-    if (!draft) return;
+    if (!draft || parsedText !== text || submitting.current) return;
     openTxnForm({
       mode: "new",
       type: draft.type,
@@ -112,6 +131,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         autoFocus={autoFocus}
         placeholder="Быстрый ввод: «пятёрочка 1250 карта», «+85000 зарплата» или вставьте SMS банка"
         value={text}
+        readOnly={save.busy}
         onChange={(e) => {
           setSaved(null);
           setText(e.target.value);
@@ -119,7 +139,8 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (ready) save.run();
+            if (e.repeat || submitting.current) return;
+            if (ready) void submit();
             else if (draft && !inWindow) more();
           }
         }}
@@ -164,7 +185,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
           <span className="muted" data-testid="quick-date">
             {formatDate(draft.date)}
           </span>
-          <button className="btn primary small" onClick={() => save.run()} disabled={!ready || save.busy} aria-busy={save.busy} data-done={save.done || undefined} title="Enter">
+          <button className="btn primary small" onClick={() => void submit()} disabled={!ready || save.busy} aria-busy={save.busy} data-done={save.done || undefined} title="Enter">
             Записать
           </button>
           {!inWindow && (

@@ -6,7 +6,9 @@
 //! другую, журнал отмены очищается.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::MutexGuard;
 
 use budget_core::backups;
 use budget_core::storage::Storage;
@@ -64,10 +66,15 @@ fn load(data_dir: &Path) -> Registry {
 }
 
 fn store(data_dir: &Path, r: &Registry) -> Result<(), String> {
-    fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
-    let text = serde_json::to_string_pretty(r).map_err(|e| e.to_string())?;
-    fs::write(data_dir.join(LIST), text)
-        .map_err(|e| format!("не удалось сохранить список файлов: {e}"))
+    let write = || -> Result<(), Box<dyn std::error::Error>> {
+        fs::create_dir_all(data_dir)?;
+        let mut temp = tempfile::NamedTempFile::new_in(data_dir)?;
+        temp.write_all(&serde_json::to_vec_pretty(r)?)?;
+        temp.as_file().sync_all()?;
+        temp.persist(data_dir.join(LIST))?;
+        Ok(())
+    };
+    write().map_err(|e| format!("не удалось сохранить список файлов: {e}"))
 }
 
 /// Файл, который открыть при запуске: последний выбранный, если он на месте.
@@ -121,6 +128,7 @@ pub fn create(state: &AppState, name: &str) -> Result<String, String> {
     if name.is_empty() {
         return Err("введите название, например «Дача»".into());
     }
+    let mut guard = state.lock_db();
     let dir = state.data_dir.join("files");
     let mut path = dir.join(format!("{}.db", slug(name)));
     let mut n = 2;
@@ -132,13 +140,11 @@ pub fn create(state: &AppState, name: &str) -> Result<String, String> {
     if r.files.iter().any(|f| f.name.eq_ignore_ascii_case(name)) || name == "Основной" {
         return Err(format!("файл «{name}» уже есть в списке"));
     }
-    switch(state, &path)?;
-    r = load(&state.data_dir);
     r.files.push(BudgetFile {
         name: name.into(),
         path: path.display().to_string(),
     });
-    store(&state.data_dir, &r)?;
+    switch_locked(state, &path, &mut guard, r)?;
     Ok(path.display().to_string())
 }
 
@@ -146,20 +152,22 @@ pub fn create(state: &AppState, name: &str) -> Result<String, String> {
 pub fn open_existing(state: &AppState, path: &Path) -> Result<(), String> {
     backups::inspect(path).map_err(|e| e.to_string())?;
     let main = main_path(&state.data_dir);
-    switch(state, path)?;
-    if path != main {
-        let mut r = load(&state.data_dir);
-        let p = path.display().to_string();
-        if !r.files.iter().any(|f| f.path == p) {
-            let name = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Файл".into());
-            r.files.push(BudgetFile { name, path: p });
-            store(&state.data_dir, &r)?;
-        }
+    let mut guard = state.lock_db();
+    let mut r = load(&state.data_dir);
+    let registered = path == main || r.files.iter().any(|f| Path::new(&f.path) == path);
+    if !registered {
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Файл".into());
+        r.files.push(BudgetFile {
+            name,
+            path: path.display().to_string(),
+        });
+    } else if guard.as_ref().is_ok_and(|db| db.path() == path) {
+        return Ok(());
     }
-    Ok(())
+    switch_locked(state, path, &mut guard, r)
 }
 
 /// Закрыть текущую базу и открыть другую. При ошибке остаётся прежняя.
@@ -171,21 +179,32 @@ pub fn switch(state: &AppState, path: &Path) -> Result<(), String> {
     if guard.as_ref().is_ok_and(|db| db.path() == path) {
         return Ok(());
     }
+    switch_locked(state, path, &mut guard, load(&state.data_dir))
+}
+
+fn switch_locked(
+    state: &AppState,
+    path: &Path,
+    guard: &mut MutexGuard<'_, Result<Storage, String>>,
+    mut registry: Registry,
+) -> Result<(), String> {
+    registry.current = Some(path.display().to_string());
+    if guard.as_ref().is_ok_and(|db| db.path() == path) {
+        return store(&state.data_dir, &registry);
+    }
     let next = Storage::open(path, &state.open_options()).map_err(|e| e.to_string())?;
+    // После ошибки реестра интерфейс остаётся в старом бюджете, как и соединение с журналом.
+    store(&state.data_dir, &registry)?;
     // 0.26: если при запуске был открыт бюджет со своей папкой, «Документы\P-Treasury»
     // ещё не переименована — переносим, когда открывают бюджет с папкой по умолчанию.
     if let Err(e) = budget_core::vault::migrate_default(next.conn(), &state.vault_default) {
         eprintln!("папка сохранности не переименована, остаётся прежняя: {e}");
     }
     // Старое соединение закрывается здесь, когда его место занимает новое.
-    state.replace_data(&mut guard, |slot| {
+    state.replace_data(guard, |slot| {
         *slot = Ok(next);
         Ok(())
-    })?;
-    drop(guard);
-    let mut r = load(&state.data_dir);
-    r.current = Some(path.display().to_string());
-    store(&state.data_dir, &r)
+    })
 }
 
 pub fn rename(state: &AppState, path: &str, name: &str) -> Result<(), String> {
@@ -193,6 +212,7 @@ pub fn rename(state: &AppState, path: &str, name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("введите название".into());
     }
+    let _guard = state.lock_db();
     let mut r = load(&state.data_dir);
     let Some(f) = r.files.iter_mut().find(|f| f.path == path) else {
         return Err("основной файл не переименовывается".into());
@@ -203,8 +223,8 @@ pub fn rename(state: &AppState, path: &str, name: &str) -> Result<(), String> {
 
 /// Убрать из списка (сам файл остаётся на диске). Открытый файл убрать нельзя.
 pub fn forget(state: &AppState, path: &str) -> Result<(), String> {
-    let open = state
-        .lock_db()
+    let guard = state.lock_db();
+    let open = guard
         .as_ref()
         .ok()
         .map(|db| db.path().display().to_string());
@@ -248,5 +268,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(startup_path(dir.path()), other);
+    }
+
+    #[test]
+    fn failed_registry_write_keeps_active_budget_and_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let current = main_path(&data_dir);
+        let next = data_dir.join("next.db");
+        let options = budget_core::storage::OpenOptions {
+            backup_dir: data_dir.join("backups"),
+            keep_backups: 10,
+        };
+        let mut db = Storage::open(&current, &options).unwrap();
+        let mut undo = budget_core::undo::Journal::default();
+        undo.record(db.conn_mut(), "change", |c| {
+            c.execute("UPDATE currencies SET name='test' WHERE code='RUB'", [])?;
+            Ok(())
+        })
+        .unwrap();
+        drop(Storage::open(&next, &options).unwrap());
+        fs::create_dir(data_dir.join(LIST)).unwrap();
+        let state = AppState {
+            db: std::sync::Mutex::new(Ok(db)),
+            data_dir: data_dir.clone(),
+            undo: std::sync::Mutex::new(undo),
+            portable: true,
+            vault_default: data_dir.join("vault"),
+        };
+
+        assert!(switch(&state, &next).is_err());
+        assert_eq!(state.lock_db().as_ref().unwrap().path(), current);
+        assert!(state.lock_undo().state().undo.is_some());
     }
 }

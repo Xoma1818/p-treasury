@@ -271,6 +271,7 @@ pub fn purchase_edited(
     amount: i64,
     date: &str,
     category_id: Option<&str>,
+    account_id: &str,
 ) -> Result<()> {
     let (done, first) = refunds_of(conn, id)?;
     if first.is_none() {
@@ -278,6 +279,20 @@ pub fn purchase_edited(
     }
     if kind != "expense" {
         return invalid("по этой покупке есть возврат: она остаётся расходом");
+    }
+    let different_currency: bool = conn.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM transactions t
+           JOIN accounts refund_account ON refund_account.id = t.account_id
+           JOIN accounts purchase_account ON purchase_account.id = ?2
+           WHERE t.refund = 1 AND t.refund_of = ?1
+             AND refund_account.currency_code <> purchase_account.currency_code
+         )",
+        params![id, account_id],
+        |row| row.get(0),
+    )?;
+    if different_currency {
+        return invalid("по покупке есть возврат: выберите счёт в валюте возврата");
     }
     if amount < done {
         return invalid("по этой покупке уже вернули больше: сначала поправьте возврат");
@@ -298,12 +313,16 @@ mod tests {
     use crate::transactions::TxnInput;
 
     fn card(c: &Connection) -> String {
+        card_in(c, "Карта", "RUB")
+    }
+
+    fn card_in(c: &Connection, name: &str, currency: &str) -> String {
         acc(
             c,
             &AccountInput {
-                name: "Карта".into(),
+                name: name.into(),
                 kind: "debit".into(),
-                currency_code: "RUB".into(),
+                currency_code: currency.into(),
                 opening_balance: 10_000_000,
                 opening_date: "2026-01-01".into(),
                 credit_limit: None,
@@ -332,6 +351,35 @@ mod tests {
             |r| r.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn purchase_with_refund_cannot_change_currency() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let rub = card(c);
+        let usd = card_in(c, "Доллары", "USD");
+        let rub_other = card_in(c, "Другая карта", "RUB");
+        let mut purchase = TxnInput {
+            kind: "expense".into(),
+            date: "2026-10-20".into(),
+            account_id: rub.clone(),
+            amount: 100_000,
+            category_id: Some(category(c)),
+            to_account_id: None,
+            to_amount: None,
+            payee: None,
+            note: None,
+        };
+        let id = transactions::create(c, &purchase).unwrap();
+        create(c, &refund(&id, "2026-10-25", 50_000)).unwrap();
+        purchase.account_id = usd;
+        assert!(transactions::update(c, &id, &purchase).is_err());
+        assert_eq!(transactions::get(c, &id).unwrap().account_id, rub);
+        purchase.account_id = rub_other.clone();
+        transactions::update(c, &id, &purchase).unwrap();
+        assert_eq!(transactions::get(c, &id).unwrap().account_id, rub_other);
     }
 
     #[test]
@@ -588,6 +636,13 @@ mod tests {
             )
             .unwrap();
         let r = create(db.conn(), &refund(&part, "2026-10-22", 250_000)).unwrap();
+        let mut foreign = input(310_000, 190_000);
+        foreign.account_id = card_in(db.conn(), "Доллары", "USD");
+        assert!(receipts::update(db.conn_mut(), &split, &foreign).is_err());
+        assert_eq!(
+            transactions::get(db.conn(), &part).unwrap().account_id,
+            card
+        );
         receipts::update(db.conn_mut(), &split, &input(310_000, 190_000)).unwrap();
         let new_part: String = db
             .conn()

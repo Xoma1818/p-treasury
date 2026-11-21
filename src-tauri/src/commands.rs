@@ -902,6 +902,18 @@ pub fn remember_rule(
 }
 
 #[tauri::command(async)]
+pub fn save_quick_transaction(
+    state: State<AppState>,
+    input: TxnInput,
+    extra: TxnExtra,
+    merchant: Option<String>,
+) -> CmdResult<String> {
+    with_undo(&state, "Новая операция", |c| {
+        quick::save(c, &input, &extra, merchant.as_deref())
+    })
+}
+
+#[tauri::command(async)]
 pub fn list_rules(state: State<AppState>) -> CmdResult<Vec<Rule>> {
     with_db(&state, |db| rules::list(db.conn()))
 }
@@ -1759,20 +1771,74 @@ pub fn export_report(
     })
 }
 
+/// Разбор и проверка используют один временный снимок, а не повторное чтение пути.
+fn statement_snapshot(source: &Path) -> CmdResult<(tempfile::TempDir, std::path::PathBuf, String)> {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+
+    let name = source
+        .file_name()
+        .ok_or("не удалось определить имя файла")?;
+    let copy = || -> std::io::Result<_> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join(name);
+        let mut input = std::fs::File::open(source)?;
+        let mut output = std::fs::File::create(&path)?;
+        let mut hash = Sha256::new();
+        let mut buf = [0; 16384];
+        loop {
+            let amount = input.read(&mut buf)?;
+            if amount == 0 {
+                break;
+            }
+            hash.update(&buf[..amount]);
+            output.write_all(&buf[..amount])?;
+        }
+        Ok((dir, path, format!("{:x}", hash.finalize())))
+    };
+    copy().map_err(|e| format!("не удалось прочитать снимок выписки: {e}"))
+}
+
+fn verified_statement(
+    source: &Path,
+    expected: &str,
+) -> CmdResult<(tempfile::TempDir, std::path::PathBuf)> {
+    let (dir, snapshot, digest) = statement_snapshot(source)?;
+    if digest != expected {
+        return Err(
+            "файл изменился после предпросмотра. Выберите его снова и проверьте данные".into(),
+        );
+    }
+    Ok((dir, snapshot))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatementPreview {
+    #[serde(flatten)]
+    preview: Preview,
+    file_digest: String,
+}
+
 #[tauri::command(async)]
 pub fn import_preview(
     state: State<AppState>,
     path: String,
     account_id: Option<String>,
     self_account_id: Option<String>,
-) -> CmdResult<Preview> {
-    with_db(&state, |db| {
+) -> CmdResult<StatementPreview> {
+    let (_dir, snapshot, file_digest) = statement_snapshot(Path::new(&path))?;
+    let preview = with_db(&state, |db| {
         csv_import::preview_with(
             db.conn(),
-            Path::new(&path),
+            &snapshot,
             account_id.as_deref(),
             self_account_id.as_deref(),
         )
+    })?;
+    Ok(StatementPreview {
+        preview,
+        file_digest,
     })
 }
 
@@ -1780,14 +1846,16 @@ pub fn import_preview(
 pub fn import_csv(
     state: State<AppState>,
     path: String,
+    file_digest: String,
     skip_errors: bool,
     account_id: Option<String>,
     self_account_id: Option<String>,
 ) -> CmdResult<import_log::Saved> {
+    let (_dir, snapshot) = verified_statement(Path::new(&path), &file_digest)?;
     with_undo(&state, "Импорт операций", |c| {
         csv_import::import_with(
             c,
-            Path::new(&path),
+            &snapshot,
             skip_errors,
             account_id.as_deref(),
             self_account_id.as_deref(),
@@ -1947,6 +2015,21 @@ pub fn changelog() -> &'static str {
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn statement_import_rejects_replaced_file_and_keeps_preview_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Выписка.csv");
+        std::fs::write(&source, "сумма;100").unwrap();
+        let (_preview_dir, preview, digest) = super::statement_snapshot(&source).unwrap();
+        assert_eq!(preview.file_name(), source.file_name());
+        let (_confirmed_dir, confirmed) = super::verified_statement(&source, &digest).unwrap();
+
+        std::fs::write(&source, "сумма;1000").unwrap();
+        assert_eq!(std::fs::read_to_string(preview).unwrap(), "сумма;100");
+        assert_eq!(std::fs::read_to_string(confirmed).unwrap(), "сумма;100");
+        assert!(super::verified_statement(&source, &digest).is_err());
+    }
 
     /// Сервер на один ответ вместо cbr.ru (из тестовой среды сайт ЦБ недоступен).
     fn serve_once(status: &str, body: &'static [u8]) -> String {
