@@ -2,7 +2,7 @@
 // проверка денег на счёте, правка одного платежа, напоминание у заметки и сроки «заранее» в Настройках.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -155,6 +155,8 @@ test("несколько проведённых платежей: можно в�
     await choose(browser, "account", "Карта (₽)");
     await chooseLike(browser, "category", "Коммунальные платежи");
     await fill(browser, "payee", title);
+    if (!(await browser.$('[role="dialog"] [name="note"]').isDisplayed())) await openMore(browser);
+    await fill(browser, "note", `По квитанции ${amount} ₽`);
     await save(browser);
   }
 
@@ -171,6 +173,29 @@ test("несколько проведённых платежей: можно в�
   const match = (amount) => `//*[@data-testid="occ-match-candidate" and contains(., "${amount}")]`;
   await waitText(browser, match("871"), money("871 ₽"));
   await waitText(browser, match("872"), money("872 ₽"));
+  const radioSelector = '[data-testid="occ-match-candidate"] input[type="radio"]';
+  const accessibleNames = async () => {
+    const names = [];
+    for (const radio of await browser.$$(radioSelector)) names.push(await radio.getComputedLabel());
+    return names;
+  };
+  const namesShown = await accessibleNames();
+  assert.ok(namesShown.some((name) => money("871 ₽").test(name)));
+  assert.ok(namesShown.some((name) => money("872 ₽").test(name)));
+  assert.ok(namesShown.every((name) => name.includes("По квитанции")));
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, '[data-testid="occ-match-candidate"]', /•••/);
+  const namesHidden = await accessibleNames();
+  assert.equal(namesHidden.length, 2);
+  assert.equal(new Set(namesHidden).size, 2, "одноимённые платежи остаются различимыми для диктора");
+  for (const name of namesHidden) {
+    assert.match(name, /сумма скрыта/i);
+    assert.doesNotMatch(name, /871|872|900|₽|По квитанции/);
+  }
+  assert.doesNotMatch(await browser.$(lastDialog).getText(), /871|872|900|₽|По квитанции/);
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, match("872"), money("872 ₽"));
+  assert.deepEqual(await accessibleNames(), namesShown);
   assert.equal(await (await browser.$(`${lastDialog}//button[normalize-space()="Связать"]`)).isEnabled(), false);
   await (await browser.$(`${match("872")}//input[@type="radio"]`)).click();
   await save(browser, "Связать");
