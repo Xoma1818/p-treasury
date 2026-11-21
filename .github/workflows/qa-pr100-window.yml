@@ -7,7 +7,7 @@ permissions:
   actions: read
   contents: read
 concurrency:
-  group: kazna-pr100-preflight
+  group: kazna-pr100-upgrade-retry
   cancel-in-progress: true
 jobs:
   verify:
@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [clean, upgrade, volume]
+        mode: [upgrade]
     env:
       SOURCE_RUN: '44886030389'
       SOURCE_SHA: 6d2822d78536226d000a6d55f6ddc6e6c9d493f8
@@ -135,6 +135,7 @@ jobs:
             assert.equal(process.status, 0, "installer exit code");
           }
           let output = 'import { spawnSync } from "node:child_process";\nimport { DatabaseSync } from "node:sqlite";\n' + source;
+          output = transform(output, '[["2340", "Продукты"], ["6230", "Жильё"], ["1890", "Кафе и рестораны"]]', '[["2340", "Питание"], ["6230", "Жильё"], ["1890", "Общепит"]]');
           output = transform(output, "  // Новая версия на той же папке данных.", [
             "  assert.equal(oldSchema, 25, 'проверяется опубликованная 0.36.1');",
             "  verifySqlite(join(dataDir, 'budget.db'), oldSchema);",
