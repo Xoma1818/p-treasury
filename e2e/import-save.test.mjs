@@ -1,10 +1,11 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { start, stop, onboard, openSection, click, choose, waitText } from "./app.mjs";
-let browser;
+let browser, dataDir;
 before(async () => {
-  ({ browser } = await start());
+  ({ browser, dataDir } = await start());
   await onboard(browser, [{ name: "Карта", balance: "100000" }]);
 });
 after(async () => { if (browser) await stop(browser); });
@@ -45,5 +46,63 @@ test("сохранение выписки: повторный клик и сме
     await waitText(browser, '[data-testid="import-summary"]', /уже загружено раньше 4/);
   } finally {
     await browser.execute(() => { window.__restoreImportInvoke(); });
+    await browser.keys("Escape");
   }
+});
+
+test("выписка сохраняет только предложенную связь и узнаёт исходного получателя при повторе", async () => {
+  const dialog = '//*[@role="dialog"]';
+  const summary = '[data-testid="import-summary"]';
+  const invoke = async (command, args = {}) => {
+    const result = await browser.executeAsync((name, input, done) => {
+      window.__TAURI_INTERNALS__.invoke(name, input)
+        .then((value) => done({ value }), (error) => done({ error: String(error) }));
+    }, command, args);
+    assert.equal(result.error, undefined, `${command}: ${result.error}`);
+    return result.value;
+  };
+  const accounts = await invoke("list_accounts", { includeArchived: false });
+  const card = accounts.find((a) => a.name === "Карта").id;
+  const categories = await invoke("list_categories", { includeArchived: false });
+  const categoryId = categories.find((c) => c.name === "Питание").id;
+  const payee = "Контрольное кафе";
+  const amount = 712_507;
+  const manual = await invoke("create_transaction", { eventId: null, input: {
+    type: "expense", date: "2026-11-19", accountId: card, amount, categoryId,
+    toAccountId: null, toAmount: null, payee, note: "Ручная запись до выписки",
+  } });
+  await invoke("create_rule", { input: { pattern: "qacoffee", categoryId, payee } });
+
+  const first = join(dataDir, "первая-выписка.csv");
+  const second = join(dataDir, "повтор-и-новая.csv");
+  const header = '"Дата операции";"Номер карты";"Статус";"Сумма операции";"Валюта операции";"Сумма платежа";"Валюта платежа";"Категория";"Описание"';
+  const row = (name) => `"20.11.2026 10:00:00";"*1140";"OK";"-7125,07";"RUB";"-7125,07";"RUB";"Супермаркеты";"QAcoffee ${name}"`;
+  await writeFile(first, [header, row("A"), ""].join("\n"));
+  await writeFile(second, [header, row("B"), row("A"), ""].join("\n"));
+  const pick = async (path) => {
+    await browser.execute((p) => { window.__ptPick = [p]; }, path);
+    await click(browser, "Выбрать файл", dialog);
+  };
+
+  await openSection(browser, "Настройки");
+  await click(browser, "Импорт выписки или CSV");
+  await pick(first);
+  await choose(browser, "importAccount", "Карта (₽)");
+  await waitText(browser, summary, /строк 1, без ошибок 0, свяжутся с вашими записями 1/);
+  await click(browser, "Связать 1", dialog);
+  await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 0, связано с вашими записями: 1/);
+
+  await pick(second);
+  await waitText(browser, summary, /строк 2, без ошибок 1, уже загружено раньше 1/);
+  const rows = await browser.$$('[data-testid="import-row"]');
+  assert.deepEqual(await Promise.all(rows.map((r) => r.getAttribute("data-duplicate"))), ["0", "1"]);
+  await click(browser, "Загрузить 1", dialog);
+  await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 1/);
+  await pick(second);
+  await waitText(browser, summary, /строк 2, без ошибок 0, уже загружено раньше 2/);
+
+  const page = await invoke("list_transactions", { filter: { accountId: card, types: ["expense"], limit: 100 } });
+  const purchases = page.items.filter((t) => t.amount === amount);
+  assert.equal(purchases.length, 2);
+  assert.equal(purchases.find((t) => t.id === manual).note, "Ручная запись до выписки");
 });

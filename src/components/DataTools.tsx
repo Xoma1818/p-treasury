@@ -144,6 +144,12 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     ? rowsByFilter.review.filter((row) => csvDecisions[row.line] === false).length
     : 0;
   const toLoad = preview ? preview.valid - csvSkipped : 0;
+  const actionable = toLoad + (preview ? preview.toTransfers + preview.linked : 0);
+  let saveLabel = `Загрузить ${toLoad}`;
+  if (preview && toLoad === 0) {
+    if (preview.toTransfers > 0) saveLabel = `Исправить ${preview.toTransfers}`;
+    else if (preview.linked > 0) saveLabel = `Связать ${preview.linked}`;
+  }
   const [accountId, setAccountId] = useState<string | null>(null);
   // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
   const [selfId, setSelfId] = useState<string | null>(null);
@@ -450,9 +456,9 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       <ErrorText error={error} />
       {csvUnresolved > 0 && <p className="warn" role="status">Выберите действие для похожих строк. Осталось: {csvUnresolved}.</p>}
       <div className="actions import-overview-actions">
-        {preview && !mapperOpen && preview.errors > 0 && toLoad + preview.toTransfers > 0 && (
+        {preview && !mapperOpen && preview.errors > 0 && actionable > 0 && (
           <button className="link" disabled={pending || saving || csvUnresolved > 0} onClick={() => commit(true)}>
-            Загрузить только правильные ({toLoad + preview.toTransfers})
+            Загрузить только правильные ({actionable})
           </button>
         )}
         <span className="spacer" />
@@ -460,8 +466,8 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           Закрыть
         </button>
         {preview && !mapperOpen && (
-          <button className="btn primary" disabled={pending || saving || csvUnresolved > 0 || preview.errors > 0 || toLoad + preview.toTransfers === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
-            {toLoad === 0 && preview.toTransfers > 0 ? `Исправить ${preview.toTransfers}` : `Загрузить ${toLoad}`}
+          <button className="btn primary" disabled={pending || saving || csvUnresolved > 0 || preview.errors > 0 || actionable === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+            {saveLabel}
             {toLoad > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>
         )}
