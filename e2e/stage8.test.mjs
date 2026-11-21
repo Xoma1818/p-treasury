@@ -79,7 +79,7 @@ test("Р23–Р24: ключевое слово в карточке катего�
     form.requestSubmit();
   });
   await browser.$('[role="dialog"]').waitForExist({ timeout: 5000, reverse: true });
-  await waitCount(browser, cat("Кафе"), 1);
+  await waitCount(browser, 'li[data-testid="category-item"][data-name="Кафе"]', 1);
 
   await click(browser, "Изменить", cat("Кафе"));
   await fill(browser, "categoryRule", "Шоколадница");
