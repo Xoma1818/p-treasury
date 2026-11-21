@@ -144,6 +144,7 @@ test("напоминание связывается с проведённым с
   await save(browser);
   await click(browser, "Учесть платёж", occ("Контрольный интернет"));
   await waitText(browser, '[data-testid="occ-match-candidate"]', money("450 ₽"));
+  await waitText(browser, '[data-testid="occ-match-candidate"]', /Карта/);
   await waitText(browser, '[data-testid="occ-match-candidate"]', /Сумма отличается/);
   await save(browser, "Связать с платежом");
   await waitText(browser, '[data-testid="rem-done"]', /Контрольный интернет[\s\S]*связано с операцией/);
@@ -187,6 +188,7 @@ test("несколько проведённых платежей: можно в�
     return names;
   };
   const namesShown = await accessibleNames();
+  assert.ok(namesShown.every((name) => name.includes("Карта")));
   assert.ok(namesShown.some((name) => money("871 ₽").test(name)));
   assert.ok(namesShown.some((name) => money("872 ₽").test(name)));
   assert.ok(namesShown.every((name) => name.includes("По квитанции")));

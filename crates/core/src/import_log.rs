@@ -85,6 +85,33 @@ fn candidates(
     t: &TxnInput,
     reserved: Option<&HashSet<String>>,
 ) -> Result<Vec<Candidate>> {
+    // Точная дата полного перевода уже проверена в transfer_repeat. Близкая
+    // дата требует решения; сравниваем оба счёта и суммы по обеим сторонам.
+    if t.kind == "transfer" {
+        let mut stmt = conn.prepare_cached(
+            "SELECT id FROM transactions WHERE type = 'transfer' AND status = 'cleared'
+             AND account_id = ?1 AND to_account_id = ?2 AND amount = ?3 AND to_amount = ?4
+             AND abs(julianday(date) - julianday(?5)) BETWEEN 1 AND ?6
+             ORDER BY abs(julianday(date) - julianday(?5)), created_at, id",
+        )?;
+        let found = stmt.query_map(
+            params![
+                t.account_id,
+                t.to_account_id,
+                t.amount,
+                t.to_amount.unwrap_or(t.amount),
+                t.date,
+                SAME_DAYS
+            ],
+            |row| {
+                Ok(Candidate {
+                    id: row.get(0)?,
+                    split_id: None,
+                })
+            },
+        )?;
+        return Ok(found.collect::<rusqlite::Result<_>>()?);
+    }
     let mut out = Vec::new();
     let near = "abs(julianday(t.date) - julianday(?3)) <= ?4";
     let free = "t.status = 'cleared' AND t.import_id IS NULL
@@ -247,12 +274,21 @@ fn plan(
     for (input, list) in inputs.iter().zip(&found) {
         for candidate in list {
             *claims.entry(candidate_key(input, candidate)).or_insert(0) += 1;
+            // Обе стороны похожего полного перевода требуют разбора. Другая
+            // строка не может автоматически занять списание или зачисление.
+            if let Some(to) = input.to_account_id.as_deref() {
+                *claims.entry((to, candidate.id.as_str())).or_insert(0) += 1;
+            }
         }
     }
     let sure: Vec<bool> = found
         .iter()
         .zip(inputs)
-        .map(|(list, input)| list.len() == 1 && claims[&candidate_key(input, &list[0])] == 1)
+        .map(|(list, input)| {
+            input.kind != "transfer"
+                && list.len() == 1
+                && claims[&candidate_key(input, &list[0])] == 1
+        })
         .collect();
     Ok(found.into_iter().zip(sure).collect())
 }
@@ -386,6 +422,9 @@ fn write_decisions<'a>(
                     Some(BankImportDecision::Add) => WriteDecision::Add,
                     Some(BankImportDecision::Skip) => WriteDecision::Skip,
                     Some(BankImportDecision::Link { transaction_id }) => {
+                        if input.kind == "transfer" {
+                            return invalid("для полного перевода выберите добавление или пропуск");
+                        }
                         let candidate = candidates
                             .iter()
                             .take(MAX_CANDIDATES)
@@ -400,6 +439,8 @@ fn write_decisions<'a>(
                     }
                     None => return invalid(BANK_REVIEW_REQUIRED),
                 }
+            } else if input.kind == "transfer" && !candidates.is_empty() {
+                return invalid(BANK_REVIEW_REQUIRED);
             } else {
                 WriteDecision::Add
             };
@@ -694,6 +735,9 @@ pub struct Side {
     pub account_id: String,
     pub account: String,
     pub to_account: Option<String>,
+    pub to_account_id: Option<String>,
+    pub to_amount: Option<i64>,
+    pub to_currency: Option<String>,
     pub currency: String,
     pub category: Option<String>,
     pub payee: Option<String>,
@@ -728,7 +772,7 @@ pub(crate) fn side(conn: &Connection, id: &str) -> Result<Side> {
                 CASE WHEN t.split_id IS NULL THEN 0
                      ELSE (SELECT count(*) FROM transactions p WHERE p.split_id = t.split_id) END,
                 (SELECT count(*) FROM transaction_tags g WHERE g.transaction_id = t.id),
-                t.import_id IS NOT NULL
+                t.import_id IS NOT NULL, t.to_account_id, t.to_amount, ta.currency_code
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          LEFT JOIN accounts ta ON ta.id = t.to_account_id
@@ -751,6 +795,9 @@ pub(crate) fn side(conn: &Connection, id: &str) -> Result<Side> {
                 parts: r.get(11)?,
                 tags: r.get(12)?,
                 imported: r.get(13)?,
+                to_account_id: r.get(14)?,
+                to_amount: r.get(15)?,
+                to_currency: r.get(16)?,
             })
         },
     )
@@ -1740,7 +1787,7 @@ mod tests {
         )
         .unwrap();
         let c = db.conn();
-        transactions::create(
+        let transfer = transactions::create(
             c,
             &TxnInput {
                 kind: "transfer".into(),
@@ -1755,6 +1802,13 @@ mod tests {
             },
         )
         .unwrap();
+        let matched_side = side(c, &transfer).unwrap();
+        assert_eq!(
+            matched_side.to_account_id.as_deref(),
+            Some(save_acc.as_str())
+        );
+        assert_eq!(matched_side.to_amount, Some(1_000_000));
+        assert_eq!(matched_side.to_currency.as_deref(), Some("RUB"));
         let before = count(c);
         let rows = [
             op("expense", "2026-10-06", &card, 300_000, &other, "AUCHAN"),

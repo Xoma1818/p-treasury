@@ -25,6 +25,9 @@ export function StatementRowReview({ row, currencySymbol, matches, bank, showAmo
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
   const sign = row.type === "Расход" ? "−" : row.type === "Доход" ? "+" : "";
+  const fullTransfer = bank && row.type === "Перевод";
+  const canLink = bank && !fullTransfer;
+  const hiddenMoney = <><span aria-hidden="true">{HIDDEN_AMOUNT}</span><span className="sr-only">Сумма скрыта</span></>;
   const amount = sign ? sign + row.amount.replace(/^[+−-]/, "") : row.amount;
   const balanceChange = sign && currencySymbol && !row.toTransfer
     ? ` Изменение остатка: ${showAmounts ? `${amount} ${currencySymbol}` : HIDDEN_AMOUNT}.`
@@ -40,31 +43,37 @@ export function StatementRowReview({ row, currencySymbol, matches, bank, showAmo
             <div>{formatDate(row.date)} · {row.account}</div>
             {showAmounts && row.sourceNote && <div className="hint">{row.sourceNote}</div>}
           </div>
-          <strong className="statement-review-amount">{showAmounts ? `${amount} ${currencySymbol ?? ""}`.trim() : HIDDEN_AMOUNT}</strong>
+          <strong className="statement-review-amount">{showAmounts ? `${amount} ${currencySymbol ?? ""}`.trim() : hiddenMoney}</strong>
         </header>
         <fieldset>
           <legend>Как учесть строку?</legend>
-          <p className="hint">{bank ? "Совпали счёт и сумма операции или её стороны. Сравните даты и получателей." : "Совпали счёт, дата и сумма."}</p>
+          <p className="hint">{fullTransfer
+            ? "Совпали оба счёта, направление и суммы перевода, но отличаются даты. Если это тот же перевод, пропустите строку."
+            : bank ? "Совпали счёт и сумма операции или её стороны. Сравните даты и получателей." : "Совпали счёт, дата и сумма."}</p>
           {matches.map((s, index) => {
-            const currency = currencies?.find((c) => c.code === s.currency);
-            const taken = used.has(s.id);
+            const credit = s.type === "transfer" && s.toAccountId === row.accountId && s.toAmount != null && !!s.toCurrency;
+            const code = (credit ? s.toCurrency : null) ?? s.currency;
+            const shown = (credit ? s.toAmount : null) ?? (s.type === "income" ? s.amount : -s.amount);
+            const currency = currencies?.find((c) => c.code === code);
+            const taken = canLink && used.has(s.id);
+            const Option = canLink ? "label" : "div";
             return (
-              <label className="statement-review-option" key={s.id}>
-                {bank && <input type="radio" name="statement-choice" value={`link:${s.id}`}
+              <Option className="statement-review-option" key={s.id}>
+                {canLink && <input type="radio" name="statement-choice" value={`link:${s.id}`}
                   checked={decision?.action === "link" && decision.transactionId === s.id} disabled={taken}
                   onChange={() => setDecision({ action: "link", transactionId: s.id })} />}
                 <span className="statement-review-description">
-                  <strong>{bank ? `Связать с записью ${index + 1}` : `Запись ${index + 1}`} · {s.payee || s.category || s.account}</strong>
+                  <strong>{canLink ? `Связать с записью ${index + 1}` : `Запись ${index + 1}`} · {s.payee || s.category || s.account}</strong>
                   <span>{formatDate(s.date)} · {s.account}{s.toAccount && ` → ${s.toAccount}`}</span>
                   {s.category && <span className="hint">{s.category}</span>}
                   {showAmounts && s.note && <span className="hint">{s.note}</span>}
                   {s.parts > 0 && <span className="hint">Частей чека: {s.parts}</span>}
                   {taken && <span className="hint">Уже выбрано для другой строки</span>}
                 </span>
-                <span className="statement-review-amount">{s.type === "transfer" && <span className="hint">Списание · {s.account} </span>}{showAmounts
-                  ? <Money amount={s.type === "income" ? s.amount : -s.amount} symbol={currency?.symbol ?? s.currency} minorUnits={currency?.minorUnits} signed />
-                  : HIDDEN_AMOUNT}</span>
-              </label>
+                <span className="statement-review-amount">{s.type === "transfer" && <span className="hint">{credit ? `Зачисление · ${s.toAccount}` : `Списание · ${s.account}`} </span>}{showAmounts
+                  ? <Money amount={shown} symbol={currency?.symbol ?? code} minorUnits={currency?.minorUnits} signed />
+                  : hiddenMoney}</span>
+              </Option>
             );
           })}
           {row.maybe > matches.length && <p className="hint">Показаны ближайшие варианты. Если нужной записи здесь нет, строку можно пропустить.</p>}

@@ -1437,6 +1437,7 @@ export interface ImportRow {
   date: string;
   type: string;
   account: string;
+  accountId?: string | null;
   amount: string;
   category: string;
   categorySource?: string | null;
@@ -1778,6 +1779,9 @@ export interface MatchSide {
   accountId: string;
   account: string;
   toAccount: string | null;
+  toAccountId: string | null;
+  toAmount: number | null;
+  toCurrency: string | null;
   currency: string;
   category: string | null;
   payee: string | null;

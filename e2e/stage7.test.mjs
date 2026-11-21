@@ -135,6 +135,7 @@ test("горячие клавиши: F1 — справка, Ctrl+F — поис�
   await (await browser.$('[role="dialog"] [name="amount"]')).waitForDisplayed();
   await fill(browser, "amount", "100");
   await keys("Control", "Enter");
+  await keys("Control", "Enter");
   await browser.waitUntil(async () => !(await browser.$('[role="dialog"]').isExisting()), { timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', /Показано 3 из 3/);
 });

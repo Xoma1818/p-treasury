@@ -516,6 +516,7 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
   onCreate: (revision: string, allowSeparate: boolean) => void;
 }) {
   const groupId = useId();
+  const accountName = useAccounts(true).data?.find((account) => account.id === o.accountId)?.name;
   const settings = useSettings().data;
   const showAmounts = settings !== undefined && settings.hide_amounts !== "1";
   const hiddenMoney = <span className="money"><span aria-hidden="true">{HIDDEN_AMOUNT}</span><span className="sr-only">Сумма скрыта</span></span>;
@@ -558,7 +559,7 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
               <span id={`${id}-choice`}>Выбрать операцию {index + 1}</span>
             </label>
           )}
-          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
+          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}{accountName && ` · ${accountName}`}</p>
           {note && <p className="muted" id={`${id}-note`}>{note}</p>}
           <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
           <p id={`${id}-amount`}>В учёте · {showAmounts ? <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /> : hiddenMoney}</p>
@@ -570,6 +571,7 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
       {review?.moreCandidates && <p className="muted">Показаны 10 последних совпадений.</p>}
       <ErrorText error={error} />
       {error && <button type="button" className="link" disabled={query.isFetching || attach.busy} onClick={() => {
+        openedForm.current = false;
         attach.setError(null);
         void query.refetch();
       }}>Проверить снова</button>}
@@ -582,7 +584,12 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
           {o.txnType === "income" ? "Записать отдельный доход" : "Записать отдельный расход"}
         </button>}
         {candidates.length > 0 && <button type="button" className="btn primary" disabled={!selected || attach.busy || !!error} aria-busy={attach.busy}
-          onClick={() => selected && attach.run(o.key, selected.transactionId, selected.revision)}>Связать с платежом</button>}
+          onClick={() => {
+            if (!selected || openedForm.current) return;
+            // После связи обновление календаря вернёт пустой список для завершённого платежа.
+            openedForm.current = true;
+            attach.run(o.key, selected.transactionId, selected.revision);
+          }}>Связать с платежом</button>}
       </div>
     </Modal>
   );

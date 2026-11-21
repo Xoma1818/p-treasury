@@ -288,13 +288,13 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     const used = new Set<string>();
     // Ключ ядра включает сторону счёта. Один перевод можно подтвердить с обеих сторон.
     for (const row of preview.rows) {
-      if (row.line === reviewLine || row.account !== reviewRow.account) continue;
+      if (row.line === reviewLine || !row.accountId || row.accountId !== reviewRow.accountId) continue;
       const choice = decisions[row.line];
       if (choice?.action === "link") used.add(choice.transactionId);
       if (row.linkedTo) for (const match of preview.matches?.[row.line] ?? []) used.add(match.id);
     }
     return <StatementRowReview key={reviewRow.line} row={reviewRow} matches={preview.matches?.[reviewRow.line] ?? []}
-      bank={!!preview.bank} currencySymbol={accounts.find((a) => a.name === reviewRow.account)?.currencySymbol}
+      bank={!!preview.bank} currencySymbol={accounts.find((a) => a.id === reviewRow.accountId)?.currencySymbol}
       showAmounts={showAmounts} used={used} initial={decisions[reviewRow.line]} hasNext={!!nextRow} onBack={finishReview}
       onAccept={(choice) => {
         setDecisions((previous) => ({ ...previous, [reviewRow.line]: choice }));

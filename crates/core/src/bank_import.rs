@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use regex::Regex;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::csv_import::{Parsed, Row};
 use crate::transactions::TxnInput;
@@ -618,7 +618,7 @@ pub(crate) fn own_transfer(op: &Op) -> bool {
 }
 
 /// Перевод — повтор уже записанного: перевод той же суммы в ту же дату между
-/// теми же двумя счетами (в любую сторону) или эта строка банка, записанная
+/// теми же двумя счетами в том же направлении или эта строка банка, записанная
 /// раньше обычной операцией. N-я такая строка файла — повтор, только если
 /// таких записей не меньше N.
 fn transfer_repeat(
@@ -627,29 +627,43 @@ fn transfer_repeat(
     plain: &TxnInput,
     raw: &str,
     seen: &mut HashMap<String, usize>,
-) -> Result<bool> {
+) -> Result<Option<RepeatSource>> {
     let to = t.to_account_id.as_deref().unwrap_or("");
-    let (a, b) = if t.account_id.as_str() <= to {
-        (t.account_id.as_str(), to)
-    } else {
-        (to, t.account_id.as_str())
-    };
+    // Для зачисления из другой выписки to_parsed уже определил исходящий счёт.
     let nth = seen
-        .entry(format!("transfer|{}|{a}|{b}|{}", t.date, t.amount))
+        .entry(format!(
+            "transfer|{}|{}|{to}|{}",
+            t.date, t.account_id, t.amount
+        ))
         .or_insert(0);
     // Записанные переводы между этими счетами и удалённые вами загруженные переводы.
-    let transfers: i64 = conn.query_row(
-        "SELECT (SELECT count(*) FROM transactions WHERE type = 'transfer' AND date = ?1
-                   AND amount = ?4 AND ((account_id = ?2 AND to_account_id = ?3)
-                                        OR (account_id = ?3 AND to_account_id = ?2)))
-              + (SELECT count(*) FROM import_deleted WHERE kind = 'transfer' AND bank_date = ?1
-                   AND bank_amount = ?4 AND ((account_id = ?2 AND to_account_id = ?3)
-                                             OR (account_id = ?3 AND to_account_id = ?2)))",
-        params![t.date, a, b, t.amount],
-        |r| r.get(0),
-    )?;
-    let n = (transfers as usize).max(existing_sources(conn, plain, Some(raw))?.len());
-    let repeat = n > *nth;
+    let exact = conn
+        .prepare_cached(
+            "SELECT id, 0 AS deleted, import_id IS NOT NULL AS imported
+         FROM transactions WHERE type = 'transfer' AND date = ?1
+           AND amount = ?4 AND account_id = ?2 AND to_account_id = ?3
+         UNION ALL
+         SELECT id, 1, 1 FROM import_deleted WHERE kind = 'transfer' AND bank_date = ?1
+           AND bank_amount = ?4 AND account_id = ?2 AND to_account_id = ?3
+         ORDER BY deleted, imported, id LIMIT 1 OFFSET ?5",
+        )?
+        .query_row(
+            params![t.date, t.account_id, to, t.amount, *nth as i64],
+            |r| {
+                Ok(RepeatSource {
+                    id: r.get(0)?,
+                    deleted: r.get(1)?,
+                })
+            },
+        )
+        .optional()?;
+    let repeat = match exact {
+        Some(source) => Some(source),
+        None => existing_sources(conn, plain, Some(raw))?
+            .into_iter()
+            .nth(*nth)
+            .map(|m| m.source),
+    };
     *nth += 1;
     Ok(repeat)
 }
@@ -897,6 +911,7 @@ pub(crate) fn to_parsed(
     let mut out = Vec::new();
     let mut extra = crate::csv_import::Extra::default();
     let mut transfer_seen = HashMap::new();
+    let mut transfer_sources = Vec::new();
     let mut converting: HashSet<String> = HashSet::new();
     for (i, op) in ops.iter().enumerate() {
         let account = accs[i];
@@ -910,6 +925,7 @@ pub(crate) fn to_parsed(
             }
             .into(),
             account: account.map(|a| a.name.clone()).unwrap_or_default(),
+            account_id: account.map(|a| a.id.clone()),
             amount: op.amount.clone(),
             category: String::new(),
             payee: op.payee.clone(),
@@ -1127,7 +1143,17 @@ pub(crate) fn to_parsed(
                             // Записана только вторая сторона: переводом станет она.
                             None => other.map(|id| (id, None)),
                         };
-                        repeat && convert.is_none()
+                        if let Some(source) = repeat.filter(|_| convert.is_none()) {
+                            if !source.deleted {
+                                transfer_sources.push((i, source.id.clone()));
+                                if let Some(&j) = pair.get(&i) {
+                                    transfer_sources.push((j, source.id));
+                                }
+                            }
+                            true
+                        } else {
+                            false
+                        }
                     }
                     None => false,
                 };
@@ -1171,6 +1197,11 @@ pub(crate) fn to_parsed(
             repeat_source: None,
         });
     }
+    for (i, id) in transfer_sources {
+        if let Some(account) = accs[i] {
+            out[i].repeat_source = Some((account.id.clone(), id));
+        }
+    }
     mark_repeats(conn, &mut out, &mut extra)?;
     Ok((out, extra))
 }
@@ -1185,7 +1216,7 @@ pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
 }
 
 /// Один источник повтора — операция, группа чека или сохранённый ключ удаления.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RepeatSource {
     deleted: bool,
     id: String,
@@ -1294,7 +1325,15 @@ fn mark_repeats(
             _ => Ok(Vec::new()),
         })
         .collect::<Result<Vec<_>>>()?;
-    let mut seen: HashMap<String, HashSet<&RepeatSource>> = HashMap::new();
+    let mut seen: HashMap<String, HashSet<RepeatSource>> = HashMap::new();
+    for (account, id) in parsed.iter().filter_map(|row| row.repeat_source.as_ref()) {
+        seen.entry(account.clone())
+            .or_default()
+            .insert(RepeatSource {
+                id: id.clone(),
+                deleted: false,
+            });
+    }
     for exact_only in [true, false] {
         for (row, matches) in parsed.iter_mut().zip(&candidates) {
             let Some(input) = &row.input else { continue };
@@ -1304,7 +1343,7 @@ fn mark_repeats(
             let used = seen.entry(input.account_id.clone()).or_default();
             if let Some(found) = matches
                 .iter()
-                .find(|found| (!exact_only || found.exact) && used.insert(&found.source))
+                .find(|found| (!exact_only || found.exact) && used.insert(found.source.clone()))
             {
                 row.repeat_source = (!found.source.deleted)
                     .then(|| (input.account_id.clone(), found.source.id.clone()));
@@ -1772,6 +1811,10 @@ mod tests {
             ]
         );
         assert_eq!(parsed[3].input.as_ref().unwrap().account_id, taxi_card);
+        assert_eq!(
+            parsed[3].row.account_id.as_deref(),
+            Some(taxi_card.as_str())
+        );
 
         let parsed = to_parsed(c, bank, &ops, Some(&main), None).unwrap().0;
         let rows: Vec<_> = parsed
@@ -2350,6 +2393,237 @@ mod tests {
                 .added,
             0
         );
+    }
+
+    fn write_transfer_statement(path: &Path, card: &str, amounts: &[&str]) {
+        let mut csv = "Дата операции;Номер карты;Статус;Сумма операции;Валюта операции;Сумма платежа;Валюта платежа;Категория;Описание\n".to_owned();
+        for amount in amounts {
+            csv.push_str(&format!(
+                "03.11.2026 10:00:00;{card};OK;{amount};RUB;{amount};RUB;Переводы;Между своими счетами\n"
+            ));
+        }
+        fs::write(path, csv).unwrap();
+    }
+
+    fn manual_transfer(c: &Connection, from: &str, to: &str, date: &str) -> String {
+        crate::transactions::create(
+            c,
+            &TxnInput {
+                kind: "transfer".into(),
+                date: date.into(),
+                account_id: from.into(),
+                amount: 50_000,
+                category_id: None,
+                to_account_id: Some(to.into()),
+                to_amount: None,
+                payee: None,
+                note: None,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn full_transfer_to_another_account_is_not_linked_to_manual_transfer() {
+        use crate::csv_import::{import_with, preview_with};
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = account(c, "Карта *1111");
+        let deposit = account(c, "Вклад");
+        let other = account(c, "Копилка");
+        manual_transfer(c, &card, &other, "2026-11-03");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.csv");
+        write_transfer_statement(&path, "*1111", &["-500,00"]);
+        let p = preview_with(c, &path, Some(&card), Some(&deposit)).unwrap();
+        assert_eq!((p.valid, p.linked, p.doubtful, p.duplicates), (1, 0, 0, 0));
+        let saved = import_with(db.conn_mut(), &path, false, Some(&card), Some(&deposit)).unwrap();
+        assert_eq!((saved.added, saved.linked), (1, 0));
+        for to in [&deposit, &other] {
+            let count: i64 = db
+                .conn()
+                .query_row(
+                    "SELECT count(*) FROM transactions WHERE type = 'transfer'
+                     AND account_id = ?1 AND to_account_id = ?2 AND amount = 50000",
+                    params![card, to],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1);
+        }
+    }
+
+    #[test]
+    fn similar_directed_transfer_needs_an_explicit_add_or_skip() {
+        use crate::csv_import::{import_with_decisions, preview_with, BankImportDecision};
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = account(c, "Карта *1111");
+        let deposit = account(c, "Вклад");
+        let manual = manual_transfer(c, &card, &deposit, "2026-11-02");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("card.csv");
+        write_transfer_statement(&file, "*1111", &["-500,00"]);
+        let p = preview_with(c, &file, Some(&card), Some(&deposit)).unwrap();
+        let line = p.rows[0].line;
+        assert_eq!((p.linked, p.doubtful, p.rows[0].maybe), (0, 1, 1));
+        assert_eq!(p.matches[&line][0].id, manual);
+        let load = |db: &mut Storage, decision: Option<BankImportDecision>| {
+            let decisions = decision.into_iter().map(|d| (line, d)).collect();
+            import_with_decisions(
+                db.conn_mut(),
+                &file,
+                false,
+                Some(&card),
+                Some(&deposit),
+                p.bank_plan_digest.as_deref(),
+                &decisions,
+            )
+        };
+        let counts = |db: &Storage| -> (i64, i64) {
+            db.conn().query_row(
+                "SELECT (SELECT count(*) FROM transactions), (SELECT count(*) FROM import_batches)",
+                [], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).unwrap()
+        };
+        assert!(load(&mut db, None)
+            .unwrap_err()
+            .to_string()
+            .contains("выберите действие"));
+        let link = BankImportDecision::Link {
+            transaction_id: manual,
+        };
+        assert!(load(&mut db, Some(link))
+            .unwrap_err()
+            .to_string()
+            .contains("добавление или пропуск"));
+        assert_eq!(counts(&db), (1, 0));
+        let skipped = load(&mut db, Some(BankImportDecision::Skip)).unwrap();
+        assert_eq!((skipped.added, skipped.linked), (0, 0));
+        assert_eq!(counts(&db), (1, 1));
+        let added = load(&mut db, Some(BankImportDecision::Add)).unwrap();
+        assert_eq!((added.added, added.linked), (1, 0));
+        assert_eq!(counts(&db), (2, 2));
+        let p = preview_with(db.conn(), &file, Some(&card), Some(&deposit)).unwrap();
+        assert_eq!((p.duplicates, p.doubtful), (1, 0));
+    }
+
+    #[test]
+    fn exact_transfer_reserves_each_statement_side_before_matching_ordinary_rows() {
+        use crate::csv_import::{import_with, preview_with};
+        for both_sides in [false, true] {
+            let mut db = Storage::open_in_memory().unwrap();
+            let c = db.conn();
+            crate::categories::seed_defaults(c).unwrap();
+            let card = account(c, "Карта *1111");
+            let deposit = account(c, "Вклад *2222");
+            manual_transfer(c, &card, &deposit, "2026-11-03");
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("card.csv");
+            let mut csv = "Дата операции;Номер карты;Статус;Сумма операции;Валюта операции;Категория;Описание\n".to_owned();
+            csv.push_str("03.11.2026;*1111;OK;-500,00;RUB;Супермаркеты;Магазин\n");
+            if both_sides {
+                csv.push_str("03.11.2026;*2222;OK;500,00;RUB;Зарплата;Работа\n");
+                csv.push_str("03.11.2026;*2222;OK;500,00;RUB;Переводы;Между своими счетами\n");
+            }
+            csv.push_str("03.11.2026;*1111;OK;-500,00;RUB;Переводы;Между своими счетами\n");
+            fs::write(&file, csv).unwrap();
+            let n = if both_sides { 2 } else { 1 };
+            let p = preview_with(c, &file, Some(&card), Some(&deposit)).unwrap();
+            assert_eq!(
+                (p.valid, p.duplicates, p.linked, p.doubtful, p.errors),
+                (n, n, 0, 0, 0)
+            );
+            let s = import_with(db.conn_mut(), &file, false, Some(&card), Some(&deposit)).unwrap();
+            assert_eq!((s.added, s.linked), (n, 0));
+            let counts: (usize, usize, usize) = db
+                .conn()
+                .query_row(
+                    "SELECT count(*) FILTER (WHERE type = 'transfer'),
+                        count(*) FILTER (WHERE type = 'expense' AND account_id = ?1),
+                        count(*) FILTER (WHERE type = 'income' AND account_id = ?2)
+                 FROM transactions WHERE amount = 50000",
+                    params![card, deposit],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(counts, (1, 1, n - 1));
+        }
+    }
+
+    #[test]
+    fn nearby_full_transfer_and_competing_rows_require_review_on_both_accounts() {
+        use crate::csv_import::{import_with, preview_with};
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        crate::categories::seed_defaults(c).unwrap();
+        let card = account(c, "Карта *1111");
+        let deposit = account(c, "Вклад *2222");
+        manual_transfer(c, &card, &deposit, "2026-11-02");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("card.csv");
+        write_transfer_statement(&file, "*1111", &["-500,00"]);
+        let mut csv = fs::read_to_string(&file).unwrap();
+        csv.push_str("03.11.2026;*1111;OK;-500,00;RUB;-500,00;RUB;Супермаркеты;Магазин\n");
+        fs::write(&file, &csv).unwrap();
+        let p = preview_with(c, &file, Some(&card), Some(&deposit)).unwrap();
+        assert_eq!((p.linked, p.doubtful), (0, 2));
+        csv.push_str("03.11.2026;*2222;OK;500,00;RUB;500,00;RUB;Зарплата;Работа\n");
+        fs::write(&file, csv).unwrap();
+        let p = preview_with(c, &file, Some(&card), Some(&deposit)).unwrap();
+        assert_eq!((p.linked, p.doubtful), (0, 3));
+        let err =
+            import_with(db.conn_mut(), &file, false, Some(&card), Some(&deposit)).unwrap_err();
+        assert!(err.to_string().contains("выберите действие"));
+    }
+
+    #[test]
+    fn opposite_statement_sides_repeat_only_the_same_directed_transfer() {
+        use crate::csv_import::{import_with, preview_with};
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("card.csv");
+        let incoming = dir.path().join("deposit.csv");
+        write_transfer_statement(&out, "*1111", &["-500,00"]);
+        // Одинаковые суммы и дата. Первая строка B → A, вторая подтверждает A → B.
+        write_transfer_statement(&incoming, "*2222", &["-500,00", "500,00"]);
+        for delete_original in [false, true] {
+            let mut db = Storage::open_in_memory().unwrap();
+            let card = account(db.conn(), "Карта *1111");
+            let deposit = account(db.conn(), "Вклад *2222");
+            let saved =
+                import_with(db.conn_mut(), &out, false, Some(&card), Some(&deposit)).unwrap();
+            assert_eq!(saved.added, 1);
+            if delete_original {
+                let id: String = db
+                    .conn()
+                    .query_row(
+                        "SELECT id FROM transactions WHERE import_id = ?1",
+                        [&saved.import_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                crate::transactions::delete(db.conn(), &id).unwrap();
+            }
+            let p = preview_with(db.conn(), &incoming, Some(&deposit), Some(&card)).unwrap();
+            assert_eq!((p.valid, p.duplicates), (1, 1));
+            assert!(!p.rows[0].duplicate && p.rows[1].duplicate);
+            let saved =
+                import_with(db.conn_mut(), &incoming, false, Some(&deposit), Some(&card)).unwrap();
+            assert_eq!((saved.added, saved.linked), (1, 0));
+            let counts: (i64, i64) = db
+                .conn()
+                .query_row(
+                    "SELECT count(*) FILTER (WHERE account_id = ?1 AND to_account_id = ?2),
+                        count(*) FILTER (WHERE account_id = ?2 AND to_account_id = ?1)
+                 FROM transactions WHERE type = 'transfer' AND amount = 50000",
+                    params![card, deposit],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(counts, (i64::from(!delete_original), 1));
+            let repeated = preview_with(db.conn(), &incoming, Some(&deposit), Some(&card)).unwrap();
+            assert_eq!((repeated.valid, repeated.duplicates), (0, 2));
+        }
     }
 
     /// Тред 39. Строки «Учёт в аналитике: Нет» (копилка, пополнение из другого
