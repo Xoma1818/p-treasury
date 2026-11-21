@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, click, fill, save, waitText, waitContent, money } from "./app.mjs";
+import { start, stop, openSection, onboard, click, choose, fill, save, waitText, waitContent, money } from "./app.mjs";
 // Названия в списке поиска обрезаются многоточием, а WebKit не отдаёт такой текст через getText.
 const paletteHas = (re) => waitContent(browser, '[data-testid="palette"]', re);
 
