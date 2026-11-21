@@ -209,14 +209,48 @@ pub struct Budget {
     pub groups: Vec<GroupSummary>,
 }
 
-fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, Option<String>)>> {
-    Ok(conn
+/// Бюджет месяца `p.month`. Сначала — начатый ровно с `p.start` (по нынешнему
+/// началу месяца). Если начало месяца с тех пор сменили (с 1-го на 10-е),
+/// бюджет этого месяца начат по своему дню (`start_day`, 0024): он остаётся
+/// бюджетом того же месяца, а не пропадает из вида.
+fn budget_row(conn: &Connection, p: &Period) -> Result<Option<(String, String, Option<String>)>> {
+    let exact = conn
         .query_row(
             "SELECT id, currency_code, note FROM budgets WHERE period_start = ?1 AND period_type = 'month'",
-            [start],
+            [&p.start],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
-        .optional()?)
+        .optional()?;
+    // До 0024 дня начала у бюджета нет (так заполняют пример в тестах обновления старых баз).
+    let has_start_day: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('budgets') WHERE name = 'start_day')",
+        [],
+        |r| r.get(0),
+    )?;
+    if exact.is_some() || !has_start_day {
+        return Ok(exact);
+    }
+    // Свой период бюджета начинается не дальше месяца от нынешнего.
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, currency_code, note, period_start, start_day FROM budgets
+         WHERE period_type = 'month' AND start_day IS NOT NULL
+           AND abs(julianday(period_start) - julianday(?1)) < 32
+         ORDER BY period_start",
+    )?;
+    let rows = stmt.query_map([&p.start], |r| {
+        Ok((
+            (r.get(0)?, r.get(1)?, r.get(2)?),
+            r.get::<_, String>(3)?,
+            r.get::<_, u32>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (found, start, sd) = row?;
+        if period(&p.month, sd)?.start == start {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
 }
 
 /// Факт по категориям за период в валюте `currency`: (расходы, доходы) по id категории.
@@ -340,7 +374,7 @@ fn carries(
     loop {
         let prev_month = shift_month(&m, -1)?;
         let pp = period(&prev_month, sd)?;
-        let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp.start)? else {
+        let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp)? else {
             break;
         };
         if prev_cur != currency {
@@ -494,7 +528,7 @@ fn income_total(conn: &Connection, by_cat: &HashMap<String, i64>) -> Result<i64>
 pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    let row = budget_row(conn, &p.start)?;
+    let row = budget_row(conn, &p)?;
     let currency = match &row {
         Some((_, c, _)) => c.clone(),
         None => currencies::base_currency(conn)?,
@@ -752,10 +786,10 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
 pub fn create(conn: &mut Connection, month: &str, copy_previous: bool) -> Result<String> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    if budget_row(conn, &p.start)?.is_some() {
+    if budget_row(conn, &p)?.is_some() {
         return invalid("бюджет на этот месяц уже есть");
     }
-    let prev = budget_row(conn, &period(&shift_month(month, -1)?, sd)?.start)?;
+    let prev = budget_row(conn, &period(&shift_month(month, -1)?, sd)?)?;
     if copy_previous && prev.is_none() {
         return invalid("в прошлом месяце бюджета нет: копировать нечего");
     }
@@ -810,7 +844,7 @@ fn round_up_hundred(amount: i64, minor_units: u32) -> i64 {
 pub fn suggest(conn: &Connection, month: &str, mode: FillMode) -> Result<Vec<(String, i64)>> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    let currency = match budget_row(conn, &p.start)? {
+    let currency = match budget_row(conn, &p)? {
         Some((_, c, _)) => c,
         None => currencies::base_currency(conn)?,
     };
@@ -1026,7 +1060,7 @@ pub fn copy_forward(
         return invalid("скопировать можно на 1–24 месяца");
     }
     let sd = start_day(conn)?;
-    let Some((src, currency, _)) = budget_row(conn, &period(month, sd)?.start)? else {
+    let Some((src, currency, _)) = budget_row(conn, &period(month, sd)?)? else {
         return invalid("в этом месяце бюджета нет: копировать нечего");
     };
     let tx = conn.transaction()?;
@@ -1039,7 +1073,7 @@ pub fn copy_forward(
     for i in 1..=months as i32 {
         let m = shift_month(month, i)?;
         let p = period(&m, sd)?;
-        let id = match budget_row(&tx, &p.start)? {
+        let id = match budget_row(&tx, &p)? {
             Some(_) if !overwrite => {
                 out.skipped.push(m);
                 continue;
