@@ -26,9 +26,38 @@ jobs:
           sparse-checkout: |
             .github/qa/verify-in-app-update-0-37.mjs
           sparse-checkout-cone-mode: false
+      - uses: actions/checkout@v5
+        with:
+          ref: d624b307ef7fc8f0016160e84342bfb155056542
+          path: source
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - run: npm ci
+        working-directory: source
+      - name: WebDriver под установленный WebView2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $keys = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')
+          $version = $keys | ForEach-Object { (Get-ItemProperty -LiteralPath $_ -ErrorAction SilentlyContinue).pv } | Select-Object -First 1
+          if (!$version) { $version = (Get-Item (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft\Edge\Application\msedge.exe')).VersionInfo.ProductVersion }
+          $driverName = if ($env:RUNNER_ARCH -eq 'ARM64') { 'edgedriver_arm64.zip' } else { 'edgedriver_win64.zip' }
+          $dir = Join-Path $env:RUNNER_TEMP 'kazna-driver'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          $zip = Join-Path $dir 'driver.zip'
+          $downloaded = $false
+          foreach ($site in @('https://msedgedriver.microsoft.com','https://msedgedriver.azureedge.net')) {
+            try { Invoke-WebRequest "$site/$version/$driverName" -OutFile $zip -TimeoutSec 25; $downloaded = $true; break } catch { Write-Host "Нет драйвера на $site" }
+          }
+          if (!$downloaded) { throw "Нет WebDriver $version для $env:RUNNER_ARCH" }
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir
+          & (Join-Path $dir 'msedgedriver.exe') --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content $env:GITHUB_PATH $dir
       - name: Установить официальный выпуск 0.36.1 в одноразовой машине
         shell: pwsh
         env:
@@ -50,6 +79,8 @@ jobs:
           Add-Content $env:GITHUB_ENV "KAZNA_TEST_BIN=$exe"
       - name: Настройки → Обновить → автоматический перезапуск и проверка всех таблиц
         shell: pwsh
+        env:
+          KAZNA_E2E_APP: ${{ github.workspace }}\source\e2e\app.mjs
         run: |
           node .github/qa/verify-in-app-update-0-37.mjs
           exit $LASTEXITCODE

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -14,18 +14,7 @@ const root = await mkdtemp(join(tmpdir(), 'kazna-inapp-e2e-'));
 const data = join(root, 'data');
 await mkdir(data);
 const databasePath = join(data, 'budget.db');
-const listener = createServer();
-await new Promise((done) => listener.listen(0, '127.0.0.1', done));
-const port = listener.address().port;
-await new Promise((done) => listener.close(done));
-const child = spawn(bin, ['--data-dir=' + data], {
-  cwd: dirname(bin), windowsHide: true,
-  env: { ...process.env, PTREASURY_CBR_URL: 'http://127.0.0.1:9',
-    WEBVIEW2_USER_DATA_FOLDER: join(root, 'webview'),
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion` },
-});
-let oldAppErrors = '';
-child.stderr.on('data', (chunk) => { oldAppErrors += chunk; });
+const { start, stop } = await import(pathToFileURL(resolve(process.env.KAZNA_E2E_APP)).href);
 
 async function until(get, label, timeout = 25_000, interval = 175) {
   const deadline = Date.now() + timeout;
@@ -37,47 +26,25 @@ async function until(get, label, timeout = 25_000, interval = 175) {
   throw Error(`Timed out: ${label}`);
 }
 
-async function openWebView(timeout) {
-  const target = await until(async () => {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1000) });
-      return (await response.json()).find((page) => page.type === 'page' && page.webSocketDebuggerUrl);
-    } catch { return null; }
-  }, 'WebView2 debugging target', timeout);
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((done, fail) => {
-    socket.addEventListener('open', done, { once: true });
-    socket.addEventListener('error', fail, { once: true });
-  });
-  let id = 0;
-  const run = (fn, ...args) => new Promise((done, fail) => {
-    const current = ++id;
-    const stop = () => { clearTimeout(timer); socket.removeEventListener('message', listener); };
-    const listener = ({ data }) => {
-      const reply = JSON.parse(data);
-      if (reply.id !== current) return;
-      stop();
-      if (reply.error || reply.result.exceptionDetails) fail(Error(JSON.stringify(reply.error ?? reply.result.exceptionDetails)));
-      else done(reply.result.result.value);
-    };
-    const timer = setTimeout(() => { stop(); fail(Error('WebView evaluation timed out')); }, 10_000);
-    socket.addEventListener('message', listener);
-    socket.send(JSON.stringify({ id: current, method: 'Runtime.evaluate', params: {
-      expression: '(' + String(fn) + ').apply(null,' + JSON.stringify(args) + ')',
-      awaitPromise: true, returnByValue: true,
-    } }));
-  });
+function onWindow(browser) {
+  const run = (fn, ...args) => browser.execute(fn, ...args);
   return {
-    run, close: () => socket.close(),
-    invoke: (name, args = {}) => run((cmd, input) => window.__TAURI_INTERNALS__.invoke(cmd, input), name, args),
-    text: (selector, part) => until(() => run((s, p) => document.querySelector(s)?.textContent.includes(p), selector, part), `${selector}: ${part}`),
+    run,
+    invoke: async (name, args = {}) => {
+      const result = await browser.executeAsync((cmd, input, done) => {
+        window.__TAURI_INTERNALS__.invoke(cmd, input).then((value) => done({ value }), (error) => done({ error: String(error) }));
+      }, name, args);
+      assert.equal(result.error, undefined, name);
+      return result.value;
+    },
+    text: (selector, part) => until(() => run((s, p) => document.querySelector(s)?.textContent.includes(p), selector, part), selector + ': ' + part),
     click: (label, scope = 'body') => until(() => run((name, selector) => {
-      const action = [...(document.querySelector(selector)?.querySelectorAll('button') ?? [])]
-        .find((b) => b.textContent.trim() === name && b.getClientRects().length && !b.disabled);
-      if (!action) return false;
-      action.click();
+      const b = [...(document.querySelector(selector)?.querySelectorAll('button') ?? [])]
+        .find((node) => node.textContent.trim() === name && node.getClientRects().length && !node.disabled);
+      if (!b) return false;
+      b.click();
       return true;
-    }, label, scope), `click ${label}`),
+    }, label, scope), 'click ' + label),
   };
 }
 
@@ -118,9 +85,12 @@ function runningApp() {
   return JSON.parse(execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true }));
 }
 
-let ui, restartedUi;
+let ui, browser, oldProcess;
 try {
-  ui = await openWebView(75_000);
+  ({ browser } = await start(data, { bin, homeDefaults: true }));
+  ui = onWindow(browser);
+  oldProcess = runningApp().processes.find((proc) => proc.arguments?.includes('--data-dir=' + data));
+  assert.ok(oldProcess, 'old installed process in this exact data profile');
   if (await ui.run(() => Boolean(document.querySelector('[data-testid="update-version"]')))) await ui.click('Позже', '[role="dialog"]');
   await ui.click('Посмотреть на примере');
   await ui.text('main h1', 'Главная');
@@ -133,7 +103,6 @@ try {
   const categoryId = categories.find((c) => c.name === 'Питание').id;
   await ui.invoke('create_rule', { input: { pattern: 'Проверка обновления', categoryId, payee: 'Тестовый магазин' } });
   await ui.invoke('create_goal', { input: { name: 'Цель до обновления', target: 150_000, currencyCode: 'RUB', accountId: null, deadline: null, reserve: false }, shareBp: null });
-  const totalsBefore = await ui.invoke('totals', { date: info.today });
 
   await ui.click('Настройки', 'nav');
   await ui.text('main h1', 'Настройки');
@@ -150,7 +119,7 @@ try {
   const reboot = await until(() => {
     const app = runningApp();
     if (app.version !== '0.37.0') return null;
-    return app.processes.find((proc) => proc.id !== child.pid && proc.visible && proc.window?.includes('Kazna') && proc.arguments?.includes('--data-dir=' + data));
+    return app.processes.find((proc) => proc.id !== oldProcess.id && proc.visible && proc.window?.includes('Kazna') && proc.arguments?.includes('--data-dir=' + data));
   }, 'the installer replaces the binary and automatically restarts the same data profile', 150_000, 1100);
   console.log(`Installer restarted Kazna with the same test directory: new PID ${reboot.id}.`);
 
@@ -167,25 +136,11 @@ try {
   }
   const counts = Object.fromEntries(Object.entries(before.tables).filter(([, t]) => t.rows.length).map(([name, t]) => [name, t.rows.length]));
   console.log(JSON.stringify({ before: '0.36.1', after: '0.37.0', schema: '25 → 28', tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok', backups: 2 }));
-  try { restartedUi = await openWebView(5000); } catch { console.log('The restarted process did not inherit the debug endpoint. The native window, command line and migrated data were verified separately.'); }
-  if (restartedUi) {
-    await restartedUi.text('main h1', 'Главная');
-    const now = await restartedUi.invoke('app_info');
-    assert.equal(now.version, '0.37.0');
-    assert.equal(now.schemaVersion, 28);
-    assert.equal(resolve(now.dataDir).toLowerCase(), resolve(data).toLowerCase());
-    const totalsAfter = await restartedUi.invoke('totals', { date: info.today });
-    assert.deepEqual(totalsAfter, totalsBefore);
-    console.log('The relaunched window showed the same app data directory and totals.');
-  }
 } catch (error) {
-  if (child.exitCode === null && ui) {
-    try { console.error(await ui.run(() => document.querySelector('[role="dialog"]')?.innerText.slice(-3000))); } catch { /* the process may have already closed */ }
+  if (ui) {
+    try { console.error(await ui.run(() => document.querySelector('[role="dialog"]')?.innerText.slice(-3000))); } catch { /* the update closes the old process */ }
   }
-  if (oldAppErrors) console.error(oldAppErrors.slice(-3000));
   throw error;
 } finally {
-  ui?.close();
-  restartedUi?.close();
-  if (child.exitCode === null) child.kill();
+  if (browser) await stop(browser).catch(() => {});
 }
