@@ -12,7 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: fcb7bb451f5dcbee3bed137b5ead3c9877dbe100
+          # Код сборки тот же; новый коммит исправляет только сценарии E2E.
+          ref: c689cd10fc37f4d05cc382e11598f9b9a299dabe
       - uses: actions/setup-node@v5
         with:
           node-version: 22
