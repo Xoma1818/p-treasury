@@ -55,7 +55,7 @@ export function ExportDialog({ source, format: initial, onClose, onSaved }: { so
       return path;
     },
     (path) => path && onSaved(path),
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const hasPlanned = source.kind === "debt";
 

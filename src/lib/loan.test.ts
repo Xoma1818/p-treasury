@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, keptRate, annualHint, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
+import { addDays, addMonths, keptRate, annualHint, balanceOnDate, balancePoints, daysBetween, earlyLines, monthsToPayments, monthsToTerm, parseRate, paymentsText, plannedEarly, rateChanges, rateLabel, rateShort, rateToInput, savedTerm, termText, termToMonths, termToPayments, toCalcInput, type LoanForm } from "./loan";
 
 const form = (patch: Partial<LoanForm> = {}): LoanForm => ({
   solve: "payment",
@@ -135,6 +135,16 @@ describe("точки диаграммы остатка", () => {
       { date: "2026-12-15", balance: 700 },
       { date: "2026-12-15", balance: 300 },
     ]);
+    expect(balanceOnDate(pts, "2026-12-14")).toBe(900);
+    expect(balanceOnDate(pts, "2026-12-15")).toBe(300);
+  });
+  it("сравнивает варианты на одну дату между платежами и после досрочного закрытия", () => {
+    const base = [{ date: "2026-01-01", balance: 1000 }, { date: "2026-03-01", balance: 0 }];
+    const early = [{ date: "2026-01-01", balance: 1000 }, { date: "2026-02-01", balance: 0 }];
+    expect(balanceOnDate(base, "2026-02-15")).toBe(1000);
+    expect(balanceOnDate(early, "2026-02-15")).toBe(0);
+    expect(balanceOnDate(base, "2025-12-31")).toBeUndefined();
+    expect(balanceOnDate([], "2026-01-01")).toBeUndefined();
   });
 });
 

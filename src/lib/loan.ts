@@ -277,6 +277,13 @@ export function balancePoints(view: { rows: LoanRow[]; early: EarlyRow[] }, issu
   return pts;
 }
 
+/** Последний рассчитанный ядром остаток на конец выбранного дня. */
+export function balanceOnDate(points: readonly Point[], date: string): number | undefined {
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].date <= date) return points[i].balance;
+  }
+}
+
 /** Дни от 1970-01-01 для оси времени (без часовых поясов). */
 export const dayNumber = (date: string) => {
   const [y, m, d] = date.split("-").map(Number);

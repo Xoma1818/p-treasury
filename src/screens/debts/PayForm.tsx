@@ -69,7 +69,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
     setInterest(amountText(q.interest, mu));
   }, [quote.data, quote.isPlaceholderData, qKey, mu]);
 
-  const save = useAction((input: PaymentInput) => api.payDebt(card.id, input), onClose, { celebrate: true });
+  const save = useAction((input: PaymentInput) => api.payDebt(card.id, input), onClose, { singleSubmit: true });
   const lent = card.direction === "lent";
   const p = parseAmount(principal || "0", mu);
   const i = parseAmount(interest || "0", mu);

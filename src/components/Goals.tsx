@@ -163,7 +163,7 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
       else await api.createGoal(input, shareArg, funding);
     },
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteGoal(goal!.id), onClose);
   const submit = () => {
@@ -266,7 +266,7 @@ function DepositForm({ goal, onClose }: { goal: Goal; onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(today());
   const [take, setTake] = useState(false);
-  const save = useAction((v: number) => api.goalDeposit(goal.id, date, take ? -v : v), onClose, { celebrate: true });
+  const save = useAction((v: number) => api.goalDeposit(goal.id, date, take ? -v : v), onClose, { singleSubmit: true });
   const submit = () => {
     const v = parseAmount(amount, goal.minorUnits);
     if (v === null || v <= 0) return save.setError("Укажите сумму");

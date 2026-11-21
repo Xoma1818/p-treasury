@@ -65,6 +65,21 @@ test("форма расчёта: проценты по дням, досрочк�
   await browser.$('[data-testid="plan-early"]').waitForExist({ timeout: 5000 });
   assert.ok((await browser.$$('[data-testid="plan-row"]')).length < 24);
   assert.ok(await browser.$('[data-testid="loan-chart"] .line-base').isExisting(), "линия без досрочек");
+  const date = await browser.$('[aria-label="Дата остатка долга"]');
+  await browser.execute((slider) => slider.focus(), date);
+  await browser.keys("Home");
+  await browser.keys("ArrowRight");
+  await waitText(browser, '[data-testid="loan-chart-readout"] time', /16\.10\.2026/);
+  assert.match(await date.getAttribute("aria-valuetext"), money("300 000 ₽"));
+  await browser.keys("End");
+  assert.match(await date.getAttribute("aria-valuetext"), /Без досрочек 0\s*₽\. С досрочками 0\s*₽/);
+  await (await browser.$('[data-testid="hide-amounts"]')).click();
+  await waitText(browser, '[data-testid="loan-chart-readout"]', /•••/);
+  assert.match(await date.getAttribute("aria-valuetext"), /Сумма скрыта/);
+  assert.doesNotMatch(await date.getAttribute("aria-valuetext"), /₽/);
+  assert.doesNotMatch(await browser.$('[data-testid="loan-chart"]').getText(), /₽/);
+  await (await browser.$('[data-testid="hide-amounts"]')).click();
+  await waitText(browser, '[data-testid="loan-chart-readout"]', /₽/);
 
   // Обратные расчёты: срок по желаемому платежу.
   await (await browser.$('[data-testid="solve-term"]')).click();

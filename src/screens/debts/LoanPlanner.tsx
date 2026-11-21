@@ -64,7 +64,13 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   const parsed = toCalcInput(f, mu);
   const key = useDebounced(parsed.input ? JSON.stringify(parsed.input) : null, 250);
   const input = useMemo(() => (key ? (JSON.parse(key) as CalcInput) : null), [key]);
-  const plan = useQuery({ queryKey: ["planLoan", key], queryFn: () => api.planLoan(input!), enabled: !!input, retry: false, placeholderData: keepPreviousData });
+  const plan = useQuery({
+    queryKey: ["planLoan", key],
+    queryFn: async () => ({ ...await api.planLoan(input!), issueDate: input!.issueDate }),
+    enabled: !!input,
+    retry: false,
+    placeholderData: keepPreviousData,
+  });
   const r = input ? plan.data : undefined;
   const bullet = f.repayment === "bullet";
   const solve: Solve = bullet ? "payment" : f.solve;
@@ -271,7 +277,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                   Остаток долга
                   <Hint of="loan.chart" />
                 </div>
-                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={f.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} />
+                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={r.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} />
               </>
             )}
             <div className="loan-actions">

@@ -3,38 +3,48 @@ import { useEffect, useRef, useState } from "react";
 
 /** Сколько кнопка показывает галочку «Готово» после успешного действия. */
 const DONE_MS = 1100;
-/** Сколько ждать перед закрытием окна, чтобы галочку было видно. */
-const CELEBRATE_MS = 450;
 
 /**
  * Действие, которое меняет данные: после успеха обновляются все экраны
  * (данные в ядре связаны: операция меняет баланс, бюджет и отчёты).
  * Текст ошибки из ядра показывается пользователю как есть.
- * `done` — недолго после успеха (кнопка показывает галочку); с `celebrate`
- * продолжение (обычно закрытие окна) ждёт, пока галочку станет видно.
+ * Открытая форма завершает действие после обновления данных. Если кнопка
+ * остаётся на экране, `done` позволяет ненадолго показать подтверждение.
  */
 export function useAction<A extends unknown[], P extends Promise<unknown>>(
   fn: (...args: A) => P,
   onDone?: (result: Awaited<P>) => void,
-  opts?: { celebrate?: boolean },
+  opts?: { singleSubmit?: boolean },
 ) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  const inFlight = useRef<Promise<Awaited<P>> | null>(null);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const m = useMutation({
     mutationFn: (args: A) => fn(...args) as Promise<Awaited<P>>,
-    onMutate: () => setError(null),
+    onMutate: () => { setError(null); setDone(false); },
     onSuccess: async (result) => {
+      await qc.invalidateQueries();
       setDone(true);
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setDone(false), DONE_MS);
-      const pause = opts?.celebrate && onDone ? new Promise((r) => window.setTimeout(r, CELEBRATE_MS)) : null;
-      await Promise.all([qc.invalidateQueries(), pause]);
       onDone?.(result);
     },
     onError: (e) => setError(String(e)),
   });
-  return { run: (...args: A) => m.mutate(args), runAsync: (...args: A) => m.mutateAsync(args), busy: m.isPending, done, error, setError };
+  const runAsync = (...args: A) => {
+    if (!opts?.singleSubmit) return m.mutateAsync(args);
+    // Два события могут прийти до того, как React отключит кнопку формы.
+    if (!inFlight.current) {
+      inFlight.current = m.mutateAsync(args).finally(() => { inFlight.current = null; });
+    }
+    return inFlight.current;
+  };
+  const run = (...args: A) => {
+    // Ошибку показывает onError. Вызывающие runAsync могут также обработать её сами.
+    void runAsync(...args).catch(() => {});
+  };
+  return { run, runAsync, busy: m.isPending, done, error, setError };
 }

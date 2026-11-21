@@ -118,7 +118,7 @@ export function ReminderForm({
     (input: ReminderInput) =>
       from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteReminder(reminder!.id), onClose);
 
@@ -577,7 +577,6 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
       }}>Проверить снова</button>}
       {selected && <p className="hint" role="status">Связь завершит напоминание. Сумма проведённой операции и остаток на счёте сохранятся.</p>}
       <div className="actions payment-review-actions">
-        <span className="spacer" />
         <button type="button" className="btn" autoFocus disabled={attach.busy} onClick={onClose}>Назад</button>
         {review && candidates.length > 0 && <button type="button" className="btn" disabled={attach.busy || !!error}
           onClick={() => onCreate(review.revision, true)}>

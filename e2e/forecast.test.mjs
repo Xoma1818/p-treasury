@@ -27,6 +27,21 @@ test("без истории прогноз ровный: 100 000 ₽ все 12 �
   await waitText(browser, '[data-testid="fc-ok"]', /хватает на все 12 месяцев/);
   await waitCount(browser, '[data-testid="fc-row"]', 12);
   await waitText(browser, '[data-testid="fc-how"]', /ещё нет/);
+  const month = await browser.$('[data-testid="fc-row"] button');
+  assert.match(await month.getComputedLabel(), new RegExp(monthName(0)));
+  await browser.execute((button) => button.focus(), month);
+  await browser.keys("Enter");
+  await waitText(browser, ".fc-detail", /Обычные доходы/);
+  assert.equal(await month.getAttribute("aria-expanded"), "true");
+  assert.ok(await browser.execute((button) => document.getElementById(button.getAttribute("aria-controls"))?.matches(".fc-detail"), month));
+  await browser.keys(" ");
+  await browser.$(".fc-detail").waitForExist({ reverse: true });
+  assert.equal(await month.getAttribute("aria-expanded"), "false");
+  assert.equal(await browser.execute((button) => button === document.activeElement, month), true);
+  // Остаток в той же строке тоже открывает расшифровку.
+  await (await browser.$('[data-testid="fc-row"] .num')).click();
+  await waitText(browser, ".fc-detail", /Обычные доходы/);
+  await month.click();
 });
 
 test("сценарий «Ипотека» −45 000 ₽ в месяц: на четвёртом месяце денег не хватит, удаление возвращает обычный прогноз", async () => {

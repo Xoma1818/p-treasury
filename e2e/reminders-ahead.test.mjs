@@ -211,6 +211,21 @@ test("несколько проведённых платежей: можно в�
   await click(browser, "Назад", lastDialog);
   await waitText(browser, match("872"), money("872 ₽"));
   await (await browser.$(`${match("872")}//input[@type="radio"]`)).click();
+  const controls = await browser.execute(() => {
+    const footer = document.querySelector(".payment-review-actions");
+    return [...footer.querySelectorAll("button")].map((button) => ({
+      label: button.textContent.trim(),
+      clipped: button.scrollWidth > button.clientWidth + 1,
+      rightGap: footer.getBoundingClientRect().right - button.getBoundingClientRect().right,
+    }));
+  });
+  assert.deepEqual(controls.map((button) => button.label), ["Назад", "Записать отдельный расход", "Связать с платежом"]);
+  assert.ok(controls.every((button) => !button.clipped), "подписи кнопок помещаются");
+  assert.ok(Math.abs(controls.at(-1).rightGap) <= 1, "главное действие прилегает к правому краю даже при переносе");
+  for (const button of controls) {
+    await browser.keys("Tab");
+    assert.equal(await browser.execute(() => document.activeElement.textContent.trim()), button.label);
+  }
   await save(browser, "Связать с платежом");
   await waitText(browser, '[data-testid="rem-done"]', /Проверка выбора платежа[\s\S]*связано с операцией/);
 

@@ -519,7 +519,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
 function RenameForm({ card, onClose }: { card: DebtCard; onClose: () => void }) {
   const [name, setName] = useState(card.counterparty);
   const [note, setNote] = useState(card.note ?? "");
-  const save = useAction(() => api.updateDebtInfo(card.id, name, note || null), onClose, { celebrate: true });
+  const save = useAction(() => api.updateDebtInfo(card.id, name, note || null), onClose, { singleSubmit: true });
   return (
     <Modal title="Долг" onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>

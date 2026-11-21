@@ -220,7 +220,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       return;
     }
     await api.createTransactionFull(input, extra, event, reminder);
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)), onClose);
 
   // Шаблоны: подставить сохранённую операцию или сохранить текущую.
@@ -292,9 +292,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     if (v > 0) setParts(parts.map((x, j) => (j === i ? { ...x, amount: amountToInput(v, minor) } : x)));
   };
 
-  const submitting = useRef(false);
   const submit = () => {
-    if (submitting.current || save.busy) return;
+    if (save.busy) return;
     if (splitId && !receiptLoaded.current) return save.setError("Дождитесь загрузки чека");
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (receiptParts) {
@@ -309,8 +308,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       if (split.mine < 0) return save.setError("Доли друзей больше общей суммы");
     }
     if (crossCurrency && (toAmountValue === null || toAmountValue <= 0)) return save.setError("Введите сумму зачисления");
-    submitting.current = true;
-    void save.runAsync({
+    save.run({
       type,
       date,
       accountId,
@@ -320,9 +318,6 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       toAmount: type === "transfer" ? (crossCurrency ? toAmountValue : null) : null,
       payee: payee || null,
       note: note || null,
-    }).catch(() => {
-      // useAction уже показывает ошибку. Повтор разрешаем после ответа ядра.
-      submitting.current = false;
     });
   };
 

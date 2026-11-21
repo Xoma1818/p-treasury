@@ -118,6 +118,9 @@ test("«Можно тратить сегодня»: остаток лимито�
   await waitText(browser, '[data-testid="safe-to-spend"]', money(expected));
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="home-safe-to-spend"]', money(expected));
+  const hint = await waitText(browser, '.home-budget-today', /Дневной лимит по бюджету/);
+  const end = new Date(now.getFullYear(), now.getMonth(), last);
+  assert.ok(hint.includes(`с ${dmy(now)} по ${dmy(end)} включительно`));
   await waitText(browser, '[data-testid="home-budget"]', /Общепит\s*105 %/);
 });
 

@@ -17,8 +17,8 @@ import { TemplatesCard } from "../components/Templates";
 import { OccurrenceItem } from "../components/Reminders";
 import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
-import { formatDate, monthTitle, today } from "../lib/dates";
-import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
+import { addDays, formatDate, monthTitle, today } from "../lib/dates";
+import { useAccounts, useBudget, useCurrencies, useMonthOf, useSettings } from "../lib/queries";
 import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
@@ -52,6 +52,9 @@ export function Home() {
     enabled: !!period,
   });
   const budget = useBudget(period?.month).data;
+  const currencies = useCurrencies().data;
+  const freeCurrency = currencies?.find((c) => c.code === free?.baseCurrency);
+  const budgetCurrency = currencies?.find((c) => c.code === budget?.currencyCode);
   const debts = useQuery({ queryKey: ["debtSummary", date], queryFn: api.debtSummary, staleTime: AGGREGATE_STALE_MS }).data;
   const reminders = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview }).data;
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
@@ -110,10 +113,13 @@ export function Home() {
   const tilesVisible = modules.blockOn("tiles") && !layout.hidden.includes("tiles");
   const budgetToday = budget?.id ? (
     <div className="home-budget-today">
-      <span>Можно тратить сегодня</span>
+      <span>Дневной лимит по бюджету</span>
       <b data-testid="home-safe-to-spend">
-        {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} /> : "—"}
+        {budget.safeToSpendToday != null ? <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} minorUnits={budgetCurrency?.minorUnits} /> : "—"}
       </b>
+      <small className="hint">{budget.safeToSpendToday == null ? "Доступен в текущем бюджетном месяце." : `Остаток лимитов расходов распределён по дням с ${formatDate(date)} по ${formatDate(budget.period.end)} включительно.`}</small>
+      {budget.missingRates.length > 0 && <small className="hint warn">Часть расходов не учтена. Нет курса для {budget.missingRates.join(", ")}.</small>}
+      {budget.carryMissingRates.length > 0 && <small className="hint warn">Часть остатков прошлых месяцев не перенесена. Нет курса для {budget.carryMissingRates.join(", ")}.</small>}
     </div>
   ) : null;
   const prevHint = homeKind === "month" ? "к тем же дням прошлого месяца" : "к тем же дням прошлого периода";
@@ -175,15 +181,13 @@ export function Home() {
                 </div>
               )}
               {free && (
-                <button type="button" className="link free-line home-balance-detail" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитано">
-                  {free.free > 0 ? (
-                    <>
-                      Свободно до {free.income ? formatDate(free.until) : "конца месяца"}: <Money amount={free.free} symbol={symbol} /> · <Money amount={free.perDay} symbol={symbol} /> в день
-                    </>
-                  ) : (
-                    <>До {free.income ? formatDate(free.until) : "конца месяца"} свободных денег нет</>
-                  )}
-                </button>
+                <div className="home-balance-detail">
+                  <button type="button" className="link free-line" data-testid="home-free" onClick={() => setExplain("free")} title="Как посчитан свободный остаток" aria-haspopup="dialog">
+                    {free.income ? `Свободно до дохода ${formatDate(free.until)}` : `Свободно до конца бюджетного месяца · по ${formatDate(addDays(free.until, -1))}`}{" · "}
+                    <Money amount={free.free} symbol={freeCurrency?.symbol ?? free.baseCurrency} minorUnits={freeCurrency?.minorUnits} />
+                  </button>
+                  {free.missingRates.length > 0 && <span className="hint warn">Неполный расчёт. Нет курса для {free.missingRates.join(", ")}.</span>}
+                </div>
               )}
               {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
                 // После загрузки подсказка остаётся, чтобы было видно итог.
@@ -481,7 +485,9 @@ export function Home() {
           ),
         )}
       </div>
-      {explain && tileFrom && tileTo && <ExplainDialog kind={explain} on={date} from={tileFrom} to={tileTo} onClose={() => setExplain(null)} />}
+      {explain && (explain === "free" || explain === "balance" || (tileFrom && tileTo)) && (
+        <ExplainDialog kind={explain} on={date} from={tileFrom ?? date} to={tileTo ?? date} onClose={() => setExplain(null)} />
+      )}
     </section>
   );
 }

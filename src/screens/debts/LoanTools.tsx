@@ -146,7 +146,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
     retry: false,
     placeholderData: keepPreviousData,
   });
-  const save = useAction((t: TermsInput) => api.updateDebtTerms(c.id, t), onClose, { celebrate: true });
+  const save = useAction((t: TermsInput) => api.updateDebtTerms(c.id, t), onClose, { singleSubmit: true });
   const bullet = f.repayment === "bullet";
 
   return (
@@ -246,7 +246,7 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
     const bp = parseRate(rate, card.ratePeriod);
     if (bp === null || rate.trim() === "") throw "Введите новую ставку";
     return api.addDebtRateChange(card.id, { from, rateBp: bp });
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const bp = parseRate(rate, card.ratePeriod);
   const preview = useChangePreview(card, bp !== null && rate.trim() !== "" && /^\d{4}-\d{2}-\d{2}$/.test(from) ? { kind: "rateChange", from, rateBp: bp } : null);
   return (
@@ -286,7 +286,7 @@ export function HolidayForm({ detail, onClose }: { detail: DebtDetail; onClose: 
   const [kind, setKind] = useState<HolidayKind>("interest_only");
   const [fromSeq, setFromSeq] = useState(String(pending[0]?.seq ?? 1));
   const [months, setMonths] = useState("3");
-  const save = useAction(() => api.addDebtHoliday(detail.card.id, { fromSeq: Number(fromSeq), months: Number(months), kind }), onClose, { celebrate: true });
+  const save = useAction(() => api.addDebtHoliday(detail.card.id, { fromSeq: Number(fromSeq), months: Number(months), kind }), onClose, { singleSubmit: true });
   const m = money(detail.card);
   const preview = useChangePreview(detail.card, { kind: "holiday", fromSeq: Number(fromSeq), months: Number(months), holidayKind: kind });
   return (
@@ -618,7 +618,7 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
       return api.setDebtRowAmount(c.id, { seq: row.seq, amount: v, mode });
     },
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const reset = useAction(() => api.deleteDebtRowAmount(own!.id), onClose);
   const v = parseAmount(amount, c.minorUnits);

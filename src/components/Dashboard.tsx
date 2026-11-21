@@ -3,9 +3,9 @@ import { weekdayIndex } from "../lib/fine";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MonthsReport, type Period } from "../lib/api";
 import { addDays, monthTitle, shiftMonth, today } from "../lib/dates";
-import { useBudget, useMonthOf, useSettings } from "../lib/queries";
+import { useBudget, useCurrencies, useMonthOf, useSettings } from "../lib/queries";
 import { MonthsChart } from "../screens/Reports";
-import { BaseMoney as M } from "./Money";
+import { BaseMoney as M, Money } from "./Money";
 import { Hint } from "./Hint";
 import "./chartMotion.css";
 
@@ -110,6 +110,7 @@ export function SummaryCard({ period }: { period: Period }) {
   const { prevSame } = useDashboard(period);
   const cats = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) }).data;
   const budget = useBudget(period.month).data;
+  const budgetCurrency = useCurrencies().data?.find((c) => c.code === budget?.currencyCode);
   const cal = useQuery({ queryKey: ["calendar", today().slice(0, 7)], queryFn: () => api.calendarMonth(today().slice(0, 7)) }).data;
   if (!month) return <div className="card summary-card" data-testid="home-summary" />;
   const exp = change(month.expense, prevSame?.expense);
@@ -149,9 +150,9 @@ export function SummaryCard({ period }: { period: Period }) {
           {budget?.id && budget.safeToSpendToday != null && (
             <li>
               <b className="info">
-                <M amount={Math.max(budget.safeToSpendToday, 0)} />
+                <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} minorUnits={budgetCurrency?.minorUnits} />
               </b>
-              <span>можно тратить сегодня, чтобы уложиться в бюджет</span>
+              <span>дневной лимит по бюджету</span>
             </li>
           )}
           <li>
