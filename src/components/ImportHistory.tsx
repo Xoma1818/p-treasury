@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type ImportBatch, type ImportSuggestion, type MatchSide } from "../lib/api";
 import { formatDate } from "../lib/dates";
-import { useAccounts } from "../lib/queries";
+import { useCurrencies } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { ErrorText, Modal } from "./Modal";
@@ -120,15 +120,15 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SideView({ s, label }: { s: MatchSide; label: string }) {
-  const symbol = useAccounts().data?.find((a) => a.id === s.accountId)?.currencySymbol;
+export function StatementMatchSide({ s, label }: { s: MatchSide; label: string }) {
+  const currency = useCurrencies().data?.find((c) => c.code === s.currency);
   const what = s.type === "transfer" ? `Перевод → ${s.toAccount ?? ""}` : s.parts > 0 ? `Чек из ${s.parts} частей` : (s.category ?? "");
   return (
     <div className="match-side">
       <div className="hint">{label}</div>
       <div>
         <b>
-          <Money amount={s.type === "income" ? s.amount : -s.amount} symbol={symbol} signed />
+          <Money amount={s.type === "income" ? s.amount : -s.amount} symbol={currency?.symbol ?? s.currency} minorUnits={currency?.minorUnits} signed />
         </b>{" "}
         · {formatDate(s.date)} · {s.account}
       </div>
@@ -148,11 +148,13 @@ function SideView({ s, label }: { s: MatchSide; label: string }) {
 
 /** Сомнительные совпадения: связать с записью, объединить в перевод или оставить отдельно. */
 export function MatchesDialog({ onClose }: { onClose: () => void }) {
-  const list = useSuggestions().data;
+  const suggestions = useSuggestions();
+  const list = suggestions.data;
   const accept = useAction(api.importAccept);
   const reject = useAction(api.importReject);
+  const busy = accept.busy || reject.busy;
   return (
-    <Modal title="Совпадения с выпиской" onClose={onClose} wide>
+    <Modal title="Совпадения с выпиской" onClose={onClose} dismissDisabled={busy} wide>
       <p className="muted">Сами связываются только однозначные совпадения. Здесь — строки, где вариантов несколько или это, возможно, две стороны перевода между вашими счетами.</p>
       {list && list.length === 0 && (
         <p className="ok" data-testid="matches-empty">
@@ -163,26 +165,26 @@ export function MatchesDialog({ onClose }: { onClose: () => void }) {
         {list?.map((m: ImportSuggestion) => (
           <div className="card match" key={m.id} data-testid="match" data-kind={m.kind}>
             <div className="match-pair">
-              <SideView s={m.new} label="Строка выписки" />
-              <SideView s={m.old} label={m.kind === "same" ? "Ваша запись" : m.old.imported ? "Другая выписка" : "Ваша запись"} />
+              <StatementMatchSide s={m.new} label="Строка выписки" />
+              <StatementMatchSide s={m.old} label={m.kind === "same" ? "Ваша запись" : m.old.imported ? "Другая выписка" : "Ваша запись"} />
             </div>
             <div className="actions">
               <span className="muted">{m.kind === "same" ? "Это одна и та же покупка?" : "Это перевод между своими счетами?"}</span>
               <span className="spacer" />
-              <button className="btn" data-testid="match-reject" disabled={reject.busy} onClick={() => reject.run(m.id)}>
+              <button className="btn" data-testid="match-reject" disabled={busy} onClick={() => reject.run(m.id)}>
                 Разные операции
               </button>
-              <button className="btn primary" data-testid="match-accept" disabled={accept.busy} onClick={() => accept.run(m.id)}>
+              <button className="btn primary" data-testid="match-accept" disabled={busy} onClick={() => accept.run(m.id)}>
                 {m.kind === "same" ? "Связать, оставить мою запись" : "Объединить в перевод"}
               </button>
             </div>
           </div>
         ))}
       </div>
-      <ErrorText error={accept.error ?? reject.error} />
+      <ErrorText error={accept.error ?? reject.error ?? (suggestions.error ? String(suggestions.error) : null)} />
       <div className="actions">
         <span className="spacer" />
-        <button className="btn" onClick={onClose}>
+        <button className="btn" onClick={onClose} disabled={busy}>
           Закрыть
         </button>
       </div>

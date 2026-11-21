@@ -1020,6 +1020,7 @@ export interface FlowNode {
   id: string;
   name: string;
   amount: number;
+  children?: FlowNode[];
 }
 
 export interface MoneyFlow {
@@ -1029,6 +1030,7 @@ export interface MoneyFlow {
   period: Period;
   income: FlowNode[];
   expense: FlowNode[];
+  expenseCredits: FlowNode[];
   totalIncome: number;
   totalExpense: number;
   invested: number;
@@ -1143,6 +1145,26 @@ export interface RuleInput {
   pattern: string;
   categoryId: string;
   payee: string | null;
+}
+
+export interface RuleHistorySelection {
+  id: string;
+  revision: string;
+}
+
+export interface RuleHistoryPreview {
+  rows: (RuleHistorySelection & {
+    date: string;
+    accountName: string;
+    amount: number;
+    currencySymbol: string;
+    minorUnits: number;
+    oldCategory: string;
+    newCategory: string;
+    oldPayee: string;
+    newPayee: string;
+  })[];
+  hasMore: boolean;
 }
 
 export type AssetKind = "realty" | "vehicle" | "other";
@@ -1270,6 +1292,7 @@ export interface Occurrence {
   transactionId: string | null;
   /** День и время самого платежа (с учётом переноса). */
   payAt: string;
+  linkedActual?: boolean;
   /** Сумма или дата этого платежа изменены отдельно от серии. */
   edited: boolean;
   /** Последний платёж серии с концом. */
@@ -1300,6 +1323,18 @@ export interface ReminderInput {
   lastAmount?: number | null;
   noteId?: string | null;
   eventId?: string | null;
+}
+
+export interface ReminderPaymentCandidate {
+  transactionId: string;
+  date: string;
+  payee: string | null;
+  amount: number;
+  expectedAmount: number;
+  currencySymbol: string;
+  minorUnits: number;
+  matchReason: "payee" | "category";
+  revision: string;
 }
 
 export interface Reminder extends ReminderInput {
@@ -1391,7 +1426,9 @@ export interface ImportRow {
   account: string;
   amount: string;
   category: string;
+  categorySource?: string | null;
   payee: string;
+  sourceNote?: string;
   error: string | null;
   duplicate: boolean;
   /** Свяжется с записанной вручную операцией: «19.10 · Питание». */
@@ -1405,6 +1442,7 @@ export interface ImportRow {
 export interface ImportPreview {
   fileDigest: string;
   rows: ImportRow[];
+  matches?: Record<number, MatchSide[]>;
   valid: number;
   errors: number;
   duplicates: number;
@@ -1422,6 +1460,38 @@ export interface ImportPreview {
   /** Уже загруженные расходом или доходом строки, которые станут переводами. */
   toTransfers: number;
 }
+
+export type CsvEncoding = "utf8" | "windows1251";
+export type CsvDelimiter = "semicolon" | "comma" | "tab";
+export type CsvDateFormat = "standard" | "dayFirstSlash" | "monthFirstSlash";
+
+export interface CsvSample {
+  headers: string[];
+  rows: string[][];
+  encoding: CsvEncoding;
+  delimiter: CsvDelimiter;
+}
+
+export interface CsvMapping {
+  headers: string[];
+  encoding: CsvEncoding;
+  delimiter: CsvDelimiter;
+  dateFormat: CsvDateFormat;
+  date: number;
+  amount: { kind: "signed"; column: number } | { kind: "debitCredit"; debit: number; credit: number };
+  payee: number | null;
+  note: number | null;
+  currency: number | null;
+}
+
+export interface CsvProfile {
+  id: string;
+  name: string;
+  accountId: string;
+  mapping: CsvMapping;
+}
+
+export type CsvImportOptions = CsvMapping & { decisions: Record<number, boolean> };
 
 export interface BackupStatus {
   lastBackupAt: string | null;
@@ -1530,6 +1600,10 @@ export interface GoalInput {
 }
 
 export type GoalStatus = "reached" | "on_track" | "behind" | "no_pace";
+export type GoalFunding =
+  | { mode: "off" }
+  | { mode: "monthly"; amount: number }
+  | { mode: "refill" };
 
 export interface Goal {
   id: string;
@@ -1551,6 +1625,9 @@ export interface Goal {
   /** Больше 100 лет при нынешнем темпе: даты нет. */
   forecastFar: boolean;
   needPerMonth: number | null;
+  fundingMode: "monthly" | "refill" | null;
+  monthlyAmount: number | null;
+  needThisPeriod: number | null;
   status: GoalStatus;
   missingRate: boolean;
   /** Р26: место в очереди (1 — самая важная), 0 — не задано. */
@@ -1949,6 +2026,13 @@ export const api = {
   reorderAccountGroups: (ids: string[]) => invoke<void>("reorder_account_groups", { ids }),
   adjustBalance: (id: string, actualBalance: number, date: string, note: string | null) =>
     invoke<string | null>("adjust_balance", { id, actualBalance, date, note }),
+  reconciliationPreview: (id: string, date: string) =>
+    invoke<{ date: string; balance: number; revision: string; openingDate: string }>("reconciliation_preview", { id, date }),
+  listReconciliations: () => invoke<{ accountId: string; date: string; balance: number; stale: boolean }[]>("list_reconciliations"),
+  completeReconciliation: (id: string, date: string, actualBalance: number, revision: string) =>
+    invoke<void>("complete_reconciliation", { id, date, actualBalance, revision }),
+  adjustBalanceChecked: (id: string, date: string, actualBalance: number, revision: string) =>
+    invoke<string | null>("adjust_balance_checked", { id, date, actualBalance, revision }),
   totals: (date: string) => invoke<Totals>("totals", { date }),
   listCategories: (includeArchived = false) => invoke<Category[]>("list_categories", { includeArchived }),
   createCategory: (input: { name: string; kind: CategoryKind; parentId: string | null }, look: { icon: string | null; color: string | null } = { icon: null, color: null }) =>
@@ -2058,6 +2142,9 @@ export const api = {
   listRules: () => invoke<Rule[]>("list_rules"),
   createRule: (input: RuleInput) => invoke<string>("create_rule", { input }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),
+  ruleHistoryPreview: (id: string) => invoke<RuleHistoryPreview>("rule_history_preview", { id }),
+  applyRuleHistory: (id: string, selection: RuleHistorySelection[]) =>
+    invoke<number>("apply_rule_history", { id, selection }),
   openQuick: () => invoke<void>("open_quick"),
   hideQuick: (saved: boolean) => invoke<void>("hide_quick", { saved }),
   setQuickHotkey: (hotkey: string) => invoke<void>("set_quick_hotkey", { hotkey }),
@@ -2103,6 +2190,10 @@ export const api = {
     invoke<void>("edit_reminder_occurrence", { key, amount, movedTo }),
   splitReminder: (key: ReminderKey, input: ReminderInput) => invoke<string>("split_reminder", { key, input }),
   payReminder: (key: ReminderKey) => invoke<Paid>("pay_reminder", { key }),
+  reminderPaymentCandidate: (key: ReminderKey) =>
+    invoke<ReminderPaymentCandidate | null>("reminder_payment_candidate", { key }),
+  attachReminderPayment: (key: ReminderKey, transactionId: string, revision: string) =>
+    invoke<void>("attach_reminder_payment", { key, transactionId, revision }),
   listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
   setNotePinned: (id: string, pinned: boolean) => invoke<void>("set_note_pinned", { id, pinned }),
   toggleNoteCheck: (id: string, line: number) => invoke<void>("toggle_note_check", { id, line }),
@@ -2116,12 +2207,19 @@ export const api = {
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
-  importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null) => invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null }),
-  importCsv: async (path: string, fileDigest: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null) => {
+  importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null, csvMapping?: CsvMapping | null) =>
+    invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null, csvMapping: csvMapping ?? null }),
+  importCsv: async (path: string, fileDigest: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null, csvMapping?: CsvImportOptions | null) => {
     // WebDriver-only scheduling hook; the result always comes from the real command.
     if (navigator.webdriver) await window.__ptBeforeImport?.();
-    return invoke<ImportSaved>("import_csv", { path, fileDigest, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null });
+    return invoke<ImportSaved>("import_csv", { path, fileDigest, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null, csvMapping: csvMapping ?? null });
   },
+  inspectCsvProfile: (path: string, delimiter?: CsvDelimiter, encoding?: CsvEncoding) =>
+    invoke<CsvSample>("inspect_csv_profile", { path, delimiter: delimiter ?? null, encoding: encoding ?? null }),
+  listCsvProfiles: () => invoke<CsvProfile[]>("list_csv_profiles"),
+  saveCsvProfile: (path: string, id: string | null, name: string, accountId: string, mapping: CsvMapping) =>
+    invoke<CsvProfile>("save_csv_profile", { path, id, name, accountId, mapping }),
+  deleteCsvProfile: (id: string) => invoke<void>("delete_csv_profile", { id }),
   importHistory: () => invoke<ImportBatch[]>("import_history"),
   importUndo: (id: string) => invoke<number>("import_undo", { id }),
   importSuggestions: () => invoke<ImportSuggestion[]>("import_suggestions"),
@@ -2169,10 +2267,11 @@ export const api = {
   reopenMonth: (month: string) => invoke<void>("reopen_month", { month }),
   accountReserves: () => invoke<Record<string, number>>("account_reserves"),
   /** shareBp: доля свободных денег в сотых процента; задаётся тем же шагом отмены. */
-  createGoal: (input: GoalInput, shareBp?: number | null) => invoke<string>("create_goal", { input, shareBp: shareBp ?? null }),
+  createGoal: (input: GoalInput, shareBp?: number | null, funding?: GoalFunding) =>
+    invoke<string>("create_goal", { input, shareBp: shareBp ?? null, funding: funding ?? null }),
   /** shareBp: undefined — долю не трогать, null — убрать. */
-  updateGoal: (id: string, input: GoalInput, shareBp?: number | null) =>
-    invoke<void>("update_goal", { id, input, shareBp: shareBp ?? null, withShare: shareBp !== undefined }),
+  updateGoal: (id: string, input: GoalInput, shareBp?: number | null, funding?: GoalFunding) =>
+    invoke<void>("update_goal", { id, input, shareBp: shareBp ?? null, withShare: shareBp !== undefined, funding: funding ?? null }),
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
   goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
   listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),

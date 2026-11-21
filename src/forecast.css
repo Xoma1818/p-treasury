@@ -52,18 +52,25 @@
 .flow-totals .over .money { color: var(--over); }
 .flow-totals .plus .money { color: var(--ok); }
 .flow-band { fill: var(--series-expense); opacity: 0.32; transition: opacity var(--fast) var(--ease); }
-.flow-band.income, .flow-band.fromInvest { fill: var(--series-income); }
+.flow-band.income, .flow-band.refunds, .flow-band.fromInvest { fill: var(--series-income); }
 .flow-band.saved, .flow-band.invest { fill: var(--ok); }
 .flow-band.fromSavings { fill: var(--over); }
 .flow-band:hover { opacity: 0.55; }
 .flow-band.dim { opacity: 0.12; }
 .flow-node { fill: var(--series-expense); }
-.flow-node.income, .flow-node.fromInvest { fill: var(--series-income); }
+.flow-node.income, .flow-node.refunds, .flow-node.fromInvest { fill: var(--series-income); }
 .flow-node.saved, .flow-node.invest { fill: var(--ok); }
 .flow-node.fromSavings { fill: var(--over); }
 .flow-node.mid { fill: var(--border-strong); }
 .flow-label { font-size: 12px; fill: var(--text); }
 .flow-amount { fill: var(--muted); font-variant-numeric: tabular-nums; }
+.flow-action { cursor: pointer; }
+.flow-action:hover .flow-band, .flow-action:focus-visible .flow-band { opacity: 0.55; }
+.flow-action:focus-visible .flow-band { stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.flow-details { margin-top: 8px; }
+.flow-details summary { width: fit-content; padding: 4px; color: var(--muted); cursor: pointer; }
+.flow-details summary:focus-visible { box-shadow: var(--ring); border-radius: 4px; }
+.flow-details[open] summary { margin-bottom: 4px; }
 
 @media (prefers-reduced-motion: reduce) { .flow-band { transition: none; } }
 

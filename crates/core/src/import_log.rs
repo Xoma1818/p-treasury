@@ -189,9 +189,9 @@ fn plan(conn: &Connection, bank: bool, inputs: &[TxnInput]) -> Result<Vec<(Vec<C
 pub(crate) enum Mark {
     New,
     /// Свяжется сама с этой записью: «19.10 · Продукты».
-    Link(String),
+    Link(String, Box<Side>),
     /// Добавится, а возможные совпадения (сколько) попросят подтверждения.
-    Doubt(usize),
+    Doubt(usize, Vec<Side>),
 }
 
 pub(crate) fn marks(conn: &Connection, bank: bool, inputs: &[TxnInput]) -> Result<Vec<Mark>> {
@@ -201,15 +201,27 @@ pub(crate) fn marks(conn: &Connection, bank: bool, inputs: &[TxnInput]) -> Resul
             Ok(match (list.first(), sure) {
                 (Some(c), true) => {
                     let s = side(conn, &c.id)?;
-                    let what = s.category.or(s.payee).unwrap_or_else(|| match s.parts {
-                        0 => "перевод".into(),
-                        n => format!("чек из {n} частей"),
-                    });
+                    let what = s
+                        .category
+                        .as_ref()
+                        .or(s.payee.as_ref())
+                        .cloned()
+                        .unwrap_or_else(|| match s.parts {
+                            0 => "перевод".into(),
+                            n => format!("чек из {n} частей"),
+                        });
                     let d = &s.date;
-                    Mark::Link(format!("{}.{} · {what}", &d[8..10], &d[5..7]))
+                    Mark::Link(format!("{}.{} · {what}", &d[8..10], &d[5..7]), Box::new(s))
                 }
                 (None, _) => Mark::New,
-                (Some(_), false) => Mark::Doubt(list.len()),
+                (Some(_), false) => {
+                    let examples = list
+                        .iter()
+                        .take(MAX_CANDIDATES)
+                        .map(|c| side(conn, &c.id))
+                        .collect::<Result<Vec<_>>>()?;
+                    Mark::Doubt(list.len(), examples)
+                }
             })
         })
         .collect()
@@ -231,8 +243,8 @@ pub fn save(
 }
 
 /// То же, что [`save`]; `raws[i]` — текст получателя строки `inputs[i]` в
-/// выписке до правил. Он запоминается как ключ повтора (B3): новое правило или
-/// правка записи не заставят ту же строку банка загрузиться второй раз.
+/// выписке до правил или внутренний ключ строки CSV. Он запоминается как ключ
+/// повтора: новое правило или правка записи не вернут ту же строку в импорт.
 pub fn save_with_raw(
     conn: &Connection,
     origin: Origin,
@@ -512,7 +524,7 @@ pub struct Suggestion {
     pub old: Side,
 }
 
-fn side(conn: &Connection, id: &str) -> Result<Side> {
+pub(crate) fn side(conn: &Connection, id: &str) -> Result<Side> {
     conn.query_row(
         "SELECT t.id, t.type, t.date,
                 CASE WHEN t.split_id IS NULL THEN t.amount
@@ -1233,10 +1245,9 @@ mod tests {
             &other,
             "PYATEROCHKA 1250",
         );
-        assert_eq!(
-            marks(c, true, std::slice::from_ref(&bank)).unwrap(),
-            [Mark::Link("19.10 · Питание".into())]
-        );
+        let preview = marks(c, true, std::slice::from_ref(&bank)).unwrap();
+        assert!(matches!(preview.as_slice(), [Mark::Link(label, record)]
+            if label == "19.10 · Питание" && record.id == mine && record.amount == 125_000));
         let r = save(
             c,
             Origin::Manual,

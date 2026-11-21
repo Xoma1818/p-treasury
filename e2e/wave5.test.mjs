@@ -87,6 +87,16 @@ test("цель накоплений: 30 000 ₽ к сроку, пополнен�
   await waitText(browser, goal, /40 %[\s\S]*12 000 ₽[\s\S]*из 30 000 ₽/);
   await waitText(browser, `${goal} [data-testid="goal-forecast"]`, /При нынешнем темпе — к /);
   await waitText(browser, `${goal} [data-testid="goal-need"]`, /нужно .* в месяц/);
+
+  await click(browser, "Велосипед", '//*[@data-testid="goal"][@data-name="Велосипед"]');
+  await choose(browser, "goalFunding", "Откладывать каждый месяц");
+  await fill(browser, "goalMonthlyAmount", "15000");
+  await save(browser);
+  await waitText(browser, `${goal} [data-testid="goal-funding"]`, money("3 000 ₽"));
+  await click(browser, "Велосипед", '//*[@data-testid="goal"][@data-name="Велосипед"]');
+  await choose(browser, "goalFunding", "Пополнять до суммы цели");
+  await save(browser);
+  await waitText(browser, `${goal} [data-testid="goal-funding"]`, money("18 000 ₽"));
 });
 
 test("итоги года: потрачено 2 447 ₽, чаще всего платили «Яндекс Плюс»", async () => {

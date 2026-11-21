@@ -423,7 +423,23 @@ pub fn adjust_balance(
     if account.archived {
         return invalid("счёт закрыт");
     }
-    let diff = actual_balance - balance(conn, account_id, Some(date))?;
+    let diff = balance_difference(actual_balance, balance(conn, account_id, Some(date))?)?;
+    record_adjustment(conn, account_id, date, diff, note)
+}
+
+pub(crate) fn balance_difference(actual: i64, recorded: i64) -> Result<i64> {
+    actual
+        .checked_sub(recorded)
+        .ok_or_else(|| Error::Validation("расхождение не помещается в допустимую сумму".into()))
+}
+
+pub(crate) fn record_adjustment(
+    conn: &Connection,
+    account_id: &str,
+    date: &str,
+    diff: i64,
+    note: Option<&str>,
+) -> Result<Option<String>> {
     if diff == 0 {
         return Ok(None);
     }

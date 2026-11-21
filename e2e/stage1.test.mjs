@@ -110,8 +110,13 @@ test("сверка: корректировка записывает разниц
   await (await browser.$(`${accountRow("Карта")}//button[normalize-space()="Сверить"]`)).click();
   await fill(browser, "actualBalance", "85310");
   await waitText(browser, '[role="dialog"]', money("−350 ₽"));
-  await save(browser, "Сверить");
+  await save(browser, "Записать корректировку");
   await waitText(browser, accountRow("Карта"), money("85 310 ₽"));
+  await (await browser.$(`${accountRow("Карта")}//button[normalize-space()="Сверить"]`)).click();
+  await fill(browser, "actualBalance", "85310");
+  await waitText(browser, '[data-testid="reconcile-difference"]', /Остатки совпадают/);
+  await save(browser, "Завершить сверку");
+  await waitText(browser, `${accountRow("Карта")}//*[@data-testid="account-reconciled"]`, /Сверено на/);
   // Корректировка не входит в расходы месяца.
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="month-expense"]', money("2 840 ₽"));

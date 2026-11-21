@@ -102,6 +102,22 @@ test("поток денег за месяц: продукты справа, не
   await waitText(browser, '[data-testid="flow-chart"]', /Питание/);
   await waitText(browser, '[data-testid="flow-chart"]', /Из накоплений/);
   await waitText(browser, '[data-testid="flow-card"]', money("Расходы 5 000 ₽"));
+
+  const graphCategory = await browser.$('[data-testid="flow-chart"] [role="button"][aria-label="Показать операции «Питание»"]');
+  await browser.execute((element) => element.focus(), graphCategory);
+  await browser.keys("Enter");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await waitText(browser, '[data-testid="sel-sum"]', money("5 000 ₽"));
+
+  await openSection(browser, "Взгляд вперёд");
+  await click(browser, "Поток денег", '//*[@role="tablist"]');
+  await waitText(browser, '[data-testid="flow-title"]', new RegExp(monthName(11)));
+  await (await browser.$('button[aria-label="Позже"]')).click();
+  await (await browser.$(".flow-details summary")).click();
+  const tableCategory = await browser.$('[data-testid="flow-table"] button[aria-label="Показать операции «Питание»"]');
+  await tableCategory.waitForDisplayed();
+  await tableCategory.click();
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
 });
 
 test("0.19: плитка на Главной, строка в Календаре и выбор счетов прогноза", async () => {

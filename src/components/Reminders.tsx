@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
 import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
 import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
@@ -387,6 +388,7 @@ function useCreateFromReminder() {
 export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () => void }) {
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [matching, setMatching] = useState(false);
   const done = useAction(() => api.completeReminder(o.key), onAction);
   const reopen = useAction(() => api.reopenReminder(o.key), onAction);
   const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), onAction);
@@ -400,7 +402,7 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         <span className="sub">
           {o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}` : formatDateTime(o.dueAt)}
           {o.status === "snoozed" && " · отложено"}
-          {o.status === "done" && " · выполнено"}
+          {o.status === "done" && (o.linkedActual ? " · связано с операцией" : " · выполнено")}
           {o.last && " · последний"}
           {o.edited && <span className="edited"> · изменён</span>}
         </span>
@@ -424,9 +426,14 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
               Отложить
             </button>
             {o.key.source === "reminder" && (
-              <button className="btn small" onClick={() => setEditing(true)} data-testid="occ-edit">
-                Изменить
-              </button>
+              <>
+                {o.accountId && o.amount != null && o.payAt.slice(0, 10) <= addDays(today(), 3) && (
+                  <button className="btn small" onClick={() => setMatching(true)} data-testid="occ-match-payment">Найти операцию</button>
+                )}
+                <button className="btn small" onClick={() => setEditing(true)} data-testid="occ-edit">
+                  Изменить
+                </button>
+              </>
             )}
           </>
         )}
@@ -443,6 +450,12 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         )}
       </div>
       <ErrorText error={done.error ?? snooze.error ?? reopen.error} />
+      {matching && (
+        <PaymentMatch o={o} onClose={() => setMatching(false)} onLinked={() => {
+          setMatching(false);
+          onAction?.();
+        }} />
+      )}
       {editing && (
         <EditOccurrence
           o={o}
@@ -453,5 +466,45 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         />
       )}
     </li>
+  );
+}
+
+function PaymentMatch({ o, onClose, onLinked }: { o: Occurrence; onClose: () => void; onLinked: () => void }) {
+  const query = useQuery({
+    queryKey: ["reminderPaymentCandidate", o.key],
+    queryFn: () => api.reminderPaymentCandidate(o.key),
+    retry: false,
+  });
+  const attach = useAction(api.attachReminderPayment, onLinked);
+  const match = query.isSuccess && !query.isFetching ? query.data : null;
+  const error = attach.error ?? (query.error ? String(query.error) : null);
+  return (
+    <Modal title={`Операция для «${o.title}»`} onClose={onClose} dismissDisabled={attach.busy}>
+      {query.isFetching && !attach.busy && <p className="muted" role="status">Ищем в операциях…</p>}
+      {query.isSuccess && !query.isFetching && !match && (
+        <p className="muted" data-testid="occ-match-empty">Однозначная операция пока не найдена.</p>
+      )}
+      {match && (
+        <div className="card" data-testid="occ-match-candidate">
+          <p><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
+          <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
+          <p>В учёте · <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /></p>
+          {match.amount !== match.expectedAmount && (
+            <p className="warn">Сумма отличается. Ожидалось <Money amount={match.expectedAmount} symbol={match.currencySymbol} minorUnits={match.minorUnits} />.</p>
+          )}
+        </div>
+      )}
+      <ErrorText error={error} />
+      {error && <button type="button" className="link" disabled={query.isFetching || attach.busy} onClick={() => {
+        attach.setError(null);
+        void query.refetch();
+      }}>Проверить снова</button>}
+      <div className="actions">
+        <span className="spacer" />
+        <button type="button" className="btn" disabled={attach.busy} onClick={onClose}>Закрыть</button>
+        {match && <button type="button" className="btn primary" disabled={attach.busy || !!error} aria-busy={attach.busy}
+          onClick={() => attach.run(o.key, match.transactionId, match.revision)}>Связать</button>}
+      </div>
+    </Modal>
   );
 }

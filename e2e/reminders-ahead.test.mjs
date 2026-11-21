@@ -116,3 +116,32 @@ test("Настройки: сроки «заранее» по умолчанию 
   assert.match(opt, /за неделю, за 3 дня, за день/);
   await click(browser, "Отмена", '//*[@role="dialog"]');
 });
+
+test("напоминание связывается с проведённым списанием без второй операции", async () => {
+  await openSection(browser, "Главная");
+  await click(browser, "+ Расход");
+  await fill(browser, "amount", "450");
+  await choose(browser, "account", "Карта (₽)");
+  await chooseLike(browser, "category", "Коммунальные платежи");
+  await fill(browser, "payee", "Контрольный интернет");
+  await save(browser);
+
+  await openReminders();
+  await click(browser, "+ Напоминание");
+  await fill(browser, "reminderTitle", "Контрольный интернет");
+  await setDate(browser, "reminderDate", inDays(1));
+  await choose(browser, "repeat", "Ежемесячно");
+  await fill(browser, "reminderAmount", "500");
+  await choose(browser, "reminderAccount", "Карта (₽)");
+  await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
+  await save(browser);
+  await click(browser, "Найти операцию", occ("Контрольный интернет"));
+  await waitText(browser, '[data-testid="occ-match-candidate"]', money("450 ₽"));
+  await waitText(browser, '[data-testid="occ-match-candidate"]', /Сумма отличается/);
+  await save(browser, "Связать");
+  await waitText(browser, '[data-testid="rem-done"]', /Контрольный интернет[\s\S]*связано с операцией/);
+
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Контрольный интернет");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+});

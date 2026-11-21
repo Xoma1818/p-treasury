@@ -33,6 +33,14 @@ pub struct GoalInput {
     pub reserve: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum FundingInput {
+    Off,
+    Monthly { amount: i64 },
+    Refill,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Goal {
@@ -60,6 +68,11 @@ pub struct Goal {
     pub forecast_far: bool,
     /// Сколько откладывать в месяц, чтобы успеть к сроку.
     pub need_per_month: Option<i64>,
+    /// Режим подсказки для ручной цели или резерва, если выбран.
+    pub funding_mode: Option<String>,
+    pub monthly_amount: Option<i64>,
+    /// Сколько осталось отложить в этом бюджетном месяце или до суммы цели.
+    pub need_this_period: Option<i64>,
     /// `reached`, `on_track` (успевает к сроку или срока нет), `behind`, `no_pace`.
     pub status: String,
     /// Нет курса валюты счёта к валюте цели: накопленное не посчитать.
@@ -184,7 +197,9 @@ pub fn update(conn: &Connection, id: &str, input: &GoalInput) -> Result<()> {
     }
     let n = conn.execute(
         "UPDATE goals SET name = ?2, target = ?3, currency_code = ?4, account_id = ?5, deadline = ?6,
-                reserve = ?7, updated_at = ?8
+                reserve = ?7, updated_at = ?8,
+                funding_mode = CASE WHEN ?5 IS NULL OR ?7 = 1 THEN funding_mode END,
+                monthly_amount = CASE WHEN ?5 IS NULL OR ?7 = 1 THEN monthly_amount END
          WHERE id = ?1",
         params![id, name, input.target, input.currency_code, account, deadline, input.reserve, time::now_utc()],
     )?;
@@ -418,20 +433,48 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Goal>> {
             forecast_date: forecast,
             forecast_far,
             need_per_month: need.filter(|_| remaining > 0),
+            funding_mode: None,
+            monthly_amount: None,
+            need_this_period: None,
             status: status.to_string(),
             missing_rate,
             priority: 0,
             share_bp: None,
         });
     }
-    // Р26: приоритет и доля читаются отдельно — запрос списка остаётся прежним.
-    let mut stmt = conn.prepare("SELECT id, priority, share_bp FROM goals WHERE archived = 0")?;
-    let extra: std::collections::HashMap<String, (i64, Option<i64>)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+    let mut stmt = conn.prepare(
+        "SELECT id, priority, share_bp, funding_mode, monthly_amount FROM goals WHERE archived = 0",
+    )?;
+    type GoalOptions = (i64, Option<i64>, Option<String>, Option<i64>);
+    let mut extra: std::collections::HashMap<String, GoalOptions> = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        })?
         .collect::<rusqlite::Result<_>>()?;
+    let period = extra
+        .values()
+        .any(|(_, _, mode, _)| mode.as_deref() == Some("monthly"))
+        .then(|| crate::budgets::month_of(conn, today))
+        .transpose()?;
     for g in &mut out {
-        if let Some((p, s)) = extra.get(&g.id) {
-            (g.priority, g.share_bp) = (*p, *s);
+        if let Some((priority, share, mode, monthly)) = extra.remove(&g.id) {
+            g.priority = priority;
+            g.share_bp = share;
+            g.need_this_period = match (mode.as_deref(), monthly, period.as_ref()) {
+                (Some("monthly"), Some(plan), Some(period)) => {
+                    let deposited: i64 = conn.query_row(
+                        "SELECT COALESCE(sum(amount), 0) FROM goal_deposits
+                         WHERE goal_id = ?1 AND date BETWEEN ?2 AND ?3",
+                        params![g.id, period.start, today],
+                        |r| r.get(0),
+                    )?;
+                    Some(plan.saturating_sub(deposited).clamp(0, g.remaining))
+                }
+                (Some("refill"), _, _) => Some(g.remaining),
+                _ => None,
+            };
+            g.funding_mode = mode;
+            g.monthly_amount = monthly;
         }
     }
     // Цели с приоритетом — первыми по порядку, остальные как раньше (по сроку).
@@ -456,14 +499,14 @@ pub fn set_priority(conn: &Connection, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Р26: доля свободных денег для цели (сотые процента) или `None` — по очереди.
-/// Цель вместе с долей — одной транзакцией: ошибка доли не оставляет цель без неё.
-/// `id` — изменить цель, `None` — создать; `share` — `None` не трогать долю.
-pub fn save_with_share(
+/// Цель, доля свободных денег и режим подсказки сохраняются как одно изменение.
+/// `None` в настройках оставляет прежнее значение, пока режим совместим с целью.
+pub fn save_with_options(
     conn: &mut Connection,
     id: Option<&str>,
     input: &GoalInput,
     share: Option<Option<i64>>,
+    funding: Option<&FundingInput>,
 ) -> Result<String> {
     let tx = conn.transaction()?;
     let id = match id {
@@ -475,6 +518,25 @@ pub fn save_with_share(
     };
     if let Some(bp) = share {
         set_share(&tx, &id, bp)?;
+    }
+    if let Some(funding) = funding {
+        let (mode, amount) = match funding {
+            FundingInput::Off => (None, None),
+            FundingInput::Monthly { amount } if *amount > 0 => (Some("monthly"), Some(*amount)),
+            FundingInput::Monthly { .. } => {
+                return invalid("укажите сумму ежемесячного пополнения больше нуля");
+            }
+            FundingInput::Refill => (Some("refill"), None),
+        };
+        let dedicated_account =
+            input.account_id.as_deref().is_some_and(|id| !id.is_empty()) && !input.reserve;
+        if mode.is_some() && dedicated_account {
+            return invalid("режим пополнения доступен для ручной цели или резерва");
+        }
+        tx.execute(
+            "UPDATE goals SET funding_mode = ?2, monthly_amount = ?3 WHERE id = ?1",
+            params![id, mode, amount],
+        )?;
     }
     tx.commit()?;
     Ok(id)
@@ -564,6 +626,78 @@ mod tests {
             deadline: deadline.map(str::to_string),
             reserve: false,
         }
+    }
+
+    #[test]
+    fn funding_uses_net_deposits_in_budget_month_and_remaining_target() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        crate::settings::set(c, "month_start_day", "25").unwrap();
+        let input = goal("Цель", 4_000, None, None);
+        let id = save_with_options(
+            c,
+            None,
+            &input,
+            None,
+            Some(&FundingInput::Monthly { amount: 1_000 }),
+        )
+        .unwrap();
+        deposit(c, &id, "2026-02-24", 1_800).unwrap();
+        deposit(c, &id, "2026-02-25", 400).unwrap();
+        deposit(c, &id, "2026-02-26", -100).unwrap();
+        deposit(c, &id, "2026-02-28", 200).unwrap();
+        let g = &list(c, "2026-02-26").unwrap()[0];
+        assert_eq!(
+            (g.saved, g.remaining, g.need_this_period),
+            (2_100, 1_900, Some(700))
+        );
+        assert_eq!(
+            list(c, "2026-03-25").unwrap()[0].need_this_period,
+            Some(1_000)
+        );
+        deposit(c, &id, "2026-03-25", 1_600).unwrap();
+        assert_eq!(list(c, "2026-03-25").unwrap()[0].need_this_period, Some(0));
+        save_with_options(c, Some(&id), &input, None, Some(&FundingInput::Refill)).unwrap();
+        let g = &list(c, "2026-03-25").unwrap()[0];
+        assert_eq!(g.funding_mode.as_deref(), Some("refill"));
+        assert_eq!(g.need_this_period, Some(100));
+        assert_eq!(g.monthly_amount, None);
+        save_with_options(
+            c,
+            Some(&id),
+            &input,
+            None,
+            Some(&FundingInput::Monthly { amount: 3_000 }),
+        )
+        .unwrap();
+        assert_eq!(
+            list(c, "2026-03-25").unwrap()[0].need_this_period,
+            Some(100)
+        );
+    }
+
+    #[test]
+    fn incompatible_funding_cannot_create_goal_or_survive_account_change() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let account =
+            accounts::create(c, &accounts::tests::input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let mut input = goal("Цель", 4_000, Some(account), None);
+        assert!(save_with_options(c, None, &input, None, Some(&FundingInput::Refill)).is_err());
+        assert!(list(c, "2026-03-25").unwrap().is_empty());
+        input.reserve = true;
+        let id = save_with_options(c, None, &input, None, Some(&FundingInput::Refill)).unwrap();
+        assert_eq!(
+            list(c, "2026-03-25").unwrap()[0].need_this_period,
+            Some(4_000)
+        );
+        input.reserve = false;
+        save_with_options(c, Some(&id), &input, None, None).unwrap();
+        let g = &list(c, "2026-03-25").unwrap()[0];
+        assert_eq!(
+            (g.need_this_period, g.funding_mode.as_deref()),
+            (None, None)
+        );
     }
 
     #[test]
@@ -730,11 +864,12 @@ mod tests {
         // Новая цель с долей сверх 100 % не сохраняется совсем.
         let mut db = db;
         let before = list(db.conn(), "2026-11-12").unwrap().len();
-        let bad = save_with_share(
+        let bad = save_with_options(
             db.conn_mut(),
             None,
             &goal("Ремонт", 1_000_000, None, None),
             Some(Some(9_000)),
+            None,
         );
         assert!(bad.is_err());
         assert_eq!(list(db.conn(), "2026-11-12").unwrap().len(), before);

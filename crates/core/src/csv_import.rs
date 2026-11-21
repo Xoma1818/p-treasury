@@ -8,11 +8,14 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::error::invalid;
 use crate::export::{write_csv, Sheet, TXN_HEADERS};
 use crate::transactions::TxnInput;
 use crate::{bank_import, import_log, money, Error, Result};
+
+pub mod profiles;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,7 +28,10 @@ pub struct Row {
     pub account: String,
     pub amount: String,
     pub category: String,
+    pub category_source: Option<&'static str>,
     pub payee: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_note: Option<String>,
     /// Что не так; `None` — строка будет загружена.
     pub error: Option<String>,
     /// Такая операция уже есть (выписка банка за пересекающийся период): пропускается.
@@ -43,6 +49,10 @@ pub struct Row {
 #[serde(rename_all = "camelCase")]
 pub struct Preview {
     pub rows: Vec<Row>,
+    /// Записи-основания для точных и возможных совпадений, по номеру строки.
+    pub matches: std::collections::BTreeMap<usize, Vec<import_log::Side>>,
+    /// Связывает подтверждение банковского импорта с увиденными решениями.
+    pub bank_plan_digest: Option<String>,
     pub valid: usize,
     pub errors: usize,
     /// Строки, которые уже загружены раньше: пропускаются.
@@ -66,7 +76,7 @@ pub struct Preview {
 pub(crate) struct Parsed {
     pub(crate) row: Row,
     pub(crate) input: Option<TxnInput>,
-    /// Текст получателя из выписки банка до правил (ключ повтора, B3).
+    /// Текст получателя из выписки банка до правил или внутренний ключ строки CSV.
     pub(crate) raw_payee: Option<String>,
     /// Уже загруженная расходом или доходом запись, которую `input` (перевод)
     /// заменит: свежая выписка исправляет записанное, а не добавляет второе.
@@ -489,6 +499,8 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             duplicate: false,
             to_transfer: false,
             linked_to: None,
+            category_source: None,
+            source_note: None,
             maybe: 0,
         };
         let mut new_cat: Option<NewCategory> = None;
@@ -936,7 +948,29 @@ pub fn preview_with(
     account_id: Option<&str>,
     self_id: Option<&str>,
 ) -> Result<Preview> {
-    let (mut parsed, extra, bank) = parse_any(conn, path, account_id, self_id)?;
+    preview_parsed(
+        conn,
+        parse_any(conn, path, account_id, self_id)?,
+        account_id,
+        self_id,
+    )
+}
+
+fn preview_parsed(
+    conn: &Connection,
+    data: Parsed3,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<Preview> {
+    describe_plan(conn, &data, account_id, self_id)
+}
+
+fn describe_plan(
+    conn: &Connection,
+    (parsed, extra, bank): &Parsed3,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<Preview> {
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     let duplicates = parsed.iter().filter(|p| p.row.duplicate).count();
     // Возвраты пишутся возвратами своих покупок и с ручными записями не связываются.
@@ -950,49 +984,79 @@ pub fn preview_with(
         .collect();
     let mut marks = import_log::marks(conn, bank.is_some(), &inputs)?.into_iter();
     let (mut linked, mut doubtful) = (0, 0);
-    for (_, p) in parsed
-        .iter_mut()
+    let mut matches = std::collections::BTreeMap::new();
+    let mut rows: Vec<Row> = parsed.iter().map(|p| p.row.clone()).collect();
+    for (i, _) in parsed
+        .iter()
         .enumerate()
         .filter(|(i, p)| p.input.is_some() && p.convert.is_none() && !is_refund(*i))
     {
+        let row = &mut rows[i];
         match marks.next() {
-            Some(import_log::Mark::Link(what)) => {
-                p.row.linked_to = Some(what);
+            Some(import_log::Mark::Link(what, record)) => {
+                row.linked_to = Some(what);
+                matches.insert(row.line, vec![*record]);
                 linked += 1;
             }
-            Some(import_log::Mark::Doubt(n)) => {
-                p.row.maybe = n;
+            Some(import_log::Mark::Doubt(n, records)) => {
+                row.maybe = n;
+                matches.insert(row.line, records);
                 doubtful += 1;
             }
             _ => {}
         }
     }
-    let account_id = match &bank {
+    let account_id = match bank {
         Some((b, _)) => account_id
             .map(str::to_string)
             .or_else(|| bank_import::remembered(conn).ok()?.get(b.key()).cloned()),
         None => None,
     };
-    let (self_transfers, self_account_id) = match &bank {
+    let (self_transfers, self_account_id) = match bank {
         Some((b, ops)) => (
             ops.iter().filter(|o| bank_import::own_transfer(o)).count(),
             bank_import::self_account(conn, *b, self_id)?,
         ),
         None => (0, None),
     };
-    Ok(Preview {
+    let mut preview = Preview {
+        matches,
+        bank_plan_digest: None,
         valid: parsed.iter().filter(|p| p.input.is_some()).count() - linked - to_transfers,
         to_transfers,
         errors,
         duplicates,
         linked,
         doubtful,
-        bank: bank.map(|(b, _)| b.title().to_string()),
+        bank: bank.as_ref().map(|(b, _)| b.title().to_string()),
         account_id,
         self_transfers,
         self_account_id,
-        rows: parsed.into_iter().map(|p| p.row).collect(),
-    })
+        rows,
+    };
+    if bank.is_some() {
+        let destinations: Vec<_> = parsed
+            .iter()
+            .map(|p| {
+                (
+                    &p.convert,
+                    p.input.as_ref().map(|t| {
+                        (
+                            &t.account_id,
+                            &t.to_account_id,
+                            &t.category_id,
+                            t.amount,
+                            t.to_amount,
+                        )
+                    }),
+                )
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&(&preview, destinations))
+            .map_err(|_| Error::Validation("не удалось проверить план импорта".into()))?;
+        preview.bank_plan_digest = Some(format!("{:x}", Sha256::digest(bytes)));
+    }
+    Ok(preview)
 }
 
 /// Загрузить правильные строки одной транзакцией. Без `skip_errors` файл с
@@ -1018,23 +1082,67 @@ pub fn import_with(
     account_id: Option<&str>,
     self_id: Option<&str>,
 ) -> Result<import_log::Saved> {
-    let (mut parsed, extra, bank) = parse_any(conn, path, account_id, self_id)?;
+    import_with_review(conn, path, skip_errors, account_id, self_id, None)
+}
+
+pub fn import_with_review(
+    conn: &mut Connection,
+    path: &Path,
+    skip_errors: bool,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+    expected_plan: Option<&str>,
+) -> Result<import_log::Saved> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let data = parse_any(&tx, path, account_id, self_id)?;
+    if let Some(expected) = expected_plan {
+        let review = describe_plan(&tx, &data, account_id, self_id)?;
+        if review.bank_plan_digest.as_deref() != Some(expected) {
+            return invalid("совпадения или настройки импорта изменились. Проверьте выписку снова");
+        }
+    }
+    let result = apply_parsed(&tx, path, skip_errors, data, account_id, self_id)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+fn import_parsed(
+    conn: &mut Connection,
+    path: &Path,
+    skip_errors: bool,
+    data: Parsed3,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<import_log::Saved> {
+    let tx = conn.transaction()?;
+    let result = apply_parsed(&tx, path, skip_errors, data, account_id, self_id)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+fn apply_parsed(
+    conn: &Connection,
+    path: &Path,
+    skip_errors: bool,
+    (mut parsed, extra, bank): Parsed3,
+    account_id: Option<&str>,
+    self_id: Option<&str>,
+) -> Result<import_log::Saved> {
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
             "в файле строк с ошибками: {errors}; исправьте их или загрузите только правильные"
         ));
     }
-    let tx = conn.transaction()?;
     // Недостающие категории — в той же транзакции, что и операции.
-    create_categories(&tx, &mut parsed, &extra.categories)?;
+    create_categories(conn, &mut parsed, &extra.categories)?;
     let skipped = parsed.iter().filter(|p| p.row.duplicate).count();
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let saved = save_rows(
-        &tx,
+        conn,
         import_log::Origin::Manual,
         &name,
         bank.as_ref().map(|(b, _)| b.title()),
@@ -1043,12 +1151,11 @@ pub fn import_with(
         skipped,
     )?;
     if let (Some((bank, ops)), Some(id)) = (&bank, account_id) {
-        bank_import::remember(&tx, *bank, ops, id)?;
+        bank_import::remember(conn, *bank, ops, id)?;
     }
     if let (Some((bank, _)), Some(id)) = (&bank, self_id) {
-        bank_import::remember_self(&tx, *bank, Some(id).filter(|id| !id.is_empty()))?;
+        bank_import::remember_self(conn, *bank, Some(id).filter(|id| !id.is_empty()))?;
     }
-    tx.commit()?;
     Ok(saved)
 }
 

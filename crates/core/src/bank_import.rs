@@ -722,7 +722,7 @@ pub(crate) fn remember(conn: &Connection, bank: Bank, ops: &[Op], account_id: &s
 /// Куда отнести операцию выписки.
 enum Cat {
     /// Готовая категория: id и получатель из правила.
-    Found(String, Option<String>),
+    Found(String, Option<String>, &'static str),
     /// Категории банка нет в программе и похожей тоже: её создаст загрузка.
     New(String),
 }
@@ -738,7 +738,7 @@ fn category(
     op: &Op,
 ) -> Result<Option<Cat>> {
     if let Some(rule) = rules::find(conn, &op.payee, kind)? {
-        return Ok(Some(Cat::Found(rule.category_id, rule.payee)));
+        return Ok(Some(Cat::Found(rule.category_id, rule.payee, "По правилу")));
     }
     let hay = if op.own {
         op.category.to_lowercase()
@@ -764,7 +764,17 @@ fn category(
                     })
                 })
             })
-            .map(|(id, _)| Cat::Found(id.clone(), None))
+            .map(|(id, _)| {
+                Cat::Found(
+                    id.clone(),
+                    None,
+                    if catch_all {
+                        "Категория по умолчанию"
+                    } else {
+                        "По описанию выписки"
+                    },
+                )
+            })
     };
     if let Some(found) = alias(false) {
         return Ok(Some(found));
@@ -773,7 +783,7 @@ fn category(
     let bank = op.category.trim();
     if !bank.is_empty() && !VAGUE.contains(&bank.to_lowercase().as_str()) {
         if let Some((id, _)) = crate::csv_import::similar(lk, kind, bank) {
-            return Ok(Some(Cat::Found(id, None)));
+            return Ok(Some(Cat::Found(id, None, "Из выписки")));
         }
         if !bank.to_lowercase().starts_with("прочие") {
             return Ok(Some(Cat::New(bank.to_string())));
@@ -906,6 +916,8 @@ pub(crate) fn to_parsed(
             error: None,
             duplicate: false,
             linked_to: None,
+            category_source: None,
+            source_note: None,
             maybe: 0,
             to_transfer: false,
         };
@@ -953,7 +965,7 @@ pub(crate) fn to_parsed(
                 to_account_id: None,
                 to_amount: None,
                 payee: match cat {
-                    Cat::Found(_, Some(p)) => Some(p.clone()),
+                    Cat::Found(_, Some(p), _) => Some(p.clone()),
                     _ => None,
                 }
                 .or_else(|| Some(op.payee.clone()).filter(|p| !p.is_empty())),
@@ -1034,9 +1046,13 @@ pub(crate) fn to_parsed(
                 .map_err(|e| e.to_string())?
                 .ok_or("нет подходящей категории: добавьте «Прочие расходы» или правило")?;
             let t = input(kind, &cat);
-            if let Cat::New(name) = cat {
-                new_cat = Some(name);
-            }
+            row.category_source = match cat {
+                Cat::New(name) => {
+                    new_cat = Some(name);
+                    Some("Из выписки")
+                }
+                Cat::Found(_, _, source) => Some(source),
+            };
             Ok(t)
         })();
         let input = match checked {
@@ -1051,6 +1067,7 @@ pub(crate) fn to_parsed(
                 };
                 if refund {
                     row.kind = "Возврат".into();
+                    row.category_source = Some("Из покупки");
                 }
                 if let Some(p) = &input.payee {
                     row.payee = p.clone();
@@ -1168,19 +1185,30 @@ pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
 /// (связанная запись не считается дважды). Разбитый чек — одна операция.
 /// Строки, чьи операции человек удалил сам, тоже считаются: они не вернутся.
 fn existing_count(conn: &Connection, t: &TxnInput, raw: Option<&str>) -> Result<usize> {
-    let n: i64 = conn.query_row(
+    // После ключа строки обычного CSV может храниться получатель из файла.
+    // Сумма и дата без непустого совпадающего имени здесь недостаточны.
+    let same_payee = "(bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, ''))
+        OR (substr(bank_payee, 1, length(?7)) = ?7
+            AND instr(substr(bank_payee, length(?7) + 1), char(31)) > 0
+            AND substr(bank_payee, length(?7)
+                + instr(substr(bank_payee, length(?7) + 1), char(31)) + 1)
+              = coalesce(nullif(?6, ''), nullif(?5, ''))))";
+    let sql = format!(
         "WITH links AS (
-            SELECT transaction_id FROM import_links WHERE account_id = ?2 AND kind = ?3
-              AND bank_date = ?1 AND bank_amount = ?4 AND bank_payee = coalesce(?5, '')),
+            SELECT l.transaction_id, t.split_id FROM import_links l
+            JOIN transactions t ON t.id = l.transaction_id
+            WHERE l.account_id = ?2 AND l.kind = ?3
+              AND l.bank_date = ?1 AND l.bank_amount = ?4 AND l.bank_payee = coalesce(?5, '')),
          keyed AS (
             SELECT k.transaction_id, t.split_id FROM import_keys k
             JOIN transactions t ON t.id = k.transaction_id
             WHERE k.account_id = ?2 AND k.kind = ?3 AND k.bank_date = ?1
               AND k.bank_amount = ?4
-              AND k.bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, '')))
-         SELECT (SELECT count(*) FROM links)
+              AND {same_payee})
+         SELECT (SELECT count(DISTINCT coalesce(split_id, transaction_id)) FROM links)
               + (SELECT count(DISTINCT coalesce(split_id, transaction_id)) FROM keyed
-                   WHERE transaction_id NOT IN (SELECT transaction_id FROM links))
+                   WHERE coalesce(split_id, transaction_id)
+                     NOT IN (SELECT coalesce(split_id, transaction_id) FROM links))
               + (SELECT count(*) FROM transactions t WHERE date = ?1 AND account_id = ?2
                    AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
                    AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links)
@@ -1194,8 +1222,18 @@ fn existing_count(conn: &Connection, t: &TxnInput, raw: Option<&str>) -> Result<
                                    WHERE k.transaction_id = t.id)) = 0))
               + (SELECT count(*) FROM import_deleted d WHERE d.account_id = ?2 AND d.kind = ?3
                    AND d.bank_date = ?1 AND d.bank_amount = ?4
-                   AND d.bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, '')))",
-        params![t.date, t.account_id, t.kind, t.amount, t.payee, raw],
+                   AND {same_payee})"
+    );
+    let n: i64 = conn.prepare_cached(&sql)?.query_row(
+        params![
+            t.date,
+            t.account_id,
+            t.kind,
+            t.amount,
+            t.payee,
+            raw,
+            crate::csv_import::profiles::SOURCE_KEY_PREFIX
+        ],
         |r| r.get(0),
     )?;
     Ok(n as usize)
@@ -1275,6 +1313,98 @@ mod tests {
         );
         assert_eq!(ops[0].category, "Супермаркеты");
         assert_eq!(ops[0].card.as_deref(), Some("4321"));
+    }
+
+    #[test]
+    fn native_statement_keeps_mapped_csv_identity_after_rename_and_deletion() {
+        use crate::csv_import::{self, profiles};
+
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let account = accounts::create(
+            db.conn(),
+            &accounts::tests::input("Сбер 4321", "debit", "RUB", 0),
+        )
+        .unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("выписка.csv");
+        fs::write(
+            &path,
+            "Дата;Сумма;Получатель\n20.10.2026;-1250;PYATEROCHKA 1234 Moscow RUS\n15.10.2026;-650;\n",
+        )
+        .unwrap();
+        let sample = profiles::inspect(&path, None, None).unwrap();
+        let options = profiles::CsvImportOptions {
+            mapping: profiles::CsvMapping {
+                headers: sample.headers,
+                delimiter: sample.delimiter,
+                encoding: sample.encoding,
+                date_format: profiles::DateFormat::Standard,
+                date: 0,
+                amount: profiles::AmountColumn::Signed { column: 1 },
+                payee: Some(2),
+                note: None,
+                currency: None,
+            },
+            decisions: Default::default(),
+        };
+        let mapped = profiles::import(db.conn_mut(), &path, false, &account, &options).unwrap();
+        assert_eq!(mapped.added, 2);
+        let (id, category): (String, String) = db
+            .conn()
+            .query_row(
+                "SELECT id, category_id FROM transactions WHERE account_id = ?1 AND date = '2026-10-20'",
+                [&account],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        crate::transactions::update(
+            db.conn(),
+            &id,
+            &TxnInput {
+                kind: "expense".into(),
+                date: "2026-10-20".into(),
+                account_id: account.clone(),
+                amount: 125_000,
+                category_id: Some(category),
+                to_account_id: None,
+                to_amount: None,
+                payee: Some("Продукты рядом с домом".into()),
+                note: Some("Моя заметка".into()),
+            },
+        )
+        .unwrap();
+        let repeated = profiles::preview(db.conn(), &path, &account, &options.mapping).unwrap();
+        assert_eq!(repeated.duplicates, 2);
+
+        let bank = testdata("sber-card.pdf");
+        let preview = csv_import::preview(db.conn(), &bank, Some(&account)).unwrap();
+        let duplicates = |preview: &csv_import::Preview, date: &str| {
+            preview
+                .rows
+                .iter()
+                .find(|r| r.date == date)
+                .unwrap()
+                .duplicate
+        };
+        assert!(duplicates(&preview, "2026-10-20"));
+        assert!(!duplicates(&preview, "2026-10-15"));
+
+        crate::transactions::delete(db.conn(), &id).unwrap();
+        let preview = csv_import::preview(db.conn(), &bank, Some(&account)).unwrap();
+        assert!(duplicates(&preview, "2026-10-20"));
+        assert!(!duplicates(&preview, "2026-10-15"));
+        let native = csv_import::import(db.conn_mut(), &bank, false, Some(&account)).unwrap();
+        assert_eq!(native.added, 4);
+        let resurrected: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE account_id = ?1 AND date = '2026-10-20'",
+                [&account],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(resurrected, 0);
     }
 
     #[test]
@@ -1506,6 +1636,64 @@ mod tests {
         let mut other = shop.clone();
         other.amount = 80_000;
         assert!(!exists(db.conn(), &other).unwrap());
+
+        // Банк провёл покупку днём позже и связал строку с обеими частями.
+        // Следующая выписка может принести вторую настоящую покупку того же дня.
+        let booked_date = (chrono::NaiveDate::parse_from_str(&shop.date, "%Y-%m-%d").unwrap()
+            + chrono::Days::new(1))
+        .to_string();
+        let booked = TxnInput {
+            date: booked_date,
+            ..shop
+        };
+        let saved = crate::import_log::save(
+            db.conn(),
+            crate::import_log::Origin::Manual,
+            "такой-же-чек.csv",
+            Some("Т-Банк"),
+            std::slice::from_ref(&booked),
+            0,
+        )
+        .unwrap();
+        assert_eq!(saved.linked, 1);
+        let mut seen = HashMap::new();
+        assert!(is_repeat(db.conn(), &booked, None, &mut seen).unwrap());
+        assert!(!is_repeat(db.conn(), &booked, None, &mut seen).unwrap());
+    }
+
+    #[test]
+    fn bank_import_rejects_changed_database_plan_after_preview() {
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let main = account(db.conn(), "Т-Банк");
+        let path = testdata("tbank.csv");
+        let preview = crate::csv_import::preview(db.conn(), &path, Some(&main)).unwrap();
+        let plan = preview.bank_plan_digest.unwrap();
+        let (bank, ops) = read(&path).unwrap().unwrap();
+        let parsed = to_parsed(db.conn(), bank, &ops, Some(&main), None)
+            .unwrap()
+            .0;
+        let manual = parsed
+            .iter()
+            .filter_map(|row| row.input.as_ref())
+            .find(|input| input.kind == "expense" && input.category_id.is_some())
+            .unwrap();
+        crate::transactions::create(db.conn(), manual).unwrap();
+        let rejected = crate::csv_import::import_with_review(
+            db.conn_mut(),
+            &path,
+            true,
+            Some(&main),
+            None,
+            Some(&plan),
+        )
+        .unwrap_err();
+        assert!(rejected.to_string().contains("изменились"));
+        let batches: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM import_batches", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(batches, 0);
     }
     /// Выгрузка Т-Банка «Operations …» (Excel, OTTO 04.11): столбцы «Сумма в
     /// валюте счёта» и «Категория по-умолчанию», статус «Ок» кириллицей. Данные

@@ -23,6 +23,7 @@ import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/q
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
+import { ChecksCard } from "../components/QuickWins";
 import "./transactions.css";
 
 const PAGE = 100;
@@ -34,6 +35,7 @@ export function Transactions() {
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories(true).data ?? [];
   const { txnFilter, viewJump, openTxnForm } = useUi();
+  const reviewOpen = useUi((s) => s.operationReview);
   const [from, to] = monthBounds(today());
   const [f, setF] = useState<TxnFilter>({ dateFrom: from, dateTo: to });
   const [search, setSearch] = useState("");
@@ -239,12 +241,15 @@ export function Transactions() {
       <div className="screen-head txn-screen-head">
         <ScreenTitle id="transactions" />
         <div className="txn-actions">
+          <button type="button" className={reviewOpen ? "btn active" : "btn"} aria-expanded={reviewOpen} aria-controls={reviewOpen ? "operations-review" : undefined} data-testid="transactions-review-toggle"
+            onClick={() => useUi.setState({ operationReview: !reviewOpen })}>На проверке</button>
           <TxnHeadBar onImport={() => setImportFile(null)} exp={exp} />
           <button className="btn primary" onClick={() => openTxnForm({ mode: "new", type: "expense" })} title="Ctrl+N">
             + Операция
           </button>
         </div>
       </div>
+      {reviewOpen && <ChecksCard inOperations />}
       {exp.done && (
         <p className="ok" data-testid="export-done">
           Выгружено: {exp.done}

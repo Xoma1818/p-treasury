@@ -104,7 +104,7 @@ test("корректировка баланса не входит в факт б
   const card = `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="Карта"]]`;
   await (await browser.$(`${card}//button[normalize-space()="Сверить"]`)).click();
   await fill(browser, "actualBalance", "89000");
-  await save(browser, "Сверить");
+  await save(browser, "Записать корректировку");
   await waitText(browser, card, money("89 000 ₽"));
   await openSection(browser, "Бюджет");
   assert.equal(await waitText(browser, '[data-testid="budget-spent"]', money("15 022,50 ₽")), before);

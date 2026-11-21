@@ -1,7 +1,7 @@
 // Экран «Взгляд вперёд» (0.18): прогноз остатка на 12 месяцев со сценариями
 // «что если» и поток денег за месяц или год. Всё считает ядро (forecast.rs).
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { AmountInput, Field } from "../components/Fields";
 import { Hint } from "../components/Hint";
@@ -10,10 +10,11 @@ import { BaseMoney as M } from "../components/Money";
 import { ScreenTitle } from "../components/SectionIcon";
 import { api, type ChangeInput, type ChangeKind, type Forecast as ForecastData, type ForecastItem, type ForecastMonth, type MoneyFlow, type Scenario } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, seasonText } from "../lib/forecast";
+import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, seasonText, type FlowBand } from "../lib/forecast";
 import { amountToInput, parseAmount } from "../lib/money";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
+import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import "./secondaryScreens.css";
 
@@ -786,13 +787,76 @@ const NODE_W = 12;
 
 function FlowChart({ f }: { f: MoneyFlow }) {
   const [hover, setHover] = useState<string | null>(null);
-  if (flowIsEmpty(f)) return <p className="muted" data-testid="flow-empty">За этот период доходов, расходов и вложений нет.</p>;
+  const [group, setGroup] = useState<FlowBand | null>(null);
+  const returnFocus = useRef<SVGElement | HTMLElement | null>(null);
+  const showTransactions = useUi((s) => s.showTransactions);
+  const missingRates = f.missingRates.length > 0 && <p className="hint warn">Нет курса для {f.missingRates.join(", ")}: такие суммы не вошли.</p>;
+  if (flowIsEmpty(f)) return (
+    <>
+      <p className="muted" data-testid="flow-empty">
+        {f.missingRates.length > 0 ? "За этот период нет сумм с доступным курсом." : "За этот период доходов, расходов и вложений нет."}
+      </p>
+      {missingRates}
+    </>
+  );
   const layout = flowLayout(f, FH - 20);
   const top = 10;
   const xl = 190;
   const xm = FW / 2 - NODE_W / 2;
   const xr = FW - 190 - NODE_W;
-  const band = (k: string) => (hover == null || hover === k ? "flow-band" : "flow-band dim");
+  const openCategory = (kind: "income" | "expense", id: string) => showTransactions({
+    categoryId: id,
+    dateFrom: f.period.start,
+    dateTo: f.period.end,
+    types: [kind],
+    counted: true,
+  });
+  const activate = (b: FlowBand, trigger: SVGElement | HTMLElement) => {
+    if (!b.node) return;
+    if (b.node.children?.length) {
+      returnFocus.current = trigger;
+      setGroup(b);
+    } else {
+      openCategory(b.kind === "income" ? "income" : "expense", b.node.id);
+    }
+  };
+  const closeGroup = () => {
+    setGroup(null);
+    returnFocus.current?.focus();
+  };
+  const actionLabel = (b: FlowBand) => b.node?.children?.length ? `Раскрыть состав «${b.name}»` : `Показать операции «${b.name}»`;
+  const draw = (b: FlowBand, edge: "left" | "right") => {
+    const left = edge === "left";
+    const x = left ? xl : xr;
+    const path = left
+      ? ribbon(xl + NODE_W, top + b.y0, top + b.y1, xm, top + b.m0, top + b.m1)
+      : ribbon(xm + NODE_W, top + b.m0, top + b.m1, xr, top + b.y0, top + b.y1);
+    const state = hover == null || hover === b.key ? "" : " dim";
+    return (
+      <g
+        key={b.key}
+        className={b.node ? "flow-action" : undefined}
+        role={b.node ? "button" : undefined}
+        tabIndex={b.node ? 0 : undefined}
+        aria-label={b.node ? actionLabel(b) : undefined}
+        aria-haspopup={b.node?.children?.length ? "dialog" : undefined}
+        onMouseEnter={() => setHover(b.key)}
+        onFocus={() => setHover(b.key)}
+        onBlur={() => setHover(null)}
+        onClick={b.node ? (e) => activate(b, e.currentTarget) : undefined}
+        onKeyDown={b.node ? (e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          activate(b, e.currentTarget);
+        } : undefined}
+      >
+        <path d={path} className={`flow-band ${b.kind}${state}`} />
+        <rect x={x} y={top + b.y0} width={NODE_W} height={Math.max(1, b.y1 - b.y0)} rx={3} className={`flow-node ${b.kind}`} />
+        <FlowLabel x={left ? xl - 8 : xr + NODE_W + 8} y={top + (b.y0 + b.y1) / 2} anchor={left ? "end" : "start"} name={b.name} amount={b.amount} />
+      </g>
+    );
+  };
+  const entries = [...layout.left.map((b) => ({ b, direction: "Откуда" })), ...layout.right.map((b) => ({ b, direction: "Куда" }))];
 
   return (
     <>
@@ -813,29 +877,56 @@ function FlowChart({ f }: { f: MoneyFlow }) {
         </span>
       </div>
       <div className="chart flow-chart" data-testid="flow-chart" onMouseLeave={() => setHover(null)}>
-        <svg viewBox={`0 0 ${FW} ${FH}`} role="img" aria-label="Поток денег: откуда пришли и куда ушли">
-          {layout.left.map((b) => (
-            <path key={b.key} d={ribbon(xl + NODE_W, top + b.y0, top + b.y1, xm, top + b.m0, top + b.m1)} className={`${band(b.key)} ${b.kind}`} onMouseEnter={() => setHover(b.key)} />
-          ))}
-          {layout.right.map((b) => (
-            <path key={b.key} d={ribbon(xm + NODE_W, top + b.m0, top + b.m1, xr, top + b.y0, top + b.y1)} className={`${band(b.key)} ${b.kind}`} onMouseEnter={() => setHover(b.key)} />
-          ))}
+        <svg viewBox={`0 0 ${FW} ${FH}`} role="group" aria-label="Диаграмма потока денег">
+          {layout.left.map((b) => draw(b, "left"))}
+          {layout.right.map((b) => draw(b, "right"))}
           <rect x={xm} y={top} width={NODE_W} height={FH - 20} rx={3} className="flow-node mid" />
-          {layout.left.map((b) => (
-            <g key={b.key} onMouseEnter={() => setHover(b.key)}>
-              <rect x={xl} y={top + b.y0} width={NODE_W} height={Math.max(1, b.y1 - b.y0)} rx={3} className={`flow-node ${b.kind}`} />
-              <FlowLabel x={xl - 8} y={top + (b.y0 + b.y1) / 2} anchor="end" name={b.name} amount={b.amount} />
-            </g>
-          ))}
-          {layout.right.map((b) => (
-            <g key={b.key} onMouseEnter={() => setHover(b.key)}>
-              <rect x={xr} y={top + b.y0} width={NODE_W} height={Math.max(1, b.y1 - b.y0)} rx={3} className={`flow-node ${b.kind}`} />
-              <FlowLabel x={xr + NODE_W + 8} y={top + (b.y0 + b.y1) / 2} anchor="start" name={b.name} amount={b.amount} />
-            </g>
-          ))}
         </svg>
       </div>
-      {f.missingRates.length > 0 && <p className="hint warn">Нет курса для {f.missingRates.join(", ")}: такие суммы не вошли.</p>}
+      {missingRates}
+      <details className="flow-details">
+        <summary>Таблица потока</summary>
+        <table className="table" data-testid="flow-table">
+          <caption className="sr-only">Поток денег с {formatDate(f.period.start)} по {formatDate(f.period.end)}</caption>
+          <thead><tr><th scope="col">Направление</th><th scope="col">Статья</th><th scope="col" className="num">Сумма</th></tr></thead>
+          <tbody>
+            {entries.map(({ b, direction }) => (
+              <tr key={b.key}>
+                <td>{direction}</td>
+                <th scope="row">
+                  {b.node ? (
+                    <button type="button" className="link" aria-label={actionLabel(b)} aria-haspopup={b.node.children?.length ? "dialog" : undefined} onClick={(e) => activate(b, e.currentTarget)}>
+                      {b.name}
+                    </button>
+                  ) : b.name}
+                </th>
+                <td className="num"><M amount={b.amount} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="hint">Суммы рассчитаны в основной валюте по датам учёта. «Осталось» и «Из накоплений» показывают разницу между доходами, расходами и чистыми переводами в инвестиции.</p>
+      </details>
+      {group?.node?.children && (
+        <Modal title={group.name} onClose={closeGroup}>
+          {group.kind === "refunds" && <p className="hint">На сколько возвраты выше расходов по каждой категории.</p>}
+          <table className="table">
+            <thead><tr><th scope="col">Категория</th><th scope="col" className="num">Сумма</th></tr></thead>
+            <tbody>
+              {group.node.children.map((node, i) => (
+                <tr key={node.id}>
+                  <th scope="row">
+                    <button type="button" className="link" autoFocus={i === 0} onClick={() => openCategory(group.kind === "income" ? "income" : "expense", node.id)}>
+                      {node.name}
+                    </button>
+                  </th>
+                  <td className="num"><M amount={group.kind === "refunds" ? -node.amount : node.amount} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
+      )}
     </>
   );
 }

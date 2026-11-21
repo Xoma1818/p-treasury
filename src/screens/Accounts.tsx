@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { RowMenu } from "../components/RowMenu";
 import { openContextMenu } from "../components/ContextMenu";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, amountText, Field } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
+import { ReconcileAccount } from "../components/ReconcileAccount";
 import { ACCOUNT_TYPES, api, INVEST_KINDS, type Account, type AccountGroup, type AccountInput, type AccountType, type InvestKind } from "../lib/api";
 import { CATEGORY_ICONS, isColor, type CategoryColor, type Look } from "../lib/categoryLook";
 import { LookMark } from "../components/CategoryMark";
@@ -22,14 +23,23 @@ import "./secondaryScreens.css";
 
 export function Accounts() {
   const [showArchived, setShowArchived] = useState(false);
-  const accounts = useAccounts(true).data ?? [];
+  const accountQuery = useAccounts(true);
+  const accounts = accountQuery.data ?? [];
   const groups = useQuery({ queryKey: ["accountGroups"], queryFn: () => api.listAccountGroups(today()) }).data ?? [];
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [adjusting, setAdjusting] = useState<Account | null>(null);
+  const reconciliationAccount = useUi((s) => s.reconciliationAccount);
+  useEffect(() => {
+    if (!reconciliationAccount || !accountQuery.data) return;
+    const account = accountQuery.data.find((a) => a.id === reconciliationAccount && !a.archived && a.type !== "investment");
+    if (account) setAdjusting(account);
+    useUi.setState({ reconciliationAccount: null });
+  }, [reconciliationAccount, accountQuery.data]);
   const [valuing, setValuing] = useState<string | null>(null);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const invest = useInvestOverview().data;
   const reserves = useQuery({ queryKey: ["accountReserves"], queryFn: api.accountReserves }).data;
+  const reconciliations = useQuery({ queryKey: ["reconciliations"], queryFn: api.listReconciliations });
   const showTransactions = useUi((s) => s.showTransactions);
   const archive = useAction(api.archiveAccount);
   const move = useAction(async (id: string, groupId: string | null, beforeId: string | null) => {
@@ -63,6 +73,7 @@ export function Accounts() {
 
   const row = (a: Account, list: Account[]) => {
     const i = list.indexOf(a);
+    const reconciled = reconciliations.data?.find((entry) => entry.accountId === a.id);
     return (
       <tr
         key={a.id}
@@ -114,6 +125,11 @@ export function Accounts() {
           {a.available != null && (
             <div className="sub">
               доступно <Money amount={a.available} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
+            </div>
+          )}
+          {!a.archived && a.type !== "investment" && reconciled && (
+            <div className={reconciled.stale ? "sub warn" : "sub"} data-testid="account-reconciled">
+              {reconciled.stale ? `Повторить сверку на ${formatDate(reconciled.date)}` : `Сверено на ${formatDate(reconciled.date)}`}
             </div>
           )}
         </td>
@@ -181,7 +197,7 @@ export function Accounts() {
             </tbody>
           ))}
         </table>
-        <ErrorText error={archive.error ?? move.error} />
+        <ErrorText error={archive.error ?? move.error ?? (reconciliations.error ? String(reconciliations.error) : null)} />
         <p className="hint">Порядок и группу счёта можно поменять перетаскиванием строки.</p>
         <label className="check small">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
@@ -190,7 +206,7 @@ export function Accounts() {
       </div>
       <AssetsCard />
       {editing && <AccountForm account={editing === "new" ? null : editing} groups={groups} onClose={() => setEditing(null)} />}
-      {adjusting && <AdjustForm account={adjusting} onClose={() => setAdjusting(null)} />}
+      {adjusting && <ReconcileAccount account={adjusting} onClose={() => setAdjusting(null)} />}
       {valuing && invest && <ValueForm accounts={invest.accounts} accountId={valuing} onClose={() => setValuing(null)} />}
       {groupsOpen && <GroupsForm groups={groups} onClose={() => setGroupsOpen(false)} />}
     </section>
@@ -399,45 +415,6 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
           </button>
           <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
             Сохранить
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function AdjustForm({ account, onClose }: { account: Account; onClose: () => void }) {
-  const [actual, setActual] = useState(amountText(account.balance, account.minorUnits));
-  const [date, setDate] = useState(today());
-  const save = useAction(api.adjustBalance, onClose, { celebrate: true });
-  const value = parseAmount(actual, account.minorUnits);
-  const diff = value === null ? null : value - account.balance;
-  return (
-    <Modal title={`Сверка: ${account.name}`} onClose={onClose}>
-      <form className="form" onSubmit={(e) => (e.preventDefault(), value !== null && save.run(account.id, value, date, null))}>
-        <p className="muted">
-          В приложении: <Money amount={account.balance} symbol={account.currencySymbol} minorUnits={account.minorUnits} /> на {formatDate(today())}.
-          Введите остаток из банка; разница запишется операцией «Корректировка».
-        </p>
-        <div className="row">
-          <Field label="Реальный остаток">
-            {(id) => <AmountInput id={id} name="actualBalance" value={actual} onChange={setActual} minorUnits={account.minorUnits} allowNegative autoFocus />}
-          </Field>
-          <Field label="Дата">{(id) => <input id={id} name="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
-        </div>
-        {diff !== null && diff !== 0 && (
-          <p>
-            Корректировка: <Money amount={diff} symbol={account.currencySymbol} minorUnits={account.minorUnits} signed />
-          </p>
-        )}
-        <ErrorText error={save.error} />
-        <div className="actions">
-          <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
-            Отмена
-          </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || value === null}>
-            Сверить
           </button>
         </div>
       </form>

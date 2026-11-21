@@ -87,22 +87,32 @@ export function maskAmounts(text: string): string {
 const CHECKS_SHOWN = 5;
 
 /** А3: странные списания за 30 дней. */
-export function ChecksCard() {
+export function ChecksCard({ inOperations = false }: { inOperations?: boolean } = {}) {
+  const date = today();
   const hidden = useSettings().data?.hide_amounts === "1";
   const show = (t: string) => (hidden ? maskAmounts(t) : t);
-  const checks = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["checks", today()], queryFn: api.listChecks }).data;
-  const warnings = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["budgetWarnings", today()], queryFn: api.budgetWarnings }).data ?? [];
+  const checkQuery = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["checks", date], queryFn: api.listChecks });
+  const checks = checkQuery.data;
+  const warnings = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["budgetWarnings", date], queryFn: api.budgetWarnings, enabled: !inOperations }).data ?? [];
   const openTxnForm = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
+  const openOperationReview = useUi((s) => s.openOperationReview);
   const editPlan = useUi((s) => s.editPlan);
   const dismiss = useAction(api.dismissCheck);
   const removeSecond = useAction(api.deleteDuplicate);
   const [opening, setOpening] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const shown = checks && !showAll ? checks.slice(0, CHECKS_SHOWN) : checks;
-  const matches = useSuggestions().data?.length ?? 0;
+  const shown = checks && !showAll && !inOperations ? checks.slice(0, CHECKS_SHOWN) : checks;
+  const matchQuery = useSuggestions();
+  const matches = matchQuery.data?.length ?? 0;
   const [matchesOpen, setMatchesOpen] = useState(false);
+  const period = useMonthOf(date).data;
+  const uncategorized = useQuery({
+    queryKey: ["transactions", "uncategorized", period?.start, period?.end],
+    queryFn: () => api.listTransactions({ dateFrom: period!.start, dateTo: period!.end, quick: ["uncategorized"], limit: 1 }),
+    enabled: inOperations && !!period,
+  });
 
   // Операцию находим среди операций её дня: отдельной команды «одна операция» нет.
   const open = async (c: Check) => {
@@ -121,10 +131,10 @@ export function ChecksCard() {
   };
 
   return (
-    <div className="card qw-card" data-testid="home-checks">
+    <div className="card qw-card" id={inOperations ? "operations-review" : undefined} data-testid={inOperations ? "operations-review" : "home-checks"}>
       <h2>
-        Проверьте
-        <Hint of="home.checks" />
+        {inOperations ? "Операции на проверке" : "Проверьте"}
+        {!inOperations && <Hint of="home.checks" />}
       </h2>
       {matches > 0 && (
         <p className="warn" data-testid="checks-matches">
@@ -135,19 +145,31 @@ export function ChecksCard() {
         </p>
       )}
       {matchesOpen && <MatchesDialog onClose={() => setMatchesOpen(false)} />}
-      {warnings.length > 0 && (
+      {inOperations && period && !!uncategorized.data?.total && (
+        <p data-testid="review-uncategorized">
+          Без категории за бюджетный месяц · {uncategorized.data.total}.{" "}
+          <button type="button" className="link" onClick={() => showTransactions({ dateFrom: period.start, dateTo: period.end, quick: ["uncategorized"] })}>
+            Открыть операции
+          </button>
+        </p>
+      )}
+      {!inOperations && warnings.length > 0 && (
         <ul className="qw-list" data-testid="budget-warnings">
           {warnings.map((w) => (
             <WarningRow key={w.key} w={w} show={show} onOps={() => showTransactions({ categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end })} onPlan={() => editPlan(w.categoryId)} onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />
           ))}
         </ul>
       )}
-      {checks && checks.length === 0 && warnings.length === 0 && (
+      {!inOperations && checks && checks.length === 0 && warnings.length === 0 && (
         <p className="qw-calm" data-testid="checks-calm">
           <CheckIcon className="qw-ok" size={16} aria-hidden />
           Всё спокойно: странных списаний за 30 дней нет.
         </p>
       )}
+      {inOperations && checkQuery.isSuccess && matchQuery.isSuccess && uncategorized.isSuccess &&
+        checks?.length === 0 && matches === 0 && uncategorized.data.total === 0 && (
+          <p className="qw-calm" data-testid="review-empty">Всё проверено.</p>
+        )}
       {checks && checks.length > 0 && (
         <ul className="qw-list">
           {shown!.map((c) => (
@@ -181,13 +203,22 @@ export function ChecksCard() {
           ))}
         </ul>
       )}
-      {checks && checks.length > CHECKS_SHOWN && (
+      {!inOperations && checks && checks.length > CHECKS_SHOWN && (
         <button type="button" className="link qw-more" data-testid="checks-more" onClick={() => setShowAll(!showAll)}>
           {showAll ? "Свернуть" : `Показать все (${checks.length})`}
         </button>
       )}
-      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError} />
-      <DataStatus />
+      {inOperations && (checkQuery.isLoading || matchQuery.isLoading || uncategorized.isLoading) &&
+        <p className="muted" role="status">Ищем операции…</p>}
+      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError ??
+        (inOperations && (checkQuery.error ?? matchQuery.error ?? uncategorized.error)
+          ? String(checkQuery.error ?? matchQuery.error ?? uncategorized.error) : null)} />
+      {!inOperations && (
+        <>
+          <button type="button" className="link" data-testid="open-operations-review" onClick={openOperationReview}>Перейти к проверке операций</button>
+          <DataStatus />
+        </>
+      )}
     </div>
   );
 }
