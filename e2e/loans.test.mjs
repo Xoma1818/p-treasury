@@ -16,6 +16,17 @@ const out = mkdtempSync(join(tmpdir(), "p-treasury-loans-"));
 let browser;
 before(async () => {
   ({ browser } = await start());
+  // Восстановленный заём без привязки к счёту делает JPY доступной в справочнике с первого запуска.
+  await browser.$('//h1[normalize-space()="Основная валюта"]').waitForDisplayed({ timeout: 15000 });
+  const debt = await browser.executeAsync((issueDate, firstPaymentDate, done) => {
+    window.__TAURI_INTERNALS__.invoke("create_debt", { input: {
+      direction: "borrowed", counterparty: "Заём в иенах", currencyCode: "JPY", principal: 12000,
+      rateBp: 0, repaymentType: "annuity", termMonths: 3, issueDate, firstPaymentDate,
+      maturityDate: null, accountId: null, note: null,
+    } }).then((id) => done({ id }), (error) => done({ error: String(error) }));
+  }, inDays(-5), inDays(5));
+  assert.ifError(debt.error);
+  assert.ok(debt.id);
   await onboard(browser, [
     { name: "Наличные", balance: "0" },
     { name: "Карта", balance: "100000" },
@@ -267,17 +278,6 @@ test("остаток на день обычного и досрочного пл
 });
 
 test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async (t) => {
-  // В справочнике иена появляется для баз, где уже есть данные в JPY.
-  const debt = await browser.executeAsync((issueDate, firstPaymentDate, done) => {
-    window.__TAURI_INTERNALS__.invoke("create_debt", { input: {
-      direction: "borrowed", counterparty: "Заём в иенах", currencyCode: "JPY", principal: 12000,
-      rateBp: 0, repaymentType: "annuity", termMonths: 3, issueDate, firstPaymentDate,
-      maturityDate: null, accountId: null, note: null,
-    } }).then((id) => done({ id }), (error) => done({ error: String(error) }));
-  }, inDays(-35), inDays(-5));
-  assert.ifError(debt.error);
-  assert.ok(debt.id);
-  await browser.refresh();
   await openSection(browser, "Настройки");
   const fineCard = await browser.$('[data-testid="fine-card"]');
   await fineCard.waitForExist({ timeout: 5000 });
