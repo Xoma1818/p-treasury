@@ -1,0 +1,55 @@
+name: Автообновление Kazna 0.36.1 → 0.37.0
+on:
+  push:
+    branches: [codex/qa-pr100-window]
+    paths:
+      - '.github/workflows/qa-in-app-update-0-37.yml'
+      - '.github/qa/verify-in-app-update-0-37.mjs'
+permissions:
+  contents: read
+concurrency:
+  group: kazna-in-app-update-0-37
+  cancel-in-progress: true
+jobs:
+  upgrade:
+    name: Обновление из приложения / ${{ matrix.target }}
+    runs-on: ${{ matrix.target }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows-11-arm, windows-2025]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/qa/verify-in-app-update-0-37.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Установить официальный выпуск 0.36.1 в одноразовой машине
+        shell: pwsh
+        env:
+          QA_TARGET: ${{ matrix.target }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "OS=$($os.Caption), build=$($os.BuildNumber), architecture=$($os.OSArchitecture), runner=$env:RUNNER_ARCH"
+          if ($env:QA_TARGET -eq 'windows-11-arm' -and ($os.Caption -notmatch 'Windows 11' -or $env:RUNNER_ARCH -ne 'ARM64')) { throw 'Не подтверждён клиентский образ Windows 11 ARM64' }
+          $folder = Join-Path $env:RUNNER_TEMP 'Kazna-InApp'
+          if ($folder -match '\s' -or (Test-Path -LiteralPath $folder)) { throw 'Нужна отдельная чистая папка' }
+          $installer = Join-Path $env:RUNNER_TEMP 'Kazna_0.36.1_x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.36.1/Kazna_0.36.1_x64-setup.exe' -OutFile $installer -TimeoutSec 60
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne '3f06efffbc55ecd75090cc70d75638974054265c0b7065280057ca4f163e1dc7') { throw 'SHA-256 опубликованного установщика не совпал' }
+          $p = Start-Process -FilePath $installer -ArgumentList @('/S',"/D=$folder") -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "NSIS завершился с кодом $($p.ExitCode)" }
+          $exe = Join-Path $folder 'Kazna.exe'
+          if ((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -ne '0.36.1') { throw 'Запускается другая версия' }
+          Add-Content $env:GITHUB_ENV "KAZNA_TEST_BIN=$exe"
+      - name: Настройки → Обновить → автоматический перезапуск и проверка всех таблиц
+        shell: pwsh
+        run: |
+          node .github/qa/verify-in-app-update-0-37.mjs
+          exit $LASTEXITCODE
