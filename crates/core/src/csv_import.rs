@@ -83,6 +83,19 @@ pub(crate) struct Parsed {
     /// Второе — вторая сторона того же перевода, загруженная раньше отдельно:
     /// она войдёт в перевод.
     pub(crate) convert: Option<(String, Option<String>)>,
+    /// Счёт и запись (или группа чека), уже занятые точным повтором.
+    pub(crate) repeat_source: Option<(String, String)>,
+}
+
+fn reserved_sources(parsed: &[Parsed]) -> import_log::ReservedSources {
+    let mut reserved = import_log::ReservedSources::new();
+    for (account, id) in parsed.iter().filter_map(|row| row.repeat_source.as_ref()) {
+        reserved
+            .entry(account.clone())
+            .or_default()
+            .insert(id.clone());
+    }
+    reserved
 }
 
 fn read_text(path: &Path) -> Result<String> {
@@ -698,6 +711,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             input,
             raw_payee: None,
             convert: None,
+            repeat_source: None,
         });
     }
     if out.is_empty() {
@@ -850,6 +864,7 @@ pub(crate) fn save_rows(
     refunds: &Refunds,
     skipped: usize,
 ) -> Result<import_log::Saved> {
+    let reserved = reserved_sources(&parsed);
     let mut plain = (Vec::new(), Vec::new());
     let mut back = Vec::new();
     let mut converts = Vec::new();
@@ -867,8 +882,18 @@ pub(crate) fn save_rows(
             }
         }
     }
-    let mut saved =
-        import_log::save_with_raw(conn, origin, file_name, bank, &plain.0, &plain.1, skipped)?;
+    let mut saved = import_log::save_entries(
+        conn,
+        origin,
+        file_name,
+        bank,
+        import_log::ImportEntries {
+            inputs: &plain.0,
+            raws: &plain.1,
+            skipped,
+            reserved: &reserved,
+        },
+    )?;
     for (line, t, budget) in back {
         let of = t
             .category_id
@@ -982,7 +1007,8 @@ fn describe_plan(
         .filter(|(i, p)| !is_refund(*i) && p.convert.is_none())
         .filter_map(|(_, p)| p.input.clone())
         .collect();
-    let mut marks = import_log::marks(conn, bank.is_some(), &inputs)?.into_iter();
+    let reserved = reserved_sources(parsed);
+    let mut marks = import_log::marks(conn, bank.is_some(), &inputs, &reserved)?.into_iter();
     let (mut linked, mut doubtful) = (0, 0);
     let mut matches = std::collections::BTreeMap::new();
     let mut rows: Vec<Row> = parsed.iter().map(|p| p.row.clone()).collect();

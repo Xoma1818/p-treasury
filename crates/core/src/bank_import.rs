@@ -648,7 +648,7 @@ fn transfer_repeat(
         params![t.date, a, b, t.amount],
         |r| r.get(0),
     )?;
-    let n = (transfers as usize).max(existing_count(conn, plain, Some(raw))?);
+    let n = (transfers as usize).max(existing_sources(conn, plain, Some(raw))?.len());
     let repeat = n > *nth;
     *nth += 1;
     Ok(repeat)
@@ -896,7 +896,7 @@ pub(crate) fn to_parsed(
 
     let mut out = Vec::new();
     let mut extra = crate::csv_import::Extra::default();
-    let mut seen = HashMap::new();
+    let mut transfer_seen = HashMap::new();
     let mut converting: HashSet<String> = HashSet::new();
     for (i, op) in ops.iter().enumerate() {
         let account = accs[i];
@@ -930,6 +930,7 @@ pub(crate) fn to_parsed(
                 input: None,
                 raw_payee: Some(op.payee.clone()),
                 convert: None,
+                repeat_source: None,
             });
             continue;
         }
@@ -1084,7 +1085,8 @@ pub(crate) fn to_parsed(
                             payee: Some(op.payee.clone()),
                             ..input.clone()
                         };
-                        let repeat = transfer_repeat(conn, &input, &plain, &op.payee, &mut seen)?;
+                        let repeat =
+                            transfer_repeat(conn, &input, &plain, &op.payee, &mut transfer_seen)?;
                         // Вторая сторона из этой же выписки, записанная раньше
                         // отдельно доходом на другом своём счёте.
                         let mut blocked = false;
@@ -1127,7 +1129,7 @@ pub(crate) fn to_parsed(
                         };
                         repeat && convert.is_none()
                     }
-                    None => is_repeat(conn, &input, Some(&op.payee), &mut seen)?,
+                    None => false,
                 };
                 if repeat {
                     row.duplicate = true;
@@ -1166,8 +1168,10 @@ pub(crate) fn to_parsed(
             input,
             raw_payee: Some(op.payee.clone()),
             convert,
+            repeat_source: None,
         });
     }
+    mark_repeats(conn, &mut out, &mut extra)?;
     Ok((out, extra))
 }
 
@@ -1177,54 +1181,79 @@ pub(crate) fn to_parsed(
 /// разбивки повторная выписка не добавит покупку второй раз.
 #[cfg(test)]
 pub(crate) fn exists(conn: &Connection, t: &TxnInput) -> Result<bool> {
-    Ok(existing_count(conn, t, None)? > 0)
+    Ok(!existing_sources(conn, t, None)?.is_empty())
 }
 
-/// Сколько таких строк банка уже записано: связи этой строки выписки с
-/// ручными записями плюс точно такие же операции, ещё не связанные с ней
-/// (связанная запись не считается дважды). Разбитый чек — одна операция.
-/// Строки, чьи операции человек удалил сам, тоже считаются: они не вернутся.
-fn existing_count(conn: &Connection, t: &TxnInput, raw: Option<&str>) -> Result<usize> {
+/// Один источник повтора — операция, группа чека или сохранённый ключ удаления.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct RepeatSource {
+    deleted: bool,
+    id: String,
+}
+
+struct RepeatMatch {
+    source: RepeatSource,
+    exact: bool,
+}
+
+/// Уже записанные источники для строки выписки. Точный исходный получатель
+/// выбирается раньше записи, которая совпала только с названием после правил.
+fn existing_sources(
+    conn: &Connection,
+    t: &TxnInput,
+    raw: Option<&str>,
+) -> Result<Vec<RepeatMatch>> {
     // После ключа строки обычного CSV может храниться получатель из файла.
     // Сумма и дата без непустого совпадающего имени здесь недостаточны.
-    let same_payee = "(bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, ''))
+    let same_raw = "(bank_payee = nullif(?6, '')
         OR (substr(bank_payee, 1, length(?7)) = ?7
             AND instr(substr(bank_payee, length(?7) + 1), char(31)) > 0
             AND substr(bank_payee, length(?7)
                 + instr(substr(bank_payee, length(?7) + 1), char(31)) + 1)
+              = coalesce(nullif(?6, ''), nullif(?5, '')))
+        OR (substr(bank_payee, 1, length(?8)) = ?8
+            AND substr(bank_payee, length(?8) + 1)
               = coalesce(nullif(?6, ''), nullif(?5, ''))))";
+    let same_payee =
+        format!("(bank_payee IN (coalesce(?5, ''), coalesce(?6, ?5, '')) OR {same_raw})");
     let sql = format!(
         "WITH links AS (
-            SELECT l.transaction_id, t.split_id FROM import_links l
+            SELECT l.transaction_id, t.split_id, CASE WHEN {same_raw} THEN 0 ELSE 1 END AS priority
+            FROM import_links l
             JOIN transactions t ON t.id = l.transaction_id
             WHERE l.account_id = ?2 AND l.kind = ?3
-              AND l.bank_date = ?1 AND l.bank_amount = ?4 AND l.bank_payee = coalesce(?5, '')),
-         keyed AS (
-            SELECT k.transaction_id, t.split_id FROM import_keys k
-            JOIN transactions t ON t.id = k.transaction_id
+              AND l.bank_date = ?1 AND l.bank_amount = ?4 AND {same_payee}),
+         sources(deleted, id, priority) AS (
+            SELECT 0, coalesce(split_id, transaction_id), priority FROM links
+            UNION ALL
+            SELECT 0, coalesce(t.split_id, k.transaction_id),
+                   CASE WHEN {same_raw} THEN 0 ELSE 2 END
+            FROM import_keys k JOIN transactions t ON t.id = k.transaction_id
             WHERE k.account_id = ?2 AND k.kind = ?3 AND k.bank_date = ?1
-              AND k.bank_amount = ?4
-              AND {same_payee})
-         SELECT (SELECT count(DISTINCT coalesce(split_id, transaction_id)) FROM links)
-              + (SELECT count(DISTINCT coalesce(split_id, transaction_id)) FROM keyed
-                   WHERE coalesce(split_id, transaction_id)
-                     NOT IN (SELECT coalesce(split_id, transaction_id) FROM links))
-              + (SELECT count(*) FROM transactions t WHERE date = ?1 AND account_id = ?2
-                   AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
-                   AND split_id IS NULL AND id NOT IN (SELECT transaction_id FROM links)
-                   AND NOT EXISTS (SELECT 1 FROM import_keys k WHERE k.transaction_id = t.id))
-              + (SELECT count(*) FROM (SELECT 1 FROM transactions t WHERE date = ?1
-                   AND account_id = ?2 AND type = ?3 AND coalesce(payee, '') = coalesce(?5, '')
-                   AND split_id IS NOT NULL
-                 GROUP BY split_id HAVING sum(abs(amount)) = ?4
-                   AND sum(id IN (SELECT transaction_id FROM links)) = 0
-                   AND sum(EXISTS (SELECT 1 FROM import_keys k
-                                   WHERE k.transaction_id = t.id)) = 0))
-              + (SELECT count(*) FROM import_deleted d WHERE d.account_id = ?2 AND d.kind = ?3
-                   AND d.bank_date = ?1 AND d.bank_amount = ?4
-                   AND {same_payee})"
+              AND k.bank_amount = ?4 AND {same_payee}
+            UNION ALL
+            SELECT 0, t.id, 2 FROM transactions t WHERE date = ?1 AND account_id = ?2
+              AND type = ?3 AND abs(amount) = ?4 AND coalesce(payee, '') = coalesce(?5, '')
+              AND split_id IS NULL AND NOT EXISTS (
+                  SELECT 1 FROM import_links l WHERE l.transaction_id = t.id AND l.account_id = ?2)
+              AND NOT EXISTS (SELECT 1 FROM import_keys k WHERE k.transaction_id = t.id)
+            UNION ALL
+            SELECT 0, split_id, 2 FROM transactions t WHERE date = ?1
+              AND account_id = ?2 AND type = ?3 AND coalesce(payee, '') = coalesce(?5, '')
+              AND split_id IS NOT NULL
+            GROUP BY split_id HAVING sum(abs(amount)) = ?4
+              AND sum(EXISTS (SELECT 1 FROM import_links l
+                              WHERE l.transaction_id = t.id AND l.account_id = ?2)) = 0
+              AND sum(EXISTS (SELECT 1 FROM import_keys k WHERE k.transaction_id = t.id)) = 0
+            UNION ALL
+            SELECT 1, d.id, CASE WHEN {same_raw} THEN 0 ELSE 2 END
+            FROM import_deleted d WHERE d.account_id = ?2 AND d.kind = ?3
+              AND d.bank_date = ?1 AND d.bank_amount = ?4 AND {same_payee})
+         SELECT deleted, id, min(priority) = 0 FROM sources
+         GROUP BY deleted, id ORDER BY min(priority), deleted, id"
     );
-    let n: i64 = conn.prepare_cached(&sql)?.query_row(
+    let mut statement = conn.prepare_cached(&sql)?;
+    let rows = statement.query_map(
         params![
             t.date,
             t.account_id,
@@ -1232,36 +1261,61 @@ fn existing_count(conn: &Connection, t: &TxnInput, raw: Option<&str>) -> Result<
             t.amount,
             t.payee,
             raw,
-            crate::csv_import::profiles::SOURCE_KEY_PREFIX
+            crate::csv_import::profiles::SOURCE_KEY_PREFIX,
+            crate::import_log::RAW_LINK_PREFIX
         ],
-        |r| r.get(0),
+        |row| {
+            Ok(RepeatMatch {
+                source: RepeatSource {
+                    deleted: row.get(0)?,
+                    id: row.get(1)?,
+                },
+                exact: row.get(2)?,
+            })
+        },
     )?;
-    Ok(n as usize)
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Строка выписки — повтор уже записанного. Одинаковые строки одного файла
-/// (две одинаковые покупки за день) считаются по порядку: N-я такая строка —
-/// повтор, только если таких операций уже записано не меньше N. Так более
-/// полная выписка добавит недостающую вторую покупку, а повтор файла — ничего.
-/// `seen` — сколько таких строк уже встретилось в этом файле.
-pub(crate) fn is_repeat(
+/// Выбор по исходному получателю делается до совпадений после правил, даже
+/// если точная строка в файле идёт позже. У каждой записи — одна строка выписки
+/// на счёт; разные стороны уже записанного перевода могут относиться к разным счетам.
+fn mark_repeats(
     conn: &Connection,
-    t: &TxnInput,
-    raw: Option<&str>,
-    seen: &mut HashMap<String, usize>,
-) -> Result<bool> {
-    let key = format!(
-        "{}|{}|{}|{}|{}",
-        t.date,
-        t.account_id,
-        t.kind,
-        t.amount,
-        t.payee.as_deref().unwrap_or("")
-    );
-    let nth = seen.entry(key).or_insert(0);
-    let repeat = existing_count(conn, t, raw)? > *nth;
-    *nth += 1;
-    Ok(repeat)
+    parsed: &mut [Parsed],
+    extra: &mut crate::csv_import::Extra,
+) -> Result<()> {
+    let candidates = parsed
+        .iter()
+        .map(|row| match &row.input {
+            Some(input) if input.kind != "transfer" => {
+                existing_sources(conn, input, row.raw_payee.as_deref())
+            }
+            _ => Ok(Vec::new()),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut seen: HashMap<String, HashSet<&RepeatSource>> = HashMap::new();
+    for exact_only in [true, false] {
+        for (row, matches) in parsed.iter_mut().zip(&candidates) {
+            let Some(input) = &row.input else { continue };
+            if matches.is_empty() {
+                continue;
+            }
+            let used = seen.entry(input.account_id.clone()).or_default();
+            if let Some(found) = matches
+                .iter()
+                .find(|found| (!exact_only || found.exact) && used.insert(&found.source))
+            {
+                row.repeat_source = (!found.source.deleted)
+                    .then(|| (input.account_id.clone(), found.source.id.clone()));
+                row.row.duplicate = true;
+                row.input = None;
+            }
+        }
+    }
+    extra.categories.retain(|(i, _)| parsed[*i].input.is_some());
+    extra.refunds.retain(|(i, _)| parsed[*i].input.is_some());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1405,6 +1459,240 @@ mod tests {
             )
             .unwrap();
         assert_eq!(resurrected, 0);
+    }
+
+    fn coffee_fixture() -> (Storage, String, String, [Op; 2]) {
+        let db = Storage::open_in_memory().unwrap();
+        let account = accounts::create(
+            db.conn(),
+            &accounts::tests::input("Карта", "debit", "RUB", 0),
+        )
+        .unwrap();
+        let category = crate::categories::create(
+            db.conn(),
+            &crate::categories::CategoryInput {
+                name: "Кофе".into(),
+                kind: "expense".into(),
+                parent_id: None,
+            },
+        )
+        .unwrap();
+        rules::create(
+            db.conn(),
+            &rules::RuleInput {
+                pattern: "Coffee".into(),
+                category_id: category.clone(),
+                payee: Some("Coffee".into()),
+            },
+        )
+        .unwrap();
+        let ops = ["Coffee A", "Coffee B"].map(|payee| Op {
+            line: if payee.ends_with('A') { 2 } else { 3 },
+            date: "2026-10-20".into(),
+            amount: "500".into(),
+            income: false,
+            currency: Some("RUB".into()),
+            category: String::new(),
+            payee: payee.into(),
+            card: None,
+            account: None,
+            own: false,
+            analytics: None,
+        });
+        (db, account, category, ops)
+    }
+
+    fn coffee_input(account: &str, category: &str) -> TxnInput {
+        TxnInput {
+            kind: "expense".into(),
+            account_id: account.into(),
+            amount: 50_000,
+            date: "2026-10-20".into(),
+            category_id: Some(category.into()),
+            to_account_id: None,
+            to_amount: None,
+            payee: Some("Coffee".into()),
+            note: None,
+        }
+    }
+
+    fn save_coffee_rows(
+        db: &mut Storage,
+        parsed: Vec<Parsed>,
+        extra: &crate::csv_import::Extra,
+    ) -> crate::import_log::Saved {
+        let skipped = parsed.iter().filter(|row| row.row.duplicate).count();
+        let tx = db.conn_mut().transaction().unwrap();
+        let saved = crate::csv_import::save_rows(
+            &tx,
+            crate::import_log::Origin::Manual,
+            "кофе.csv",
+            Some(Bank::Tbank.title()),
+            parsed,
+            &extra.refunds,
+            skipped,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        saved
+    }
+
+    #[test]
+    fn mapped_raw_payees_use_separate_sources_after_bank_normalization() {
+        use crate::csv_import::profiles;
+
+        let (mut db, account, _, ops) = coffee_fixture();
+        let folder = tempfile::tempdir().unwrap();
+        let file = folder.path().join("coffee.csv");
+        fs::write(
+            &file,
+            "Дата;Сумма;Получатель\n20.10.2026;-500;Coffee A\n20.10.2026;-500;Coffee B\n",
+        )
+        .unwrap();
+        let sample = profiles::inspect(&file, None, None).unwrap();
+        let options = profiles::CsvImportOptions {
+            mapping: profiles::CsvMapping {
+                headers: sample.headers,
+                delimiter: sample.delimiter,
+                encoding: sample.encoding,
+                date_format: profiles::DateFormat::Standard,
+                date: 0,
+                amount: profiles::AmountColumn::Signed { column: 1 },
+                payee: Some(2),
+                note: None,
+                currency: None,
+            },
+            decisions: Default::default(),
+        };
+        let saved = profiles::import(db.conn_mut(), &file, false, &account, &options).unwrap();
+        assert_eq!(saved.added, 2);
+        let (parsed, _) = to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed.iter().all(|p| p.row.payee == "Coffee"));
+        assert!(parsed.iter().all(|p| p.row.duplicate && p.input.is_none()));
+    }
+
+    #[test]
+    fn one_manual_source_is_used_once_for_different_raw_payees() {
+        let (mut db, account, category, ops) = coffee_fixture();
+        crate::transactions::create(db.conn(), &coffee_input(&account, &category)).unwrap();
+        let (parsed, extra) =
+            to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert!(parsed[0].row.duplicate && parsed[0].input.is_none());
+        assert!(!parsed[1].row.duplicate && parsed[1].input.is_some());
+        let saved = save_coffee_rows(&mut db, parsed, &extra);
+        assert_eq!((saved.added, saved.linked), (1, 0));
+        assert_eq!(
+            accounts::balance(db.conn(), &account, None).unwrap(),
+            -100_000
+        );
+    }
+
+    #[test]
+    fn later_exact_raw_match_takes_priority_over_earlier_canonical_match() {
+        let (db, account, category, mut ops) = coffee_fixture();
+        crate::import_log::save_with_raw(
+            db.conn(),
+            crate::import_log::Origin::Manual,
+            "первая.csv",
+            Some(Bank::Tbank.title()),
+            &[coffee_input(&account, &category)],
+            &[Some("Coffee".into())],
+            0,
+        )
+        .unwrap();
+        ops[0].payee = "Coffee B".into();
+        ops[1].payee = "Coffee".into();
+        let (parsed, _) = to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert!(!parsed[0].row.duplicate && parsed[0].input.is_some());
+        assert!(parsed[1].row.duplicate && parsed[1].input.is_none());
+    }
+
+    #[test]
+    fn auto_link_preserves_original_payee_in_a_reordered_statement() {
+        let (mut db, account, category, mut ops) = coffee_fixture();
+        let manual = TxnInput {
+            date: "2026-10-19".into(),
+            ..coffee_input(&account, &category)
+        };
+        let id = crate::transactions::create(db.conn(), &manual).unwrap();
+        let (parsed, extra) =
+            to_parsed(db.conn(), Bank::Tbank, &ops[..1], Some(&account), None).unwrap();
+        let first = save_coffee_rows(&mut db, parsed, &extra);
+        assert_eq!((first.added, first.linked), (0, 1));
+        let key: String = db
+            .conn()
+            .query_row(
+                "SELECT bank_payee FROM import_links WHERE transaction_id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            key.strip_prefix(crate::import_log::RAW_LINK_PREFIX),
+            Some("Coffee A")
+        );
+        assert_eq!(
+            crate::transactions::get(db.conn(), &id).unwrap().date,
+            "2026-10-19"
+        );
+
+        ops.swap(0, 1);
+        ops[0].line = 2;
+        ops[1].line = 3;
+        let (parsed, extra) =
+            to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert!(!parsed[0].row.duplicate, "Coffee B ещё не записана");
+        assert!(
+            parsed[1].row.duplicate,
+            "Coffee A уже связана с ручной записью"
+        );
+        let second = save_coffee_rows(&mut db, parsed, &extra);
+        assert_eq!((second.added, second.linked), (1, 0));
+        let (repeated, _) = to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert!(repeated.iter().all(|row| row.row.duplicate));
+        assert_eq!(
+            accounts::balance(db.conn(), &account, None).unwrap(),
+            -100_000
+        );
+    }
+
+    #[test]
+    fn a_deleted_linked_split_claims_only_one_bank_row() {
+        let (mut db, account, category, mut ops) = coffee_fixture();
+        let split = crate::receipts::create(
+            db.conn_mut(),
+            &crate::receipts::ReceiptInput {
+                date: "2026-10-19".into(),
+                account_id: account.clone(),
+                total: 50_000,
+                payee: Some("Кофе".into()),
+                note: None,
+                parts: vec![
+                    crate::receipts::PartInput {
+                        category_id: category.clone(),
+                        amount: 30_000,
+                        note: None,
+                    },
+                    crate::receipts::PartInput {
+                        category_id: category,
+                        amount: 20_000,
+                        note: None,
+                    },
+                ],
+                tags: Vec::new(),
+                event_id: None,
+            },
+        )
+        .unwrap();
+        let (parsed, extra) =
+            to_parsed(db.conn(), Bank::Tbank, &ops[..1], Some(&account), None).unwrap();
+        assert_eq!(save_coffee_rows(&mut db, parsed, &extra).linked, 1);
+        crate::receipts::delete(db.conn(), &split).unwrap();
+        ops[1].payee = ops[0].payee.clone();
+        let (parsed, _) = to_parsed(db.conn(), Bank::Tbank, &ops, Some(&account), None).unwrap();
+        assert!(parsed[0].row.duplicate);
+        assert!(parsed[1].input.is_some() && !parsed[1].row.duplicate);
     }
 
     #[test]
@@ -1656,9 +1944,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(saved.linked, 1);
-        let mut seen = HashMap::new();
-        assert!(is_repeat(db.conn(), &booked, None, &mut seen).unwrap());
-        assert!(!is_repeat(db.conn(), &booked, None, &mut seen).unwrap());
+        assert_eq!(existing_sources(db.conn(), &booked, None).unwrap().len(), 1);
     }
 
     #[test]

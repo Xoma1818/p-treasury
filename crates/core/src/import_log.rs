@@ -13,12 +13,20 @@
 //! строки добавляются, а возможные совпадения ждут подтверждения — как и две
 //! стороны перевода, пришедшие отдельными строками выписок.
 
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+};
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::invalid;
 use crate::transactions::{self, TxnInput};
 use crate::{ids, time, Error, Result};
+
+/// Новые связи хранят исходное имя отдельно от старых обычных ключей.
+pub(crate) const RAW_LINK_PREFIX: &str = "\u{1f}kazna:bank-link:v1:";
 
 /// На сколько дней дата в банке может отличаться от записанной вручную.
 pub const SAME_DAYS: i64 = 3;
@@ -64,8 +72,15 @@ struct Candidate {
     split_id: Option<String>,
 }
 
+/// По счёту: записи и целые чеки, уже учтённые при исключении точных повторов.
+pub(crate) type ReservedSources = HashMap<String, HashSet<String>>;
+
 /// Подходящие ручные записи для строки выписки.
-fn candidates(conn: &Connection, t: &TxnInput) -> Result<Vec<Candidate>> {
+fn candidates(
+    conn: &Connection,
+    t: &TxnInput,
+    reserved: Option<&HashSet<String>>,
+) -> Result<Vec<Candidate>> {
     let mut out = Vec::new();
     let near = "abs(julianday(t.date) - julianday(?3)) <= ?4";
     let free = "t.status = 'cleared' AND t.import_id IS NULL
@@ -127,12 +142,24 @@ fn candidates(conn: &Connection, t: &TxnInput) -> Result<Vec<Candidate>> {
             split_id: None,
         });
     }
+    if let Some(reserved) = reserved {
+        out.retain(|candidate| {
+            !reserved.contains(candidate.split_id.as_ref().unwrap_or(&candidate.id))
+        });
+    }
     out.truncate(MAX_CANDIDATES);
     Ok(out)
 }
 
 /// Запомнить у записи `c` строку выписки `t` (у разбитого чека — у всех частей).
-fn link(conn: &Connection, c: &Candidate, t: &TxnInput, import_id: &str, auto: bool) -> Result<()> {
+fn link(
+    conn: &Connection,
+    c: &Candidate,
+    t: &TxnInput,
+    source_payee: Option<&str>,
+    import_id: &str,
+    auto: bool,
+) -> Result<()> {
     let ids: Vec<String> = match &c.split_id {
         Some(split) => {
             let mut stmt = conn.prepare("SELECT id FROM transactions WHERE split_id = ?1")?;
@@ -140,6 +167,19 @@ fn link(conn: &Connection, c: &Candidate, t: &TxnInput, import_id: &str, auto: b
             rows.collect::<std::result::Result<_, _>>()?
         }
         None => vec![c.id.clone()],
+    };
+    let bank_payee = match source_payee {
+        // Идентификатор строки профиля уже содержит исходное имя и безопасно
+        // переносится как есть. Пустое имя остаётся совместимо со старыми ключами.
+        Some(raw)
+            if raw.is_empty()
+                || raw.starts_with(crate::csv_import::profiles::SOURCE_KEY_PREFIX)
+                || raw.starts_with(RAW_LINK_PREFIX) =>
+        {
+            Cow::Borrowed(raw)
+        }
+        Some(raw) => Cow::Owned(format!("{RAW_LINK_PREFIX}{raw}")),
+        None => Cow::Borrowed(t.payee.as_deref().unwrap_or("")),
     };
     for id in ids {
         conn.execute(
@@ -153,7 +193,7 @@ fn link(conn: &Connection, c: &Candidate, t: &TxnInput, import_id: &str, auto: b
                 t.kind,
                 t.date,
                 t.amount,
-                t.payee,
+                bank_payee.as_ref(),
                 auto
             ],
         )?;
@@ -163,13 +203,18 @@ fn link(conn: &Connection, c: &Candidate, t: &TxnInput, import_id: &str, auto: b
 
 /// Кандидаты к каждой строке и можно ли связать её саму. Ищутся до вставки:
 /// строки этой же выписки ими не бывают.
-fn plan(conn: &Connection, bank: bool, inputs: &[TxnInput]) -> Result<Vec<(Vec<Candidate>, bool)>> {
+fn plan(
+    conn: &Connection,
+    bank: bool,
+    inputs: &[TxnInput],
+    reserved: &ReservedSources,
+) -> Result<Vec<(Vec<Candidate>, bool)>> {
     if !bank {
         return Ok(vec![(Vec::new(), false); inputs.len()]);
     }
     let found: Vec<Vec<Candidate>> = inputs
         .iter()
-        .map(|t| candidates(conn, t))
+        .map(|t| candidates(conn, t, reserved.get(&t.account_id)))
         .collect::<Result<_>>()?;
     let claims = |c: &Candidate| {
         found
@@ -194,8 +239,13 @@ pub(crate) enum Mark {
     Doubt(usize, Vec<Side>),
 }
 
-pub(crate) fn marks(conn: &Connection, bank: bool, inputs: &[TxnInput]) -> Result<Vec<Mark>> {
-    plan(conn, bank, inputs)?
+pub(crate) fn marks(
+    conn: &Connection,
+    bank: bool,
+    inputs: &[TxnInput],
+    reserved: &ReservedSources,
+) -> Result<Vec<Mark>> {
+    plan(conn, bank, inputs, reserved)?
         .into_iter()
         .map(|(list, sure)| {
             Ok(match (list.first(), sure) {
@@ -254,6 +304,40 @@ pub fn save_with_raw(
     raws: &[Option<String>],
     skipped: usize,
 ) -> Result<Saved> {
+    save_entries(
+        conn,
+        origin,
+        file_name,
+        bank,
+        ImportEntries {
+            inputs,
+            raws,
+            skipped,
+            reserved: &ReservedSources::new(),
+        },
+    )
+}
+
+pub(crate) struct ImportEntries<'a> {
+    pub(crate) inputs: &'a [TxnInput],
+    pub(crate) raws: &'a [Option<String>],
+    pub(crate) skipped: usize,
+    pub(crate) reserved: &'a ReservedSources,
+}
+
+pub(crate) fn save_entries(
+    conn: &Connection,
+    origin: Origin,
+    file_name: &str,
+    bank: Option<&str>,
+    entries: ImportEntries<'_>,
+) -> Result<Saved> {
+    let ImportEntries {
+        inputs,
+        raws,
+        skipped,
+        reserved,
+    } = entries;
     let import_id = ids::new_id();
     let now = time::now_utc();
     conn.execute(
@@ -272,12 +356,13 @@ pub fn save_with_raw(
         import_id: import_id.clone(),
         ..Default::default()
     };
-    let found = plan(conn, bank.is_some(), inputs)?;
+    let found = plan(conn, bank.is_some(), inputs, reserved)?;
     let mut new_ids = Vec::new();
     for (i, (t, (list, sure))) in inputs.iter().zip(&found).enumerate() {
-        let raw = raws.get(i).cloned().flatten().or_else(|| t.payee.clone());
+        let source_payee = raws.get(i).and_then(Option::as_deref);
+        let raw = source_payee.or(t.payee.as_deref());
         if *sure {
-            link(conn, &list[0], t, &import_id, true)?;
+            link(conn, &list[0], t, source_payee, &import_id, true)?;
             out.linked += 1;
             continue;
         }
@@ -448,7 +533,9 @@ pub(crate) fn remember_deleted(conn: &Connection, filter: &str, param: &str) -> 
                    UNION ALL
                    SELECT l.account_id, l.kind, l.bank_date, l.bank_amount, l.bank_payee, NULL
                    FROM import_links l JOIN transactions t ON t.id = l.transaction_id
-                   WHERE {filter})"
+                   WHERE {filter}
+                   GROUP BY coalesce(t.split_id, t.id), l.account_id, l.kind,
+                            l.bank_date, l.bank_amount, l.bank_payee)"
         ),
         params![param, time::now_utc()],
     )?;
@@ -633,6 +720,17 @@ fn as_input(conn: &Connection, id: &str) -> Result<TxnInput> {
     )?)
 }
 
+fn imported_payee(conn: &Connection, id: &str, input: &TxnInput) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT bank_payee FROM import_keys
+             WHERE transaction_id = ?1 AND account_id = ?2 AND kind = ?3",
+            params![id, input.account_id, input.kind],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 /// Подтвердить совпадение. `same`: операция из выписки удаляется, её строка
 /// банка запоминается у ручной записи (категории, части чека, теги и заметки
 /// не меняются). `transfer`: две операции становятся одним переводом между
@@ -650,7 +748,8 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
             id: s.old_id.clone(),
             split_id: split_id.clone(),
         };
-        link(conn, &old, &bank, &s.import_id, false)?;
+        let source = imported_payee(conn, &s.new_id, &bank)?;
+        link(conn, &old, &bank, source.as_deref(), &s.import_id, false)?;
         // Другие предложения к этой же ручной записи больше не нужны.
         conn.execute(
             "DELETE FROM import_suggestions WHERE kind = 'same' AND (old_id = ?1
@@ -713,7 +812,8 @@ pub fn accept(conn: &Connection, id: &str) -> Result<String> {
                 id: transfer.clone(),
                 split_id: None,
             };
-            link(conn, &c, input, &import_id, false)?;
+            let source = imported_payee(conn, side_id, input)?;
+            link(conn, &c, input, source.as_deref(), &import_id, false)?;
             conn.execute(
                 "UPDATE import_batches SET added = added - 1, linked = linked + 1 WHERE id = ?1",
                 [&import_id],
@@ -1245,7 +1345,13 @@ mod tests {
             &other,
             "PYATEROCHKA 1250",
         );
-        let preview = marks(c, true, std::slice::from_ref(&bank)).unwrap();
+        let preview = marks(
+            c,
+            true,
+            std::slice::from_ref(&bank),
+            &ReservedSources::new(),
+        )
+        .unwrap();
         assert!(matches!(preview.as_slice(), [Mark::Link(label, record)]
             if label == "19.10 · Питание" && record.id == mine && record.amount == 125_000));
         let r = save(
@@ -1357,13 +1463,38 @@ mod tests {
         // Два одинаковых кофе в выписке, а записан один: какой из них — неясно.
         let a = op("expense", "2026-10-02", &card, 25_000, &other, "KOFEMANIYA");
         let b = op("expense", "2026-10-03", &card, 25_000, &other, "KOFEMANIYA");
-        let r = save(c, Origin::Folder, "a.csv", Some("Т-Банк"), &[a, b], 0).unwrap();
+        let r = save_with_raw(
+            c,
+            Origin::Folder,
+            "a.csv",
+            Some("Т-Банк"),
+            &[a, b],
+            &[
+                Some("KOFEMANIYA STORE A".into()),
+                Some("KOFEMANIYA STORE B".into()),
+            ],
+            0,
+        )
+        .unwrap();
         assert_eq!((r.added, r.linked, r.suggested), (2, 0, 2));
         let list = suggestions(c).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].old.tags, 1);
         let kept = accept(c, &list[0].id).unwrap();
         assert_eq!(kept, mine);
+        let original = if list[0].new.date == "2026-10-02" {
+            "KOFEMANIYA STORE A"
+        } else {
+            "KOFEMANIYA STORE B"
+        };
+        let key: String = c
+            .query_row(
+                "SELECT bank_payee FROM import_links WHERE transaction_id = ?1",
+                [&kept],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(key.strip_prefix(RAW_LINK_PREFIX), Some(original));
         assert!(
             suggestions(c).unwrap().is_empty(),
             "второе предложение к той же записи убрано"

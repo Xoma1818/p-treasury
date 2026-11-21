@@ -571,6 +571,7 @@ fn parse(
             input,
             raw_payee: Some(source_key),
             convert: None,
+            repeat_source: None,
         });
     }
     if parsed.is_empty() {
