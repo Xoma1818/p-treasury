@@ -1,19 +1,35 @@
-name: Проверка новых функций PR 100 в окне Windows
+name: Предрелизная приёмка PR 100 на Windows
 on:
   push:
     branches: [codex/qa-pr100-window]
+    paths: ['.github/workflows/qa-pr100-window.yml']
 permissions:
   actions: read
   contents: read
+concurrency:
+  group: kazna-pr100-preflight
+  cancel-in-progress: true
 jobs:
-  window:
+  verify:
+    name: Windows / ${{ matrix.mode }}
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [clean, upgrade, volume]
+    env:
+      SOURCE_RUN: '44886030389'
+      SOURCE_SHA: 6d2822d78536226d000a6d55f6ddc6e6c9d493f8
+      ARTIFACT_ID: '14701120477'
+      INSTALL_SHA: d09788b026c0375c79b0b960b29a39cb6309b681be6a45c90261e130a7635fb7
+      OLD_SHA: 3f06efffbc55ecd75090cc70d75638974054265c0b7065280057ca4f163e1dc7
+      PTREASURY_INSTALL_DIR: ${{ runner.temp }}\Kazna-Pr100
     steps:
       - uses: actions/checkout@v5
         with:
-          # Код сборки тот же; новый коммит исправляет только сценарии E2E.
-          ref: c689cd10fc37f4d05cc382e11598f9b9a299dabe
+          ref: 6d2822d78536226d000a6d55f6ddc6e6c9d493f8
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -36,23 +52,123 @@ jobs:
           Expand-Archive "$dir\d.zip" -DestinationPath $dir -Force
           & "$dir\msedgedriver.exe" --version
           Add-Content $env:GITHUB_PATH $dir
-      - name: Переносная сборка кандидата
-        shell: pwsh
+      - name: Получить проверенный установщик 0.37.0
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: '44876074450'
-          SOURCE_SHA: fcb7bb451f5dcbee3bed137b5ead3c9877dbe100
-          ARTIFACT_ID: '14697115933'
-          SHA256: 673d91db69135754e69b1be18c4053ddda692409f5c47ef03e9084ce6fa74724
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:SOURCE_SHA -or $run.conclusion -ne 'success') { throw 'Не подтверждена исходная сборка' }
-          $zip = Join-Path $env:RUNNER_TEMP 'kazna-pr100.zip'
-          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID/zip" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept="application/vnd.github+json"} -OutFile $zip
-          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $env:SHA256) { throw 'SHA-256 артефакта не совпала' }
-          $portable = Join-Path $env:RUNNER_TEMP 'kazna-pr100'
-          Expand-Archive -LiteralPath $zip -DestinationPath $portable
-          Add-Content $env:GITHUB_ENV "PTREASURY_BIN=$(Join-Path $portable 'Kazna.exe')"
-      - name: Сверка, CSV, календарь, графики и цели
-        run: node --test --test-concurrency=1 e2e/reconciliation.test.mjs e2e/csv-profiles.test.mjs e2e/reminders-ahead.test.mjs e2e/forecast.test.mjs e2e/wave5.test.mjs e2e/wave7.test.mjs
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:SOURCE_SHA -or $run.conclusion -ne 'success') { throw 'Не подтверждена сборка кандидата' }
+          $zip = Join-Path $env:RUNNER_TEMP 'kazna-installer.zip'
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID/zip" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'} -OutFile $zip
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $env:INSTALL_SHA) { throw 'SHA-256 архива установщика не совпал' }
+          $folder = Join-Path $env:RUNNER_TEMP 'kazna-bundle'
+          Expand-Archive -LiteralPath $zip -DestinationPath $folder
+          $setup = @(Get-ChildItem -LiteralPath $folder -Recurse -File -Filter 'Kazna_0.37.0_x64-setup.exe')
+          if ($setup.Count -ne 1) { throw 'Не найден ровно один установщик 0.37.0' }
+          if ($env:PTREASURY_INSTALL_DIR -match '\s' -or (Test-Path -LiteralPath $env:PTREASURY_INSTALL_DIR)) { throw 'Нужен чистый путь без пробелов' }
+          Add-Content $env:GITHUB_ENV ('KAZNA_CANDIDATE_INSTALLER=' + $setup[0].FullName)
+          Add-Content $env:GITHUB_ENV ('PTREASURY_BIN=' + (Join-Path $env:PTREASURY_INSTALL_DIR 'Kazna.exe'))
+      - name: Чистая установка 0.37.0
+        if: matrix.mode != 'upgrade'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath $env:KAZNA_CANDIDATE_INSTALLER -ArgumentList @('/S',"/D=$env:PTREASURY_INSTALL_DIR") -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "Код NSIS: $($p.ExitCode)" }
+          if (!(Test-Path -LiteralPath (Join-Path $env:PTREASURY_INSTALL_DIR 'uninstall.exe'))) { throw 'Нет программы удаления' }
+          $version = (Get-Item -LiteralPath $env:PTREASURY_BIN).VersionInfo.ProductVersion
+          if ($version -notmatch '^0\.37\.0(\b|$)') { throw "Неверная версия EXE: $version" }
+          Write-Host "Чистая установка NSIS завершилась с кодом 0. Версия EXE: $version"
+      - name: Первый запуск и импорт в установленной Kazna
+        if: matrix.mode == 'clean'
+        run: node --test --test-concurrency=1 e2e/import-save.test.mjs
+      - name: Чистая установка опубликованной 0.36.1
+        if: matrix.mode == 'upgrade'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $old = Join-Path $env:RUNNER_TEMP 'Kazna_0.36.1_x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.36.1/Kazna_0.36.1_x64-setup.exe' -OutFile $old
+          if ((Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash -ne $env:OLD_SHA) { throw 'SHA-256 опубликованного установщика не совпал' }
+          $p = Start-Process -FilePath $old -ArgumentList @('/S',"/D=$env:PTREASURY_INSTALL_DIR") -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "Код NSIS: $($p.ExitCode)" }
+          $version = (Get-Item -LiteralPath $env:PTREASURY_BIN).VersionInfo.ProductVersion
+          if ($version -notmatch '^0\.36\.1(\b|$)') { throw "Неверная версия EXE: $version" }
+          Write-Host "Установлена опубликованная сборка $version"
+          Add-Content $env:GITHUB_ENV "PTREASURY_OLD_BIN=$env:PTREASURY_BIN"
+          Add-Content $env:GITHUB_ENV 'PTREASURY_REQUIRE_OLD=1'
+      - name: Обновить установленную версию с теми же данными
+        if: matrix.mode == 'upgrade'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import assert from "node:assert/strict";
+          const source = readFileSync("e2e/upgrade.test.mjs", "utf8").replace(/\r\n/g, "\n");
+          function transform(text, anchor, replacement) {
+            assert.equal(text.split(anchor).length, 2, anchor);
+            return text.replace(anchor, replacement);
+          }
+          function verifySqlite(path, expectedVersion) {
+            const database = new DatabaseSync(path, { readOnly: true });
+            try {
+              assert.equal(database.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
+              assert.equal(database.prepare("PRAGMA user_version").get().user_version, expectedVersion);
+            } finally {
+              database.close();
+            }
+          }
+          function installCandidate() {
+            const process = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", [
+              "$ErrorActionPreference = 'Stop'",
+              "$p = Start-Process -FilePath $env:KAZNA_CANDIDATE_INSTALLER -ArgumentList @('/S',('/D=' + $env:PTREASURY_INSTALL_DIR)) -PassThru -Wait -WindowStyle Hidden",
+              "if ($p.ExitCode -ne 0) { exit $p.ExitCode }",
+              "$version = (Get-Item -LiteralPath $env:PTREASURY_BIN).VersionInfo.ProductVersion",
+              "if ($version -notmatch '^0\\.37\\.0(\\b|$)') { throw ('Неверная версия EXE после обновления: ' + $version) }",
+              "Write-Host ('NSIS обновил ту же папку до версии ' + $version)"
+            ].join("\n")], { stdio: "inherit", windowsHide: true, timeout: 120000 });
+            if (process.error) throw process.error;
+            assert.equal(process.status, 0, "installer exit code");
+          }
+          let output = 'import { spawnSync } from "node:child_process";\nimport { DatabaseSync } from "node:sqlite";\n' + source;
+          output = transform(output, "  // Новая версия на той же папке данных.", [
+            "  assert.equal(oldSchema, 25, 'проверяется опубликованная 0.36.1');",
+            "  verifySqlite(join(dataDir, 'budget.db'), oldSchema);",
+            "  installCandidate();",
+            "  // Новая версия на той же папке данных."
+          ].join("\n"));
+          output = transform(output, "  assert.equal(copies.length, 1, String(copies));", [
+            "  assert.equal(copies.length, 1, String(copies));",
+            "  await stop(browser);",
+            "  browser = null;",
+            "  verifySqlite(join(dataDir, 'budget.db'), LATEST);",
+            "  verifySqlite(join(dataDir, 'backups', copies[0]), oldSchema);",
+            "  console.log('SQLite в порядке, схема 25 → ' + LATEST + ', копия старой базы сохранена');"
+          ].join("\n"));
+          writeFileSync("e2e/upgrade-nsis.acceptance.mjs", output + "\n" + verifySqlite.toString() + "\n" + installCandidate.toString() + "\n");
+          '@ | node --input-type=module
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-concurrency=1 e2e/upgrade-nsis.acceptance.mjs
+          exit $LASTEXITCODE
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.mode == 'volume'
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.mode == 'volume'
+        with:
+          shared-key: windows-e2e
+          save-if: 'false'
+      - name: Подготовить тестовую базу за 10 лет
+        if: matrix.mode == 'volume'
+        env:
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+        run: cargo test --release -p budget-core --test volume --locked -- --ignored --nocapture
+      - name: Замер открытия экранов в установленной Kazna
+        if: matrix.mode == 'volume'
+        env:
+          PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
+          PTREASURY_VOLUME_BIN: ${{ runner.temp }}\Kazna-Pr100\Kazna.exe
+          PTREASURY_REQUIRE_VOLUME: '1'
+        run: node --test e2e/volume.test.mjs
