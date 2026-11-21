@@ -135,6 +135,17 @@ test("значок «?»: под мышкой подсказка, в Настр�
   const q = await browser.$('[data-testid="total-balance"] [data-testid="hint"]');
   await q.moveTo();
   await waitText(browser, '[data-testid="hint-tip"]', /Общий баланс[\s\S]*в основной валюте/);
+  const tip = await browser.$('[role="tooltip"]');
+  await tip.moveTo();
+  assert.ok(await browser.execute(() => document.querySelector('[role="tooltip"]')?.matches(':hover')), "пояснение доступно под указателем");
+  await browser.keys("Escape");
+  await tip.waitForExist({ reverse: true });
+  await (await browser.$("main h1")).moveTo();
+  await browser.execute((el) => el.focus(), q);
+  await tip.waitForDisplayed();
+  assert.equal(await q.getAttribute("aria-describedby"), await tip.getAttribute("id"));
+  await browser.keys("Tab");
+  await tip.waitForExist({ reverse: true });
   // Знак «?» не попадает в текст карточки.
   assert.doesNotMatch(await browser.$('[data-testid="total-balance"] .tile-label').getText(), /\?/);
   await openSection(browser, "Настройки");

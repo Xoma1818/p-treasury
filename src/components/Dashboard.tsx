@@ -149,7 +149,7 @@ export function SummaryCard({ period }: { period: Period }) {
           )}
           {budget?.id && budget.safeToSpendToday != null && (
             <li>
-              <b className="info">
+              <b>
                 <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={budgetCurrency?.minorUnits} />
               </b>
               <span>дневной лимит по бюджету</span>

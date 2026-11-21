@@ -153,7 +153,6 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .summary-lines b { flex: none; min-width: 56px; }
 .summary-lines b.good { color: var(--ok); }
 .summary-lines b.bad, .summary-lines b.warn { color: var(--over); }
-.summary-lines b.info { color: var(--series-expense); }
 .columns.trend-row { grid-template-columns: 2fr 1fr; margin-bottom: 16px; }
 .columns.trend-row .card { margin: 0; }
 .donut-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }

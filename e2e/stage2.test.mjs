@@ -118,6 +118,8 @@ test("«Можно тратить сегодня»: остаток лимито�
   await waitText(browser, '[data-testid="safe-to-spend"]', money(expected));
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="home-safe-to-spend"]', money(expected));
+  const summaryLimit = await browser.$('//*[@data-testid="home-summary"]//li[span[normalize-space()="дневной лимит по бюджету"]]/b');
+  assert.equal(await browser.execute((el) => getComputedStyle(el).color === getComputedStyle(document.body).color, summaryLimit), true, "сумма лимита окрашена основным цветом текста");
   const hint = await waitText(browser, '.home-budget-today', /Дневной лимит по бюджету/);
   const end = new Date(now.getFullYear(), now.getMonth(), last);
   assert.ok(hint.includes(`с ${dmy(now)} по ${dmy(end)} включительно`));
