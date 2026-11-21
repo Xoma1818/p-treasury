@@ -69,8 +69,18 @@ function snapshot(path, previousTables) {
 }
 
 function verifyData(before, after, label) {
-  const differences = Object.keys(before.tables).filter((name) =>
-    JSON.stringify(before.tables[name].rows) !== JSON.stringify(after.tables[name].rows));
+  const differences = Object.keys(before.tables).filter((name) => {
+    const oldRows = before.tables[name].rows;
+    const newRows = after.tables[name].rows;
+    if (name === 'budget_alerts') {
+      // Startup may append notification receipts, but previous receipts must survive unchanged.
+      const retained = new Set(newRows);
+      if (!oldRows.every((row) => retained.has(row))) return true;
+      if (newRows.length > oldRows.length) console.log(`${label}: background added ${newRows.length - oldRows.length} budget notification receipts`);
+      return false;
+    }
+    return JSON.stringify(oldRows) !== JSON.stringify(newRows);
+  });
   assert.deepEqual(differences, [], `${label}: tables with changed existing rows`);
 }
 
