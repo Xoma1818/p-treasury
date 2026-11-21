@@ -7,6 +7,7 @@ import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { useAccounts, useCategories, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { usePopup } from "../lib/usePopup";
 import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
@@ -370,7 +371,7 @@ function useCreateFromReminder() {
   const openTxnForm = useUi((s) => s.openTxnForm);
   const accounts = useAccounts().data ?? [];
   const base = useSettings().data?.base_currency;
-  return (o: Occurrence, revision: string, allowSeparate: boolean) => {
+  return (o: Occurrence, revision: string, allowSeparate: boolean, onCancelReminder: () => void) => {
     // Сумма напоминания — в основной валюте: на счёт в другой валюте её не подставляем.
     const foreign = accounts.find((a) => a.id === o.accountId)?.currencyCode !== base && o.accountId != null;
     openTxnForm({
@@ -379,22 +380,40 @@ function useCreateFromReminder() {
       date: today(),
       prefill: { amount: foreign ? null : o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
       reminder: { key: o.key, revision, allowSeparate },
+      onCancelReminder,
     });
   };
 }
 
-/** Строка срабатывания с действиями «Выполнено», «Отложить», «Создать операцию». */
 export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () => void }) {
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [matching, setMatching] = useState<"find" | "create" | null>(null);
+  const [matching, setMatching] = useState(false);
+  const more = usePopup();
+  const moreId = useId();
+  const primary = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const snoozeButton = useRef<HTMLButtonElement>(null);
   const done = useAction(() => api.completeReminder(o.key), onAction);
   const reopen = useAction(() => api.reopenReminder(o.key), onAction);
-  const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), onAction);
+  const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), () => {
+    setSnoozing(false);
+    onAction?.();
+  });
   const create = useCreateFromReminder();
   const openDebt = useUi((s) => s.openDebt);
   const open = o.status === "pending" || o.status === "snoozed";
   const late = open && o.dueAt <= nowLocal();
+  const debt = o.key.source === "debt";
+  const payment = !debt && o.amount != null;
+  const closeMatching = () => {
+    setMatching(false);
+    (payment ? primary : moreButton).current?.focus();
+  };
+  const closeSnooze = () => {
+    setSnoozing(false);
+    requestAnimationFrame(() => snoozeButton.current?.focus());
+  };
   return (
     <li className={late ? "occurrence late" : "occurrence"} data-testid="occurrence" data-title={o.title}>
       <div className="occ-main">
@@ -413,39 +432,53 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         )}
       </div>
       {o.amount != null && <Money amount={o.amount} symbol={o.currencySymbol} minorUnits={o.minorUnits} />}
-      <div className="occ-actions">
+      <div className="occ-actions" ref={more.ref} onKeyDown={(event) => {
+        if (event.key !== "Escape" || (!more.open && !snoozing)) return;
+        event.stopPropagation();
+        if (snoozing) closeSnooze();
+        else {
+          more.setOpen(false);
+          moreButton.current?.focus();
+        }
+      }}>
         {open && !snoozing && (
           <>
-            <button className="btn small primary" onClick={() => {
-              if (o.key.source === "debt" && o.debtId) openDebt(o.debtId, true);
-              else setMatching("create");
+            <button type="button" ref={primary} className="btn small primary" disabled={done.busy}
+              data-testid={payment ? "occ-match-payment" : undefined} onClick={() => {
+              more.setOpen(false);
+              if (debt && o.debtId) openDebt(o.debtId, true);
+              else if (payment || debt) setMatching(true);
+              else done.run();
             }}>
-              {o.key.source === "debt" ? "Оплачено" : "Создать операцию"}
+              {debt ? "Оплачено" : payment ? "Учесть платёж" : "Выполнено"}
             </button>
-            <button className="btn small" onClick={() => done.run()}>
-              Выполнено
-            </button>
-            <button className="btn small" onClick={() => setSnoozing(true)}>
+            <button type="button" ref={snoozeButton} className="btn small" disabled={done.busy} onClick={() => { more.setOpen(false); setSnoozing(true); }}>
               Отложить
             </button>
-            {o.key.source === "reminder" && (
-              <>
-                {o.accountId && o.amount != null && o.payAt.slice(0, 10) <= addDays(today(), 3) && (
-                  <button className="btn small" onClick={() => setMatching("find")} data-testid="occ-match-payment">Найти операцию</button>
+            <button type="button" ref={moreButton} className="btn small" aria-expanded={more.open}
+              aria-controls={more.open ? moreId : undefined} disabled={done.busy} onClick={() => more.setOpen(!more.open)}>Ещё</button>
+            {more.open && (
+              <div className="occ-secondary" id={moreId}>
+                {payment || debt ? (
+                  <button type="button" className="btn small" disabled={done.busy} onClick={() => { more.setOpen(false); done.run(); }}>Отметить выполненным без записи</button>
+                ) : (
+                  <button type="button" className="btn small" onClick={() => { more.setOpen(false); setMatching(true); }}>Создать операцию</button>
                 )}
-                <button className="btn small" onClick={() => setEditing(true)} data-testid="occ-edit">
+                {!debt && <button type="button" className="btn small" onClick={() => { more.setOpen(false); setEditing(true); }} data-testid="occ-edit">
                   Изменить
-                </button>
-              </>
+                </button>}
+              </div>
             )}
           </>
         )}
-        {snoozing &&
-          SNOOZE.map(([label, until]) => (
-            <button key={label} className="btn small" onClick={() => snooze.run(until())}>
+        {snoozing && <>
+          {SNOOZE.map(([label, until], index) => (
+            <button key={label} type="button" className="btn small" autoFocus={index === 0} disabled={snooze.busy} onClick={() => snooze.run(until())}>
               {label}
             </button>
           ))}
+          <button type="button" className="btn small" disabled={snooze.busy} onClick={closeSnooze}>Назад</button>
+        </>}
         {o.status === "done" && (
           <button className="link" onClick={() => reopen.run()} title="Вернуть в ожидание">
             Вернуть
@@ -454,11 +487,11 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
       </div>
       <ErrorText error={done.error ?? snooze.error ?? reopen.error} />
       {matching && (
-        <PaymentMatch o={o} autoCreate={matching === "create"} onClose={() => setMatching(null)} onCreate={(revision, allowSeparate) => {
-          setMatching(null);
-          create(o, revision, allowSeparate);
+        <PaymentMatch o={o} onClose={closeMatching} onCreate={(revision, allowSeparate) => {
+          setMatching(false);
+          create(o, revision, allowSeparate, allowSeparate ? () => setMatching(true) : closeMatching);
         }} onLinked={() => {
-          setMatching(null);
+          setMatching(false);
           onAction?.();
         }} />
       )}
@@ -467,6 +500,7 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
           o={o}
           onClose={() => {
             setEditing(false);
+            moreButton.current?.focus();
             onAction?.();
           }}
         />
@@ -475,9 +509,8 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
   );
 }
 
-function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
+function PaymentMatch({ o, onClose, onLinked, onCreate }: {
   o: Occurrence;
-  autoCreate: boolean;
   onClose: () => void;
   onLinked: () => void;
   onCreate: (revision: string, allowSeparate: boolean) => void;
@@ -500,17 +533,18 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
   const error = attach.error ?? (query.error ? String(query.error) : null);
   const openedForm = useRef(false);
   useEffect(() => {
-    if (autoCreate && review && review.candidates.length === 0 && !error && !openedForm.current) {
+    if (review && review.candidates.length === 0 && !error && !openedForm.current) {
       openedForm.current = true;
       onCreate(review.revision, false);
     }
-  }, [autoCreate, review, error, onCreate]);
+  }, [review, error, onCreate]);
   return (
-    <Modal title={`Операция для «${o.title}»`} onClose={onClose} dismissDisabled={attach.busy}>
+    <Modal title={`Учесть платёж · ${o.title}`} onClose={onClose} dismissDisabled={attach.busy}>
       {query.isFetching && !attach.busy && <p className="muted" role="status">Ищем в операциях…</p>}
       {review && candidates.length === 0 && (
         <p className="muted" data-testid="occ-match-empty">Подходящих операций нет.</p>
       )}
+      {candidates.length === 1 && <p className="muted">Найдена проведённая операция. Проверьте дату и сумму.</p>}
       {candidates.length > 1 && <p className="muted">Выберите проведённую операцию для связи.</p>}
       {candidates.map((match, index) => {
         const id = `${groupId}-${index}`;
@@ -539,15 +573,16 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
         attach.setError(null);
         void query.refetch();
       }}>Проверить снова</button>}
-      <div className="actions">
+      {selected && <p className="hint" role="status">Связь завершит напоминание. Сумма проведённой операции и остаток на счёте сохранятся.</p>}
+      <div className="actions payment-review-actions">
         <span className="spacer" />
-        <button type="button" className="btn" disabled={attach.busy} onClick={onClose}>Закрыть</button>
-        {review && <button type="button" className="btn" disabled={attach.busy || !!error}
-          onClick={() => onCreate(review.revision, candidates.length > 0)}>
-          {candidates.length > 0 ? "Создать отдельную операцию" : "Создать операцию"}
+        <button type="button" className="btn" autoFocus disabled={attach.busy} onClick={onClose}>Назад</button>
+        {review && candidates.length > 0 && <button type="button" className="btn" disabled={attach.busy || !!error}
+          onClick={() => onCreate(review.revision, true)}>
+          {o.txnType === "income" ? "Записать отдельный доход" : "Записать отдельный расход"}
         </button>}
         {candidates.length > 0 && <button type="button" className="btn primary" disabled={!selected || attach.busy || !!error} aria-busy={attach.busy}
-          onClick={() => selected && attach.run(o.key, selected.transactionId, selected.revision)}>Связать</button>}
+          onClick={() => selected && attach.run(o.key, selected.transactionId, selected.revision)}>Связать с платежом</button>}
       </div>
     </Modal>
   );

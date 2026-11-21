@@ -88,19 +88,19 @@ test("выписка сохраняет только предложенную с
   await click(browser, "Импорт выписки или CSV");
   await pick(first);
   await choose(browser, "importAccount", "Карта (₽)");
-  await waitText(browser, summary, /строк 1, без ошибок 0, свяжутся с вашими записями 1/);
+  await waitText(browser, summary, /строк 1, без ошибок 1, свяжутся с вашими записями 1/);
   await click(browser, "Связать 1", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 0, связано с вашими записями: 1/);
 
   await pick(second);
-  await waitText(browser, summary, /строк 2, без ошибок 1, уже загружено раньше 1/);
+  await waitText(browser, summary, /строк 2, без ошибок 2, уже загружено раньше 1/);
   const duplicates = await browser.execute(() =>
     [...document.querySelectorAll('[data-testid="import-row"]')].map((row) => row.dataset.duplicate));
   assert.deepEqual(duplicates, ["0", "1"]);
   await click(browser, "Загрузить 1", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 1/);
   await pick(second);
-  await waitText(browser, summary, /строк 2, без ошибок 0, уже загружено раньше 2/);
+  await waitText(browser, summary, /строк 2, без ошибок 2, уже загружено раньше 2/);
 
   const page = await invoke("list_transactions", { filter: { accountId: card, types: ["expense"], limit: 100 } });
   const purchases = page.items.filter((t) => t.amount === amount);

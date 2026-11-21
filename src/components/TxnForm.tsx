@@ -46,6 +46,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const editing = state.mode === "edit" ? state.txn : null;
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const reminder = state.mode === "new" ? state.reminder : undefined;
+  const cancel = () => {
+    onClose();
+    if (state.mode === "new") state.onCancelReminder?.();
+  };
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories().data ?? [];
 
@@ -354,7 +358,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
       !!friends);
   return (
-    <Modal title={title} onClose={onClose} side={side} guardUnsaved>
+    <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={save.busy || remove.busy}>
       <form
         className="form"
         onSubmit={(e) => {
@@ -666,6 +670,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />
         <ErrorText error={save.error ?? remove.error} />
+        {reminder && <p className="hint" data-testid="reminder-save-impact">
+          {reminder.allowSeparate
+            ? "Сохранение добавит отдельную запись и завершит напоминание."
+            : "После сохранения напоминание будет выполнено."}
+        </p>}
         {editing?.debtId && (
           <p className="hint" data-testid="txn-debt-hint">
             Это платёж по долгу: удалить или изменить его можно в карточке долга, там же пересчитается график.
@@ -688,12 +697,12 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
-            Отмена
+          <button type="button" className="btn" onClick={cancel} disabled={save.busy}>
+            {reminder?.allowSeparate ? "Назад" : "Отмена"}
           </button>
           {!isAdjustment && (
             <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || (!!splitId && !receiptLoaded.current)} title="Ctrl+Enter">
-              Сохранить
+              {reminder && type === "expense" ? "Записать расход" : reminder && type === "income" ? "Записать доход" : "Сохранить"}
             </button>
           )}
         </div>

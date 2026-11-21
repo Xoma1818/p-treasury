@@ -433,7 +433,10 @@ textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(
 .occurrence { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .occurrence.late .main { color: var(--over); }
 .occ-main { flex: 1; min-width: 160px; display: flex; flex-direction: column; }
-.occ-actions { display: flex; gap: 6px; }
+.occ-actions, .occ-secondary { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
+.occ-secondary { flex-basis: 100%; }
+.occ-secondary .btn, .payment-review-actions .btn { white-space: normal; }
+.payment-review-actions { flex-wrap: wrap; }
 .note-list { list-style: none; margin: 0; padding: 0; }
 .note-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
 .notes-block .note-list li { flex-direction: row; justify-content: space-between; align-items: center; }
@@ -1052,7 +1055,9 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 
 /* Р6: слои дня; Р7: тепловая карта года. */
 .period-nav .spacer { flex: 1; }
-.cal-layers { flex-wrap: wrap; }
+.period-nav:has(.cal-layers) { flex-wrap: wrap; }
+.tabs.small.cal-layers { flex: 0 1 auto; max-width: 100%; flex-wrap: wrap; }
+.cal-layers .tab { flex: none; }
 .cal-balance { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .cal-balance .money { font-size: 11px; }
 .heat-card { padding: 14px; }

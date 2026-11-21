@@ -46,12 +46,12 @@ async function newReminder({ title, date, time = "09:00", repeat, amount, catego
   await save(browser);
 }
 
-test("коммуналка: «ЖКХ» ежемесячно, «Создать операцию» с суммой 6 230 ₽", async () => {
+test("коммуналка: «Учесть платёж» без совпадений открывает форму расхода", async () => {
   await openReminders();
   await newReminder({ title: "ЖКХ", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
   await waitText(browser, '[data-testid="rem-all"]', /ЖКХ · ежемесячно, следующее/);
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
-  await click(browser, "Создать операцию", occ("rem-overdue", "ЖКХ"));
+  await click(browser, "Учесть платёж", occ("rem-overdue", "ЖКХ"));
   const amount = await browser.$('[role="dialog"] [name="amount"]');
   await amount.waitForDisplayed({ timeout: 5000 });
   assert.equal(await amount.getValue(), "6000");
@@ -65,7 +65,7 @@ test("коммуналка: «ЖКХ» ежемесячно, «Создать о
   for (const digit of enteredAmount) keys.down(digit).up(digit);
   await keys.perform();
   assert.equal(await amount.getValue(), enteredAmount);
-  await save(browser);
+  await save(browser, "Записать расход");
   await waitText(browser, '[data-testid="rem-done"]', /ЖКХ/);
   await waitText(browser, '[data-testid="rem-overdue"]', /Всё сделано/);
   await openSection(browser, "Счета");

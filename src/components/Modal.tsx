@@ -59,8 +59,14 @@ export function Modal({
   useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {
     // Esc при вопросе возвращает к вводу: так случайное второе нажатие ничего не теряет.
-    const onKey = (e: KeyboardEvent) =>
-      e.key === "Escape" && (asking ? setAsking(false) : dismiss());
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (dialogs[dialogs.length - 1] !== box.current) return;
+      e.preventDefault();
+      if (asking) setAsking(false);
+      else dismiss();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
@@ -68,6 +74,7 @@ export function Modal({
   // под ним. WebView2 сам этого не делает (прогон Windows, window.test.mjs).
   const trapTab = (e: ReactKeyboardEvent) => {
     if (e.key !== "Tab" || !box.current) return;
+    if (e.target instanceof Element && e.target.closest('[role="dialog"]') !== box.current) return;
     const items = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
       (el) => !el.hasAttribute("disabled") && el.tabIndex >= 0 && el.getClientRects().length > 0,
     );

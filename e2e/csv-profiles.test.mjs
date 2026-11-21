@@ -55,10 +55,13 @@ test("профиль CSV сохраняется, повтор не дублир�
   await choose(browser, "csvProfile", "Мой CSV");
   await click(browser, "Проверить строки", dialog);
   await waitText(browser, '[data-testid="import-summary"]', /похожие строки 2/);
-  assert.equal(await browser.$(`${dialog}//button[normalize-space()="Загрузить 2"]`).isEnabled(), false);
-  const decisions = await browser.$$('[data-testid="csv-similar-decision"]');
-  await decisions[0].selectByAttribute("value", "skip");
-  await decisions[1].selectByAttribute("value", "add");
+  await click(browser, "Разобрать 2 строки", dialog);
+  assert.equal(await browser.$('input[name="statement-choice"][value^="link:"]').isExisting(), false);
+  await browser.$('input[name="statement-choice"][value="skip"]').click();
+  await click(browser, "К следующей строке", dialog);
+  await browser.$('input[name="statement-choice"][value="add"]').click();
+  await waitText(browser, '.statement-review [role="status"]', /Изменение остатка: −65(?:[.,]00)?\s*₽/);
+  await click(browser, "К итогу", dialog);
   await click(browser, "Загрузить 1", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 1/);
 

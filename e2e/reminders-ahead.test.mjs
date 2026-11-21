@@ -66,6 +66,7 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await waitText(browser, `${occ("Аренда")}//*[@data-testid="shortfall"]`, money("50 000 ₽"));
 
   // Только этот платёж — 80 000 ₽ и на день позже.
+  await click(browser, "Ещё", occ("Аренда"));
   await click(browser, "Изменить", occ("Аренда"));
   await fill(browser, "occAmount", "80000");
   await setDate(browser, "occDate", inDays(3));
@@ -73,6 +74,12 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await waitText(browser, occ("Аренда"), /изменён/);
   await waitText(browser, occ("Аренда"), money("80 000 ₽"));
   await browser.waitUntil(async () => !(await browser.$(`${occ("Аренда")}//*[@data-testid="shortfall"]`).isExisting()), { timeout: 5000 });
+  await click(browser, "Ещё", occ("Аренда"));
+  await click(browser, "Отметить выполненным без записи", occ("Аренда"));
+  await waitText(browser, '[data-testid="rem-done"]', /Аренда/);
+  await openSection(browser, "Операции");
+  await fill(browser, "search", "Аренда");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
 });
 
 test("заметка «Продлить страховку»: напоминание за неделю прямо из заметки", async () => {
@@ -135,10 +142,10 @@ test("напоминание связывается с проведённым с
   await choose(browser, "reminderAccount", "Карта (₽)");
   await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
   await save(browser);
-  await click(browser, "Создать операцию", occ("Контрольный интернет"));
+  await click(browser, "Учесть платёж", occ("Контрольный интернет"));
   await waitText(browser, '[data-testid="occ-match-candidate"]', money("450 ₽"));
   await waitText(browser, '[data-testid="occ-match-candidate"]', /Сумма отличается/);
-  await save(browser, "Связать");
+  await save(browser, "Связать с платежом");
   await waitText(browser, '[data-testid="rem-done"]', /Контрольный интернет[\s\S]*связано с операцией/);
 
   await openSection(browser, "Операции");
@@ -169,7 +176,7 @@ test("несколько проведённых платежей: можно в�
   await choose(browser, "reminderAccount", "Карта (₽)");
   await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
   await save(browser);
-  await click(browser, "Найти операцию", occ(title));
+  await click(browser, "Учесть платёж", occ(title));
   const match = (amount) => `//*[@data-testid="occ-match-candidate" and contains(., "${amount}")]`;
   await waitText(browser, match("871"), money("871 ₽"));
   await waitText(browser, match("872"), money("872 ₽"));
@@ -196,9 +203,13 @@ test("несколько проведённых платежей: можно в�
   await browser.keys(["Control", "h"]);
   await waitText(browser, match("872"), money("872 ₽"));
   assert.deepEqual(await accessibleNames(), namesShown);
-  assert.equal(await (await browser.$(`${lastDialog}//button[normalize-space()="Связать"]`)).isEnabled(), false);
+  assert.equal(await (await browser.$(`${lastDialog}//button[normalize-space()="Связать с платежом"]`)).isEnabled(), false);
+  await click(browser, "Записать отдельный расход", lastDialog);
+  await waitText(browser, '[data-testid="reminder-save-impact"]', /добавит отдельную запись/);
+  await click(browser, "Назад", lastDialog);
+  await waitText(browser, match("872"), money("872 ₽"));
   await (await browser.$(`${match("872")}//input[@type="radio"]`)).click();
-  await save(browser, "Связать");
+  await save(browser, "Связать с платежом");
   await waitText(browser, '[data-testid="rem-done"]', /Проверка выбора платежа[\s\S]*связано с операцией/);
 
   await openSection(browser, "Операции");

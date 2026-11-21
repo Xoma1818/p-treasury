@@ -15,6 +15,9 @@ import { ErrorText, Modal } from "./Modal";
 import { DecorativeIcon } from "./DecorativeIcon";
 import { Hint } from "./Hint";
 import { ImportSaveGuard } from "../lib/importSaveGuard";
+import { HIDDEN_AMOUNT } from "../lib/money";
+import { plural } from "../lib/receipt";
+import { StatementRowReview } from "./StatementRowReview";
 import "./importOverview.css";
 
 type Kind = "month" | "quarter" | "year" | "custom";
@@ -112,8 +115,14 @@ function importRowFilter(row: ImportRow): Exclude<ImportRowFilter, "all"> {
   return "add";
 }
 
-function bankDecisionValue(decision?: BankImportDecision): string {
-  return decision?.action === "link" ? `link:${decision.transactionId}` : decision?.action ?? "";
+function previewRowStatus(row: ImportRow, bank: boolean, mapped: boolean, showAmounts: boolean, decision?: BankImportDecision) {
+  if (decision?.action === "link") return "Свяжем с выбранной операцией.";
+  if (decision?.action === "add") return "Добавим отдельную операцию.";
+  if (decision?.action === "skip") return "Пропустим в этой загрузке.";
+  if (!showAmounts && row.error) return "Проверьте данные строки.";
+  if (mapped && row.duplicate) return "Эта строка из того же файла уже была загружена.";
+  if (mapped && row.maybe > 0) return "Похожа на запись в Kazna.";
+  return importRowExplanation(row, bank);
 }
 
 /** Импорт: выписка Сбера или Т-Банка либо CSV по шаблону → предпросмотр с ошибками и повторами → загрузка. */
@@ -126,8 +135,12 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [activeMapping, setActiveMapping] = useState<CsvMapping | null>(null);
   const [mapperOpen, setMapperOpen] = useState(false);
-  const [csvDecisions, setCsvDecisions] = useState<Record<number, boolean>>({});
-  const [bankDecisions, setBankDecisions] = useState<Record<number, BankImportDecision>>({});
+  const [decisions, setDecisions] = useState<Record<number, BankImportDecision>>({});
+  const [reviewLine, setReviewLine] = useState<number | null>(null);
+  const summaryFocus = useRef<HTMLHeadingElement>(null);
+  const restoreFocus = useRef(false);
+  const settings = useSettings().data;
+  const showAmounts = !!settings && settings.hide_amounts !== "1";
   const [rowFilter, setRowFilter] = useState<ImportRowFilter>("all");
   const rowsByFilter = useMemo(() => {
     const groups: Record<ImportRowFilter, ImportRow[]> = {
@@ -142,24 +155,19 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     for (const row of groups.all) groups[importRowFilter(row)].push(row);
     return groups;
   }, [preview]);
-  const csvUnresolved = activeMapping
-    ? rowsByFilter.review.filter((row) => csvDecisions[row.line] === undefined).length
-    : 0;
-  const csvSkipped = activeMapping
-    ? rowsByFilter.review.filter((row) => csvDecisions[row.line] === false).length
-    : 0;
-  const bankReview = preview?.bank ? rowsByFilter.review : [];
-  const chosen = bankReview.flatMap(({ line }) => bankDecisions[line] ? [bankDecisions[line]] : []);
-  const unresolved = csvUnresolved + bankReview.length - chosen.length;
-  const bankAdds = chosen.filter((decision) => decision.action === "add").length;
-  const skipped = csvSkipped + chosen.filter((decision) => decision.action === "skip").length;
-  const toLoad = preview ? preview.valid - csvSkipped - bankReview.length + bankAdds : 0;
+  const reviewRows = preview?.bank || activeMapping ? rowsByFilter.review : [];
+  const remaining = reviewRows.filter((r) => !decisions[r.line]);
+  const chosen = Object.values(decisions);
+  const unresolved = remaining.length;
+  const skipped = chosen.filter((decision) => decision.action === "skip").length;
+  const toLoad = preview ? preview.valid - reviewRows.length + chosen.filter((decision) => decision.action === "add").length : 0;
   const toLink = (preview?.linked ?? 0) + chosen.filter((decision) => decision.action === "link").length;
   const actionable = toLoad + (preview?.toTransfers ?? 0) + toLink;
   let saveLabel = `Загрузить ${toLoad}`;
   if (preview && toLoad === 0) {
     if (preview.toTransfers > 0) saveLabel = `Исправить ${preview.toTransfers}`;
     else if (toLink > 0) saveLabel = `Связать ${toLink}`;
+    else if (skipped > 0) saveLabel = "Завершить разбор";
   }
   const [accountId, setAccountId] = useState<string | null>(null);
   // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
@@ -192,8 +200,8 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     const n = ++request.current;
     setError(null);
     setLoaded(null);
-    setCsvDecisions({});
-    setBankDecisions({});
+    setDecisions({});
+    setReviewLine(null);
     setLoadedAccount(null);
     setPending(true);
     setPath(p);
@@ -250,8 +258,8 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
         path, preview.fileDigest, skipErrors,
         preview.bank || activeMapping ? accountId : null,
         preview.bank ? selfId : null,
-        activeMapping ? { ...activeMapping, decisions: csvDecisions } : null,
-        preview.bank ? bankDecisions : undefined,
+        activeMapping ? { ...activeMapping, decisions: Object.fromEntries(Object.entries(decisions).map(([line, d]) => [line, d.action === "add"])) } : null,
+        preview.bank ? decisions : undefined,
       ));
       setLoadedAccount(preview.bank || activeMapping ? accountId : null);
       setPreview(null);
@@ -264,6 +272,36 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     });
   };
 
+  useEffect(() => {
+    if (reviewLine === null && restoreFocus.current) {
+      restoreFocus.current = false;
+      summaryFocus.current?.focus();
+    }
+  }, [reviewLine]);
+  const finishReview = () => {
+    restoreFocus.current = true;
+    setReviewLine(null);
+  };
+  const reviewRow = reviewRows.find((row) => row.line === reviewLine);
+  if (reviewRow && preview) {
+    const nextRow = remaining.find((row) => row.line !== reviewLine);
+    const used = new Set<string>();
+    // Ключ ядра включает сторону счёта. Один перевод можно подтвердить с обеих сторон.
+    for (const row of preview.rows) {
+      if (row.line === reviewLine || row.account !== reviewRow.account) continue;
+      const choice = decisions[row.line];
+      if (choice?.action === "link") used.add(choice.transactionId);
+      if (row.linkedTo) for (const match of preview.matches?.[row.line] ?? []) used.add(match.id);
+    }
+    return <StatementRowReview key={reviewRow.line} row={reviewRow} matches={preview.matches?.[reviewRow.line] ?? []}
+      bank={!!preview.bank} currencySymbol={accounts.find((a) => a.name === reviewRow.account)?.currencySymbol}
+      showAmounts={showAmounts} used={used} initial={decisions[reviewRow.line]} hasNext={!!nextRow} onBack={finishReview}
+      onAccept={(choice) => {
+        setDecisions((previous) => ({ ...previous, [reviewRow.line]: choice }));
+        if (nextRow) setReviewLine(nextRow.line);
+        else finishReview();
+      }} />;
+  }
   if (next === "history") return <ImportHistoryDialog onClose={onClose} />;
   if (next === "matches") return <MatchesDialog onClose={onClose} />;
   return (
@@ -274,7 +312,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           <p className="muted">Сбер — PDF, Т-Банк — CSV или Excel. Для других CSV можно сопоставить столбцы.</p>
         </div>
         <div className="import-overview-controls">
-          <button type="button" className="btn primary import-overview-pick" disabled={saving} onClick={choose}>
+          <button type="button" className={preview ? "btn import-overview-pick" : "btn primary import-overview-pick"} disabled={saving} onClick={choose}>
             <DecorativeIcon icon={FileUp} size="control" />
             Выбрать файл
           </button>
@@ -333,9 +371,9 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       {preview && !mapperOpen && (
         <section className="import-overview-preview" aria-labelledby="import-preview-title">
           <div className="import-overview-heading">
-            <h2 id="import-preview-title">Проверка перед загрузкой</h2>
+            <h2 id="import-preview-title" ref={summaryFocus} tabIndex={-1}>{reviewRows.length && !unresolved ? "Итог перед сохранением" : "Проверка перед загрузкой"}</h2>
             <p data-testid="import-summary" className={preview.errors ? "warn" : "muted"}>
-              {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.valid}
+              {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.rows.length - preview.errors}
               {preview.errors > 0 && `, с ошибками ${preview.errors}`}
               {preview.duplicates > 0 && `, уже загружено раньше ${preview.duplicates}`}
               {preview.toTransfers > 0 && `, станут переводами ${preview.toTransfers}`}
@@ -346,6 +384,26 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
               {skipped > 0 && `, выбрано пропустить ${skipped}`}
             </p>
           </div>
+          {reviewRows.length > 0 && (
+            <section className="statement-review-summary" aria-label="Итог по всему файлу" data-testid="statement-totals">
+              <div><span>К добавлению</span><strong>{toLoad}</strong></div>
+              <div><span>Связать</span><strong>{toLink}</strong></div>
+              <div><span>Пропустить</span><strong>{skipped + rowsByFilter.duplicate.length}</strong></div>
+              {preview.toTransfers > 0 && <div><span>Исправить переводы</span><strong>{preview.toTransfers}</strong></div>}
+              {preview.errors > 0 && <div><span>С ошибками</span><strong>{preview.errors}</strong></div>}
+              {unresolved > 0 && <p role="status">Требуют решения: {unresolved}</p>}
+              {chosen.length > 0 && (
+                <label className="statement-revisit">Пересмотреть выбор
+                  <select name="statementReviewLine" value="" disabled={pending || saving} onChange={(e) => setReviewLine(Number(e.target.value))}>
+                    <option value="" disabled>Выберите строку</option>
+                    {reviewRows.filter((r) => decisions[r.line]).map((r) => (
+                      <option value={r.line} key={r.line}>Строка {r.line} · {r.payee || r.category || r.type} · {decisions[r.line].action === "link" ? "связать" : decisions[r.line].action === "add" ? "добавить" : "пропустить"}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </section>
+          )}
           {preview.rows.length > 0 && (
             <div className="row import-overview-filter">
               <Field label="Показать строки" hint="Фильтр меняет только вид таблицы. При загрузке учитывается весь файл.">
@@ -387,76 +445,27 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
                     {(preview.bank || activeMapping) && (
                       <td className="import-payee">
                         {r.payee}
-                        {r.sourceNote && <div className="muted">{r.sourceNote}</div>}
+                        {showAmounts && r.sourceNote && <div className="muted">{r.sourceNote}</div>}
                       </td>
                     )}
-                    <td className="num">{r.amount}</td>
+                    <td className="num">{showAmounts ? r.amount : HIDDEN_AMOUNT}</td>
                     <td className={r.error ? "error" : "muted"}>
-                      {activeMapping && r.duplicate
-                        ? "Эта строка из того же файла уже была загружена."
-                        : activeMapping && r.maybe > 0
-                          ? "Похожа на запись в Kazna."
-                          : importRowExplanation(r, Boolean(preview.bank))}
-                      {preview.matches?.[r.line]?.length ? (
+                      {previewRowStatus(r, !!preview.bank, !!activeMapping, showAmounts, decisions[r.line])}
+                      {settings && !r.maybe && preview.matches?.[r.line]?.length ? (
                         <details data-testid="import-preview-matches">
                           <summary>Сравнить с учётом</summary>
                           <p className="hint">{activeMapping
                             ? "Совпали счёт, дата и сумма."
                             : "Совпали счёт и сумма операции или её стороны. Даты могут отличаться."}</p>
                           {preview.matches[r.line].map((s, i) => (
-                            <StatementMatchSide key={s.id} s={s} label={r.linkedTo ? "Запись в Kazna" : `Вариант ${i + 1}`} />
+                            <StatementMatchSide key={s.id} s={showAmounts ? s : { ...s, note: null }} label={r.linkedTo ? "Запись в Kazna" : `Вариант ${i + 1}`} />
                           ))}
-                          {!activeMapping && r.maybe > preview.matches[r.line].length &&
-                            <p className="hint">Показаны ближайшие варианты. Если нужной записи нет, пропустите строку в этой загрузке.</p>}
                         </details>
                       ) : null}
-                      {preview.bank && r.maybe > 0 && (
-                        <select
-                          aria-label={`Что сделать со строкой ${r.line}`}
-                          disabled={pending || saving}
-                          data-testid="bank-similar-decision"
-                          value={bankDecisionValue(bankDecisions[r.line])}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setBankDecisions((old) => {
-                              const next = { ...old };
-                              if (!value) delete next[r.line];
-                              else if (value === "add" || value === "skip") next[r.line] = { action: value };
-                              else next[r.line] = { action: "link", transactionId: value.slice(5) };
-                              return next;
-                            });
-                          }}
-                        >
-                          <option value="">Выберите действие</option>
-                          {(preview.matches?.[r.line] ?? []).map((s, index) => (
-                            <option key={s.id} value={`link:${s.id}`}>
-                              {`Связать с вариантом ${index + 1} · ${formatDate(s.date)} · ${s.payee ?? s.category ?? s.account}`}
-                            </option>
-                          ))}
-                          <option value="add">Добавить отдельно</option>
-                          <option value="skip">Пропустить в этой загрузке</option>
-                        </select>
-                      )}
-                      {activeMapping && r.maybe > 0 && (
-                        <select
-                          aria-label={`Что сделать со строкой ${r.line}`}
-                          disabled={pending || saving}
-                          data-testid="csv-similar-decision"
-                          value={csvDecisions[r.line] === undefined ? "" : csvDecisions[r.line] ? "add" : "skip"}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setCsvDecisions((old) => {
-                              const next = { ...old };
-                              if (!value) delete next[r.line];
-                              else next[r.line] = value === "add";
-                              return next;
-                            });
-                          }}
-                        >
-                          <option value="">Выберите действие</option>
-                          <option value="add">Добавить отдельно</option>
-                          <option value="skip">Пропустить в этой загрузке</option>
-                        </select>
+                      {(preview.bank || activeMapping) && r.maybe > 0 && (
+                        <button type="button" className="link" disabled={pending || saving} onClick={() => setReviewLine(r.line)}>
+                          {decisions[r.line] ? "Изменить решение" : "Разобрать строку"}
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -476,6 +485,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           Загружено операций: {loaded.added}
           {loaded.converted > 0 && `, стали переводами: ${loaded.converted}`}
           {loaded.linked > 0 && `, связано с вашими записями: ${loaded.linked}`}
+          {skipped > 0 && `, по вашему выбору пропущено: ${skipped}`}
           {loaded.suggested > 0 && (
             <>
               {`. Совпадений на проверку: ${loaded.suggested}. `}
@@ -494,19 +504,23 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       )}
       {saving && <p className="muted" role="status">Сохраняем операции…</p>}
       <ErrorText error={error} />
-      {unresolved > 0 && <p className="warn" role="status">Выберите действие для похожих строк. Осталось: {unresolved}.</p>}
       <div className="actions import-overview-actions">
-        {preview && !mapperOpen && preview.errors > 0 && actionable > 0 && (
-          <button className="link" disabled={pending || saving || unresolved > 0} onClick={() => commit(true)}>
-            Загрузить только правильные ({actionable})
+        {preview && !mapperOpen && !unresolved && preview.errors > 0 && (actionable > 0 || skipped > 0) && (
+          <button className="btn primary" disabled={pending || saving} onClick={() => commit(true)}>
+            {actionable ? `Загрузить только правильные (${actionable})` : "Завершить без загрузки"}
           </button>
         )}
         <span className="spacer" />
         <button className="btn" disabled={saving} onClick={dismiss}>
           Закрыть
         </button>
-        {preview && !mapperOpen && (
-          <button className="btn primary" disabled={pending || saving || unresolved > 0 || preview.errors > 0 || actionable === 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+        {preview && !mapperOpen && unresolved > 0 && (
+          <button type="button" className="btn primary" disabled={pending || saving} data-testid="statement-start-review" onClick={() => setReviewLine(remaining[0].line)}>
+            Разобрать {unresolved} {plural(unresolved, "строку", "строки", "строк")}
+          </button>
+        )}
+        {preview && !mapperOpen && !unresolved && (
+          <button className={preview.errors ? "btn" : "btn primary"} disabled={pending || saving || preview.errors > 0 || (actionable === 0 && skipped === 0)} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {saveLabel}
             {toLoad > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>

@@ -15,7 +15,7 @@ export interface TxnPrefill {
 }
 
 export type TxnFormState =
-  | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; reminder?: ReminderPaymentCreation }
+  | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; reminder?: ReminderPaymentCreation; onCancelReminder?: () => void }
   | { mode: "edit"; txn: Txn }
   /** 0.29: возврат за покупку `purchase`. */
   | { mode: "refund"; purchase: Txn }

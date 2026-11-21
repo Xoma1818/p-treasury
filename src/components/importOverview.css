@@ -73,3 +73,26 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+.statement-review { display: grid; gap: 14px; min-width: 0; }
+.statement-review h3, .statement-review p { margin: 0; }
+.statement-review fieldset { margin: 0; min-width: 0; border: 0; padding: 0; }
+.statement-review legend { padding: 0; margin-bottom: 5px; font-weight: 600; }
+.statement-review-entry, .statement-review-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+.statement-review-entry { justify-content: space-between; flex-wrap: wrap; padding: 12px; background: var(--accent-soft); border-radius: var(--radius); }
+.statement-review-option { padding: 10px 2px; min-height: 44px; border-bottom: 1px solid var(--border); }
+.statement-review-option input { flex: none; width: auto; }
+.statement-review-description { display: grid; min-width: 0; }
+.statement-review-amount { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.statement-review .actions { flex-wrap: wrap; }
+.statement-review-summary { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-block: 12px; padding: 12px; border-radius: var(--radius); background: var(--hover); }
+.statement-review-summary > div { display: grid; gap: 2px; }
+.statement-review-summary > div > span, .statement-revisit { color: var(--muted); font-size: 13px; }
+.statement-review-summary p, .statement-revisit { margin: 0; flex-basis: 100%; }
+.statement-revisit { display: grid; gap: 4px; min-width: 0; }
+.statement-revisit select { max-width: 100%; }
