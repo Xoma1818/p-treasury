@@ -1,0 +1,73 @@
+name: Двойной учёт в Kazna на Windows 11
+on:
+  push:
+    branches: [codex/qa-pr100-window]
+    paths: ['.github/workflows/qa-double-accounting-win11.yml']
+permissions:
+  actions: read
+  contents: read
+jobs:
+  scenarios:
+    runs-on: windows-11-arm
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 76772d4a204e41c991cefdd2739d51dcceff9fad
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Подтвердить версию Windows
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "OS=$($os.Caption), build=$($os.BuildNumber), runner=$env:RUNNER_ARCH"
+          if ($os.Caption -notmatch 'Windows 11' -or $env:RUNNER_ARCH -ne 'ARM64') { throw 'Не подтверждён клиентский образ Windows 11 ARM64' }
+      - name: WebDriver под установленный WebView2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $keys = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')
+          $version = $keys | ForEach-Object { (Get-ItemProperty -LiteralPath $_ -ErrorAction SilentlyContinue).pv } | Select-Object -First 1
+          if (!$version) { $version = (Get-Item (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft\Edge\Application\msedge.exe')).VersionInfo.ProductVersion }
+          $driverName = if ($env:RUNNER_ARCH -eq 'ARM64') { 'edgedriver_arm64.zip' } else { 'edgedriver_win64.zip' }
+          $dir = Join-Path $env:RUNNER_TEMP 'kazna-driver'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          $zip = Join-Path $dir 'driver.zip'
+          $downloaded = $false
+          foreach ($site in @('https://msedgedriver.microsoft.com','https://msedgedriver.azureedge.net')) {
+            try { Invoke-WebRequest "$site/$version/$driverName" -OutFile $zip -TimeoutSec 25; $downloaded = $true; break } catch { Write-Host "Нет драйвера на $site" }
+          }
+          if (!$downloaded) { throw "Нет WebDriver $version для $env:RUNNER_ARCH" }
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir
+          & (Join-Path $dir 'msedgedriver.exe') --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content $env:GITHUB_PATH $dir
+      - name: Проверить происхождение и контрольную сумму сборки
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: '44917891408'
+          SOURCE_HEAD: 76772d4a204e41c991cefdd2739d51dcceff9fad
+          ARTIFACT_ID: '14713243038'
+          SHA256: e69dc045f27d7eb4715cf1c8e5dfa5436c56e64978bb53ec592bc19ae421dbcf
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = git rev-parse HEAD
+          if ($head -ne $env:SOURCE_HEAD) { throw 'Тесты взяты не из проверяемого коммита' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:SOURCE_HEAD -or $run.conclusion -ne 'success') { throw 'Не подтверждена исходная сборка' }
+          $zip = Join-Path $env:RUNNER_TEMP 'kazna-double-accounting.zip'
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID/zip" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept="application/vnd.github+json"} -OutFile $zip
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $env:SHA256) { throw 'SHA-256 архива не совпал' }
+          $folder = Join-Path $env:RUNNER_TEMP 'Kazna-DoubleAccounting'
+          Expand-Archive -LiteralPath $zip -DestinationPath $folder
+          $exe = Join-Path $folder 'Kazna.exe'
+          if ((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -ne '0.37.1') { throw 'Не совпала версия приложения' }
+          Add-Content $env:GITHUB_ENV "PTREASURY_BIN=$exe"
+          Write-Host "Проверяется $head; версия 0.37.1 x64 под эмуляцией"
+      - name: Спорная выписка и уже проведённый платёж в окне
+        run: node --test --test-concurrency=1 e2e/clarity.test.mjs e2e/import-save.test.mjs e2e/reminders-ahead.test.mjs e2e/stage5.test.mjs
