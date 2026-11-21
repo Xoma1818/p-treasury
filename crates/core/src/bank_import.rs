@@ -2536,7 +2536,7 @@ mod tests {
             );
             let s = import_with(db.conn_mut(), &file, false, Some(&card), Some(&deposit)).unwrap();
             assert_eq!((s.added, s.linked), (n, 0));
-            let counts: (usize, usize, usize) = db
+            let counts: (i64, i64, i64) = db
                 .conn()
                 .query_row(
                     "SELECT count(*) FILTER (WHERE type = 'transfer'),
@@ -2547,7 +2547,7 @@ mod tests {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .unwrap();
-            assert_eq!(counts, (1, 1, n - 1));
+            assert_eq!(counts, (1, 1, i64::from(both_sides)));
         }
     }
 
