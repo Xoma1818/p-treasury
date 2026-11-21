@@ -14,7 +14,7 @@ const root = await mkdtemp(join(tmpdir(), 'kazna-inapp-e2e-'));
 const data = join(root, 'data');
 await mkdir(data);
 const databasePath = join(data, 'budget.db');
-const { start, stop } = await import(pathToFileURL(resolve(process.env.KAZNA_E2E_APP)).href);
+const { start, stop, appPid } = await import(pathToFileURL(resolve(process.env.KAZNA_E2E_APP)).href);
 
 async function until(get, label, timeout = 25_000, interval = 175) {
   const deadline = Date.now() + timeout;
@@ -79,18 +79,17 @@ function runningApp() {
     '$wanted = $env:KAZNA_TEST_BIN',
     '$build = (Get-Item -LiteralPath $wanted).VersionInfo.ProductVersion',
     '$apps = @(Get-CimInstance Win32_Process -Filter "Name=\'Kazna.exe\'" | Where-Object ExecutablePath -EQ $wanted)',
-    '$info = @($apps | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { @{ id=$_.ProcessId; arguments=$_.CommandLine; window=$p.MainWindowTitle; visible=($p.MainWindowHandle -ne 0) } } })',
+    '$info = @($apps | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { @{ id=$_.ProcessId; arguments=$_.CommandLine; window=$p.MainWindowTitle; visible=($p.MainWindowHandle -ne [IntPtr]::Zero) } } })',
     '@{ version=$build; processes=$info } | ConvertTo-Json -Depth 4 -Compress',
   ].join('\n');
   return JSON.parse(execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true }));
 }
 
-let ui, browser, oldProcess;
+const usesProfile = (proc) => proc.arguments?.replaceAll('"', '').toLowerCase().includes(('--data-dir=' + data).toLowerCase());
+let ui, browser, oldPid;
 try {
   ({ browser } = await start(data, { bin, homeDefaults: true }));
   ui = onWindow(browser);
-  oldProcess = runningApp().processes.find((proc) => proc.arguments?.includes('--data-dir=' + data));
-  assert.ok(oldProcess, 'old installed process in this exact data profile');
   if (await ui.run(() => Boolean(document.querySelector('[data-testid="update-version"]')))) await ui.click('Позже', '[role="dialog"]');
   await ui.click('Посмотреть на примере');
   await ui.text('main h1', 'Главная');
@@ -99,6 +98,9 @@ try {
   assert.equal(info.schemaVersion, 25);
   assert.equal(resolve(info.dataDir).toLowerCase(), resolve(data).toLowerCase());
   assert.equal(info.portable, false);
+  const original = runningApp();
+  oldPid = Number(appPid(data)) || original.processes.find(usesProfile)?.id;
+  assert.ok(oldPid, 'old installed process in this exact data profile: ' + JSON.stringify(original));
   const categories = await ui.invoke('list_categories', { includeArchived: false });
   const categoryId = categories.find((c) => c.name === 'Питание').id;
   await ui.invoke('create_rule', { input: { pattern: 'Проверка обновления', categoryId, payee: 'Тестовый магазин' } });
@@ -119,7 +121,7 @@ try {
   const reboot = await until(() => {
     const app = runningApp();
     if (app.version !== '0.37.0') return null;
-    return app.processes.find((proc) => proc.id !== oldProcess.id && proc.visible && proc.window?.includes('Kazna') && proc.arguments?.includes('--data-dir=' + data));
+    return app.processes.find((proc) => proc.id !== oldPid && proc.visible && proc.window?.includes('Kazna') && usesProfile(proc));
   }, 'the installer replaces the binary and automatically restarts the same data profile', 150_000, 1100);
   console.log(`Installer restarted Kazna with the same test directory: new PID ${reboot.id}.`);
 
@@ -137,6 +139,7 @@ try {
   const counts = Object.fromEntries(Object.entries(before.tables).filter(([, t]) => t.rows.length).map(([name, t]) => [name, t.rows.length]));
   console.log(JSON.stringify({ before: '0.36.1', after: '0.37.0', schema: '25 → 28', tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok', backups: 2 }));
 } catch (error) {
+  try { console.error('Native app status:', JSON.stringify(runningApp())); } catch { /* diagnostics only */ }
   if (ui) {
     try { console.error(await ui.run(() => document.querySelector('[role="dialog"]')?.innerText.slice(-3000))); } catch { /* the update closes the old process */ }
   }
