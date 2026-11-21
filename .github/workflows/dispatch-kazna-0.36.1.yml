@@ -1,0 +1,31 @@
+name: Запуск выпуска Kazna 0.36.1
+on:
+  push:
+    branches: [codex/dispatch-kazna-0.36.1]
+    paths: [.github/workflows/dispatch-kazna-0.36.1.yml]
+permissions:
+  actions: write
+  contents: read
+concurrency: dispatch-kazna-0-36-1
+jobs:
+  dispatch:
+    if: github.run_attempt == 1 && github.repository == 'Xoma1818/p-treasury'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN: 1678561303b749d5f688fccd8207b0513026b8ed
+    steps:
+      - name: Запустить штатный выпуск на проверенном main
+        shell: bash
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          version="$(gh api "repos/$repo/contents/package.json?ref=$EXPECTED_MAIN" --jq .content | base64 -d | jq -er .version)"
+          test "$version" = "0.36.1"
+          existing_tag="$(gh api "repos/$repo/git/matching-refs/tags/v0.36.1" --jq 'map(select(.ref == "refs/tags/v0.36.1")) | length')"
+          test "$existing_tag" = "0"
+          existing_run="$(gh api "repos/$repo/actions/workflows/release.yml/runs?branch=main&head_sha=$EXPECTED_MAIN" --jq .total_count)"
+          test "$existing_run" = "0"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$EXPECTED_MAIN"
+          gh workflow run release.yml --repo "$repo" --ref main
