@@ -1325,6 +1325,7 @@ pub struct PaymentCandidate {
     pub transaction_id: String,
     pub date: String,
     pub payee: Option<String>,
+    pub note: Option<String>,
     pub amount: i64,
     pub expected_amount: i64,
     pub currency_symbol: String,
@@ -1333,8 +1334,25 @@ pub struct PaymentCandidate {
     pub revision: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentReview {
+    pub candidates: Vec<PaymentCandidate>,
+    pub more_candidates: bool,
+    pub revision: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentCreation {
+    pub key: Key,
+    pub revision: String,
+    pub allow_separate: bool,
+}
+
 // Тот же интервал используется в valid_reminder_actual_links.
 const PAYMENT_MATCH_DAYS: i64 = 3;
+const DISPLAYED_PAYMENT_CANDIDATES: usize = 10;
 
 fn merchant_key(s: &str) -> String {
     s.chars()
@@ -1343,20 +1361,18 @@ fn merchant_key(s: &str) -> String {
         .collect()
 }
 
-fn find_payment_candidate(
+/// Захватывает отпечаток всех совпадений, даже если часть не помещается в диалог.
+fn collect_payment_candidates(
     conn: &Connection,
-    key: &Key,
+    o: &Occurrence,
     today: &str,
-) -> Result<Option<PaymentCandidate>> {
-    if key.source != "reminder" {
-        return Ok(None);
-    }
-    let o = occurrence(conn, key)?;
+    digest: &mut Sha256,
+) -> Result<(Vec<PaymentCandidate>, bool)> {
     let (Some(expected), Some(account)) = (o.amount, o.account_id.as_deref()) else {
-        return Ok(None);
+        return Ok((Vec::new(), false));
     };
-    if !matches!(o.status.as_str(), "pending" | "snoozed") {
-        return Ok(None);
+    if o.key.source != "reminder" || !matches!(o.status.as_str(), "pending" | "snoozed") {
+        return Ok((Vec::new(), false));
     }
     let currency: Option<(String, String, u32)> = conn
         .query_row(
@@ -1368,7 +1384,7 @@ fn find_payment_candidate(
         )
         .optional()?;
     let Some((currency, symbol, minor_units)) = currency else {
-        return Ok(None);
+        return Ok((Vec::new(), false));
     };
     let base = crate::currencies::base_currency(conn)?;
     let due = parse_dt(&o.pay_at)?.date();
@@ -1379,7 +1395,7 @@ fn find_payment_candidate(
     let title = merchant_key(&o.title);
     let useful_title = title.chars().count() >= 3;
     let mut stmt = conn.prepare_cached(
-        "SELECT t.id, t.date, t.payee, t.amount, t.category_id
+        "SELECT t.id, t.date, t.payee, t.amount, t.category_id, t.note
          FROM transactions t
          WHERE t.account_id = ?1 AND t.type = ?2 AND t.date BETWEEN ?3 AND ?4 AND t.date <= ?5
            AND t.status = 'cleared' AND t.debt_id IS NULL AND t.refund = 0 AND t.split_id IS NULL
@@ -1388,10 +1404,11 @@ fn find_payment_candidate(
                LEFT JOIN valid_reminder_actual_links valid ON valid.occurrence_id = linked.id
                WHERE linked.transaction_id = t.id
                  AND (linked.linked_actual_amount IS NULL OR valid.occurrence_id IS NOT NULL)
-           )",
+           ) ORDER BY t.date DESC, t.id",
     )?;
     let mut rows = stmt.query(params![account, kind, from, to, today])?;
-    let mut found = None;
+    let mut candidates = Vec::new();
+    let mut more_candidates = false;
     while let Some(row) = rows.next()? {
         let payee: Option<String> = row.get(2)?;
         let category: Option<String> = row.get(4)?;
@@ -1417,28 +1434,68 @@ fn find_payment_candidate(
         {
             continue;
         }
-        if found.is_some() {
-            return Ok(None);
-        }
-        found = Some(PaymentCandidate {
+        let candidate = PaymentCandidate {
             transaction_id: row.get(0)?,
             date,
             payee,
+            note: row.get(5)?,
             amount,
             expected_amount,
             currency_symbol: symbol.clone(),
             minor_units,
             match_reason: if payee_matches { "payee" } else { "category" },
             revision: String::new(),
-        });
-    }
-    if let Some(candidate) = &mut found {
+        };
         let snapshot =
-            serde_json::to_vec(&(key, &o.pay_at, account, expected, &currency, &*candidate))
-                .map_err(|e| Error::Validation(e.to_string()))?;
-        candidate.revision = format!("{:x}", Sha256::digest(snapshot));
+            serde_json::to_vec(&candidate).map_err(|e| Error::Validation(e.to_string()))?;
+        digest.update(snapshot);
+        digest.update(b"\n");
+        if candidates.len() < DISPLAYED_PAYMENT_CANDIDATES {
+            candidates.push(candidate);
+        } else {
+            more_candidates = true;
+        }
     }
-    Ok(found)
+    Ok((candidates, more_candidates))
+}
+
+fn review_for_occurrence(conn: &Connection, o: &Occurrence, today: &str) -> Result<PaymentReview> {
+    let snapshot = serde_json::to_vec(&(
+        &o.key,
+        &o.status,
+        &o.pay_at,
+        &o.title,
+        o.amount,
+        &o.txn_type,
+        &o.account_id,
+        &o.category_id,
+        &o.note,
+        &o.currency_symbol,
+        o.minor_units,
+        today,
+    ))
+    .map_err(|e| Error::Validation(e.to_string()))?;
+    let mut digest = Sha256::new();
+    digest.update(snapshot);
+    digest.update(b"\n");
+    let (mut candidates, more_candidates) =
+        collect_payment_candidates(conn, o, today, &mut digest)?;
+    let revision = format!("{:x}", digest.finalize());
+    for candidate in &mut candidates {
+        candidate.revision.clone_from(&revision);
+    }
+    Ok(PaymentReview {
+        candidates,
+        more_candidates,
+        revision,
+    })
+}
+
+pub fn payment_review(conn: &mut Connection, key: &Key, today: &str) -> Result<PaymentReview> {
+    let tx = conn.transaction()?;
+    let review = review_for_occurrence(&tx, &occurrence(&tx, key)?, today)?;
+    tx.commit()?;
+    Ok(review)
 }
 
 pub fn payment_candidate(
@@ -1446,10 +1503,58 @@ pub fn payment_candidate(
     key: &Key,
     today: &str,
 ) -> Result<Option<PaymentCandidate>> {
-    let tx = conn.transaction()?;
-    let found = find_payment_candidate(&tx, key, today)?;
+    if key.source != "reminder" {
+        return Ok(None);
+    }
+    let mut review = payment_review(conn, key, today)?;
+    Ok(if review.candidates.len() == 1 {
+        review.candidates.pop()
+    } else {
+        None
+    })
+}
+
+pub fn validate_payment_creation(
+    conn: &Connection,
+    key: &Key,
+    revision: &str,
+    allow_separate: bool,
+    today: &str,
+) -> Result<()> {
+    let o = occurrence(conn, key)?;
+    if key.source != "reminder" || !matches!(o.status.as_str(), "pending" | "snoozed") {
+        return Err(Error::Validation(
+            "напоминание уже изменилось или закрыто".into(),
+        ));
+    }
+    let review = review_for_occurrence(conn, &o, today)?;
+    if review.revision != revision || (!allow_separate && !review.candidates.is_empty()) {
+        return Err(Error::Validation(
+            "совпадения изменились. Закройте форму и проверьте платёж снова.".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Проверка, операция и завершение напоминания входят в одну транзакцию.
+pub fn create_payment_checked<T>(
+    conn: &mut Connection,
+    context: &PaymentCreation,
+    today: &str,
+    save: impl FnOnce(&Connection) -> Result<(T, Option<String>)>,
+) -> Result<T> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    validate_payment_creation(
+        &tx,
+        &context.key,
+        &context.revision,
+        context.allow_separate,
+        today,
+    )?;
+    let (value, transaction_id) = save(&tx)?;
+    complete(&tx, &context.key, transaction_id.as_deref())?;
     tx.commit()?;
-    Ok(found)
+    Ok(value)
 }
 
 pub fn attach_payment(
@@ -1460,8 +1565,10 @@ pub fn attach_payment(
     today: &str,
 ) -> Result<()> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let candidate = find_payment_candidate(&tx, key, today)?
-        .filter(|c| c.transaction_id == transaction_id && c.revision == revision)
+    let candidate = review_for_occurrence(&tx, &occurrence(&tx, key)?, today)?
+        .candidates
+        .into_iter()
+        .find(|c| c.transaction_id == transaction_id && c.revision == revision)
         .ok_or_else(|| {
             Error::Validation("совпадение изменилось. Проверьте платёж снова.".into())
         })?;
@@ -1521,6 +1628,12 @@ pub fn pay(conn: &Connection, key: &Key, today: &str) -> Result<Paid> {
     let (Some(account), Some(category)) = (o.account_id.clone(), o.category_id.clone()) else {
         return Ok(Paid::NeedsForm);
     };
+    if !review_for_occurrence(conn, &o, today)?
+        .candidates
+        .is_empty()
+    {
+        return Ok(Paid::NeedsForm);
+    }
     // Сумма напоминания — в основной валюте; на счёт в другой валюте —
     // по курсу дня, а без курса — форма, где сумму видно и можно поправить.
     let base = crate::currencies::base_currency(conn)?;
@@ -1837,6 +1950,89 @@ mod tests {
         assert_eq!(occurrence(c, &key).unwrap().status, "pending");
         reopen(c, &other).unwrap();
         assert_eq!(accounts::balance(c, &card, None).unwrap(), 9_870);
+    }
+
+    #[test]
+    fn payment_creation_rechecks_before_writing_and_closes_with_one_undo() {
+        use crate::transactions;
+        use crate::undo::Journal;
+
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let (key, payment) = internet_payment(c, &card, 10_000, 10_000);
+        let today = "2026-10-19";
+        let empty = payment_review(c, &key, today).unwrap();
+        assert!(empty.candidates.is_empty());
+        let existing = transactions::create(c, &payment).unwrap();
+        let review = payment_review(c, &key, today).unwrap();
+        assert_eq!(review.candidates[0].transaction_id, existing);
+        assert_eq!(pay(c, &key, today).unwrap(), Paid::NeedsForm);
+
+        let mut context = PaymentCreation {
+            key,
+            revision: empty.revision,
+            allow_separate: false,
+        };
+        let must_not_save = |_: &Connection| -> Result<((), Option<String>)> {
+            panic!("создана лишняя операция")
+        };
+        assert!(create_payment_checked(c, &context, today, must_not_save).is_err());
+        context.revision = review.revision;
+        assert!(create_payment_checked(c, &context, today, must_not_save).is_err());
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 90_000);
+
+        context.allow_separate = true;
+        let mut journal = Journal::default();
+        let created = journal
+            .record(c, "Платёж из напоминания", |c| {
+                create_payment_checked(c, &context, today, |tx| {
+                    let id = transactions::create(tx, &payment)?;
+                    Ok((id.clone(), Some(id)))
+                })
+            })
+            .unwrap();
+        assert_ne!(created, existing);
+        assert_eq!(
+            occurrence(c, &context.key).unwrap().transaction_id,
+            Some(created)
+        );
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 80_000);
+        assert!(create_payment_checked(c, &context, today, must_not_save).is_err());
+        assert_eq!(
+            journal.undo(c).unwrap().as_deref(),
+            Some("Платёж из напоминания")
+        );
+        assert_eq!(occurrence(c, &context.key).unwrap().status, "pending");
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 90_000);
+    }
+
+    #[test]
+    fn payment_review_exposes_both_options_without_choosing_for_the_user() {
+        use crate::transactions;
+
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 100_000)).unwrap();
+        let (key, mut payment) = internet_payment(c, &card, 10_000, 10_000);
+        let first = transactions::create(c, &payment).unwrap();
+        payment.amount = 11_000;
+        let second = transactions::create(c, &payment).unwrap();
+        let today = "2026-10-19";
+
+        let review = payment_review(c, &key, today).unwrap();
+        assert_eq!(review.candidates.len(), 2);
+        assert!(review
+            .candidates
+            .iter()
+            .any(|row| row.transaction_id == first));
+        assert!(review
+            .candidates
+            .iter()
+            .any(|row| row.transaction_id == second));
+        attach_payment(c, &key, &second, &review.revision, today).unwrap();
+        assert_eq!(occurrence(c, &key).unwrap().transaction_id, Some(second));
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 79_000);
     }
 
     #[test]

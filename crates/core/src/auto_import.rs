@@ -13,11 +13,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::bank_import;
-use crate::{csv_import, import_log, time, Result};
+use crate::{csv_import, import_log, time, Error, Result};
 
 /// Выписка банка, для которого ещё не выбран счёт. Такой файл берётся снова,
 /// когда счёт выбран.
 const NO_ACCOUNT: &str = "не выбран счёт: загрузите эту выписку один раз через «Импорт операций»";
+const NEEDS_REVIEW: &str = "есть возможные совпадения: откройте выписку через «Импорт операций»";
 
 /// Чужой файл: не выписка и не шаблон. Больше не читается.
 const NOT_OURS: &str = "чужой файл";
@@ -202,7 +203,7 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 if parsed.iter().any(|p| p.input.is_some()) {
                     let tx = conn.transaction()?;
                     csv_import::create_categories(&tx, &mut parsed, &extra.categories)?;
-                    let s = csv_import::save_rows(
+                    let saved = csv_import::save_rows(
                         &tx,
                         import_log::Origin::Folder,
                         &res.name,
@@ -210,13 +211,24 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                         parsed,
                         &extra.refunds,
                         res.skipped,
-                    )?;
-                    tx.commit()?;
-                    res.added = s.added;
-                    res.linked = s.linked;
-                    res.suggested = s.suggested;
+                    );
+                    match saved {
+                        Ok(s) => {
+                            tx.commit()?;
+                            res.added = s.added;
+                            res.linked = s.linked;
+                            res.suggested = s.suggested;
+                        }
+                        Err(Error::Validation(message))
+                            if message == import_log::BANK_REVIEW_REQUIRED =>
+                        {
+                            tx.rollback()?;
+                            res.error = Some(NEEDS_REVIEW.into());
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-                if no_account {
+                if no_account && res.error.is_none() {
                     res.error = Some(NO_ACCOUNT.into());
                 }
             }

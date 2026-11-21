@@ -113,12 +113,18 @@ fn insert_parts(conn: &Connection, split_id: &str, input: &ReceiptInput) -> Resu
 
 /// Записать разбитый чек; возвращает идентификатор разбивки.
 pub fn create(conn: &mut Connection, input: &ReceiptInput) -> Result<String> {
+    let tx = conn.transaction()?;
+    let split_id = create_in(&tx, input)?;
+    tx.commit()?;
+    Ok(split_id)
+}
+
+/// Записать чек внутри уже открытой транзакции вызывающего кода.
+pub fn create_in(conn: &Connection, input: &ReceiptInput) -> Result<String> {
     check(input)?;
     let split_id = ids::new_id();
-    let tx = conn.transaction()?;
-    let ids = insert_parts(&tx, &split_id, input)?;
-    crate::events::assign(&tx, input.event_id.as_deref(), &ids)?;
-    tx.commit()?;
+    let ids = insert_parts(conn, &split_id, input)?;
+    crate::events::assign(conn, input.event_id.as_deref(), &ids)?;
     Ok(split_id)
 }
 

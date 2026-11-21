@@ -1981,6 +1981,138 @@ mod tests {
             .unwrap();
         assert_eq!(batches, 0);
     }
+
+    #[test]
+    fn ambiguous_bank_row_waits_for_review_in_folder_and_manual_import() {
+        use crate::csv_import::{self, BankImportDecision};
+
+        let mut db = Storage::open_in_memory().unwrap();
+        crate::categories::seed_defaults(db.conn()).unwrap();
+        let main = account(db.conn(), "Т-Банк");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("выписка.csv");
+        std::fs::copy(testdata("tbank.csv"), &file).unwrap();
+        let (bank, ops) = read(&file).unwrap().unwrap();
+        let (parsed, _) = to_parsed(db.conn(), bank, &ops, Some(&main), None).unwrap();
+        let mut purchase = parsed
+            .into_iter()
+            .filter_map(|row| row.input)
+            .find(|input| input.amount == 120_000)
+            .unwrap();
+        purchase.category_id = Some(
+            db.conn()
+                .query_row(
+                    "SELECT id FROM categories WHERE name = 'Досуг'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap(),
+        );
+        purchase.date = "2026-10-17".into();
+        purchase.payee = Some("Игра".into());
+        let existing = crate::transactions::create(db.conn(), &purchase).unwrap();
+        purchase.date = "2026-10-19".into();
+        purchase.payee = Some("Игра другу".into());
+        crate::transactions::create(db.conn(), &purchase).unwrap();
+        remember(db.conn(), bank, &ops, &main).unwrap();
+
+        let scan = crate::auto_import::scan(db.conn_mut(), dir.path()).unwrap();
+        assert_eq!(scan.added, 0);
+        assert_eq!(scan.files.len(), 1);
+        assert!(scan.files[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("совпадения"));
+        assert!(file.is_file());
+        assert!(crate::auto_import::scan(db.conn_mut(), dir.path())
+            .unwrap()
+            .files
+            .is_empty());
+
+        let preview = csv_import::preview(db.conn(), &file, Some(&main)).unwrap();
+        let line = preview.rows.iter().find(|r| r.maybe == 2).unwrap().line;
+        assert!(preview.matches[&line].iter().any(|s| s.id == existing));
+        let revision = preview.bank_plan_digest.as_deref();
+        let rejected = csv_import::import_with_review(
+            db.conn_mut(),
+            &file,
+            false,
+            Some(&main),
+            None,
+            revision,
+        );
+        assert!(rejected
+            .unwrap_err()
+            .to_string()
+            .contains("выберите действие"));
+        let batches: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM import_batches", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(batches, 0);
+
+        let skipped = csv_import::import_with_decisions(
+            db.conn_mut(),
+            &file,
+            false,
+            Some(&main),
+            None,
+            revision,
+            &[(line, BankImportDecision::Skip)].into(),
+        )
+        .unwrap();
+        assert_eq!(
+            (skipped.added, skipped.linked, skipped.suggested),
+            (3, 0, 0)
+        );
+        let preview = csv_import::preview(db.conn(), &file, Some(&main)).unwrap();
+        assert_eq!(
+            preview.doubtful, 1,
+            "пропуск не скрывает строку в следующей загрузке"
+        );
+        let linked = csv_import::import_with_decisions(
+            db.conn_mut(),
+            &file,
+            false,
+            Some(&main),
+            None,
+            preview.bank_plan_digest.as_deref(),
+            &[(
+                line,
+                BankImportDecision::Link {
+                    transaction_id: existing.clone(),
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+        assert_eq!((linked.added, linked.linked, linked.suggested), (0, 1, 0));
+        let expenses: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE amount = 120000",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(expenses, 2);
+        let attached: String = db
+            .conn()
+            .query_row(
+                "SELECT transaction_id FROM import_links WHERE import_id = ?1",
+                [&linked.import_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(attached, existing);
+        assert_eq!(
+            csv_import::preview(db.conn(), &file, Some(&main))
+                .unwrap()
+                .duplicates,
+            4
+        );
+    }
     /// Выгрузка Т-Банка «Operations …» (Excel, OTTO 04.11): столбцы «Сумма в
     /// валюте счёта» и «Категория по-умолчанию», статус «Ок» кириллицей. Данные
     /// обезличены: суммы и порядок строк как в настоящей выгрузке.

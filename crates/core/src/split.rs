@@ -47,6 +47,14 @@ pub fn even(total: i64, people: usize) -> (i64, i64) {
 }
 
 pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> {
+    let tx = conn.transaction()?;
+    let result = create_in(&tx, input)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+/// Записать общую трату внутри уже открытой транзакции вызывающего кода.
+pub fn create_in(conn: &Connection, input: &SplitInput) -> Result<SplitResult> {
     if input.total <= 0 {
         return invalid("сумма должна быть больше нуля");
     }
@@ -77,11 +85,9 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
         .map_or("общая трата".to_string(), |p| {
             format!("общая трата: {p}")
         });
-    // Всё в одной транзакции: при любой ошибке не записано ничего.
-    let tx = conn.transaction()?;
     let expense_id = if input.my_share > 0 {
         Some(transactions::create(
-            &tx,
+            conn,
             &TxnInput {
                 kind: "expense".into(),
                 date: input.date.clone(),
@@ -95,7 +101,7 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
             },
         )?)
     } else {
-        if categories::kind_of(&tx, &input.category_id)? != "expense" {
+        if categories::kind_of(conn, &input.category_id)? != "expense" {
             return invalid("для расхода нужна категория расходов");
         }
         None
@@ -103,7 +109,7 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
     let mut debt_ids = Vec::new();
     for f in &input.friends {
         debt_ids.push(debts::create_in(
-            &tx,
+            conn,
             &DebtInput {
                 direction: "lent".into(),
                 counterparty: f.name.trim().into(),
@@ -125,7 +131,6 @@ pub fn create(conn: &mut Connection, input: &SplitInput) -> Result<SplitResult> 
             },
         )?);
     }
-    tx.commit()?;
     Ok(SplitResult {
         expense_id,
         debt_ids,

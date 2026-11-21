@@ -17,7 +17,7 @@ export function importRowExplanation(row: ImportRow, bankStatement: boolean): st
   }
   if (row.linkedTo) return `Свяжем с вашей записью: ${row.linkedTo}.`;
   if (row.maybe > 0) {
-    return `Возможные совпадения: ${row.maybe}. После загрузки предложим их проверить.`;
+    return `Возможные совпадения: ${row.maybe}. Выберите действие перед загрузкой.`;
   }
   if (kind === "возврат") return "Запишем как возврат покупки.";
   if (kind === "перевод") return "Запишем как перевод.";

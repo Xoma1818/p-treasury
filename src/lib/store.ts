@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { QuickFilter, SavedView, Txn, TxnType } from "./api";
+import type { QuickFilter, ReminderPaymentCreation, SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 import { rememberSection, startSection } from "./fine";
 
@@ -15,7 +15,7 @@ export interface TxnPrefill {
 }
 
 export type TxnFormState =
-  | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; onSaved?: (id: string) => Promise<unknown> }
+  | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; reminder?: ReminderPaymentCreation }
   | { mode: "edit"; txn: Txn }
   /** 0.29: возврат за покупку `purchase`. */
   | { mode: "refund"; purchase: Txn }

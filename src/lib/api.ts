@@ -1329,12 +1329,25 @@ export interface ReminderPaymentCandidate {
   transactionId: string;
   date: string;
   payee: string | null;
+  note?: string | null;
   amount: number;
   expectedAmount: number;
   currencySymbol: string;
   minorUnits: number;
   matchReason: "payee" | "category";
   revision: string;
+}
+
+export interface ReminderPaymentReview {
+  candidates: ReminderPaymentCandidate[];
+  moreCandidates: boolean;
+  revision: string;
+}
+
+export interface ReminderPaymentCreation {
+  key: ReminderKey;
+  revision: string;
+  allowSeparate: boolean;
 }
 
 export interface Reminder extends ReminderInput {
@@ -1471,6 +1484,11 @@ export interface CsvSample {
   encoding: CsvEncoding;
   delimiter: CsvDelimiter;
 }
+
+export type BankImportDecision =
+  | { action: "link"; transactionId: string }
+  | { action: "add" }
+  | { action: "skip" };
 
 export interface CsvMapping {
   headers: string[];
@@ -2047,7 +2065,8 @@ export const api = {
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
-  splitExpense: (input: SplitInput) => invoke<{ expenseId: string | null; debtIds: string[] }>("split_expense", { input }),
+  splitExpense: (input: SplitInput, reminder?: ReminderPaymentCreation) =>
+    invoke<{ expenseId: string | null; debtIds: string[] }>("split_expense", { input, reminder: reminder ?? null }),
   updateTransaction: (id: string, input: TxnInput) => invoke<void>("update_transaction", { id, input }),
   deleteTransaction: (id: string) => invoke<void>("delete_transaction", { id }),
   payeeHints: (kind: TxnType, query: string) => invoke<PayeeHint[]>("payee_hints", { kind, query }),
@@ -2192,6 +2211,8 @@ export const api = {
   payReminder: (key: ReminderKey) => invoke<Paid>("pay_reminder", { key }),
   reminderPaymentCandidate: (key: ReminderKey) =>
     invoke<ReminderPaymentCandidate | null>("reminder_payment_candidate", { key }),
+  reminderPaymentReview: (key: ReminderKey) =>
+    invoke<ReminderPaymentReview>("reminder_payment_review", { key }),
   attachReminderPayment: (key: ReminderKey, transactionId: string, revision: string) =>
     invoke<void>("attach_reminder_payment", { key, transactionId, revision }),
   listNotes: (filter: NoteFilter) => invoke<Note[]>("list_notes", { filter }),
@@ -2209,10 +2230,18 @@ export const api = {
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
   importPreview: (path: string, accountId?: string | null, selfAccountId?: string | null, csvMapping?: CsvMapping | null) =>
     invoke<ImportPreview>("import_preview", { path, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null, csvMapping: csvMapping ?? null }),
-  importCsv: async (path: string, fileDigest: string, skipErrors: boolean, accountId?: string | null, selfAccountId?: string | null, csvMapping?: CsvImportOptions | null) => {
+  importCsv: async (
+    path: string,
+    fileDigest: string,
+    skipErrors: boolean,
+    accountId?: string | null,
+    selfAccountId?: string | null,
+    csvMapping?: CsvImportOptions | null,
+    bankDecisions?: Record<number, BankImportDecision>,
+  ) => {
     // WebDriver-only scheduling hook; the result always comes from the real command.
     if (navigator.webdriver) await window.__ptBeforeImport?.();
-    return invoke<ImportSaved>("import_csv", { path, fileDigest, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null, csvMapping: csvMapping ?? null });
+    return invoke<ImportSaved>("import_csv", { path, fileDigest, skipErrors, accountId: accountId ?? null, selfAccountId: selfAccountId ?? null, csvMapping: csvMapping ?? null, bankDecisions: bankDecisions ?? null });
   },
   inspectCsvProfile: (path: string, delimiter?: CsvDelimiter, encoding?: CsvEncoding) =>
     invoke<CsvSample>("inspect_csv_profile", { path, delimiter: delimiter ?? null, encoding: encoding ?? null }),
@@ -2280,8 +2309,8 @@ export const api = {
   globalSearch: (query: string) => invoke<SearchHit[]>("global_search", { query }),
   autoImportDir: () => invoke<string>("auto_import_dir"),
   autoImportNow: () => invoke<ScanResult>("auto_import_now"),
-  createTransactionFull: (input: TxnInput, extra: TxnExtra, eventId: string | null = null) =>
-    invoke<string>("create_transaction_full", { input, eventId, extra }),
+  createTransactionFull: (input: TxnInput, extra: TxnExtra, eventId: string | null = null, reminder?: ReminderPaymentCreation) =>
+    invoke<string>("create_transaction_full", { input, eventId, extra, reminder: reminder ?? null }),
   saveQuickTransaction: (input: TxnInput, extra: TxnExtra, merchant: string | null) =>
     invoke<string>("save_quick_transaction", { input, extra, merchant }),
   updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra) =>
@@ -2296,7 +2325,8 @@ export const api = {
   bulkDelete: (ids: string[]) => invoke<BulkResult>("bulk_delete", { ids }),
   /** Сколько скрытых частей чеков затронет удаление, смена счёта или получателя. */
   bulkReceiptExtra: (ids: string[]) => invoke<number>("bulk_receipt_extra", { ids }),
-  createReceipt: (input: ReceiptInput) => invoke<string>("create_receipt", { input }),
+  createReceipt: (input: ReceiptInput, reminder?: ReminderPaymentCreation) =>
+    invoke<string>("create_receipt", { input, reminder: reminder ?? null }),
   updateReceipt: (splitId: string, input: ReceiptInput) => invoke<void>("update_receipt", { splitId, input }),
   deleteReceipt: (splitId: string) => invoke<void>("delete_receipt", { splitId }),
   getReceipt: (splitId: string) => invoke<Receipt>("get_receipt", { splitId }),
