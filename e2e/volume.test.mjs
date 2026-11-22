@@ -74,7 +74,7 @@ test("10 лет учёта: каждый экран открывается бы�
       ["Главная", () => /₽/.test(document.querySelector('[data-testid="total-balance"]')?.textContent ?? "")],
     ];
     for (const [title, ok] of checks) results[title] = await timeSection(title, ok);
-    // Все операции за 10 лет: «Сбросить» фильтр месяца.
+    // Все операции за 10 лет: снимаем фильтр месяца.
     await (await browser.$('//nav//button[normalize-space()="Операции"]')).click();
     const count = () => browser.execute(() => {
       const text = document.querySelector('[data-testid="txn-count"]')?.textContent ?? "";
@@ -92,7 +92,7 @@ test("10 лет учёта: каждый экран открывается бы�
     const before = await waitCount(() => true, "Не появился список операций месяца");
     mark("reset:before");
     let t = performance.now();
-    await (await browser.$('//button[normalize-space()="Сбросить"]')).click();
+    await (await browser.$('//button[normalize-space()="Показать все операции"]')).click();
     const minTotal = process.env.PTREASURY_REQUIRE_VOLUME === "1" ? 95_000 : 1;
     const all = await waitCount((n) => n > before && n >= minTotal, "Не появился список полной истории");
     results["Операции: все 10 лет"] = performance.now() - t;

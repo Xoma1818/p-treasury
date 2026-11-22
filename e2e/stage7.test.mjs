@@ -103,7 +103,7 @@ test("Ctrl+Z в поле ввода отменяет набор текста, а
   await browser.pause(500);
   const bar = await browser.$('[data-testid="undo-bar"]');
   assert.equal(await bar.isExisting(), false, `отмены действия не было: «${(await bar.isExisting()) ? await bar.getText() : ""}»`);
-  await (await browser.$('//button[normalize-space()="Сбросить"]')).click();
+  await (await browser.$('//button[normalize-space()="Показать все операции"]')).click();
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
 });
 

@@ -22,7 +22,7 @@ after(async () => {
   if (browser) await stop(browser);
 });
 
-async function figures() {
+async function figures(showAllLabel) {
   const f = {};
   await openSection(browser, "Счета");
   // Сравниваем данные строки, а не кнопки действий: в 0.30 «Изменить» и «Закрыть» ушли в меню «⋯».
@@ -49,7 +49,7 @@ async function figures() {
   })));
   assert.equal(f.debts.length, 1, "created debt must remain visible");
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, showAllLabel);
   f.txns = await (await browser.$('[data-testid="txn-count"]')).getText();
   return f;
 }
@@ -90,7 +90,7 @@ test("данные старой версии открываются новой �
     await save(browser);
     await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
   }
-  const old = await figures();
+  const old = await figures("Сбросить");
   await openSection(browser, "Настройки");
   const before = await waitText(browser, '//h2[normalize-space()="О программе"]/..', /(\d+) из \1/);
   const oldSchema = Number(/(\d+) из \1/.exec(before)[1]);
@@ -100,7 +100,7 @@ test("данные старой версии открываются новой �
   // Новая версия на той же папке данных.
   ({ browser } = await start(dataDir));
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 15000 });
-  const now = await figures();
+  const now = await figures("Показать все операции");
   assert.deepEqual(now, old);
   await openSection(browser, "Настройки");
   const about = '//h2[normalize-space()="О программе"]/..';

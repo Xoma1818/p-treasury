@@ -75,7 +75,7 @@ test("сохранённый вид операций: «Кафе» возвра�
   await click(browser, "Сохранить вид");
   await fill(browser, "viewName", "Кафе");
   await click(browser, "Сохранить");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await browser.waitUntil(async () => (await (await browser.$('[name="filterCategory"]')).getValue()) === "", { timeout: 5000 });
   await click(browser, "Кафе", '//*[@data-testid="views-transactions"]');
   await browser.waitUntil(async () => (await (await browser.$('[name="filterCategory"]')).getValue()) !== "", { timeout: 5000 });

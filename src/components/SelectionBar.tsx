@@ -36,14 +36,12 @@ export function resultText(mode: Exclude<Mode, null>, r: BulkResult) {
   return `${head}, пропущено ${r.skipped}: ${SKIP_WHY[mode]}. Отменить — Ctrl+Z.`;
 }
 
-export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone }: {
+export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
   /** Выделенные операции; пусто — итог по найденному. */
   ids: string[];
   filter: TxnFilter;
-  /** Включён фильтр или поиск: без выделения показываем итог найденного. */
+  /** Строки текущего фильтра готовы: без выделения показываем итог найденного. */
   filtered: boolean;
-  /** Сначала загружаем строки текущего фильтра, затем считаем общий итог. */
-  pageReady: boolean;
   onClear: () => void;
   onDone: () => void;
 }) {
@@ -52,7 +50,7 @@ export function SelectionBar({ ids, filter, filtered, pageReady, onClear, onDone
   const sums = useQuery({
     queryKey: selected ? ["sumSelected", key] : ["sumFiltered", filter],
     queryFn: () => (selected ? api.sumSelected(ids) : api.sumFiltered(filter)),
-    enabled: selected || (filtered && pageReady),
+    enabled: selected || filtered,
   }).data;
   const [action, setAction] = useState<{ key: string; mode: Mode; focusDelete?: boolean }>({ key, mode: null });
   if (action.key !== key) setAction({ key, mode: null });

@@ -133,7 +133,7 @@ test("сводка в Excel: файл .xlsx с шестью листами", asy
 test("выгрузка операций по фильтру в CSV: русский Excel открывает без «кракозябр»", async () => {
   const path = join(files, "операции.csv");
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await openFilters(browser);
   await choose(browser, "filterAccount", "Наличные (₽)");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
@@ -152,7 +152,7 @@ test("выгрузка операций по фильтру в CSV: русски
 test("выгрузка операций в OFX и сводки в CSV", async () => {
   const ofx = join(files, "операции.ofx");
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await pick(ofx);
   await click(browser, "Выгрузить");
   await browser.$('[data-testid="export-menu"]').waitForDisplayed({ timeout: 5000 });
