@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -199,9 +199,11 @@ try {
   assert.equal(savedRule.categoryId, categoryId);
   phase('New installed window and saved rule/goal verified');
   const counts = Object.fromEntries(Object.entries(before.tables).filter(([, t]) => t.rows.length).map(([name, t]) => [name, t.rows.length]));
-  console.log(JSON.stringify({ before: '0.37.2', after: '0.41.0', schema: '28 → 30', automaticRestartPid: reboot.id,
+  const evidence = { before: '0.37.2', after: '0.41.0', schema: '28 → 30', automaticRestartPid: reboot.id,
     reopenedInstalledWindow: { title: 'Kazna', version: newInfo.version, displayedSchema: 30, goalId, ruleId },
-    tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok', backups: 2 }));
+    tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok', backups: 2 };
+  await writeFile(process.env.KAZNA_UPDATE_EVIDENCE, JSON.stringify(evidence), { flag: 'wx' });
+  console.log(JSON.stringify(evidence));
 } catch (error) {
   try { console.error('Native app status:', JSON.stringify(runningApp())); } catch { /* diagnostics only */ }
   if (ui) {

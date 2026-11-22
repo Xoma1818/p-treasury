@@ -2,8 +2,8 @@ param([Parameter(Mandatory)][string]$Source)
 $ErrorActionPreference = 'Stop'
 $Source = (Resolve-Path -LiteralPath $Source).Path
 $repo = 'Xoma1818/p-treasury'
-$sha = '1f7d9df8d958dbb36b26490fe98626268a239151'
-$runId = 45075226749L
+$sha = '07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba'
+$runId = 45082106249L
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_REPOSITORY -ne $repo -or $env:RUNNER_OS -ne 'Windows') { throw 'Disposable project Windows runner required.' }
 $os = Get-CimInstance Win32_OperatingSystem
 if ($os.Caption -notmatch 'Windows 11' -or $env:RUNNER_ARCH -ne 'ARM64') { throw "Wrong runner: $($os.Caption), $env:RUNNER_ARCH" }
@@ -75,13 +75,22 @@ try {
     # A Tauri window may minimize to tray. Only the just-opened app for the probe directory is eligible.
     Get-CimInstance Win32_Process -Filter "Name='Kazna.exe'" | Where-Object { $_.ExecutablePath -eq $bin -and $_.CommandLine.Contains($probeDir) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 }
-$cases = [ordered]@{'compare'=5; 'loans'=11; 'loans-flex'=5; 'reminders-ahead'=6; 'stage1'=13; 'stage4'=9; 'stage5'=8; 'wave3'=20; 'wave4'=4}
+$cases = [ordered]@{'compare'=5; 'loans'=11; 'loans-flex'=5; 'reminders-ahead'=6; 'stage1'=13; 'stage4'=9; 'stage5'=8; 'wave3'=20; 'wave4'=4; 'final'=2}
 $node = (Get-Command node.exe).Source
+$passed = 0
+$groupReport = [ordered]@{}
 foreach ($name in $cases.Keys) {
     $stdout = Join-Path $logs "$name.tap"
     $stderr = Join-Path $logs "$name.stderr.txt"
     Write-Host "::group::$name"
     try {
+        # final reads the actual XLSX member with Info-ZIP. Git for Windows may keep it off PATH.
+        if ($name -eq 'final' -and !(Get-Command unzip.exe -ErrorAction SilentlyContinue)) {
+            $gitRoot = Split-Path (Split-Path (Get-Command git.exe).Source -Parent) -Parent
+            $zipTools = Join-Path $gitRoot 'usr/bin'
+            if (!(Test-Path -LiteralPath (Join-Path $zipTools 'unzip.exe'))) { throw 'Missing unzip.exe required to read the saved Excel workbook' }
+            $env:Path += ";$zipTools"
+        }
         $proc=Start-Process -FilePath $node -WorkingDirectory $Source -ArgumentList @('--test','--test-reporter=tap','--test-concurrency=1',"e2e/$name.test.mjs") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if (!$proc.WaitForExit(240000)) {
             $proc.Kill($true)
@@ -95,12 +104,18 @@ foreach ($name in $cases.Keys) {
             if ($report -notmatch "(?m)^# $measure $expected\s*$") { throw "Expected '$measure $expected' in $name" }
         }
         if ($proc.ExitCode -ne 0) { throw "Exit $($proc.ExitCode) in $name" }
+        $parsed = [regex]::Match($report,'(?m)^# pass (\d+)\s*$')
+        $passed += [int]$parsed.Groups[1].Value
+        $groupReport[$name] = [int]$parsed.Groups[1].Value
         Write-Host "$name passed $wanted/$wanted"
     } catch {
+        $groupReport[$name] = 'incomplete'
         $bad.Add($name)
         Write-Warning $_.Exception.Message
         Get-Content -LiteralPath $stdout,$stderr -Tail 18 -ErrorAction SilentlyContinue
     } finally { Write-Host '::endgroup::' }
 }
-if ($bad.Count) { throw "Failed or incomplete: $($bad -join ', '). See the per-file logs." }
-Write-Host 'Nine test files, 81 passed, no skipped tests.'
+$summary = [ordered]@{ source=$sha; installerRun=$runId; exeSha256=$exeDigest; groups=$groupReport; totalPassed=$passed; expected=83; failedOrIncomplete=@($bad.ToArray()) }
+$summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $logs 'summary.json') -Encoding utf8NoBOM
+if ($bad.Count -or $passed -ne 83 -or $groupReport.Count -ne 10) { throw "Passed $passed/83; failed or incomplete: $($bad -join ', '). See the per-file logs." }
+Write-Host "Ten test files, $passed passed, no skipped tests."

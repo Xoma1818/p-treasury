@@ -25,8 +25,8 @@ function Wait-Child([Diagnostics.Process]$Child, [int]$Seconds, [string]$Phase) 
     Write-Phase "$Phase complete"
 }
 $repo = 'Xoma1818/p-treasury'
-$expectedHead = '1f7d9df8d958dbb36b26490fe98626268a239151'
-$runId = 45075226749L
+$expectedHead = '07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba'
+$runId = 45082106249L
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_REPOSITORY -ne $repo -or
     $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') { throw 'Use the disposable GitHub-hosted Windows runner only.' }
 $os = Get-CimInstance Win32_OperatingSystem
@@ -107,10 +107,13 @@ try {
     $env:NO_PROXY = 'localhost,127.0.0.1'
     $env:KAZNA_TEST_BIN = $bin
     $env:KAZNA_E2E_APP = Join-Path $Source 'e2e/app.mjs'
+    $env:KAZNA_UPDATE_EVIDENCE = Join-Path $root 'verified-update.json'
     Write-Phase 'Starting the installed app and checking the update'
     $test = Start-Child (Get-Command node.exe).Source @((Join-Path $PSScriptRoot 'verify-update.mjs'))
     Wait-Child $test 360 'Window and data verification'
     if ((Get-Content -LiteralPath (Join-Path $feed 'requests.txt')) -cnotcontains $exe) { throw 'The updater did not request the pinned installer.' }
+    $evidence = Get-Content -LiteralPath $env:KAZNA_UPDATE_EVIDENCE -Raw
+    Write-Host "Window/SQLite evidence: $evidence"
 } finally {
     Write-Phase 'Closing the local feed'
     if ($server -and !$server.HasExited) {

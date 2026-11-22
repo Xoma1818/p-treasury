@@ -25,7 +25,7 @@ jobs:
           path: harness
       - uses: actions/checkout@v5
         with:
-          ref: 1f7d9df8d958dbb36b26490fe98626268a239151
+          ref: 07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba
           persist-credentials: false
           path: source
       - uses: actions/setup-node@v5
@@ -42,7 +42,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: ./harness/.github/qa/041-update/check-update.ps1 -Source (Resolve-Path ./source).Path
   windows-scenarios:
-    name: Девять сценариев в окне Windows 11
+    name: Десять групп в окне Windows 11
     # A diagnostic retry of the updater on the same application commit can opt out explicitly.
     if: ${{ !contains(github.event.head_commit.message, '[update-only]') }}
     runs-on: windows-11-arm
@@ -55,7 +55,7 @@ jobs:
           path: harness
       - uses: actions/checkout@v5
         with:
-          ref: 1f7d9df8d958dbb36b26490fe98626268a239151
+          ref: 07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba
           persist-credentials: false
           path: source
       - uses: actions/setup-node@v5
