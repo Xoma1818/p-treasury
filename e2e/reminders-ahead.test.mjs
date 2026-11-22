@@ -266,6 +266,7 @@ test("два равных списания: календарь привязыв�
       await day.waitForDisplayed();
       await browser.execute((button) => button.focus(), day);
       await browser.keys("Enter");
+      await browser.waitUntil(() => browser.$('[data-testid="day-panel"] h2').isFocused(), { timeout: 5000 });
     }
     const trigger = await browser.$(`[data-testid="${area}"] ${occurrence} [data-testid="occ-open-transaction"]`);
     await trigger.waitForDisplayed();
@@ -284,6 +285,10 @@ test("два равных списания: календарь привязыв�
     await browser.waitUntil(() => trigger.isFocused(), { timeout: 5000 });
     assert.equal((await linked()).transactionId, selected);
     assert.deepEqual(await cardEntries(title), before);
+    if (area === "day-panel") {
+      await browser.$('[aria-label="Закрыть день"]').click();
+      await browser.waitUntil(() => browser.$(`[data-testid="cal-day"][data-date="${inDays(1)}"]`).isFocused(), { timeout: 5000 });
+    }
   }
 
   await openSection(browser, "Операции");
