@@ -1,0 +1,39 @@
+name: QA 110 · Повтор дохода в WebKitGTK
+on:
+  push:
+    branches: [codex/qa-110-linux-repeat]
+permissions:
+  contents: read
+jobs:
+  repeat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Библиотеки окна
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev webkit2gtk-driver libayatana-appindicator3-dev librsvg2-dev xvfb xdotool x11-utils scrot
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e
+      - name: Драйвер Tauri
+        run: cargo install tauri-driver --locked
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: cargo build -p budget-app --features custom-protocol --locked --quiet
+      - name: Два пути от контекстного меню
+        run: xvfb-run -a -s "-screen 0 1280x800x24" node e2e/qa-linux-repeat.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-repeat-diagnostics
+          path: qa-linux-repeat/
+          retention-days: 5
