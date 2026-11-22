@@ -264,7 +264,7 @@ export function Transactions() {
   const hasScope = hasConditions || !!f.dateFrom || !!f.dateTo;
   // Итог найденного исторически показывается при отклонении от исходного текущего месяца.
   const showFilteredTotal = hasConditions || f.dateFrom !== from || f.dateTo !== to;
-  const emptyPage = page.isSuccess && !finding && page.data.total === 0;
+  const emptyPage = page.isSuccess && !page.isFetching && !finding && page.data.total === 0;
   const journal = useQuery({
     queryKey: ["transactions", { limit: 1 }],
     queryFn: () => api.listTransactions({ limit: 1 }),
@@ -272,8 +272,8 @@ export function Transactions() {
     enabled: emptyPage && hasScope,
     staleTime: AGGREGATE_STALE_MS,
   });
-  const checkingEmpty = emptyPage && hasScope && journal.isPending;
-  const emptyJournal = emptyPage && (!hasScope || journal.data === 0);
+  const checkingEmpty = emptyPage && hasScope && (journal.isPending || journal.isFetching);
+  const emptyJournal = emptyPage && (!hasScope || (journal.isSuccess && journal.data === 0));
   const showAll = () => {
     if (!hasScope && !search) return;
     cancelSelection();
@@ -414,7 +414,7 @@ export function Transactions() {
         <header className="txn-results-header">
           <h2 id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
           <span className="muted txn-results-status" role="status">
-            {page.isPending || checkingEmpty ? "Загружаем операции…" : finding && page.data ? "Обновляем список. Пока показаны предыдущие результаты." : null}
+            {page.isPending || checkingEmpty || (page.isFetching && page.data?.total === 0) ? "Загружаем операции…" : finding && page.data ? "Обновляем список. Пока показаны предыдущие результаты." : null}
           </span>
           {page.data && (
             <div className="muted" data-testid="txn-count">
