@@ -29,9 +29,13 @@ struct Step {
     settings: Vec<(String, Option<String>, Option<String>)>,
 }
 
-/// Настройки — часть данных: «Куда входит счёт» (Р20) хранит выключенные счета бюджета
-/// и прогноза в настройках, и их отмена должна идти одним шагом со счётом.
-const UNDOABLE_SETTINGS: &[&str] = &["budget_excluded_accounts", "forecast_excluded_accounts"];
+/// Эти списки меняются одновременно с данными счетов и видимостью подписок.
+/// Их прежний состав нужен для отмены действия целиком.
+const UNDOABLE_SETTINGS: &[&str] = &[
+    "budget_excluded_accounts",
+    "forecast_excluded_accounts",
+    "subscriptions_hidden",
+];
 
 fn read_settings(conn: &Connection) -> Result<Vec<Option<String>>> {
     UNDOABLE_SETTINGS

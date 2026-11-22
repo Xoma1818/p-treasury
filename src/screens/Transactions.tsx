@@ -21,12 +21,13 @@ import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type T
 import { formatDate, monthBounds, monthTitle, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
-import { useUi } from "../lib/store";
+import { type TxnJump, useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { ChecksCard } from "../components/QuickWins";
 import "./transactions.css";
 
 const PAGE = 100;
+type JournalFilter = TxnFilter & Pick<TxnJump, "subscription">;
 
 /** Р3 «Крупные» по умолчанию: от 10 000 в основной валюте (в целых единицах). */
 const LARGE_DEFAULT = 10_000;
@@ -44,7 +45,7 @@ export function Transactions() {
   const { txnFilter, viewJump, openTxnForm, reportOrigin, returnToReport } = useUi();
   const reviewOpen = useUi((s) => s.operationReview);
   const [from, to] = monthBounds(today());
-  const [f, setF] = useState<TxnFilter>({ dateFrom: from, dateTo: to });
+  const [f, setF] = useState<JournalFilter>(() => txnFilter ?? { dateFrom: from, dateTo: to });
   const [search, setSearch] = useState("");
   const [minAmountDraft, setMinAmountDraft] = useState<string | null>(null);
   const [limit, setLimit] = useState(PAGE);
@@ -71,7 +72,7 @@ export function Transactions() {
   }, [txnFilter]);
 
   const table = useTxnTable();
-  const applyView = (v: { filter: TxnFilter; search: string; table?: TxnTableLayout }) => {
+  const applyView = (v: { filter: JournalFilter; search: string; table?: TxnTableLayout }) => {
     setMinAmountDraft(null);
     setLimit(PAGE);
     // Вид, сохранённый до Г8, таблицу не трогает.
@@ -82,7 +83,7 @@ export function Transactions() {
   // Вид, открытый из бокового меню.
   useEffect(() => {
     if (viewJump?.kind !== "transactions") return;
-    const params = parseView<{ filter: TxnFilter; search: string; table?: TxnTableLayout }>(viewJump.params);
+    const params = parseView<{ filter: JournalFilter; search: string; table?: TxnTableLayout }>(viewJump.params);
     if (params) applyView(params);
     useUi.setState({ viewJump: null });
   }, [viewJump]);
@@ -92,10 +93,18 @@ export function Transactions() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const query = { ...f, sort: sortParam(table), limit };
-  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), placeholderData: keepPreviousData, staleTime: AGGREGATE_STALE_MS });
-  const finding = search !== (f.search ?? "") || page.isPlaceholderData;
-  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions({ ...f, search: search || undefined }, path), ["csv", "xlsx", "ofx"]);
+  const selectedSubscription = f.subscription;
+  const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: api.listSubscriptions, enabled: !!selectedSubscription });
+  const series = selectedSubscription && subscriptions.data?.items.find((s) => s.key === selectedSubscription.key && s.currencyCode === selectedSubscription.currencyCode);
+  const scopeReady = !selectedSubscription || subscriptions.isSuccess;
+  const activeFilter = useMemo<TxnFilter>(() => {
+    const { subscription, ...filter } = f;
+    return subscription ? { ...filter, paymentIds: series?.paymentIds ?? [] } : filter;
+  }, [f, series]);
+  const query = { ...activeFilter, sort: sortParam(table), limit };
+  const page = useQuery({ queryKey: ["transactions", query], queryFn: () => api.listTransactions(query), enabled: scopeReady, placeholderData: f.subscription ? undefined : keepPreviousData, staleTime: AGGREGATE_STALE_MS });
+  const finding = !scopeReady || search !== (f.search ?? "") || page.isPlaceholderData;
+  const exp = useExport(`Kazna — операции ${today()}`, (path) => api.exportTransactions({ ...activeFilter, search: search || undefined }, path), ["csv", "xlsx", "ofx"], scopeReady);
   // Импорт выписки: кнопкой или файлом, брошенным в окно (undefined — окно закрыто).
   const [importFile, setImportFile] = useState<string | null | undefined>(undefined);
   const [importKey, setImportKey] = useState(0);
@@ -116,7 +125,7 @@ export function Transactions() {
       }),
     [importSaveGuard],
   );
-  const set = (patch: Partial<TxnFilter>) => {
+  const set = (patch: Partial<JournalFilter>) => {
     setLimit(PAGE);
     const next = { ...f, ...patch };
     if (!next.counted || next.dateFrom !== f.dateFrom || next.dateTo !== f.dateTo) delete next.budgetMonth;
@@ -134,7 +143,7 @@ export function Transactions() {
     setSelectingAll(false);
   }, []);
   // Г1: выделение. Другой фильтр — выделение снимается; удалённые строки из него уходят.
-  const filterKey = JSON.stringify(f);
+  const filterKey = JSON.stringify(activeFilter);
   const currentFilter = useRef(filterKey);
   currentFilter.current = filterKey;
   useEffect(() => {
@@ -167,7 +176,7 @@ export function Transactions() {
         setSel(EMPTY_SEL);
         // Всё отфильтрованное, а не только первые 5000 строк, которые может вернуть ядро.
         try {
-          const ids = await loadAllTransactionIds(api.listTransactions, f, request.signal);
+          const ids = await loadAllTransactionIds(api.listTransactions, activeFilter, request.signal);
           if (ids && selectionRequest.current === request && currentFilter.current === filterKey) {
             selectAllRef.current = true;
             setSel(selectAll(ids));
@@ -188,7 +197,7 @@ export function Transactions() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [f, filterKey, total, txnFormOpen, sel.ids.size, finding, page.isError, cancelSelection]);
+  }, [activeFilter, filterKey, total, txnFormOpen, sel.ids.size, finding, page.isError, cancelSelection]);
   const onToggle = (key: string, mods: { shift: boolean; ctrl: boolean }) => {
     if (finding || page.isError) return;
     cancelSelection();
@@ -232,6 +241,7 @@ export function Transactions() {
   };
   // Включённые фильтры — плашками с крестиком, видны и при свёрнутой панели.
   const chips: { id: string; label: string; clear: () => void }[] = [];
+  if (f.subscription) chips.push({ id: "chip-subscription", label: `Подписка · ${series?.payee ?? f.subscription.key} · ${f.subscription.currencyCode}`, clear: () => set({ subscription: undefined }) });
   if (f.budgetMonth) chips.push({ id: "chip-budget", label: `Бюджет · ${monthTitle(f.budgetMonth)}`, clear: () => set({ budgetMonth: undefined }) });
   if (f.accountId) chips.push({ id: "chip-account", label: accounts.find((a) => a.id === f.accountId)?.name ?? "Счёт", clear: () => set({ accountId: undefined }) });
   if (f.categoryId) chips.push({ id: "chip-category", label: categories.find((c) => c.id === f.categoryId)?.name ?? "Категория", clear: () => set({ categoryId: undefined }) });
@@ -277,6 +287,14 @@ export function Transactions() {
   });
   const checkingEmpty = emptyPage && hasScope && (journal.isPending || journal.isFetching);
   const emptyJournal = emptyPage && (!hasScope || (journal.isSuccess && journal.data === 0));
+  let resultStatus = "";
+  if (!scopeReady) {
+    if (subscriptions.isPending) resultStatus = "Загружаем платежи подписки…";
+  } else if (page.isPending || checkingEmpty || (page.isFetching && page.data?.total === 0)) {
+    resultStatus = "Загружаем операции…";
+  } else if (finding && page.data) {
+    resultStatus = "Обновляем список. Пока показаны предыдущие результаты.";
+  }
   const showAll = () => {
     if (!hasScope && !search) return;
     cancelSelection();
@@ -418,9 +436,9 @@ export function Transactions() {
         <header className="txn-results-header">
           <h2 id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
           <span className="muted txn-results-status" role="status">
-            {page.isPending || checkingEmpty || (page.isFetching && page.data?.total === 0) ? "Загружаем операции…" : finding && page.data ? "Обновляем список. Пока показаны предыдущие результаты." : null}
+            {resultStatus}
           </span>
-          {page.data && (
+          {scopeReady && page.data && (
             <div className="muted" data-testid="txn-count">
               Показано {page.data.items.length} из {page.data.total}
               {sel.ids.size === 0 && <Hint of="txn.select" />}
@@ -433,8 +451,9 @@ export function Transactions() {
             {f.budgetMonth || f.dateFrom || f.dateTo ? "У распределённой покупки видны полное списание и сумма, учтённая за период." : "В таблице показаны исходные даты и полные суммы операций."}
           </p>
         )}
+        {f.subscription && subscriptions.isError && <p className="error">Не удалось загрузить платежи подписки. <button className="link" onClick={() => void subscriptions.refetch()}>Повторить</button></p>}
         {page.error && <p className="error">{String(page.error)}</p>}
-        {page.data && (
+        {scopeReady && page.data && (
           <>
             {page.data.items.length > 0 && <TxnTable items={page.data.items} isBudgetPeriod={Boolean(f.budgetMonth)} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />}
             {emptyPage && !checkingEmpty && (
@@ -455,7 +474,7 @@ export function Transactions() {
       </div>
       <SelectionBar
         ids={finding ? [] : [...sel.ids]}
-        filter={{ ...f, limit: undefined, offset: undefined }}
+        filter={{ ...activeFilter, limit: undefined, offset: undefined }}
         filtered={showFilteredTotal && page.isSuccess && !finding}
         onClear={() => {
           cancelSelection();

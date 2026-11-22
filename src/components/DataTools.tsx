@@ -634,7 +634,7 @@ export const FORMATS: Record<ExportFormat, { label: string; filter: typeof XLSX 
 };
 
 /** Выгрузка списка или отчёта: формат выбирается в меню кнопки, затем — куда сохранить. */
-export function useExport(name: string, run: (path: string) => Promise<void>, formats: ExportFormat[] = ["csv", "xlsx"]) {
+export function useExport(name: string, run: (path: string) => Promise<void>, formats: ExportFormat[] = ["csv", "xlsx"], enabled = true) {
   const [done, setDone] = useState<string | null>(null);
   const action = useAction(async (format: ExportFormat) => {
     const path = await pickSave(`${name}.${format}`, [FORMATS[format].filter]);
@@ -642,7 +642,10 @@ export function useExport(name: string, run: (path: string) => Promise<void>, fo
     await run(path);
     setDone(baseName(path));
   });
-  return { run: (format: ExportFormat) => action.run(format), formats, done, error: action.error, busy: action.busy };
+  const start = (format: ExportFormat) => {
+    if (enabled && !action.busy) action.run(format);
+  };
+  return { run: start, formats, done, error: action.error, busy: action.busy || !enabled };
 }
 
 /** Кнопка «Выгрузить» с меню форматов: «Скачать в CSV», «Скачать в Excel», «Скачать в OFX». */
@@ -685,6 +688,7 @@ export function FormatMenu({ label, formats, onPick, busy, done, disabled, title
               type="button"
               role="menuitem"
               data-format={f}
+              disabled={disabled || busy}
               onClick={() => {
                 setOpen(false);
                 onPick(f);

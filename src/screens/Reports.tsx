@@ -368,7 +368,7 @@ export function Reports() {
         {period && tab === "balances" && <Balances period={period} date={report.balancesDate} onDate={(balancesDate) => update({ balancesDate })} />}
         {tab === "compare" && <Compare />}
         {period && tab === "fx" && <FxGain period={period} />}
-        {tab === "subs" && <SubscriptionsReport />}
+        {tab === "subs" && <SubscriptionsReport openOperations={openOperations} showHidden={report.showHiddenSubscriptions ?? false} setShowHidden={(value) => update({ showHiddenSubscriptions: value })} />}
         {tab === "year" && <YearReviewReport />}
         {period && tab === "tag" && <TagReport period={period} tagId={report.tagId} onTag={(tagId) => update({ tagId })} openOperations={openOperations} onDraft={setCtx} />}
         {tab === "networth" && <NetWorthReport />}

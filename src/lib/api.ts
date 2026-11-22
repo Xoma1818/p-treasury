@@ -232,6 +232,8 @@ export interface Payoff {
 }
 
 export interface TxnFilter {
+  /** Исходные списания, вошедшие в выбранную серию регулярных платежей. */
+  paymentIds?: string[];
   dateFrom?: string;
   dateTo?: string;
   accountId?: string;
@@ -1680,6 +1682,8 @@ export const SUB_PERIODS: Record<SubPeriod, string> = {
 export interface Subscription {
   key: string;
   payee: string;
+  currencyCode: string;
+  paymentIds: string[];
   categoryName: string | null;
   period: SubPeriod;
   amount: number;
@@ -2312,7 +2316,7 @@ export const api = {
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
   goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
   listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),
-  hideSubscription: (key: string, hide: boolean) => invoke<void>("hide_subscription", { key, hide }),
+  hideSubscription: (key: string, currencyCode: string, hide: boolean) => invoke<void>("hide_subscription", { key, currencyCode, hide }),
   yearReview: (year: number) => invoke<YearReview>("year_review", { year }),
   globalSearch: (query: string) => invoke<SearchHit[]>("global_search", { query }),
   autoImportDir: () => invoke<string>("auto_import_dir"),

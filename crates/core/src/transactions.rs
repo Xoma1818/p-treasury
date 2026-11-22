@@ -416,6 +416,8 @@ pub struct Filter {
     pub types: Vec<String>,
     /// Текст в получателе или комментарии, либо сумма («2340» или «2 340,50»).
     pub search: Option<String>,
+    /// Точные исходные платежи. Пустой список не выбирает ни одной строки.
+    pub payment_ids: Option<Vec<String>>,
     /// Операции поездки или события.
     pub event_id: Option<String>,
     /// Операции с тегом.
@@ -526,6 +528,10 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
         args.push(v);
         format!("?{}", args.len())
     };
+    if let Some(ids) = &f.payment_ids {
+        let p = arg(serde_json::json!(ids).to_string().into());
+        wh.push(format!("t.id IN (SELECT value FROM json_each({p}))"));
+    }
     let (ty, dt) = if f.counted {
         (
             "(CASE WHEN t.refund = 1 THEN 'expense' ELSE t.type END)",
