@@ -32,17 +32,39 @@ export async function snapshot(browser, step, field) {
   if(scrot.status!==0) console.log("scrot",scrot.status,scrot.stderr?.toString());
 }
 
+export async function traceInput(browser) {
+  await browser.execute(()=>{
+    window.qaTrace=[];
+    for (const name of ['pointerdown','pointerup','mousedown','mouseup','click','auxclick','contextmenu','focusin','keydown']) {
+      document.addEventListener(name,e=>{
+        const describe=n=>n?.nodeType===1?[n.tagName,n.className,n.getAttribute('aria-label')||n.getAttribute('data-testid')||n.getAttribute('name')||'',(n.tagName==='BUTTON'?n.textContent:'').trim().slice(0,26)]:null;
+        window.qaTrace.push({i:window.qaTrace.length,type:e.type,button:e.button,key:e.key,detail:e.detail,
+          pointer:e.pointerType,x:e.clientX,y:e.clientY,origin:describe(e.target),parent:describe(e.target.parentElement),
+          active:describe(document.activeElement),dialogs:[...document.querySelectorAll('[role=dialog]')].map(x=>x.getAttribute('aria-label'))});
+      },true);
+    }
+  });
+}
+export async function reportInput(browser,step) {
+  const r=await browser.execute(()=>({events:window.qaTrace.splice(0),dialogs:[...document.querySelectorAll('[role=dialog]')].map(x=>x.getAttribute('aria-label')),menu:!!document.querySelector('[role=menu]')}));
+  console.log("EVENTS "+step+" "+JSON.stringify(r));
+  await writeFile(join(output,step+"-events.json"),JSON.stringify(r,null,2));
+}
+
 if (pathToFileURL(process.argv[1]).href === import.meta.url) {
   await mkdir(output,{recursive:true});
   const original = await readFile("e2e/repeat-and-cover.test.mjs","utf8");
   const anchor = '  await repeat.scrollIntoView({ block: "center" });\n  await repeat.waitForClickable();';
   if (original.split(anchor).length !== 2) throw Error("frequency test changed");
   const start = '  await snapshot(browser,"MODE-before-scroll",await repeat);\n';
+  const right = original.split("\n").find(line=>line.includes('Работодатель')&&line.includes('button: "right"'));
+  const pick = original.split("\n").find(line=>line.includes('await click(browser, "Запланировать повтор…"'));
+  if(!right || !pick) throw Error("menu anchors changed");
   const before = `  await repeat.scrollIntoView({ block:"center" });
   await snapshot(browser,"pointer-after-scroll",await repeat);
   try { await repeat.waitForClickable(); } catch(e) { await snapshot(browser,"pointer-failed",await repeat); throw e; }`;
   const keyboard = `  const title = browser.$('[data-testid="repeat-plan-form"] input[name="reminderTitle"]');
-  await title.click();
+  assert.equal(await browser.execute(()=>document.activeElement?.name),"reminderTitle");
   const visited=[];
   for(let i=0;i<12;i++){
     const active=await browser.execute(()=>[document.activeElement?.tagName,document.activeElement?.name,document.activeElement?.getAttribute("data-testid")]);
@@ -54,8 +76,17 @@ if (pathToFileURL(process.argv[1]).href === import.meta.url) {
   await snapshot(browser,"keyboard-focused",await repeat);
   assert.equal(visited.at(-1)[1],"repeat","клавиатура достигает списка");`;
   let keyboardPassed=false;
-  for(const [mode,attempt] of [["pointer",before],["keyboard",keyboard]]) {
-    const copy='import {snapshot} from "./qa-linux-repeat.mjs";\n'+original.replace(anchor,start.replace("MODE",mode)+attempt);
+  for(const [mode,attempt] of [["pointer",before],["keyboard",keyboard],["native",before],["explicit-up",before]]) {
+    let press=right;
+    if(mode==="explicit-up") press=right.replace('button: "right"','button: "right", skipRelease: true');
+    if(mode==="native") {
+      press=`const row=browser.$('//*[@data-testid="txn-row" and contains(., "Работодатель")]//td[@class="date"]');
+      await row.moveTo();
+      execFileSync("xdotool",["click","3"]);`;
+    }
+    const copy='import {snapshot,traceInput,reportInput} from "./qa-linux-repeat.mjs";\nimport {execFileSync} from "node:child_process";\n'+original
+      .replace(right,"await traceInput(browser);\n"+press+"\nawait reportInput(browser,'"+mode+"-right');")
+      .replace(pick,pick+"\nawait reportInput(browser,'"+mode+"-pick');").replace(anchor,start.replace("MODE",mode)+attempt);
     const path="e2e/.qa-repeat-"+mode+".mjs";
     await writeFile(path,copy);
     const result=spawnSync(process.execPath,["--test","--test-reporter=tap","--test-name-pattern=Повтор дохода",path],{encoding:"utf8",maxBuffer:8*1024*1024});
