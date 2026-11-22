@@ -1,14 +1,20 @@
 diff --git a/e2e/repeat-and-cover.test.mjs b/e2e/repeat-and-cover.test.mjs
-index 90aeed27..78881944 100644
+index 90aeed27..09646187 100644
 --- a/e2e/repeat-and-cover.test.mjs
 +++ b/e2e/repeat-and-cover.test.mjs
-@@ -188,9 +188,22 @@ test("Повтор дохода берёт счёт, категорию и су
+@@ -188,9 +188,28 @@ test("Повтор дохода берёт счёт, категорию и су
    const unchanged = { ids: [source], balances: { Зарплатная: 5_000_000 } };
    await w.refresh();
    await openSection(browser, "Операции");
 -  await browser.$('//*[@data-testid="txn-row" and contains(., "Работодатель")]//td[@class="date"]').click({ button: "right" });
 +  const rowDate = browser.$('//*[@data-testid="txn-row" and contains(., "Работодатель")]//td[@class="date"]');
 +  const menu = browser.$(byTest("context-menu"));
++  const checkbox = browser.$(byTest("txn-row") + " " + byTest("txn-select"));
++  await checkbox.click({ button: "right" });
++  await menu.waitForDisplayed();
++  assert.equal(await checkbox.isSelected(), false, "правый щелчок по флажку не выделяет операцию");
++  await browser.keys("Escape");
++  await menu.waitForExist({ reverse: true });
 +  await rowDate.click({ button: "right" });
 +  await menu.waitForDisplayed();
 +  assert.equal((await browser.$$('[role="dialog"]')).length, 0, "правый щелчок открывает только меню");
@@ -27,7 +33,7 @@ index 90aeed27..78881944 100644
    const repeat = browser.$('[data-testid="repeat-plan-form"] select[name="repeat"]');
    await repeat.scrollIntoView({ block: "center" });
 diff --git a/src/components/TxnTable.tsx b/src/components/TxnTable.tsx
-index 65cd6d0a..aba9849f 100644
+index 65cd6d0a..5ca3d9d3 100644
 --- a/src/components/TxnTable.tsx
 +++ b/src/components/TxnTable.tsx
 @@ -60,6 +60,7 @@ export function TxnTable({
@@ -38,13 +44,19 @@ index 65cd6d0a..aba9849f 100644
    const catMap = useCategoryMap();
    const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
    // Г2: правая кнопка — все действия с операцией в одном меню.
-@@ -109,12 +110,21 @@ export function TxnTable({
+@@ -108,13 +109,27 @@ export function TxnTable({
+     const main = (
        <tr
          key={r.key}
-         onClick={(e) => {
++        onClickCapture={(e) => {
 +          // В WebKitGTK после contextmenu бывает click с button=0 без нового
-+          // нажатия левой кнопки. Он относится к меню, а не к открытию операции.
-+          if (e.detail > 0 && contextRow.current === e.currentTarget) return;
++          // нажатия левой кнопки. Останавливаем его и для флажка, и для самой строки.
++          if (e.detail > 0 && contextRow.current === e.currentTarget) {
++            e.preventDefault();
++            e.stopPropagation();
++          }
++        }}
+         onClick={(e) => {
            // С Ctrl или Shift щелчок выделяет строку, без клавиш — открывает операцию.
            if (selection && (e.ctrlKey || e.metaKey || e.shiftKey)) return selection.onToggle(r.key, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
            open({ mode: "edit", txn: t });
