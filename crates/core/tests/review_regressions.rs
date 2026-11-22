@@ -107,6 +107,72 @@ fn counted_expenses_find_spread_parts_and_return_the_original_once() {
 }
 
 #[test]
+fn budget_fact_drilldown_matches_its_currency_and_account_scope() {
+    use budget_core::{budgets, transactions};
+
+    let db = Storage::open_in_memory().unwrap();
+    let c = db.conn();
+    c.execute_batch(
+        r#"INSERT OR REPLACE INTO settings(key,value) VALUES
+               ('month_start_day','15'),('budget_excluded_accounts','["excluded"]');
+           INSERT INTO accounts(id,name,type,currency_code,opening_date,created_at,updated_at)
+               VALUES ('card','Card','debit','RUB','2026-01-01','',''),
+                      ('excluded','Outside','debit','RUB','2026-01-01','','');
+           INSERT INTO categories(id,name,kind,created_at,updated_at) VALUES ('goods','Goods','expense','','');
+           INSERT INTO events(id,name,start_date,end_date,created_at)
+               VALUES ('trip','Trip','2026-11-01','2026-12-01','');
+           INSERT INTO budgets(id,period_start,currency_code,created_at,updated_at)
+               VALUES ('nov','2026-10-15','USD','','');
+           INSERT INTO transactions(id,type,date,account_id,amount,category_id,status,event_id,spread_months,created_at,updated_at)
+               VALUES ('purchase','expense','2026-10-15','card',100000,'goods','cleared',NULL,3,'',''),
+                      ('outside','expense','2026-11-14','excluded',15000,'goods','cleared',NULL,NULL,'',''),
+                      ('travel','expense','2026-11-14','card',20000,'goods','cleared','trip',NULL,'',''),
+                      ('next','expense','2026-11-15','card',30000,'goods','cleared',NULL,NULL,'','');"#,
+    )
+    .unwrap();
+    currencies::set_rate(c, "2026-10-15", "USD", "RUB", "100").unwrap();
+    budgets::set_limit(c, "nov", "goods", Some(10000)).unwrap();
+    let budget = budgets::get(c, "2026-11", "2026-11-01").unwrap();
+    let mut filter = transactions::Filter {
+        category_id: Some("goods".into()),
+        types: vec!["expense".into()],
+        counted: true,
+        budget_month: Some("2026-11".into()),
+        date_from: Some(budget.period.start),
+        date_to: Some(budget.period.end),
+        ..Default::default()
+    };
+    let page = transactions::list(c, &filter).unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].id, "purchase");
+    assert_eq!(page.items[0].amount, 100000);
+    let share = page.items[0].counted_share.as_ref().unwrap();
+    assert_eq!(share.amount, 33334);
+    assert_eq!(share.budget_currency, "USD");
+    assert_eq!(share.budget_amount, 333);
+    assert!(!share.missing_rate);
+    let sum = transactions::sum_filter(c, &filter).unwrap();
+    assert_eq!(sum.base_currency, "USD");
+    assert_eq!(sum.expense, 333);
+    assert_eq!(sum.expense, budget.actual_expense);
+
+    currencies::delete_rate(c, "2026-10-15", "USD", "RUB").unwrap();
+    let page = transactions::list(c, &filter).unwrap();
+    let share = page.items[0].counted_share.as_ref().unwrap();
+    assert_eq!(share.amount, 33334);
+    assert_eq!(share.budget_amount, 0);
+    assert!(share.missing_rate);
+    let sum = transactions::sum_filter(c, &filter).unwrap();
+    assert_eq!(sum.expense, 0);
+    assert_eq!(sum.missing_rates, vec!["RUB"]);
+
+    // Та же категория в отчёте охватывает все счета и события.
+    filter.budget_month = None;
+    assert_eq!(transactions::list(c, &filter).unwrap().total, 3);
+    assert_eq!(transactions::sum_filter(c, &filter).unwrap().expense, 68334);
+}
+
+#[test]
 fn ambiguous_legacy_budget_merge_refuses_without_changing_finances() {
     let dir = tempfile::tempdir().unwrap();
     let opts = OpenOptions {

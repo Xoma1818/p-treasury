@@ -45,6 +45,7 @@ export interface TxnJump {
   quick?: QuickFilter[];
   /** Как в отчётах: возвраты — вместе с расходами (переход из сумм на Главной). */
   counted?: boolean;
+  budgetMonth?: string;
 }
 
 interface UiState {

@@ -65,6 +65,17 @@ pub struct Txn {
     pub count_date: Option<String>,
     /// Код валюты счёта (итоги групп различают валюты с одним символом).
     pub currency_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counted_share: Option<CountedShare>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CountedShare {
+    pub amount: i64,
+    pub budget_amount: i64,
+    pub budget_currency: String,
+    pub missing_rate: bool,
 }
 
 fn clean(s: &Option<String>) -> Option<String> {
@@ -421,6 +432,8 @@ pub struct Filter {
     /// распределённый расход попадает в список, если подходит хотя бы одна часть.
     /// В результате остаётся исходная операция с исходной суммой и датой.
     pub counted: bool,
+    /// Расшифровка факта конкретного бюджета, с его валютой и исключениями.
+    pub budget_month: Option<String>,
     /// Р3 «Крупные»: сумма не меньше этой, в минимальных единицах основной валюты.
     /// Валютные операции сравниваются по курсу на конец отбора; без курса не попадают.
     pub min_amount: Option<i64>,
@@ -492,6 +505,7 @@ fn map(r: &rusqlite::Row) -> rusqlite::Result<Txn> {
         refund_of: r.get(24)?,
         count_date: r.get(25)?,
         currency_code: r.get(26)?,
+        counted_share: None,
     })
 }
 
@@ -504,6 +518,9 @@ pub fn get(conn: &Connection, id: &str) -> Result<Txn> {
 /// Условие WHERE и его параметры для фильтра.
 fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
     let mut wh = vec!["t.status = 'cleared'".to_string()];
+    if f.counted && f.budget_month.is_some() {
+        wh.push(crate::budgets::ACTUAL_SCOPE.to_string());
+    }
     let mut args: Vec<Value> = Vec::new();
     let mut arg = |v: Value| {
         args.push(v);
@@ -647,6 +664,62 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
 
 /// Список операций по фильтру, новые сверху.
 pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
+    let mut page = list_page(conn, f)?;
+    if let Some(month) = f.budget_month.as_deref().filter(|_| f.counted) {
+        attach_budget_shares(conn, &mut page.items, f, month)?;
+    }
+    Ok(page)
+}
+
+fn attach_budget_shares(
+    conn: &Connection,
+    items: &mut [Txn],
+    f: &Filter,
+    month: &str,
+) -> Result<()> {
+    let positions: std::collections::HashMap<String, usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.spread_months.is_some())
+        .map(|(index, row)| (row.id.clone(), index))
+        .collect();
+    if positions.is_empty() {
+        return Ok(());
+    }
+    let target = crate::budgets::fact_currency(conn, month)?;
+    let ids = serde_json::json!(positions.keys().collect::<Vec<_>>()).to_string();
+    let mut stmt = conn.prepare(
+        "SELECT id, date, amount FROM txn_by_month
+         WHERE spread_months IS NOT NULL AND id IN (SELECT value FROM json_each(?1))
+           AND (?2 IS NULL OR date >= ?2) AND (?3 IS NULL OR date <= ?3)",
+    )?;
+    let mut rows = stmt.query(params![ids, f.date_from, f.date_to])?;
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let date: String = row.get(1)?;
+        let amount: i64 = row.get(2)?;
+        let txn = &mut items[positions[&id]];
+        let share = txn.counted_share.get_or_insert_with(|| CountedShare {
+            amount: 0,
+            budget_amount: 0,
+            budget_currency: target.clone(),
+            missing_rate: false,
+        });
+        share.amount += amount;
+        match currencies::convert(conn, amount, &txn.currency_code, &target, &date)? {
+            Some(value) => {
+                share.budget_amount = share
+                    .budget_amount
+                    .checked_add(value)
+                    .ok_or_else(|| Error::InvalidAmount("слишком большая сумма долей".into()))?;
+            }
+            None => share.missing_rate = true,
+        }
+    }
+    Ok(())
+}
+
+fn list_page(conn: &Connection, f: &Filter) -> Result<Page> {
     let (where_sql, args) = where_clause(conn, f)?;
     let total: i64 = conn.query_row(
         &format!(
@@ -883,7 +956,10 @@ pub fn sum_ids(conn: &Connection, ids: &[String]) -> Result<Sums> {
 /// Сумма всех операций, найденных фильтром (без учёта страниц).
 pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
     let mut out = Sums {
-        base_currency: crate::currencies::base_currency(conn)?,
+        base_currency: match f.budget_month.as_deref().filter(|_| f.counted) {
+            Some(month) => crate::budgets::fact_currency(conn, month)?,
+            None => currencies::base_currency(conn)?,
+        },
         ..Default::default()
     };
     let (where_sql, mut args) = where_clause(conn, f)?;

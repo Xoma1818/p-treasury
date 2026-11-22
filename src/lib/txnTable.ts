@@ -111,7 +111,7 @@ export interface RowGroup {
   label: string;
   rows: TxnRow[];
   /** Итог группы со знаком, если в ней одна валюта (по коду, не по символу); переводы не считаются. */
-  total: { amount: number; symbol: string; minorUnits: number } | null;
+  total: { amount: number; symbol: string; currencyCode: string; minorUnits: number } | null;
 }
 
 const first = (r: TxnRow) => (r.kind === "txn" ? r.txn : r.parts[0]);
@@ -141,7 +141,7 @@ export function groupRows(items: Txn[], g: Group): RowGroup[] {
     let grp = out.get(key);
     if (!grp) {
       const t = first(r);
-      grp = { key, label, rows: [], total: { amount: 0, symbol: t.currencySymbol, minorUnits: t.minorUnits }, symbols: new Set() };
+      grp = { key, label, rows: [], total: { amount: 0, symbol: t.currencySymbol, currencyCode: t.currencyCode, minorUnits: t.minorUnits }, symbols: new Set() };
       out.set(key, grp);
     }
     grp.rows.push(r);

@@ -69,7 +69,7 @@ export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
   return (
     <div className={selected ? "sel-bar active" : "sel-bar"} data-testid="sel-bar" role="region" aria-label={selected ? "Выбранные операции" : "Итог найденного"}>
       <div className="sel-sum">
-        {(selected || filtered) && <SumLine s={sums} selected={selected} />}
+        {(selected || filtered) && <SumLine s={sums} selected={selected} countedPeriod={Boolean(filter.counted && (filter.dateFrom || filter.dateTo))} />}
         {!selected && <Hint of="txn.select" />}
       </div>
       {selected && (
@@ -122,17 +122,18 @@ export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
   );
 }
 
-function SumLine({ s, selected }: { s: Sums | undefined; selected: boolean }) {
+function SumLine({ s, selected, countedPeriod }: { s: Sums | undefined; selected: boolean; countedPeriod: boolean }) {
   if (!s) return <span className="muted">{selected ? "Считаем выбранные…" : "Считаем найденное…"}</span>;
   return (
     <span data-testid="sel-sum">
       <b>
         {selected ? "Выбрано" : "Найдено"} {s.count}
       </b>
-      : расходы <BaseMoney amount={s.expense} />, доходы <BaseMoney amount={s.income} />, итог{" "}
+      : расходы <BaseMoney amount={s.expense} currencyCode={s.baseCurrency} />, доходы <BaseMoney amount={s.income} currencyCode={s.baseCurrency} />, итог{" "}
       <b className={s.total < 0 ? "minus" : s.total > 0 ? "plus" : undefined}>
-        <BaseMoney amount={s.total} signed />
+        <BaseMoney amount={s.total} currencyCode={s.baseCurrency} signed />
       </b>
+      {countedPeriod && <span className="muted"> · {selected ? "выбранные операции целиком" : "учтено за период"}</span>}
       {s.missingRates.length > 0 && <span className="warn"> · нет курса {s.missingRates.join(", ")}: такие не вошли</span>}
     </span>
   );

@@ -219,6 +219,19 @@ fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, 
         .optional()?)
 }
 
+pub(crate) fn fact_currency(conn: &Connection, month: &str) -> Result<String> {
+    let p = period(month, start_day(conn)?)?;
+    match budget_row(conn, &p.start)? {
+        Some((_, currency, _)) => Ok(currency),
+        None => currencies::base_currency(conn),
+    }
+}
+
+/// Общий отбор для факта категории и его расшифровки в журнале.
+pub(crate) const ACTUAL_SCOPE: &str = "t.event_id IS NULL AND t.account_id NOT IN (
+    SELECT value FROM json_each(COALESCE(
+        (SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))";
+
 /// Факт по категориям за период в валюте `currency`: (расходы, доходы) по id категории.
 /// Траты поездок и событий идут в их собственный итог и в месячный факт не входят.
 fn actuals(
@@ -226,14 +239,12 @@ fn actuals(
     p: &Period,
     currency: &str,
 ) -> Result<(HashMap<String, i64>, Vec<String>)> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT t.category_id, t.date, t.amount, a.currency_code FROM txn_by_month t
          JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'cleared' AND t.type IN ('expense', 'income') AND t.event_id IS NULL
-           AND t.account_id NOT IN (SELECT value FROM json_each(
-               COALESCE((SELECT value FROM settings WHERE key = 'budget_excluded_accounts'), '[]')))
-           AND t.date BETWEEN ?1 AND ?2",
-    )?;
+         WHERE t.status = 'cleared' AND t.type IN ('expense', 'income')
+           AND {ACTUAL_SCOPE} AND t.date BETWEEN ?1 AND ?2"
+    ))?;
     let rows = stmt.query_map(params![p.start, p.end], |r| {
         Ok((
             r.get::<_, String>(0)?,
