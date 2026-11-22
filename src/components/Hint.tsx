@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HINTS, type HintKey, type HintText } from "../lib/hints";
 import { useSettings } from "../lib/queries";
@@ -42,10 +42,10 @@ function HintButton({ title, children, example, keys }: HintContent) {
     window.clearTimeout(timer.current);
     if (!open) timer.current = window.setTimeout(() => setOpen(true), SHOW_DELAY);
   };
-  const hide = () => {
+  const hide = useCallback(() => {
     window.clearTimeout(timer.current);
     setOpen(false);
-  };
+  }, []);
   const leave = () => {
     if (document.activeElement === btn.current) return;
     window.clearTimeout(timer.current);
@@ -76,7 +76,7 @@ function HintButton({ title, children, example, keys }: HintContent) {
         }}
       />
       {open && btn.current && (
-        <Tip id={id} anchor={btn.current} title={title} example={example} keys={keys} onMouseEnter={show} onMouseLeave={leave}>
+        <Tip id={id} anchor={btn.current} title={title} example={example} keys={keys} onMouseEnter={show} onMouseLeave={leave} onAnchorHidden={hide}>
           {children}
         </Tip>
       )}
@@ -84,19 +84,36 @@ function HintButton({ title, children, example, keys }: HintContent) {
   );
 }
 
-function Tip({ id, anchor, title, children, example, keys, onMouseEnter, onMouseLeave }: HintContent & {
-  id: string; anchor: HTMLElement; onMouseEnter: () => void; onMouseLeave: () => void;
+function Tip({ id, anchor, title, children, example, keys, onMouseEnter, onMouseLeave, onAnchorHidden }: HintContent & {
+  id: string; anchor: HTMLElement; onMouseEnter: () => void; onMouseLeave: () => void; onAnchorHidden: () => void;
 }) {
   const tip = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number; arrow: number; below: boolean } | null>(null);
   useLayoutEffect(() => {
-    const a = anchor.getBoundingClientRect();
-    const t = tip.current!.getBoundingClientRect();
-    const below = a.bottom + GAP + t.height < window.innerHeight - 8 || a.top - GAP - t.height < 8;
-    const center = a.left + a.width / 2;
-    const left = Math.max(8, Math.min(center - t.width / 2, window.innerWidth - t.width - 8));
-    setPos({ left, top: below ? a.bottom + GAP : a.top - GAP - t.height, arrow: center - left, below });
-  }, [anchor]);
+    const position = () => {
+      const a = anchor.getBoundingClientRect();
+      const t = tip.current!.getBoundingClientRect();
+      const below = a.bottom + GAP + t.height < window.innerHeight - 8 || a.top - GAP - t.height < 8;
+      const center = a.left + a.width / 2;
+      const left = Math.max(8, Math.min(center - t.width / 2, window.innerWidth - t.width - 8));
+      setPos({ left, top: below ? a.bottom + GAP : a.top - GAP - t.height, arrow: center - left, below });
+    };
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(anchor)) position();
+    };
+    const visibility = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) onAnchorHidden();
+    });
+    position();
+    visibility.observe(anchor);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", position);
+    return () => {
+      visibility.disconnect();
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", position);
+    };
+  }, [anchor, onAnchorHidden]);
   return createPortal(
     <div
       ref={tip}

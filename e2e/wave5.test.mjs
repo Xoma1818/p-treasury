@@ -144,6 +144,19 @@ test("значок «?»: под мышкой подсказка, в Настр�
   await browser.execute((el) => el.focus(), q);
   await tip.waitForDisplayed();
   assert.equal(await q.getAttribute("aria-describedby"), await tip.getAttribute("id"));
+  const oldTop = await browser.execute((el) => {
+    const top = el.getBoundingClientRect().top;
+    window.scrollBy(0, window.scrollY > 20 ? -16 : 16);
+    return top;
+  }, q);
+  await browser.waitUntil(() => browser.execute((el, previousTop) => {
+    const popup = document.getElementById(el.getAttribute("aria-describedby"));
+    if (!popup) return false;
+    const anchor = el.getBoundingClientRect();
+    const box = popup.getBoundingClientRect();
+    const gap = popup.classList.contains("above") ? anchor.top - box.bottom : box.top - anchor.bottom;
+    return Math.abs(anchor.top - previousTop) > 8 && Math.abs(gap - 10) < 2;
+  }, q, oldTop), { timeout: 3000, timeoutMsg: "после прокрутки подсказка следует за значком" });
   await browser.keys("Tab");
   await tip.waitForExist({ reverse: true });
   // Знак «?» не попадает в текст карточки.
