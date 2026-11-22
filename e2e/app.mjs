@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { remote } from "webdriverio";
+import { Key, remote } from "webdriverio";
 
 const ROOT = resolve(import.meta.dirname, "..");
 /** В Windows нет pkill/pgrep/xdotool: процессы ищем по командной строке через PowerShell. */
@@ -273,17 +273,18 @@ export async function field(browser, name) {
 export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
-  // Заменяем прежний текст с клавиатуры. setValue дополнительно вызывает
-  // elementClear, который в WebKit может очистить DOM без события input для React.
-  if ((await el.getValue()) !== "") {
+  const previous = await el.getValue();
+  if (previous !== "") {
     await el.click();
-    await browser.keys(["Control", "a"]);
-    await browser.keys("Backspace");
-    if ((await el.getValue()) !== "") throw new Error(`Не удалось очистить поле ${name} с клавиатуры`);
+    // Ввод заменяет выделенный текст сразу. Промежуточная очистка управляемого
+    // поля и повторный elementClear в setValue ненадёжны в WebView2 и WebKit.
+    const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
+    if (value === "") keys.down(Key.Backspace).up(Key.Backspace);
+    await keys.perform();
   }
   if (value !== "") await el.addValue(value);
   const got = await el.getValue();
-  if (got !== value) throw new Error(`Поле ${name}: ожидалось «${value}», в поле «${got}»`);
+  if (got !== value) throw new Error(`Поле ${name}: было «${previous}», ожидалось «${value}», в поле «${got}»`);
 }
 
 export async function choose(browser, name, visibleText) {

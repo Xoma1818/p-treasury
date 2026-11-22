@@ -157,9 +157,11 @@ test("найти трату: фильтр по категории и поиск 
 
 test("правка и удаление операции меняют баланс", async () => {
   await openSection(browser, "Операции");
-  await fill(browser, "search", "500");
-  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
-  await (await browser.$('[data-testid="txn-row"] td.date')).click();
+  // При отборе по получателю сохранённая покупка остаётся в списке и после изменения суммы.
+  await fill(browser, "search", "Пятёрочка");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  const cashPurchase = '//*[@data-testid="txn-row"][td[normalize-space()="Наличные"]]/td[@class="date"]';
+  await browser.$(cashPurchase).click();
   const amount = await field(browser, "amount");
   assert.equal(await amount.getValue(), "500", "открылась исходная сумма наличной покупки");
   await fill(browser, "amount", "700");
@@ -167,6 +169,13 @@ test("правка и удаление операции меняют балан�
   await browser.keys("Tab");
   assert.equal(await amount.getValue(), "700", "после ухода из поля сумма остаётся 700");
   await save(browser);
+  await browser.$(cashPurchase).click();
+  const undo = browser.$('[data-testid="undo-bar"] button[title="Ctrl+Z"]');
+  await undo.waitForDisplayed();
+  assert.equal(await (await field(browser, "amount")).getValue(), "700", "карточка открыла сохранённую сумму");
+  assert.equal(await undo.isClickable(), false, "модальная карточка перекрывает плашку отмены");
+  await browser.keys("Escape");
+  await undo.waitForClickable();
   await openSection(browser, "Счета");
   await waitText(browser, accountRow("Наличные"), money("4 300 ₽"));
   await openSection(browser, "Операции");

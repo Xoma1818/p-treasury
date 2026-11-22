@@ -60,6 +60,7 @@ export function TxnTable({
   const [similar, setSimilar] = useState<Txn | null>(null);
   const [repeatSource, setRepeatSource] = useState<Txn | null>(null);
   const repeatRow = useRef<HTMLTableRowElement>(null);
+  const contextRow = useRef<HTMLTableRowElement | null>(null);
   const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
@@ -108,13 +109,27 @@ export function TxnTable({
     const main = (
       <tr
         key={r.key}
+        onClickCapture={(e) => {
+          // В WebKitGTK после contextmenu бывает click с button=0 без нового
+          // нажатия левой кнопки. Останавливаем его и для флажка, и для самой строки.
+          if (e.detail > 0 && contextRow.current === e.currentTarget) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
         onClick={(e) => {
           // С Ctrl или Shift щелчок выделяет строку, без клавиш — открывает операцию.
           if (selection && (e.ctrlKey || e.metaKey || e.shiftKey)) return selection.onToggle(r.key, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
           open({ mode: "edit", txn: t });
         }}
-        onMouseDown={(e) => selection && e.shiftKey && e.preventDefault()}
-        onContextMenu={(e) => openContextMenu(e, menuFor(t, e.currentTarget))}
+        onMouseDown={(e) => {
+          if (e.button === 0) contextRow.current = null;
+          if (selection && e.shiftKey) e.preventDefault();
+        }}
+        onContextMenu={(e) => {
+          contextRow.current = e.currentTarget;
+          openContextMenu(e, menuFor(t, e.currentTarget));
+        }}
         tabIndex={-1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
