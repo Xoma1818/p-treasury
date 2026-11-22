@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, choose, money, waitText } from "./app.mjs";
+import { start, stop, openSection, choose, click, fill, money, save, waitText } from "./app.mjs";
 
-test("Главная и расшифровка баланса совпадают для основной валюты без копеек", async (t) => {
+test("Баланс и сценарий покупки в иенах используют целые единицы валюты", async (t) => {
   // Настройка «Кодом» хранится также в профиле окна, отдельно от учебной базы.
   const dir = mkdtempSync(join(tmpdir(), "kazna-e2e-yen-"));
   const { browser } = await start(dir, {
@@ -38,4 +38,17 @@ test("Главная и расшифровка баланса совпадают
   await browser.$('[data-testid="explain-balance"]').click();
   await waitText(browser, '[data-testid="explain-row"][data-status="in"]', money("12 345 JPY"));
   await waitText(browser, '[data-testid="explain-total"]', money("12 345 JPY"));
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true });
+  await openSection(browser, "Взгляд вперёд");
+  await click(browser, "+ Сценарий");
+  await click(browser, "Крупная покупка", '//*[@role="dialog"]');
+  await fill(browser, "scenario-amount", "1000");
+  await waitText(browser, ".scenario-desc", money("−1 000 JPY"));
+  await save(browser);
+  await waitText(browser, '[data-testid="fc-end"]', money("11 345 JPY"));
+  await waitText(browser, '[data-testid="fc-now"]', money("12 345 JPY"));
+  await browser.$('[aria-label="Изменить сценарий «Покупка»"]').click();
+  const savedAmount = await browser.$('[name="scenario-amount"]').getValue();
+  assert.equal(savedAmount.replace(/\s/g, ""), "1000");
 });

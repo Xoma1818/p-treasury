@@ -2,7 +2,7 @@
 // и раскладка диаграммы «Поток денег». Чистые функции — проверяются тестами.
 import type { ChangeInput, ChangeKind, FlowNode, Forecast, GoalMark, MoneyFlow } from "./api";
 import { formatDate, monthTitle, shiftMonth } from "./dates";
-import { formatMoney } from "./money";
+import { amountToInput, formatMoney, HIDDEN_AMOUNT, parseAmount } from "./money";
 
 export const CHANGE_KINDS: [ChangeKind, string][] = [
   ["once", "Разовая сумма"],
@@ -21,11 +21,48 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 export const monthsText = (n: number) => `${n} ${plural(n, "месяц", "месяца", "месяцев")}`;
 
+export interface ScenarioRow {
+  kind: ChangeKind;
+  title: string;
+  sign: -1 | 1;
+  amount: string;
+  percent: string;
+  startMonth: string;
+  months: string;
+}
+
+export function scenarioRow(c: ChangeInput, minorUnits: number): ScenarioRow {
+  return {
+    kind: c.kind,
+    title: c.title,
+    sign: (c.amount ?? -1) < 0 ? -1 : 1,
+    amount: c.amount != null ? amountToInput(Math.abs(c.amount), minorUnits) : "",
+    percent: c.percent != null ? String(c.percent) : "",
+    startMonth: c.startMonth,
+    months: c.months != null ? String(c.months) : "",
+  };
+}
+
+export function scenarioChange(r: ScenarioRow, minorUnits: number): ChangeInput {
+  const money = r.kind === "once" || r.kind === "monthly";
+  const amount = money ? parseAmount(r.amount, minorUnits) : null;
+  const percent = r.percent.trim() === "" ? null : Number(r.percent.replace(",", ".").replace("−", "-"));
+  const months = r.months.trim() === "" ? null : Number(r.months);
+  return {
+    kind: r.kind,
+    title: r.title,
+    amount: amount != null ? r.sign * Math.abs(amount) : null,
+    percent: money ? null : percent != null && Number.isFinite(percent) ? Math.round(percent) : null,
+    startMonth: r.startMonth,
+    months: r.kind === "once" ? null : months,
+  };
+}
+
 /** Подпись изменения: «−45 000 ₽ каждый месяц с июня 2027, 12 месяцев». */
-export function describeChange(c: ChangeInput, symbol = "₽", minorUnits = 2): string {
+export function describeChange(c: ChangeInput, symbol = "₽", minorUnits = 2, showAmounts = true): string {
   const span = c.months ? `, ${monthsText(c.months)}` : ", до конца прогноза";
   const from = `с ${genitive(c.startMonth)}`;
-  const money = (v: number) => (v > 0 ? "+" : "−") + formatMoney(Math.abs(v), symbol, minorUnits);
+  const money = (v: number) => showAmounts ? (v > 0 ? "+" : "−") + formatMoney(Math.abs(v), symbol, minorUnits) : HIDDEN_AMOUNT;
   switch (c.kind) {
     case "once":
       return `${money(c.amount ?? 0)} в ${prepositional(c.startMonth)}`;
@@ -57,11 +94,12 @@ export function genitive(month: string): string {
 }
 
 /** Заготовки «что если»: одна кнопка — одно понятное изменение. */
-export function presets(firstMonth: string): { label: string; change: ChangeInput }[] {
+export function presets(firstMonth: string, minorUnits: number): { label: string; change: ChangeInput }[] {
   const next = shiftMonth(firstMonth, 1);
+  const unit = 10 ** minorUnits;
   return [
-    { label: "Ипотека или кредит", change: { kind: "monthly", title: "Ипотека", amount: -4_500_000, percent: null, startMonth: next, months: null } },
-    { label: "Крупная покупка", change: { kind: "once", title: "Покупка", amount: -30_000_000, percent: null, startMonth: shiftMonth(firstMonth, 3), months: null } },
+    { label: "Ипотека или кредит", change: { kind: "monthly", title: "Ипотека", amount: -45_000 * unit, percent: null, startMonth: next, months: null } },
+    { label: "Крупная покупка", change: { kind: "once", title: "Покупка", amount: -300_000 * unit, percent: null, startMonth: shiftMonth(firstMonth, 3), months: null } },
     { label: "3 месяца без зарплаты", change: { kind: "income_pct", title: "Без зарплаты", amount: null, percent: -100, startMonth: next, months: 3 } },
     { label: "Прибавка 10 %", change: { kind: "income_pct", title: "Прибавка", amount: null, percent: 10, startMonth: next, months: null } },
     { label: "Тратить на 15 % меньше", change: { kind: "expense_pct", title: "Экономия", amount: null, percent: -15, startMonth: firstMonth, months: null } },
