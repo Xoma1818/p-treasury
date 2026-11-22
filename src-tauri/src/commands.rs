@@ -2481,7 +2481,12 @@ pub fn list_subscriptions(state: State<AppState>) -> CmdResult<SubscriptionsRepo
 }
 
 #[tauri::command(async)]
-pub fn hide_subscription(state: State<AppState>, key: String, hide: bool) -> CmdResult<()> {
+pub fn hide_subscription(
+    state: State<AppState>,
+    key: String,
+    hide: bool,
+    currency_code: Option<String>,
+) -> CmdResult<()> {
     with_undo(
         &state,
         if hide {
@@ -2489,7 +2494,10 @@ pub fn hide_subscription(state: State<AppState>, key: String, hide: bool) -> Cmd
         } else {
             "Вернуть подписку"
         },
-        |c| subscriptions::set_hidden(c, &key, hide),
+        |c| match currency_code.as_deref() {
+            Some(code) => subscriptions::set_series_hidden(c, &key, code, hide),
+            None => subscriptions::set_hidden(c, &key, hide),
+        },
     )
 }
 

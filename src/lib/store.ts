@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CategoryKind, QuickFilter, ReminderPaymentCreation, ReportFilter, ReportPeriodKind, SavedView, Txn, TxnType } from "./api";
+import type { CategoryKind, QuickFilter, ReminderPaymentCreation, ReportFilter, ReportPeriodKind, SavedView, Subscription, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 import { rememberSection, startSection } from "./fine";
 
@@ -23,6 +23,7 @@ export type TxnFormState =
 
 /** Фильтр перехода в «Операции»; без дат — за всё время. */
 export interface TxnJump {
+  subscription?: Pick<Subscription, "key" | "currencyCode">;
   accountId?: string;
   categoryId?: string;
   dateFrom?: string;
@@ -49,6 +50,7 @@ export interface TxnJump {
 }
 
 export interface ReportContext {
+  showHiddenSubscriptions?: boolean;
   tab: "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
   kind: ReportPeriodKind | "custom";
   anchor: string | null;

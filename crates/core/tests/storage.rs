@@ -57,6 +57,51 @@ fn reopening_is_idempotent() {
 }
 
 #[test]
+fn series_upgrade_preserves_legacy_preferences_and_restores_old_backup() {
+    use budget_core::settings;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let options = opts(dir.path());
+    let hidden = r#"["кино"]"#;
+    let notified = r#"{"кино":"2026-11-05"}"#;
+    let account = {
+        let old = Storage::open_with(&path, &options, &MIGRATIONS[..28]).unwrap();
+        settings::set(old.conn(), "subscriptions_hidden", hidden).unwrap();
+        settings::set(old.conn(), "subs_notified", notified).unwrap();
+        insert_account(&old)
+    };
+    let mut db = Storage::open(&path, &options).unwrap();
+    let backup = db.pre_migration_backup().unwrap().to_path_buf();
+    let verify = |db: &Storage| {
+        let prefs = settings::all(db.conn()).unwrap();
+        assert_eq!(prefs["subscriptions_hidden"], hidden);
+        assert_eq!(prefs["subs_notified"], notified);
+        assert_eq!(prefs["subs_notified_by_currency"], "{}");
+        let count: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM subscription_visibility", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        let balance: i64 = db
+            .conn()
+            .query_row(
+                "SELECT opening_balance FROM accounts WHERE id = ?1",
+                [&account],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(balance, 1_234_567);
+    };
+    verify(&db);
+    budget_core::subscriptions::set_series_hidden(db.conn(), "кино", "JPY", false).unwrap();
+    db.restore_from(&backup, &options).unwrap();
+    verify(&db);
+}
+
+#[test]
 fn newer_schema_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("budget.db");
@@ -800,5 +845,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(26), "account_reconciliations");
     assert_eq!(at(27), "reminder_actual_links");
     assert_eq!(at(28), "goal_funding");
-    assert_eq!(LATEST_VERSION, 28);
+    assert_eq!(at(29), "subscription_series");
+    assert_eq!(LATEST_VERSION, 29);
 }

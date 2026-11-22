@@ -59,7 +59,7 @@ export function TxnHeadBar({ onImport, exp }: { onImport: () => void; exp: Retur
             )}
             {!shown("export") &&
               exp.formats.map((f) => (
-                <button key={f} role="menuitem" className="menu-item" data-format={f} onClick={run(() => exp.run(f))}>
+                <button key={f} role="menuitem" className="menu-item" data-format={f} disabled={exp.busy} onClick={run(() => exp.run(f))}>
                   {FORMATS[f].label.replace(/^Скачать/, "Выгрузить")}
                 </button>
               ))}

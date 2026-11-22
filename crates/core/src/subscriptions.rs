@@ -2,7 +2,7 @@
 //! повторяются у одного получателя с ровным шагом (неделя, месяц, квартал, год)
 //! и почти одной суммой, и показывает, сколько они стоят в год.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Duration, NaiveDate};
 use rusqlite::{params, Connection};
@@ -21,9 +21,12 @@ pub const STEADY_PERCENT: i64 = 3;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
-    /// Получатель в нижнем регистре: по нему подписку можно скрыть.
+    /// Получатель без учёта регистра. Вместе с currency_code определяет серию.
     pub key: String,
     pub payee: String,
+    pub currency_code: String,
+    /// Идентификаторы именно тех расходов, по которым распознана серия.
+    pub payment_ids: Vec<String>,
     pub category_name: Option<String>,
     /// `week`, `month`, `quarter`, `year`.
     pub period: String,
@@ -114,18 +117,49 @@ fn median(mut v: Vec<i64>) -> i64 {
     v[v.len() / 2]
 }
 
+struct Visibility {
+    legacy: HashSet<String>,
+    series: HashMap<(String, String), bool>,
+}
+
+impl Visibility {
+    fn load(conn: &Connection) -> Result<Self> {
+        let legacy = settings::get(conn, "subscriptions_hidden")?
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default();
+        let mut stmt =
+            conn.prepare("SELECT payee, currency_code, hidden FROM subscription_visibility")?;
+        let series = stmt
+            .query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Self { legacy, series })
+    }
+
+    fn hidden(&self, group: &(String, String)) -> bool {
+        self.series
+            .get(group)
+            .copied()
+            .unwrap_or_else(|| self.legacy.contains(&group.0))
+    }
+}
+
 /// Регулярные платежи на дату `today`; прекратившиеся (платёж пропущен больше
 /// чем на полпериода) не показываются.
 pub fn list(conn: &Connection, today: &str) -> Result<SubscriptionsReport> {
     let today_d = time::parse_date(today)?;
     let base = currencies::base_currency(conn)?;
-    let hidden: Vec<String> = settings::get(conn, "subscriptions_hidden")?
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default();
+    let visibility = Visibility::load(conn)?;
     let groups = payments(conn, today)?;
     let mut items = Vec::new();
-    for ((key, _), pays) in groups {
-        if let Some(s) = detect(conn, &key, &pays, today_d, &base, &hidden)? {
+    for (group, pays) in groups {
+        if let Some(s) = detect(
+            conn,
+            &group.0,
+            &pays,
+            today_d,
+            &base,
+            visibility.hidden(&group),
+        )? {
             items.push(s);
         }
     }
@@ -134,6 +168,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<SubscriptionsReport> {
             .unwrap_or(0)
             .cmp(&a.yearly.unwrap_or(0))
             .then_with(|| a.key.cmp(&b.key))
+            .then_with(|| a.currency_code.cmp(&b.currency_code))
     });
     let yearly_total: i64 = items
         .iter()
@@ -237,16 +272,14 @@ pub fn price_rises(
     min_percent: i64,
 ) -> Result<Vec<PriceRise>> {
     let base = currencies::base_currency(conn)?;
-    let hidden: Vec<String> = settings::get(conn, "subscriptions_hidden")?
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default();
+    let visibility = Visibility::load(conn)?;
     let mut out = Vec::new();
-    for ((key, _), pays) in payments(conn, today)? {
+    for (group, pays) in payments(conn, today)? {
         let Some((last, before)) = pays.split_last() else {
             continue;
         };
         let Some(prev) = before.last() else { continue };
-        if last.date.to_string().as_str() < since || hidden.contains(&key) {
+        if last.date.to_string().as_str() < since || visibility.hidden(&group) {
             continue;
         }
         // Только почти постоянная сумма (подписка): все прошлые платежи в
@@ -256,7 +289,7 @@ pub fn price_rises(
         if lo <= 0 || (hi as i128) * 100 > (lo as i128) * (100 + STEADY_PERCENT as i128) {
             continue;
         }
-        let Some(sub) = detect(conn, &key, before, last.date, &base, &[])? else {
+        let Some(sub) = detect(conn, &group.0, before, last.date, &base, false)? else {
             continue;
         };
         let p = PERIODS
@@ -271,7 +304,7 @@ pub fn price_rises(
         }
         let yearly_diff = (last.amount - prev.amount) * per_year(p.name);
         out.push(PriceRise {
-            key,
+            key: group.0,
             payee: last.payee.clone(),
             transaction_id: last.id.clone(),
             date: last.date.to_string(),
@@ -294,7 +327,7 @@ fn detect(
     pays: &[Payment],
     today: NaiveDate,
     base: &str,
-    hidden: &[String],
+    hidden: bool,
 ) -> Result<Option<Subscription>> {
     // Несколько покупок в один день у одного получателя — это не подписка.
     let mut dates: Vec<NaiveDate> = pays.iter().map(|p| p.date).collect();
@@ -349,6 +382,8 @@ fn detect(
         currencies::convert(conn, amount, &last.currency, base, &last.date.to_string())?;
     Ok(Some(Subscription {
         key: key.to_string(),
+        currency_code: last.currency.clone(),
+        payment_ids: pays.iter().map(|p| p.id.clone()).collect(),
         payee: last.payee.clone(),
         category_name: last.category.clone(),
         period: period.name.to_string(),
@@ -360,13 +395,28 @@ fn detect(
         count: pays.len(),
         last_date: last.date.to_string(),
         next_date: next.to_string(),
-        hidden: hidden.iter().any(|h| h == key),
+        hidden,
     }))
 }
 
-/// Скрыть подписку («это не подписка») или вернуть её.
+/// Выбор для одной валюты. Таблица участвует в общей отмене действий.
+pub fn set_series_hidden(conn: &Connection, key: &str, currency: &str, hide: bool) -> Result<()> {
+    conn.execute(
+        "INSERT INTO subscription_visibility (payee, currency_code, hidden) VALUES (?1, ?2, ?3)
+         ON CONFLICT(payee, currency_code) DO UPDATE SET hidden = excluded.hidden",
+        params![key, currency, hide],
+    )?;
+    Ok(())
+}
+
+/// Прежняя команда меняет видимость всех валют получателя.
 pub fn set_hidden(conn: &Connection, key: &str, hide: bool) -> Result<()> {
-    let mut hidden: Vec<String> = settings::get(conn, "subscriptions_hidden")?
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM subscription_visibility WHERE payee = ?1",
+        [key],
+    )?;
+    let mut hidden: Vec<String> = settings::get(&tx, "subscriptions_hidden")?
         .and_then(|v| serde_json::from_str(&v).ok())
         .unwrap_or_default();
     hidden.retain(|h| h != key);
@@ -374,10 +424,12 @@ pub fn set_hidden(conn: &Connection, key: &str, hide: bool) -> Result<()> {
         hidden.push(key.to_string());
     }
     settings::set(
-        conn,
+        &tx,
         "subscriptions_hidden",
         &serde_json::to_string(&hidden).expect("json"),
-    )
+    )?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Регулярные платежи, которые спишутся сегодня или завтра и о которых ещё не
@@ -388,27 +440,32 @@ pub fn due_unnotified(conn: &Connection, today: &str) -> Result<Vec<Subscription
         return Ok(Vec::new());
     }
     let tomorrow = (time::parse_date(today)? + Duration::days(1)).to_string();
-    let mut notified: HashMap<String, String> = settings::get(conn, "subs_notified")?
+    let legacy: HashMap<String, String> = settings::get(conn, "subs_notified")?
         .and_then(|v| serde_json::from_str(&v).ok())
         .unwrap_or_default();
+    let mut notified: HashMap<String, String> = settings::get(conn, "subs_notified_by_currency")?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    let series_key = |s: &Subscription| serde_json::json!([s.key, s.currency_code]).to_string();
     let due: Vec<Subscription> = list(conn, today)?
         .items
         .into_iter()
         .filter(|s| {
             !s.hidden
                 && (today..=tomorrow.as_str()).contains(&s.next_date.as_str())
-                && notified.get(&s.key) != Some(&s.next_date)
+                && legacy.get(&s.key) != Some(&s.next_date)
+                && notified.get(&series_key(s)) != Some(&s.next_date)
         })
         .collect();
     if !due.is_empty() {
         // Старые отметки не копятся: остаются только у платежей из списка.
         notified.retain(|_, date| date.as_str() >= today);
         for s in &due {
-            notified.insert(s.key.clone(), s.next_date.clone());
+            notified.insert(series_key(s), s.next_date.clone());
         }
         settings::set(
             conn,
-            "subs_notified",
+            "subs_notified_by_currency",
             &serde_json::to_string(&notified).expect("json"),
         )?;
     }
@@ -456,7 +513,7 @@ mod tests {
     use crate::storage::Storage;
     use crate::transactions::{self, TxnInput};
 
-    fn spend(c: &Connection, acc: &str, date: &str, amount: i64, payee: &str) {
+    fn spend(c: &Connection, acc: &str, date: &str, amount: i64, payee: &str) -> String {
         transactions::create(
             c,
             &TxnInput {
@@ -471,24 +528,24 @@ mod tests {
                 note: None,
             },
         )
-        .unwrap();
+        .unwrap()
     }
 
-    #[test]
-    fn finds_monthly_and_yearly_and_skips_noise() {
-        let db = Storage::open_in_memory().unwrap();
-        let c = db.conn();
+    fn seed_category(c: &Connection) {
         c.execute(
             "INSERT INTO categories (id, name, kind, created_at, updated_at) VALUES ('cat', 'Связь', 'expense', '', '')",
             [],
         )
         .unwrap();
-        let acc = accounts::create(
+    }
+
+    fn card(c: &Connection, code: &str) -> String {
+        accounts::create(
             c,
             &AccountInput {
-                name: "Карта".into(),
+                name: format!("Карта {code}"),
                 kind: "debit".into(),
-                currency_code: "RUB".into(),
+                currency_code: code.into(),
                 opening_balance: 10_000_000,
                 opening_date: "2025-01-01".into(),
                 credit_limit: None,
@@ -496,7 +553,142 @@ mod tests {
                 invest_kind: None,
             },
         )
+        .unwrap()
+    }
+
+    #[test]
+    fn payments_visibility_and_reminders_follow_currency_series() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        seed_category(c);
+        let rub = card(c, "RUB");
+        let jpy = card(c, "JPY");
+        let payee = "Кино";
+        let key = "кино";
+        let rub_ids = vec![
+            spend(c, &rub, "2026-08-05", 9_900, "  КиНо "),
+            spend(c, &rub, "2026-09-05", 10_000, payee),
+            spend(c, &rub, "2026-10-05", 10_100, payee),
+        ];
+        let jpy_ids: Vec<_> = ["2026-08-06", "2026-09-06", "2026-10-06"]
+            .iter()
+            .map(|d| spend(c, &jpy, d, 500, payee))
+            .collect();
+        spend(c, &rub, "2026-09-05", 8_000, "Кино Плюс");
+        spend(c, &rub, "2025-01-05", 10_000, payee);
+        crate::refunds::create(
+            c,
+            &crate::refunds::RefundInput {
+                of: rub_ids[0].clone(),
+                date: "2026-10-09".into(),
+                account_id: None,
+                amount: 4_000,
+                in_purchase_month: true,
+                note: None,
+            },
+        )
         .unwrap();
+
+        let series = list(c, "2026-10-10").unwrap().items;
+        assert_eq!(series.len(), 2);
+        for s in series {
+            let expected = if s.currency_code == "RUB" {
+                &rub_ids
+            } else {
+                &jpy_ids
+            };
+            assert_eq!(&s.payment_ids, expected);
+            assert_eq!(s.count, 3);
+            let f = transactions::Filter {
+                payment_ids: Some(s.payment_ids),
+                limit: Some(1),
+                ..Default::default()
+            };
+            let page = transactions::list(c, &f).unwrap();
+            assert_eq!(page.total, 3);
+            assert_eq!(page.items.len(), 1);
+            assert_eq!(&page.items[0].id, expected.last().unwrap());
+            let export = transactions::list_all(c, &f).unwrap();
+            assert!(export.iter().map(|row| &row.id).eq(expected.iter().rev()));
+            let sum = transactions::sum_filter(c, &f).unwrap();
+            assert_eq!(sum.count, 3);
+            if s.currency_code == "RUB" {
+                assert_eq!((sum.income, sum.expense), (0, 30_000));
+            }
+        }
+        let empty = transactions::Filter {
+            payment_ids: Some(vec![]),
+            ..Default::default()
+        };
+        assert_eq!(transactions::list(c, &empty).unwrap().total, 0);
+        assert_eq!(transactions::sum_filter(c, &empty).unwrap().count, 0);
+
+        settings::set(c, "subscriptions_hidden", r#"["кино"]"#).unwrap();
+        let visible = || {
+            list(c, "2026-10-10")
+                .unwrap()
+                .items
+                .into_iter()
+                .filter(|s| !s.hidden)
+                .map(|s| s.currency_code)
+                .collect::<Vec<_>>()
+        };
+        assert!(visible().is_empty());
+        set_series_hidden(c, key, "JPY", false).unwrap();
+        assert_eq!(visible(), ["JPY"]);
+        set_hidden(c, key, false).unwrap();
+        assert_eq!(visible().len(), 2);
+
+        // Старое напоминание на пятое число остается в силе только на свою дату.
+        settings::set(c, "subs_notified", r#"{"кино":"2026-11-05"}"#).unwrap();
+        let due = due_unnotified(c, "2026-11-05").unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].currency_code, "JPY");
+        assert!(due_unnotified(c, "2026-11-06").unwrap().is_empty());
+        settings::set(c, "subs_notified", "{}").unwrap();
+        settings::set(c, "subs_notified_by_currency", "{}").unwrap();
+        assert_eq!(due_unnotified(c, "2026-11-05").unwrap().len(), 2);
+        assert!(due_unnotified(c, "2026-11-05").unwrap().is_empty());
+
+        spend(c, &rub, "2026-11-05", 14_000, payee);
+        let rise = spend(c, &jpy, "2026-11-06", 700, payee);
+        set_series_hidden(c, key, "RUB", true).unwrap();
+        let rises = price_rises(c, "2026-11-07", "2026-11-01", 5).unwrap();
+        assert_eq!(rises.len(), 1);
+        assert_eq!(rises[0].transaction_id, rise);
+    }
+
+    #[test]
+    fn undo_visibility_restores_legacy_and_scoped_choices_together() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        set_hidden(c, "кино", true).unwrap();
+        set_series_hidden(c, "кино", "JPY", false).unwrap();
+        let rub = ("кино".to_string(), "RUB".to_string());
+        let jpy = ("кино".to_string(), "JPY".to_string());
+        let visible = |c: &Connection| {
+            let v = Visibility::load(c).unwrap();
+            (!v.hidden(&rub), !v.hidden(&jpy))
+        };
+        let mut history = crate::undo::Journal::default();
+        history
+            .record(c, "Вернуть подписку", |c| {
+                set_hidden(c, "кино", false)
+            })
+            .unwrap();
+        assert_eq!(visible(c), (true, true));
+        history.undo(c).unwrap();
+        assert_eq!(visible(c), (false, true));
+        history.redo(c).unwrap();
+        assert_eq!(visible(c), (true, true));
+    }
+
+    #[test]
+    fn finds_monthly_and_yearly_and_skips_noise() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        seed_category(c);
+        let acc = card(c, "RUB");
         for d in [
             "2026-06-05",
             "2026-07-05",
