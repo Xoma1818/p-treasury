@@ -2068,6 +2068,7 @@ export const api = {
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   mergeCategories: (from: string, into: string) => invoke<void>("merge_categories", { from, into }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
+  getTransaction: (id: string) => invoke<Txn>("get_transaction", { id }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
   splitExpense: (input: SplitInput, reminder?: ReminderPaymentCreation) =>

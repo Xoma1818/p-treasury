@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useModules } from "../lib/modules";
-import { useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useRef, useState, type MouseEvent, type RefObject } from "react";
+import { Bell, BellOff, Check, ChevronLeft, ChevronRight, Clock, Link2, Timer, X } from "lucide-react";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
@@ -9,7 +9,7 @@ import { leadText, OccurrenceItem, parseLead, ReminderForm } from "../components
 import { TXN_DRAG, TxnTable } from "../components/TxnTable";
 import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
-import { addDays, formatDate, formatDateTime, monthTitle, shiftMonth, today, weekdays, weekStart } from "../lib/dates";
+import { addDays, formatDate, formatDateTime, monthTitle, nowLocal, shiftMonth, today, weekdays, weekStart } from "../lib/dates";
 import { CAL_LAYERS, saveFine, useFine, weekdayIndex, type CalLayers } from "../lib/fine";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -17,10 +17,12 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { goalText, monthLine } from "../lib/forecast";
 import { heatWeeks } from "../lib/heat";
 import { formatMoney } from "../lib/money";
-import { useDefaultForecast } from "../lib/queries";
+import { useDefaultForecast, useSettings } from "../lib/queries";
+import { occurrenceStatus } from "../lib/occurrenceStatus";
 import "./secondaryScreens.css";
 
 type Tab = "month" | "week" | "year" | "reminders";
+type SelectDay = (date: string, event: MouseEvent<HTMLButtonElement>) => void;
 
 /** Раздел «Календарь»: месяц, неделя, список напоминаний; день открывает свою панель. */
 export function Calendar() {
@@ -28,6 +30,17 @@ export function Calendar() {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [selected, setSelected] = useState<string | null>(null);
   const [reminderDate, setReminderDate] = useState<string | null>(null);
+  const dayTrigger = useRef<HTMLButtonElement>(null);
+  const dayHeading = useRef<HTMLHeadingElement>(null);
+  const selectDay: SelectDay = (date, event) => {
+    dayTrigger.current = event.currentTarget;
+    setSelected(date);
+    if (event.detail === 0) requestAnimationFrame(() => dayHeading.current?.focus());
+  };
+  const closeDay = () => {
+    setSelected(null);
+    dayTrigger.current?.focus();
+  };
 
   return (
     <section className="screen wide secondary-screen calendar-screen">
@@ -53,11 +66,11 @@ export function Calendar() {
           </button>
         ))}
       </div>
-      {tab === "month" && <MonthView month={month} setMonth={setMonth} selected={selected} select={setSelected} />}
-      {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={setSelected} selected={selected} />}
-      {tab === "year" && <YearView selected={selected} select={setSelected} />}
+      {tab === "month" && <MonthView month={month} setMonth={setMonth} selected={selected} select={selectDay} />}
+      {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={selectDay} selected={selected} />}
+      {tab === "year" && <YearView selected={selected} select={selectDay} />}
       {tab === "reminders" && <RemindersView />}
-      {selected && tab !== "reminders" && <DayPanel date={selected} onClose={() => setSelected(null)} onReminder={() => setReminderDate(selected)} />}
+      {selected && tab !== "reminders" && <DayPanel date={selected} heading={dayHeading} onClose={closeDay} onReminder={() => setReminderDate(selected)} />}
       {reminderDate && <ReminderForm date={reminderDate} onClose={() => setReminderDate(null)} />}
     </section>
   );
@@ -90,10 +103,12 @@ function useBalances(from: string, to: string, on: boolean) {
   return on ? new Map((q.data ?? []).map((b) => [b.date, b.balance])) : null;
 }
 
-function DayChips({ day, m, layers, balance }: { day: CalendarDay; m: CalendarMonth; layers: CalLayers; balance?: number | null }) {
+const statusIcons = { planned: Bell, overdue: Timer, snoozed: Clock, done: Check, linked: Link2, dismissed: BellOff };
+
+function DayChips({ day, m, layers, showAmounts, balance }: { day: CalendarDay; m: CalendarMonth; layers: CalLayers; showAmounts: boolean; balance?: number | null }) {
   const past = day.date < today();
   return (
-    <div className="chips">
+    <span className="chips">
       {layers.income && day.income > 0 && <Money className="plus" amount={day.income} symbol={m.currencySymbol} minorUnits={m.minorUnits} signed />}
       {layers.expense && day.expense > 0 && <Money className="minus" amount={-day.expense} symbol={m.currencySymbol} minorUnits={m.minorUnits} />}
       {layers.balance && balance != null && (
@@ -107,18 +122,23 @@ function DayChips({ day, m, layers, balance }: { day: CalendarDay; m: CalendarMo
           {d.counterparty}
         </span>
       ))}
-      {layers.reminders && day.reminders.map((r) => (
-        <span key={r.key.refId + r.key.scheduledAt} className={`chip reminder ${r.status}`} data-testid="cal-reminder">
-          ⏰ {r.title}
-        </span>
-      ))}
+      {layers.reminders && day.reminders.map((r) => {
+        const status = occurrenceStatus(r, nowLocal());
+        const Icon = statusIcons[status.state];
+        return (
+          <span key={r.key.refId + r.key.scheduledAt} className={`chip reminder ${status.state}`} data-testid="cal-reminder"
+            data-state={status.state} title={`${r.title} · ${status.label}`}>
+            <Icon size={12} aria-hidden="true" /> {r.title}<span className="sr-only"> · {status.label}</span>
+          </span>
+        );
+      })}
       {day.memos.length > 0 && (
-        <span className="chip note" title={day.memos.join("\n")} data-testid="cal-memo">
-          ✎ {day.memos[0]}
+        <span className="chip note" title={showAmounts ? day.memos.join("\n") : undefined} data-testid="cal-memo">
+          ✎ {showAmounts ? day.memos[0] : "Есть заметка"}
           {day.memos.length > 1 && <span className="memo-more"> +{day.memos.length - 1}</span>}
         </span>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -151,6 +171,7 @@ function Totals({ m, partial }: { m: CalendarMonth; partial?: boolean }) {
 /** Строка прогноза над месяцем (0.19): сколько денег будет на конец месяца. */
 function ForecastLine({ month }: { month: string }) {
   const f = useDefaultForecast().data;
+  const settings = useSettings().data;
   const { go } = useUi();
   const line = f ? monthLine(f, month) : null;
   if (!f || !line) return null;
@@ -164,15 +185,16 @@ function ForecastLine({ month }: { month: string }) {
       </span>
       {line.goals.map((g) => (
         <span key={g.id} className={g.free >= 0 ? "ok" : "over"}>
-          ◆ {goalText(g, f.currencySymbol, f.minorUnits)}
+          ◆ {settings && settings.hide_amounts !== "1" ? goalText(g, f.currencySymbol, f.minorUnits) : `${g.name} к ${formatDate(g.deadline)} · сумма скрыта`}
         </span>
       ))}
     </div>
   );
 }
 
-function MonthView({ month, setMonth, selected, select }: { month: string; setMonth: (m: string) => void; selected: string | null; select: (d: string) => void }) {
+function MonthView({ month, setMonth, selected, select }: { month: string; setMonth: (m: string) => void; selected: string | null; select: SelectDay }) {
   const modules = useModules();
+  const settings = useSettings().data;
   const q = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) });
   const m = q.data;
   const t = today();
@@ -215,14 +237,15 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
               <div key={`e${i}`} className="cal-cell empty" />
             ))}
             {m.days.map((d) => (
-              <div
+              <button type="button"
                 key={d.date}
                 className={["cal-cell", d.date === t && "today", d.date === selected && "selected", d.date > t && "future", d.noSpend && "no-spend", d.date === over && "drop-over"]
                   .filter(Boolean)
                   .join(" ")}
                 data-testid="cal-day"
                 data-date={d.date}
-                onClick={() => select(d.date)}
+                aria-pressed={d.date === selected}
+                onClick={(event) => select(d.date, event)}
                 onDragOver={(e) => {
                   if (!e.dataTransfer.types.includes(TXN_DRAG)) return;
                   e.preventDefault();
@@ -238,16 +261,17 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
                   move.run(id, d.date);
                 }}
               >
-                <div className="cal-num">
-                  {Number(d.date.slice(8))}
+                <span className="cal-num">
+                  <span aria-hidden="true">{Number(d.date.slice(8))}</span>
+                  <span className="sr-only">{formatDate(d.date)}</span>
                   {d.noSpend && (
                     <span className="no-spend-mark" title="День без трат" data-testid="no-spend">
                       <Check size={11} strokeWidth={2.5} aria-hidden />
                     </span>
                   )}
-                </div>
-                <DayChips day={d} m={m} layers={fineView.layers} balance={balances?.get(d.date)} />
-              </div>
+                </span>
+                <DayChips day={d} m={m} layers={fineView.layers} showAmounts={!!settings && settings.hide_amounts !== "1"} balance={balances?.get(d.date)} />
+              </button>
             ))}
           </div>
           <ErrorText error={move.error} />
@@ -262,14 +286,19 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
 const MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
 /** Р7 вид «Год»: тепловая карта трат по дням, чем темнее — тем больше. День открывает свою панель. */
-function YearView({ selected, select }: { selected: string | null; select: (d: string) => void }) {
+function YearView({ selected, select }: { selected: string | null; select: SelectDay }) {
   const [year, setYear] = useState(Number(today().slice(0, 4)));
   const q = useQuery({ queryKey: ["calendar", "year", year], queryFn: () => api.calendarYear(year) });
   const fineView = useFine();
   const h = q.data;
   const weeks = h ? heatWeeks(h.days, h.max, fineView) : [];
   const t = today();
-  const money = (v: number) => (h ? formatMoney(v, h.currencySymbol, h.minorUnits) : "");
+  const settings = useSettings().data;
+  const showAmounts = settings && settings.hide_amounts !== "1";
+  const dayLabel = (date: string, amount: number) => {
+    if (!showAmounts || !h) return formatDate(date);
+    return `${formatDate(date)}: ${amount > 0 ? formatMoney(amount, h.currencySymbol, h.minorUnits) : "без трат"}`;
+  };
   return (
     <>
       <div className="period-nav">
@@ -315,9 +344,9 @@ function YearView({ selected, select }: { selected: string | null; select: (d: s
                           data-testid="heat-day"
                           data-date={c.date}
                           data-level={c.level}
-                          title={`${formatDate(c.date)}: ${c.expense > 0 ? money(c.expense) : "без трат"}`}
-                          aria-label={`${formatDate(c.date)}: ${c.expense > 0 ? money(c.expense) : "без трат"}`}
-                          onClick={() => select(c.date)}
+                          title={dayLabel(c.date, c.expense)}
+                          aria-label={dayLabel(c.date, c.expense)}
+                          onClick={(event) => select(c.date, event)}
                         />
                       ) : (
                         <span key={`e${j}`} className="heat-day empty" />
@@ -330,7 +359,7 @@ function YearView({ selected, select }: { selected: string | null; select: (d: s
           </div>
           <div className="heat-foot">
             <span data-testid="year-total">
-              Потрачено за год: <b>{money(h.total)}</b>
+              Потрачено за год: <b><Money amount={h.total} symbol={h.currencySymbol} minorUnits={h.minorUnits} /></b>
             </span>
             <span className="heat-legend muted" aria-hidden="true">
               меньше {[0, 1, 2, 3, 4].map((l) => <span key={l} className={`heat-day l${l}`} />)} больше
@@ -344,8 +373,9 @@ function YearView({ selected, select }: { selected: string | null; select: (d: s
   );
 }
 
-function WeekView({ start, selected, select }: { start: string; selected: string | null; select: (d: string) => void }) {
+function WeekView({ start, selected, select }: { start: string; selected: string | null; select: SelectDay }) {
   const [from, setFrom] = useState(start);
+  const settings = useSettings().data;
   const to = addDays(from, 6);
   const q = useQuery({ queryKey: ["calendar", from, to], queryFn: () => api.calendarRange(from, to) });
   const m = q.data;
@@ -370,11 +400,13 @@ function WeekView({ start, selected, select }: { start: string; selected: string
         <>
           <ul className="card week-list" data-testid="week">
             {m.days.map((d, i) => (
-              <li key={d.date} className={d.date === selected ? "selected clickable" : "clickable"} onClick={() => select(d.date)} data-testid="week-day">
-                <span className="week-date">
-                  {weekdays()[i]}, {formatDate(d.date)}
-                </span>
-                <DayChips day={d} m={m} layers={fineView.layers} balance={balances?.get(d.date)} />
+              <li key={d.date} className={d.date === selected ? "selected" : undefined}>
+                <button type="button" className="week-day" data-testid="week-day" aria-pressed={d.date === selected} onClick={(event) => select(d.date, event)}>
+                  <span className="week-date">
+                    {weekdays()[i]}, {formatDate(d.date)}
+                  </span>
+                  <DayChips day={d} m={m} layers={fineView.layers} showAmounts={!!settings && settings.hide_amounts !== "1"} balance={balances?.get(d.date)} />
+                </button>
               </li>
             ))}
           </ul>
@@ -386,7 +418,7 @@ function WeekView({ start, selected, select }: { start: string; selected: string
 }
 
 /** Панель дня: операции, платежи, напоминания и заметки; добавить на эту дату. */
-function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => void; onReminder: () => void }) {
+function DayPanel({ date, heading, onClose, onReminder }: { date: string; heading: RefObject<HTMLHeadingElement | null>; onClose: () => void; onReminder: () => void }) {
   const { openTxnForm, openDebt } = useUi();
   const month = date.slice(0, 7);
   const cal = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) }).data;
@@ -396,7 +428,7 @@ function DayPanel({ date, onClose, onReminder }: { date: string; onClose: () => 
   return (
     <aside className="card day-panel" data-testid="day-panel">
       <div className="notes-head">
-        <h2>{formatDate(date)}</h2>
+        <h2 tabIndex={-1} ref={heading}>{formatDate(date)}</h2>
         <button className="icon-btn" onClick={onClose} aria-label="Закрыть день">
           <X size={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
@@ -461,7 +493,7 @@ function RemindersView() {
   );
   return (
     <>
-      {section("Просроченные", o.overdue, "rem-overdue", "Всё сделано.")}
+      {section("Требуют внимания", o.overdue, "rem-overdue", "Всё сделано.")}
       {section("Ближайшие 30 дней", o.upcoming, "rem-upcoming", "Ничего не запланировано.")}
       {o.done.length > 0 && section("Выполненные", o.done, "rem-done", "")}
       <div className="card" data-testid="rem-all">

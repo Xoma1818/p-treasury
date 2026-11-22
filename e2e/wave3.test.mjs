@@ -648,6 +648,26 @@ test("готовые фильтры, «Найти похожие», слои д�
   await tap('//div[contains(@class,"cal-tabs")]//button[normalize-space()="Год"]');
   await browser.$('[data-testid="year-heat"]').waitForExist({ timeout: 5000 });
   assert.ok((await browser.execute(() => document.querySelectorAll('[data-testid="heat-day"]').length)) >= 365);
+  const spentDate = await browser.$('[data-testid="heat-day"]:not([data-level="0"])').getAttribute("data-date");
+  const heatDay = await browser.$(`[data-testid="heat-day"][data-date="${spentDate}"]`);
+  const visibleTitle = await heatDay.getAttribute("title");
+  const visibleLabel = await heatDay.getAttribute("aria-label");
+  assert.match(visibleTitle, /₽/);
+  assert.match(visibleLabel, /₽/);
+  await browser.keys(["Control", "h"]);
+  try {
+    await waitText(browser, '[data-testid="year-total"]', /•••/);
+    assert.doesNotMatch(await browser.$('[data-testid="year-total"]').getText(), /₽/);
+    for (const hidden of [await heatDay.getAttribute("title"), await heatDay.getAttribute("aria-label")]) {
+      assert.ok(hidden && hidden !== visibleTitle && hidden !== visibleLabel);
+      assert.doesNotMatch(hidden, /₽/);
+    }
+  } finally {
+    await browser.keys(["Control", "h"]);
+  }
+  await waitText(browser, '[data-testid="year-total"]', /₽/);
+  assert.equal(await heatDay.getAttribute("title"), visibleTitle);
+  assert.equal(await heatDay.getAttribute("aria-label"), visibleLabel);
   await tap('[data-testid="heat-day"].today');
   await browser.$('[data-testid="day-panel"]').waitForExist({ timeout: 5000 });
   await tap('//div[contains(@class,"cal-tabs")]//button[normalize-space()="Месяц"]');
