@@ -28,10 +28,10 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: '44956608254'
-          SOURCE_HEAD: 34ace59776b2d5185d079e22287d90ee39ff819f
-          ZIP_ID: '14728865459'
-          SHA256: 66bcb0a0b4388dcc02867092a31102639df227d4fddff6ac3ffea340b5158758
+          SOURCE_RUN: '44965000691'
+          SOURCE_HEAD: 41d3a7649266f8357ac8b95b056a678b52bd99fd
+          ZIP_ID: '14731644096'
+          SHA256: 3181d4344d5926af51ee1473d38f7b53773b82d60303e02fde350ea8054ef154
         run: |
           $ErrorActionPreference = 'Stop'
           $meta = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ZIP_ID" | ConvertFrom-Json
@@ -47,7 +47,9 @@ jobs:
           Add-Content $env:GITHUB_ENV "PTREASURY_PR_SHA=$env:SOURCE_HEAD"
       - name: Закрыть платёж, сменить тему и вновь открыть
         run: node qa-window/theme-hint-acceptance.mjs theme
-
+      - name: Контраст и подсказка в обеих темах
+        if: success() || failure()
+        run: node qa-window/theme-hint-acceptance.mjs controls
       - name: Диагностика только тестового окна
         if: failure()
         shell: pwsh
