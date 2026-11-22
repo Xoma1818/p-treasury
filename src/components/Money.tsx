@@ -53,9 +53,10 @@ function useSwap(amount: number, on: boolean): number {
 }
 
 /** Сумма в основной валюте (все отчёты считаются в ней). */
-export function BaseMoney(props: { amount: number; signed?: boolean; className?: string }) {
+export function BaseMoney({ currencyCode, ...props }: { amount: number; currencyCode?: string; signed?: boolean; animate?: boolean; className?: string }) {
   const { data: settings } = useSettings();
   useFine(); // Г12: копейки и «RUB» меняются сразу
-  const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
+  const base = useCurrencies().data?.find((c) => c.code === (currencyCode ?? settings?.base_currency ?? "RUB"));
+  if (currencyCode && !base) return <span>—</span>;
   return <Money {...props} symbol={base?.symbol ?? "₽"} currencyCode={base?.code} minorUnits={base?.minorUnits ?? 2} />;
 }

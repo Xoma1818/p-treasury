@@ -3,9 +3,9 @@ import { weekdayIndex } from "../lib/fine";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MonthsReport, type Period } from "../lib/api";
 import { addDays, monthTitle, shiftMonth, today } from "../lib/dates";
-import { useBudget, useCurrencies, useMonthOf, useSettings } from "../lib/queries";
+import { useMonthOf, useSettings } from "../lib/queries";
 import { MonthsChart } from "../screens/Reports";
-import { BaseMoney as M, Money } from "./Money";
+import { BaseMoney as M } from "./Money";
 import { Hint } from "./Hint";
 import "./chartMotion.css";
 
@@ -104,13 +104,11 @@ export function sparkSeries(r: MonthsReport | undefined, total: number | undefin
 }
 
 /** «Сводка месяца»: главное о месяце словами и норма сбережений кольцом. */
-export function SummaryCard({ period }: { period: Period }) {
+export function SummaryCard({ period, dailyLimit }: { period: Period; dailyLimit?: React.ReactNode }) {
   const month = useQuery({ staleTime: AGGREGATE_STALE_MS,
     queryKey: ["summary", period.start, period.end], queryFn: () => api.periodSummary(period.start, period.end) }).data;
   const { prevSame } = useDashboard(period);
   const cats = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) }).data;
-  const budget = useBudget(period.month).data;
-  const budgetCurrency = useCurrencies().data?.find((c) => c.code === budget?.currencyCode);
   const cal = useQuery({ queryKey: ["calendar", today().slice(0, 7)], queryFn: () => api.calendarMonth(today().slice(0, 7)) }).data;
   if (!month) return <div className="card summary-card" data-testid="home-summary" />;
   const exp = change(month.expense, prevSame?.expense);
@@ -147,14 +145,7 @@ export function SummaryCard({ period }: { period: Period }) {
               </span>
             </li>
           )}
-          {budget?.id && budget.safeToSpendToday != null && (
-            <li>
-              <b>
-                <Money amount={Math.max(budget.safeToSpendToday, 0)} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={budgetCurrency?.minorUnits} />
-              </b>
-              <span>дневной лимит по бюджету</span>
-            </li>
-          )}
+          {dailyLimit && <li>{dailyLimit}</li>}
           <li>
             <b className="good">{noSpend}</b>
             <span>{plural(noSpend, "день", "дня", "дней")} без трат в этом месяце</span>

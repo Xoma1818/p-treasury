@@ -57,19 +57,56 @@ test("резерв внутри счёта: отложить и увидеть �
 test("«Свободно до дохода»: деньги минус платежи и резервы, по дням", async () => {
   await openSection(browser, "Главная");
   // 80 000 − аренда 30 000 − резерв 20 000 = 30 000 на 10 дней.
+  await waitText(browser, '[data-testid="explain-balance"]', money("80 000 ₽"));
   const label = await waitText(browser, '[data-testid="home-free"]', money("30 000 ₽"));
+  assert.match(label, /Как посчитано/);
   assert.ok(label.includes(`Свободно до дохода ${day(10).split("-").reverse().join(".")}`));
   assert.doesNotMatch(label, money("3 000 ₽"));
   await (await browser.$('[data-testid="home-free"]')).click();
   await waitCount(browser, '[data-testid="explain-row"][data-kind="payment"]', 1);
+  await waitText(browser, '[data-testid="explain-row"][data-kind="payment"]', /Аренда/);
   await waitText(browser, '[data-testid="explain-row"][data-kind="reserve"]', /Резерв «Отпуск»/);
   await waitText(browser, '[data-testid="explain-total"]', money("30 000 ₽"));
   await waitText(browser, '[data-testid="explain"] tfoot tr:last-child', /В среднем на день за период \(10 дн\.\)[\s\S]*3[\s\u00A0]000[\s\u00A0]₽/);
   await browser.keys(["Control", "h"]);
   await waitText(browser, '[data-testid="explain-total"]', /•••/);
   assert.doesNotMatch(await browser.$('[data-testid="explain"]').getText(), /₽/);
+  await browser.keys("Escape");
+  await waitText(browser, '[data-testid="home-free"]', /•••/);
+  const hiddenLabel = await browser.$('[data-testid="home-free"]').getComputedLabel();
+  assert.match(hiddenLabel, /Как посчитано/);
+  assert.doesNotMatch(hiddenLabel, /30[\s\u00a0]*000|₽/);
   await browser.keys(["Control", "h"]);
-  await waitText(browser, '[data-testid="explain-total"]', money("30 000 ₽"));
+  await waitText(browser, '[data-testid="home-free"]', money("30 000 ₽"));
+});
+
+test("после привязки уже оплаченного интернета Главная учитывает расход один раз", async () => {
+  const title = "Интернет";
+  const category = (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Коммунальные платежи").id;
+  const paid = await invoke("create_transaction", { eventId: null, input: {
+    type: "expense", date: day(0), accountId: card, categoryId: category, payee: title, amount: 79_000,
+    toAccountId: null, toAmount: null, note: null,
+  } });
+  const reminder = await invoke("create_reminder", { input: {
+    title, startAt: `${day(1)}T10:00`, repeat: "once", amount: 79_000, txnType: "expense", accountId: card,
+    categoryId: category, endDate: null, dayOfMonth: null, note: null,
+  } });
+  await browser.refresh();
+  await openSection(browser, "Главная");
+  await waitText(browser, '[data-testid="explain-balance"]', money("79 210 ₽"));
+  await openSection(browser, "Календарь");
+  await click(browser, "Напоминания");
+  await click(browser, "Учесть платёж", '//*[@data-testid="occurrence" and @data-title="Интернет"]');
+  await waitText(browser, '[data-testid="occ-match-candidate"]', money("790 ₽"));
+  await save(browser, "Связать с платежом");
+  await waitText(browser, '[data-testid="rem-done"]', /Интернет/);
+  assert.equal((await invoke("reminders_overview")).done.find((o) => o.key.refId === reminder).transactionId, paid);
+  await openSection(browser, "Главная");
+  await waitText(browser, '[data-testid="explain-balance"]', money("79 210 ₽"));
+  await waitText(browser, '[data-testid="home-free"]', money("29 210 ₽"));
+  await browser.$('[data-testid="home-free"]').click();
+  await waitCount(browser, '[data-testid="explain-row"][data-kind="payment"]', 1);
+  await waitText(browser, '[data-testid="explain-row"][data-kind="payment"]', /Аренда/);
   await browser.keys("Escape");
 });
 
