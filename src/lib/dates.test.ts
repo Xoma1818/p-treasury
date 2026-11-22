@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, setDateFormat, formatDateTime, isoDateTime, monthBounds, monthGenitive, monthTitle, shiftMonth, weekStart } from "./dates";
+import { addDays, formatDate, setDateFormat, formatDateTime, isoDateTime, monthBounds, monthGenitive, monthTitle, nextRepeatDate, shiftMonth, weekStart } from "./dates";
 
 describe("dates", () => {
+  it("следующий повтор сохраняет исходное число или день недели и всегда лежит в будущем", () => {
+    expect(nextRepeatDate("2027-03-31", "monthly", "2027-04-01")).toBe("2027-04-30");
+    expect(nextRepeatDate("2027-03-31", "monthly", "2027-04-30")).toBe("2027-05-31");
+    expect(nextRepeatDate("2027-12-31", "monthly", "2028-02-01")).toBe("2028-02-29");
+    expect(nextRepeatDate("2027-04-25", "monthly", "2027-04-20")).toBe("2027-05-25");
+    expect(nextRepeatDate("2027-03-31", "weekly", "2027-04-07")).toBe("2027-04-14");
+    expect(nextRepeatDate("2027-03-31", "weekly", "2027-04-05")).toBe("2027-04-07");
+  });
   it("границы месяца с учётом високосного года", () => {
     expect(monthBounds("2026-10-20")).toEqual(["2026-10-01", "2026-10-31"]);
     expect(monthBounds("2028-02-10")).toEqual(["2028-02-01", "2028-02-29"]);

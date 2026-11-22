@@ -2,7 +2,7 @@ import { EventsCard } from "../components/Events";
 import { useModules } from "../lib/modules";
 import { InvestBudgetCard } from "../components/Invest";
 import { PlanFactCard } from "../components/PlanFact";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CornerDownRight } from "lucide-react";
 import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
 import { MonthReviewDialog } from "../components/MonthReview";
+import { BudgetCoverDialog } from "../components/BudgetCoverDialog";
 import "./budgetOverview.css";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
@@ -255,6 +256,13 @@ function BudgetView({ b }: { b: BudgetData }) {
 }
 
 function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: number }) {
+  const [cover, setCover] = useState<{ budget: BudgetData; target: BudgetLine } | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const closeCover = () => {
+    setCover(null);
+    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : heading.current)?.focus());
+  };
   const categories = useCategories().data ?? [];
   const showTransactions = useUi((s) => s.showTransactions);
   const lines = b.lines.filter((l) => l.kind === kind);
@@ -298,7 +306,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   return (
     <div className="card budget-lines" data-testid={`budget-${kind}`}>
       <div className="notes-head">
-        <h2>
+        <h2 ref={heading} tabIndex={-1}>
           {income ? "Доходы" : "Расходы"}
           {!income && <Hint of="budget.bars" />}
         </h2>
@@ -407,6 +415,12 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                   </td>
                   <td className={l.over && !income ? "num over" : "num"}>
                     <Money amount={l.remaining} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
+                    {l.over && l.canRebalance && (
+                      <div><button className="link" type="button" aria-haspopup="dialog"
+                        onClick={(e) => { opener.current = e.currentTarget; setCover({ budget: b, target: l }); }}>
+                        Покрыть перерасход…
+                      </button></div>
+                    )}
                   </td>
                   <td className="bar-col">
                     <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
@@ -444,6 +458,9 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
         </button>
       </div>
       <ErrorText error={add.error} />
+      {cover && cover.budget.id === b.id && (
+        <BudgetCoverDialog budget={cover.budget} target={cover.target} minor={minor} onClose={closeCover} />
+      )}
     </div>
   );
 }

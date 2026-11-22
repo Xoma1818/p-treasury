@@ -211,10 +211,10 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
         let open = matches!(o.status.as_str(), "pending" | "snoozed");
         if open && date.as_str() >= today {
             if let Some(a) = o.amount {
-                if o.txn_type.as_deref() == Some("income") {
-                    planned_income += a;
-                } else {
-                    planned_expense += a;
+                match currencies::convert(conn, a, &o.amount_currency, &base, today)? {
+                    Some(v) if o.txn_type.as_deref() == Some("income") => planned_income += v,
+                    Some(v) => planned_expense += v,
+                    None => miss(o.amount_currency.clone(), &mut missing),
                 }
             }
         }

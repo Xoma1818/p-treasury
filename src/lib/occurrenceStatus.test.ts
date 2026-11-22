@@ -3,6 +3,7 @@ import type { Occurrence } from "./api";
 import { occurrenceStatus } from "./occurrenceStatus";
 
 const planned: Occurrence = {
+  amountCurrency: "RUB",
   key: { source: "reminder", refId: "internet", scheduledAt: "2026-11-22T18:00" },
   title: "Интернет", status: "pending", amount: 79000, currencySymbol: "₽", minorUnits: 2,
   txnType: "expense", accountId: "card", categoryId: null, note: null, debtId: null,

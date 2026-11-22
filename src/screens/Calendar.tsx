@@ -514,7 +514,7 @@ function RemindersView() {
                 </span>
               </span>
               <span>
-                {r.amount != null && <Money amount={r.amount} />}
+                {r.amount != null && <Money amount={r.amount} symbol={r.currencySymbol} currencyCode={r.amountCurrency} minorUnits={r.minorUnits} />}
                 <button className="link" onClick={() => toggle.run(r)}>
                   {r.active ? "Выключить" : "Включить"}
                 </button>

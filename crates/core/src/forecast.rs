@@ -227,12 +227,14 @@ pub fn set_excluded_accounts(conn: &Connection, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Категории повторяющихся напоминаний с суммой: их суммы идут по датам.
+/// Категории обычных повторяющихся напоминаний с суммой: их суммы идут по датам.
+/// Для серий из операции известны конкретные платежи, остальная категория остаётся в среднем.
 /// Напоминания по счетам, выключенным из прогноза, не в счёт.
 fn reminder_categories(conn: &Connection, skip: &HashSet<String>) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
         "SELECT category_id, account_id FROM reminders
-         WHERE active = 1 AND amount IS NOT NULL AND category_id IS NOT NULL AND repeat <> 'once'",
+         WHERE active = 1 AND amount IS NOT NULL AND amount_currency IS NULL
+           AND category_id IS NOT NULL AND repeat <> 'once'",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
@@ -272,6 +274,11 @@ fn regular_by_periods(
            AND a.type NOT IN ('investment', 'debt') AND a.include_in_total = 1
            AND t.debt_id IS NULL AND t.event_id IS NULL
            AND t.date BETWEEN ?1 AND ?2
+           AND t.id NOT IN (SELECT s.transaction_id FROM reminder_plan_sources s
+                            JOIN reminders r ON r.id = s.reminder_id
+                            WHERE s.is_current = 1 AND s.transaction_id IS NOT NULL
+                              AND r.active = 1 AND r.amount IS NOT NULL AND r.repeat <> 'once'
+                              AND (r.account_id IS NULL OR r.account_id NOT IN (SELECT value FROM json_each(?3))))
            AND t.id NOT IN (SELECT o.transaction_id FROM reminder_occurrences o
                             WHERE o.transaction_id IS NOT NULL AND (
                                 o.linked_actual_amount IS NULL OR o.id IN (
@@ -281,16 +288,23 @@ fn regular_by_periods(
     )?;
     type Row = (String, String, String, i64, String, String);
     let rows: Vec<Row> = stmt
-        .query_map(params![from, to], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })?
+        .query_map(
+            params![
+                from,
+                to,
+                serde_json::to_string(skip).expect("список счетов")
+            ],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )?
         .collect::<rusqlite::Result<_>>()?;
     let mut buckets: Vec<Vec<Row>> = vec![Vec::new(); list.len()];
     for row in rows {
@@ -338,7 +352,7 @@ pub(crate) fn known_items(
 ) -> Result<Vec<Item>> {
     let mut items = Vec::new();
 
-    // Напоминания с суммой, ещё не выполненные (суммы в основной валюте).
+    // Ещё не выполненные напоминания. Будущие суммы оцениваем по курсу на сегодня.
     // Отложенное считается в день, до которого отложено: поэтому начинаем с
     // самого раннего срабатывания, отложенного на сегодня и позже, — перенос
     // может быть сколь угодно долгим.
@@ -374,6 +388,10 @@ pub(crate) fn known_items(
             continue;
         }
         let Some(a) = o.amount else { continue };
+        let Some(a) = currencies::convert(conn, a, &o.amount_currency, base, today)? else {
+            add_missing(missing, o.amount_currency);
+            continue;
+        };
         let sign = if o.txn_type.as_deref() == Some("income") {
             1
         } else {
@@ -1418,6 +1436,60 @@ mod tests {
         assert_eq!(m.opening, 21_400_000 + 8_000_000 - 3_500_000);
         assert_eq!(m.closing, m.opening - 1_000_000);
         assert_eq!(f.months[1].regular_expense, 4_200_000);
+    }
+
+    #[test]
+    fn planned_repeat_excludes_its_payments_but_keeps_other_spending_in_category() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let add_account = |name, kind| {
+            let mut a = input(name, kind, "RUB", 1_000_000);
+            a.opening_date = "2026-09-01".into();
+            accounts::create(c, &a).unwrap()
+        };
+        let card = add_account("Карта", "debit");
+        let cash = add_account("Наличные", "cash");
+        let source = txn(c, "expense", "2026-09-02", &card, 40_000, "Досуг");
+        txn(c, "expense", "2026-09-03", &card, 160_000, "Досуг");
+        txn(c, "expense", "2026-09-04", &cash, 240_000, "Досуг");
+        let input = ReminderInput {
+            title: "Абонемент".into(),
+            start_at: "2026-09-22T09:00".into(),
+            repeat: "monthly".into(),
+            amount: Some(40_000),
+            account_id: Some(card.clone()),
+            category_id: Some(category(c, "Досуг")),
+            txn_type: Some("expense".into()),
+            ..Default::default()
+        };
+        let series = reminders::create_repeat_plan(
+            db.conn_mut(),
+            &source,
+            &input,
+            time::parse_date("2026-09-02").unwrap(),
+        )
+        .unwrap();
+        let c = db.conn();
+        let key = reminders::Key {
+            source: "reminder".into(),
+            ref_id: series,
+            scheduled_at: input.start_at.clone(),
+        };
+        assert!(matches!(
+            reminders::pay(c, &key, "2026-09-22").unwrap(),
+            reminders::Paid::Transaction(_)
+        ));
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert!(f.excluded_categories.is_empty());
+        assert_eq!(f.history_months, 1);
+        assert_eq!(
+            (f.avg_expense, f.months[0].planned_expense),
+            (400_000, 40_000)
+        );
+        set_excluded_accounts(c, &[card]).unwrap();
+        let f = forecast(c, "2026-10-01", None).unwrap();
+        assert_eq!((f.avg_expense, f.months[0].planned_expense), (240_000, 0));
     }
 
     #[test]

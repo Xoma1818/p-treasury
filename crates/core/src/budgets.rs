@@ -6,7 +6,7 @@
 //! и корректировки в факт не входят. Трата «на N месяцев» входит в факт
 //! частями по месяцам (представление `txn_by_month`, миграция 0009).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Datelike, Duration, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -152,6 +152,8 @@ pub struct Line {
     pub carried: i64,
     /// Р9: вид лимита — `month`, `week` или `percent`.
     pub limit_kind: String,
+    /// Самостоятельный фиксированный лимит открытого месяца с известным фактом.
+    pub can_rebalance: bool,
     /// Для недели — сумма в неделю, для доли — сотые процента дохода.
     pub limit_value: Option<i64>,
     /// Р10: группа бюджета категории (подкатегория — как у родителя).
@@ -620,6 +622,7 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
                 limit_kind,
                 limit_value,
                 group_id,
+                can_rebalance: false,
             });
         }
     }
@@ -737,6 +740,33 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
         });
     }
 
+    if lines.iter().any(|l| l.over) && missing_rates.is_empty() && carry_missing_rates.is_empty() {
+        let closed: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM month_reviews WHERE month = ?1 AND closed_at IS NOT NULL)",
+            [month],
+            |r| r.get(0),
+        )?;
+        if !closed {
+            let archived: HashSet<_> = cats
+                .iter()
+                .filter(|c| c.archived)
+                .map(|c| c.id.as_str())
+                .collect();
+            let assigned: HashSet<_> = lines.iter().map(|l| l.category_id.clone()).collect();
+            let with_children: HashSet<_> =
+                lines.iter().filter_map(|l| l.parent_id.clone()).collect();
+            for l in &mut lines {
+                // Два вложенных плана учитываются в общем итоге только по родителю.
+                l.can_rebalance = l.kind == "expense"
+                    && l.limit_kind == "month"
+                    && !archived.contains(l.category_id.as_str())
+                    && !with_children.contains(&l.category_id)
+                    && l.parent_id
+                        .as_ref()
+                        .is_none_or(|p| !assigned.contains(p) && !archived.contains(p.as_str()));
+            }
+        }
+    }
     Ok(Budget {
         id: row.as_ref().map(|r| r.0.clone()),
         note: row.and_then(|r| r.2),
@@ -1010,6 +1040,61 @@ pub fn set_limit_kind(
         "UPDATE budgets SET updated_at = ?2 WHERE id = ?1",
         params![budget_id, time::now_utc()],
     )?;
+    Ok(())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverRequest {
+    pub month: String,
+    pub budget_id: String,
+    pub from: String,
+    pub to: String,
+    pub amount: i64,
+    pub from_limit: i64,
+    pub to_limit: i64,
+    pub from_remaining: i64,
+}
+
+/// Перераспределить только план, проверив оба показанных пользователю лимита.
+pub fn cover_overspend(conn: &mut Connection, input: &CoverRequest, today: &str) -> Result<()> {
+    if input.from == input.to || input.amount <= 0 {
+        return invalid("Выберите разные категории и положительную сумму");
+    }
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let b = get(&tx, &input.month, today)?;
+    let find = |id: &str| {
+        b.lines
+            .iter()
+            .find(|l| l.category_id == id && l.can_rebalance)
+    };
+    let (Some(from), Some(to)) = (find(&input.from), find(&input.to)) else {
+        return invalid("Перенос доступен между отдельными месячными лимитами открытого бюджета с известными курсами");
+    };
+    if b.id.as_deref() != Some(input.budget_id.as_str())
+        || from.base_limit != input.from_limit
+        || to.base_limit != input.to_limit
+        || from.remaining != input.from_remaining
+        || to.remaining != -input.amount
+    {
+        return invalid("Данные бюджета изменились. Откройте перенос заново");
+    }
+    if from.remaining.min(from.base_limit) < input.amount {
+        return invalid("В выбранной категории недостаточно свободного лимита");
+    }
+    let increased = to
+        .base_limit
+        .checked_add(input.amount)
+        .filter(|n| n.checked_add(to.carried).is_some())
+        .ok_or_else(|| Error::Validation("Слишком большой лимит".into()))?;
+    set_limit(
+        &tx,
+        &input.budget_id,
+        &input.from,
+        Some(from.base_limit - input.amount),
+    )?;
+    set_limit(&tx, &input.budget_id, &input.to, Some(increased))?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -1387,6 +1472,81 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn cover_overspend_moves_only_limits_and_rejects_retries_or_stale_previews() {
+        let mut f = fx();
+        settings::set(f.db.conn(), "month_start_day", "15").unwrap();
+        let month = "2026-11";
+        let day = "2026-10-16";
+        let id = create(f.db.conn_mut(), month, false).unwrap();
+        let c = f.db.conn();
+        let food = cat(c, "Питание");
+        let leisure = cat(c, "Досуг");
+        set_limit(c, &id, &food, Some(300_000)).unwrap();
+        set_limit(c, &id, &leisure, Some(200_000)).unwrap();
+        spend(c, &f.card, day, 340_000, "Питание");
+        spend(c, &f.card, day, 100_000, "Досуг");
+        let view = |c: &Connection| {
+            let b = get(c, month, day).unwrap();
+            let limit = |id: &str| {
+                b.lines
+                    .iter()
+                    .find(|l| l.category_id == id)
+                    .unwrap()
+                    .base_limit
+            };
+            (
+                limit(&food),
+                limit(&leisure),
+                b.planned_expense,
+                b.actual_expense,
+                accounts::balance(c, &f.card, None).unwrap(),
+            )
+        };
+        let input = CoverRequest {
+            month: month.into(),
+            budget_id: id.clone(),
+            from: leisure.clone(),
+            to: food.clone(),
+            amount: 40_000,
+            from_limit: 200_000,
+            to_limit: 300_000,
+            from_remaining: 100_000,
+        };
+        let before = view(c);
+        let mut journal = crate::undo::Journal::default();
+        let c = f.db.conn_mut();
+        journal
+            .record(c, "Покрытие перерасхода", |c| {
+                cover_overspend(c, &input, day)
+            })
+            .unwrap();
+        let after = (340_000, 160_000, 500_000, 440_000, before.4);
+        assert_eq!(view(c), after);
+        assert!(cover_overspend(c, &input, day).is_err());
+        assert_eq!(view(c), after);
+        journal.undo(c).unwrap();
+        assert_eq!(view(c), before);
+        // Ошибка на второй строке должна откатить и первую.
+        c.execute_batch("CREATE TEMP TRIGGER fail_target BEFORE UPDATE ON budget_lines WHEN NEW.limit_amount > OLD.limit_amount BEGIN SELECT RAISE(ABORT, 'test'); END").unwrap();
+        assert!(cover_overspend(c, &input, day).is_err());
+        assert_eq!(view(c), before);
+        c.execute_batch("DROP TRIGGER fail_target").unwrap();
+        set_limit(c, &id, &leisure, Some(110_000)).unwrap();
+        assert!(cover_overspend(c, &input, day).is_err());
+        set_limit(c, &id, &leisure, Some(200_000)).unwrap();
+        set_limit_kind(c, &id, &leisure, "week", 50_000).unwrap();
+        assert!(cover_overspend(c, &input, day).is_err());
+        set_limit_kind(c, &id, &leisure, "month", 200_000).unwrap();
+        c.execute(
+            "INSERT INTO month_reviews (month, closed_at) VALUES (?1, ?2)",
+            [month, day],
+        )
+        .unwrap();
+        assert!(cover_overspend(c, &input, day).is_err());
+        assert_eq!(view(c), before);
     }
 
     #[test]

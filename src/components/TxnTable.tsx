@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react";
 import { api, type Txn } from "../lib/api";
 import { useAction } from "../lib/useAction";
@@ -13,6 +13,7 @@ import { LookMark, useCategoryMap } from "./CategoryMark";
 import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
 import { FindSimilar } from "./FindSimilar";
+import { canPlanRepeat, RepeatPlanDialog, useRepeatPlan } from "./TxnRepeatPlan";
 
 /** Тип данных перетаскивания операции (на другой день календаря). */
 export const TXN_DRAG = "application/x-p-treasury-txn";
@@ -21,6 +22,11 @@ export const TXN_DRAG = "application/x-p-treasury-txn";
 export interface TableSelection {
   sel: SelState;
   onToggle: (key: string, mods: { shift: boolean; ctrl: boolean }) => void;
+}
+
+/** Запрашиваем связь только для открытого меню, а не для всех строк журнала. */
+function RepeatMenuLabel({ id }: { id: string }) {
+  return useRepeatPlan(id).data ? "Открыть запланированный повтор" : "Запланировать повтор…";
 }
 
 /** Список операций; нажатие на строку открывает операцию. `draggable` — строку можно перетащить.
@@ -52,10 +58,12 @@ export function TxnTable({
   const openDebt = useUi((s) => s.openDebt);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [similar, setSimilar] = useState<Txn | null>(null);
+  const [repeatSource, setRepeatSource] = useState<Txn | null>(null);
+  const repeatRow = useRef<HTMLTableRowElement>(null);
   const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
-  const menuFor = (t: Txn): CtxItem[] => {
+  const menuFor = (t: Txn, row: HTMLTableRowElement): CtxItem[] => {
     const items: CtxItem[] = [{ text: "Открыть", onClick: () => open({ mode: "edit", txn: t }) }];
     if (t.type !== "adjustment" && !t.refund && !t.splitId)
       items.push({
@@ -67,6 +75,10 @@ export function TxnTable({
             prefill: { amount: t.amount, accountId: t.accountId, toAccountId: t.toAccountId, categoryId: t.categoryId, payee: t.payee, note: t.note, tags: t.tags },
           }),
       });
+    if (canPlanRepeat(t)) items.push({
+      text: <RepeatMenuLabel id={t.id} />,
+      onClick: () => { repeatRow.current = row; setRepeatSource(t); },
+    });
     if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
     if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
     if (t.type !== "adjustment") items.push({ text: "Найти похожие…", onClick: () => setSimilar(t) });
@@ -102,7 +114,8 @@ export function TxnTable({
           open({ mode: "edit", txn: t });
         }}
         onMouseDown={(e) => selection && e.shiftKey && e.preventDefault()}
-        onContextMenu={(e) => openContextMenu(e, menuFor(t))}
+        onContextMenu={(e) => openContextMenu(e, menuFor(t, e.currentTarget))}
+        tabIndex={-1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
         data-receipt={r.kind === "receipt" ? r.parts.length : undefined}
@@ -231,6 +244,10 @@ export function TxnTable({
       {/* Отказ удаления из меню правой кнопки виден, а не теряется молча. */}
       <ErrorText error={remove.error} />
       {similar && <FindSimilar txn={similar} onClose={() => setSimilar(null)} />}
+      {repeatSource && <RepeatPlanDialog source={repeatSource} onClose={() => {
+        setRepeatSource(null);
+        repeatRow.current?.focus();
+      }} />}
       <table className={selection ? "table txn-table selectable" : "table txn-table"}>
         {onSort && !compact && (
           <thead>
