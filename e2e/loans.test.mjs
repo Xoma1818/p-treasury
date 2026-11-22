@@ -171,8 +171,10 @@ test("окно платежа: раньше даты — «в счёт плат�
 test("«Ставка изменилась» и «Изменить условия» с предпросмотром «было → стало»", async () => {
   const before = await (await browser.$('[data-testid="debt-next"]')).getText();
   await click(browser, "Ставка изменилась");
-  await setDate(browser, "rateFrom", inDays(5));
+  const from = inDays(5);
+  await setDate(browser, "rateFrom", from);
   await fill(browser, "newRate", "10");
+  await waitText(browser, '[data-testid="cmp-rate"] td:last-child', money(`10 % годовых с ${from.split("-").reverse().join(".")}`));
   await save(browser);
   await waitText(browser, '[data-testid="loan-changes"]', /Ставка 10 % годовых с/);
   await browser.waitUntil(async () => (await (await browser.$('[data-testid="debt-next"]')).getText()) !== before, { timeout: 5000, timeoutMsg: "платёж не пересчитался" });
