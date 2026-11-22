@@ -1,0 +1,56 @@
+param(
+    [Parameter(Mandatory)][string]$Folder,
+    [Parameter(Mandatory)][string]$Thumbprint
+)
+$ErrorActionPreference = 'Stop'
+if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_REPOSITORY -ne 'Xoma1818/p-treasury') { throw 'Disposable project runner required.' }
+$cert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$Thumbprint"
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+$listener.Start()
+try {
+    $port = $listener.LocalEndpoint.Port
+    $exe = 'Kazna_0.41.0_x64-setup.exe'
+    $signed = @{
+        url = "https://localhost:$port/$exe"
+        signature = [IO.File]::ReadAllText((Join-Path $Folder "$exe.sig")).Trim()
+    }
+    $manifest = @{
+        version = '0.41.0'
+        notes = 'Isolated verification of the pull request installer'
+        pub_date = [DateTimeOffset]::UtcNow.ToString('o')
+        platforms = @{ 'windows-x86_64' = $signed; 'windows-x86_64-nsis' = $signed }
+    }
+    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Folder 'latest.json') -Encoding utf8NoBOM
+    [IO.File]::WriteAllText((Join-Path $Folder 'endpoint.txt'), "https://localhost:$port/latest.json")
+    while ($true) {
+        $client = $listener.AcceptTcpClient()
+        $client.ReceiveTimeout = 10000
+        $client.SendTimeout = 15000
+        $ssl = [Net.Security.SslStream]::new($client.GetStream(), $false)
+        try {
+            $ssl.AuthenticateAsServer($cert, $false, [Security.Authentication.SslProtocols]::Tls12, $false)
+            $reader = [IO.StreamReader]::new($ssl, [Text.Encoding]::ASCII, $false, 4096, $true)
+            try {
+                $request = $reader.ReadLine()
+                for ($i = 0; $i -lt 100; $i++) {
+                    if ([string]::IsNullOrEmpty($reader.ReadLine())) { break }
+                }
+                if ($request -notmatch '^GET /(latest\.json|Kazna_0\.41\.0_x64-setup\.exe) HTTP/1\.[01]$') {
+                    $ssl.Write([Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 0`r`nConnection: close`r`n`r`n"))
+                    continue
+                }
+                $name = $Matches[1]
+                $file = [IO.File]::OpenRead((Join-Path $Folder $name))
+                try {
+                    $type = if ($name -eq 'latest.json') { 'application/json' } else { 'application/octet-stream' }
+                    $header = "HTTP/1.1 200 OK`r`nContent-Type: $type`r`nContent-Length: $($file.Length)`r`nConnection: close`r`n`r`n"
+                    $ssl.Write([Text.Encoding]::ASCII.GetBytes($header))
+                    $file.CopyTo($ssl)
+                    $ssl.Flush()
+                    Add-Content -LiteralPath (Join-Path $Folder 'requests.txt') -Value $name
+                } finally { $file.Dispose() }
+            } finally { $reader.Dispose() }
+        } catch { Write-Warning $_.Exception.Message }
+        finally { $ssl.Dispose(); $client.Dispose() }
+    }
+} finally { $listener.Stop() }
