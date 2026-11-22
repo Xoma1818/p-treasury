@@ -265,20 +265,23 @@ export async function openSection(browser, title) {
 
 /** Поле по атрибуту name (в открытом диалоге, если он есть). */
 export async function field(browser, name) {
-  // Один селектор вместо поиска внутри диалога: диалог может перерисоваться
-  // между поисками, и ссылка на него устареет (stale element).
-  const inDialog = await browser.$('[role="dialog"]').isExisting();
-  return browser.$(inDialog ? `[role="dialog"] [name="${name}"]` : `[name="${name}"]`);
+  // Вложенная форма может содержать одноимённое поле. Ищем в верхнем диалоге
+  // или на странице, если диалогов нет. Один поиск не удерживает старый диалог.
+  return browser.$(`(//*[@role="dialog"])[last()]//*[@name="${name}"] | //*[@name="${name}" and not(//*[@role="dialog"])]`);
 }
 
 export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
-  // clearValue в WebKit не вызывает input: React при следующей перерисовке
-  // возвращал старое значение, и новое дописывалось к нему («6000» + «6230»).
-  // Очищаем так, чтобы React увидел изменение, и проверяем результат.
-  await setDate(browser, name, "");
-  await el.setValue(value);
+  // Заменяем прежний текст с клавиатуры. setValue дополнительно вызывает
+  // elementClear, который в WebKit может очистить DOM без события input для React.
+  if ((await el.getValue()) !== "") {
+    await el.click();
+    await browser.keys(["Control", "a"]);
+    await browser.keys("Backspace");
+    if ((await el.getValue()) !== "") throw new Error(`Не удалось очистить поле ${name} с клавиатуры`);
+  }
+  if (value !== "") await el.addValue(value);
   const got = await el.getValue();
   if (got !== value) throw new Error(`Поле ${name}: ожидалось «${value}», в поле «${got}»`);
 }

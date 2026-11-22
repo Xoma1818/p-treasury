@@ -160,7 +160,12 @@ test("правка и удаление операции меняют балан�
   await fill(browser, "search", "500");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await (await browser.$('[data-testid="txn-row"] td.date')).click();
+  const amount = await field(browser, "amount");
+  assert.equal(await amount.getValue(), "500", "открылась исходная сумма наличной покупки");
   await fill(browser, "amount", "700");
+  assert.ok(await amount.isFocused(), "фокус остаётся в изменённом поле суммы");
+  await browser.keys("Tab");
+  assert.equal(await amount.getValue(), "700", "после ухода из поля сумма остаётся 700");
   await save(browser);
   await openSection(browser, "Счета");
   await waitText(browser, accountRow("Наличные"), money("4 300 ₽"));

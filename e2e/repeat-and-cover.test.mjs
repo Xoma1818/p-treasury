@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { Key } from "webdriverio";
 import { choose, click, money, openSection, setDate, start, stop, waitText } from "./app.mjs";
 
 const dialog = '(//*[@role="dialog"])[last()]';
@@ -191,7 +192,13 @@ test("Повтор дохода берёт счёт, категорию и су�
   await click(browser, "Запланировать повтор…", '//*[@data-testid="context-menu"]');
   await waitText(browser, byTest("repeat-plan-source"), /Доход/);
   await waitText(browser, byTest("repeat-plan-source"), money("50 000 ₽"));
-  await choose(browser, "repeat", "Еженедельно");
+  const repeat = browser.$('[data-testid="repeat-plan-form"] select[name="repeat"]');
+  await repeat.scrollIntoView({ block: "center" });
+  await repeat.waitForClickable();
+  assert.equal(await repeat.getValue(), "monthly");
+  // В закрытом списке «Еженедельно» находится перед «Ежемесячно».
+  await repeat.addValue(Key.ArrowUp);
+  assert.equal(await repeat.getValue(), "weekly");
   const due = shiftDay(w.today, 7);
   assert.equal(await browser.$('[name="reminderDate"]').getValue(), due);
   await browser.$(byTest("repeat-plan-save")).click();
