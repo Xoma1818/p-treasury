@@ -170,3 +170,60 @@ test("значок «?»: под мышкой подсказка, в Настр�
   await openSection(browser, "Настройки");
   await (await browser.$('select[name="hints"]')).selectByVisibleText("Показывать");
 });
+
+test("из достигнутой ручной цели можно взять деньги без операции по счёту", async () => {
+  await openSection(browser, "Главная");
+  const ledger = async () => {
+    const snapshot = await browser.executeAsync((done) => {
+      const invoke = window.__TAURI_INTERNALS__.invoke;
+      Promise.all([
+        invoke("list_accounts", { includeArchived: false }),
+        invoke("list_transactions", { filter: { limit: 1 } }),
+      ]).then(([accounts, page]) => done({
+        balances: Object.fromEntries(accounts.map((a) => [a.id, a.balance])), count: page.total,
+      }), (error) => done({ error: String(error) }));
+    });
+    assert.equal(snapshot.error, undefined);
+    return snapshot;
+  };
+  const before = await ledger();
+  const manual = '[data-testid="goal"][data-name="Ручная копилка"]';
+  await click(browser, "+ Цель");
+  await fill(browser, "goalName", "Ручная копилка");
+  await fill(browser, "goalTarget", "10000");
+  await save(browser);
+  await (await browser.$(`${manual} [data-testid="goal-deposit"]`)).click();
+  await fill(browser, "amount", "10000");
+  await save(browser);
+  await waitText(browser, manual, /Цель достигнута/);
+  await click(browser, "Взять из цели", '//*[@data-testid="goal"][@data-name="Ручная копилка"]');
+  await waitText(browser, '[role="dialog"] [aria-pressed="true"]', /Взять из цели/);
+  await fill(browser, "amount", "12000");
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await waitText(browser, '[role="dialog"] [role="alert"]', /недостаточно накоплений/i);
+  await waitText(browser, '[role="dialog"] p.muted', money("Накоплено 10 000 ₽"));
+  assert.deepEqual(await ledger(), before);
+  await fill(browser, "amount", "2000");
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  await waitText(browser, `${manual} .goal-sum`, money("8 000 ₽"));
+  await waitText(browser, manual, /80 %/);
+  await browser.keys(["Control", "h"]);
+  try {
+    await waitText(browser, `${manual} .goal-sum`, /•••\s*из\s*•••/);
+    assert.doesNotMatch(await browser.$(manual).getText(), /8\s*000|10\s*000|₽/);
+  } finally {
+    await browser.keys(["Control", "h"]);
+  }
+  await waitText(browser, `${manual} .goal-sum`, money("8 000 ₽"));
+  assert.deepEqual(await ledger(), before);
+
+  await click(browser, "+ Цель");
+  await fill(browser, "goalName", "Цель на счёте");
+  await fill(browser, "goalTarget", "1000");
+  await choose(browser, "goalAccount", "Карта (₽)");
+  await save(browser);
+  const linked = '[data-testid="goal"][data-name="Цель на счёте"]';
+  await waitText(browser, linked, /Цель достигнута/);
+  assert.equal(await browser.$(`${linked} [data-testid="goal-deposit"]`).isExisting(), false);
+});
