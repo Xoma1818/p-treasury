@@ -1,11 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
-import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
-import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
+import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat, type Txn } from "../lib/api";
+import { addDays, formatDate, formatDateTime, isoDateTime, nextRepeatDate, nowLocal, today } from "../lib/dates";
 import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { occurrenceStatus } from "../lib/occurrenceStatus";
-import { useAccounts, useCategories, useSettings } from "../lib/queries";
+import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { usePopup } from "../lib/usePopup";
@@ -86,29 +86,38 @@ export function ReminderForm({
   date,
   preset,
   from,
+  source,
   onClose,
 }: {
   reminder?: Reminder;
   date?: string;
   preset?: Partial<ReminderInput>;
   from?: ReminderKey;
+  source?: Txn;
   onClose: () => void;
 }) {
   const accounts = useAccounts().data ?? [];
   const categories = useCategories().data ?? [];
   const settings = useSettings().data;
+  const currencies = useCurrencies().data;
+  const base = settings && currencies?.find((c) => c.code === (settings.base_currency ?? "RUB"));
+  const minor = source?.minorUnits ?? reminder?.minorUnits ?? base?.minorUnits ?? 2;
+  const unit = reminder?.currencySymbol ?? base?.symbol;
   const [title, setTitle] = useState(reminder?.title ?? preset?.title ?? "");
   const [day, setDay] = useState(from?.scheduledAt.slice(0, 10) ?? reminder?.startAt.slice(0, 10) ?? preset?.startAt?.slice(0, 10) ?? date ?? today());
   const [time, setTime] = useState(reminder?.startAt.slice(11, 16) ?? preset?.startAt?.slice(11, 16) ?? "09:00");
   const [repeat, setRepeat] = useState<Repeat>(reminder?.repeat ?? preset?.repeat ?? "once");
+  const [customDay, setCustomDay] = useState(false);
   const [endMode, setEndMode] = useState<EndMode>(reminder?.endDate ? "date" : "never");
   const [endDate, setEndDate] = useState(reminder?.endDate ?? "");
   const [count, setCount] = useState("12");
-  const [amount, setAmount] = useState(amountText(reminder?.amount ?? preset?.amount));
-  const [lastAmount, setLastAmount] = useState(amountText(reminder?.lastAmount));
-  const [txnType, setTxnType] = useState<"expense" | "income">(reminder?.txnType ?? "expense");
-  const [accountId, setAccountId] = useState(reminder?.accountId ?? "");
-  const [categoryId, setCategoryId] = useState(reminder?.categoryId ?? "");
+  const [amountDraft, setAmount] = useState<string | null>(null);
+  const [lastAmountDraft, setLastAmount] = useState<string | null>(null);
+  const amount = amountDraft ?? amountText(reminder?.amount ?? preset?.amount, minor);
+  const lastAmount = lastAmountDraft ?? amountText(reminder?.lastAmount, minor);
+  const [txnType, setTxnType] = useState<"expense" | "income">(reminder?.txnType ?? preset?.txnType ?? "expense");
+  const [accountId, setAccountId] = useState(reminder?.accountId ?? preset?.accountId ?? "");
+  const [categoryId, setCategoryId] = useState(reminder?.categoryId ?? preset?.categoryId ?? "");
   const [note, setNote] = useState(reminder?.note ?? preset?.note ?? "");
   const saved = reminder?.leadDays ?? preset?.leadDays;
   const [leadMode, setLeadMode] = useState<LeadMode>(saved == null ? "default" : saved === "" ? "none" : "own");
@@ -117,7 +126,7 @@ export function ReminderForm({
 
   const save = useAction(
     (input: ReminderInput) =>
-      from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
+      source ? api.createRepeatPlan(source.id, input) : from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
     onClose,
     { singleSubmit: true },
   );
@@ -125,19 +134,32 @@ export function ReminderForm({
 
   const series = repeat !== "once";
   const ends = series && endMode !== "never";
+  const earliest = source && addDays(source.date > today() ? source.date : today(), 1);
+  const originalDay = from?.scheduledAt.slice(0, 10) ?? reminder?.startAt.slice(0, 10);
+  const monthlyDay = source && !customDay ? Number(source.date.slice(-2))
+    : day === originalDay && reminder?.dayOfMonth ? reminder.dayOfMonth : Number(day.slice(-2));
+  const changeRepeat = (next: Repeat) => {
+    setRepeat(next);
+    if (source && !customDay && (next === "monthly" || next === "weekly")) {
+      setDay(nextRepeatDate(source.date, next));
+    }
+  };
   const submit = () => {
-    const value = amount.trim() ? parseAmount(amount) : null;
+    if (earliest && (!day || day < earliest)) return save.setError("Выберите будущую дату после исходной операции.");
+    if (!title.trim()) return save.setError("Введите название напоминания.");
+    if (!source && !reminder && !base && amount.trim()) return save.setError("Дождитесь загрузки основной валюты.");
+    const value = source?.amount ?? (amount.trim() ? parseAmount(amount, minor) : null);
     if (amount.trim() && (value === null || value <= 0)) return save.setError("Сумма должна быть больше нуля");
-    const last = ends && value && lastAmount.trim() ? parseAmount(lastAmount) : null;
+    const last = ends && value && lastAmount.trim() ? parseAmount(lastAmount, minor) : null;
     if (ends && value && lastAmount.trim() && (last === null || last <= 0)) return save.setError("Последний платёж должен быть больше нуля");
     const n = Number(count);
     if (series && endMode === "count" && !(Number.isInteger(n) && n >= 1 && n <= 600)) return save.setError("Сколько раз: от 1 до 600");
     save.run({
-      title,
+      title: title.trim(),
       startAt: `${day}T${time || "09:00"}`,
       repeat,
-      // Ежемесячно — в число первой даты (31-е в коротком месяце — последний день).
-      dayOfMonth: repeat === "monthly" ? Number(day.slice(8, 10)) : null,
+      // Сохраняем исходное число, даже если ближайший срок выпал на 28–30-е.
+      dayOfMonth: repeat === "monthly" ? monthlyDay : null,
       endDate: series && endMode === "date" && endDate ? endDate : null,
       count: series && endMode === "count" ? n : null,
       amount: value,
@@ -153,9 +175,10 @@ export function ReminderForm({
   };
 
   return (
-    <Modal title={from ? "Этот и следующие платежи" : reminder ? "Напоминание" : "Новое напоминание"} onClose={onClose}>
+    <Modal title={source ? "Запланировать повтор" : from ? "Этот и следующие платежи" : reminder ? "Напоминание" : "Новое напоминание"} onClose={onClose} dismissDisabled={save.busy}>
       <form
         className="form"
+        data-testid={source ? "repeat-plan-form" : undefined}
         onSubmit={(e) => {
           e.preventDefault();
           // Форма может открываться поверх другой (заметки): та не должна сохраняться.
@@ -163,16 +186,21 @@ export function ReminderForm({
           submit();
         }}
       >
+        {source && <div data-testid="repeat-plan-source">
+          <p>{TXN_TYPES[source.type]} · <Money amount={source.amount} symbol={source.currencySymbol} currencyCode={source.currencyCode} minorUnits={source.minorUnits} /> · {formatDate(source.date)}</p>
+          <p className="muted">{[source.accountName, source.categoryName].filter(Boolean).join(" · ")}</p>
+          <p className="hint">Операция уже записана. Повтор добавит будущий платёж в календарь.</p>
+        </div>}
         <Field label="Название">{(id) => <input id={id} name="reminderTitle" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
         <div className="row">
-          <Field label={from ? "С какого дня" : "Дата"}>{(id) => <input id={id} name="reminderDate" type="date" value={day} onChange={(e) => setDay(e.target.value)} />}</Field>
+          <Field label={source ? "Следующий платёж" : from ? "С какого дня" : "Дата"}>{(id) => <input id={id} name="reminderDate" type="date" value={day} min={earliest} required={!!source} onChange={(e) => { setDay(e.target.value); setCustomDay(true); }} />}</Field>
           <Field label="Время">{(id) => <input id={id} name="reminderTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />}</Field>
         </div>
         <div className="row">
           <Field label="Повтор">
             {(id) => (
-              <select id={id} name="repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as Repeat)}>
-                {Object.entries(REPEATS).map(([k, v]) => (
+              <select id={id} name="repeat" value={repeat} onChange={(e) => changeRepeat(e.target.value as Repeat)}>
+                {Object.entries(REPEATS).filter(([k]) => !source || k === "monthly" || k === "weekly").map(([k, v]) => (
                   <option key={k} value={k}>
                     {v}
                   </option>
@@ -180,7 +208,7 @@ export function ReminderForm({
               </select>
             )}
           </Field>
-          {series && (
+          {series && !source && (
             <Field label="Сколько раз">
               {(id) => (
                 <select id={id} name="reminderEndMode" value={endMode} onChange={(e) => setEndMode(e.target.value as EndMode)}>
@@ -200,9 +228,10 @@ export function ReminderForm({
             </Field>
           )}
         </div>
-        {repeat === "monthly" && <p className="hint">Каждый месяц {Number(day.slice(8, 10))}-го; если такого числа нет, в последний день месяца.</p>}
+        {repeat === "monthly" && day && <p className="hint">Каждый месяц {monthlyDay}-го. Если такого числа нет, платёж приходится на последний день месяца.</p>}
+        {!source && <>
         <div className="row">
-          <Field label="Сумма (необязательно)">{(id) => <AmountInput id={id} name="reminderAmount" value={amount} onChange={setAmount} />}</Field>
+          <Field label={unit ? `Сумма, ${unit} (необязательно)` : "Сумма (необязательно)"}>{(id) => <AmountInput id={id} name="reminderAmount" value={amount} onChange={setAmount} minorUnits={minor} />}</Field>
           <Field label="Это">
             {(id) => (
               <select id={id} name="reminderType" value={txnType} onChange={(e) => setTxnType(e.target.value as "expense" | "income")}>
@@ -214,7 +243,7 @@ export function ReminderForm({
         </div>
         {ends && amount.trim() && (
           <Field label="Последний платёж, если другой (необязательно)">
-            {(id) => <AmountInput id={id} name="reminderLastAmount" value={lastAmount} onChange={setLastAmount} />}
+            {(id) => <AmountInput id={id} name="reminderLastAmount" value={lastAmount} onChange={setLastAmount} minorUnits={minor} />}
           </Field>
         )}
         <div className="row">
@@ -250,6 +279,7 @@ export function ReminderForm({
           <p className="hint">Если к платежу на счёте не будет хватать денег, программа предупредит заранее.</p>
         )}
         <Field label="Комментарий">{(id) => <input id={id} name="reminderNote" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+        </>}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {reminder && !from && (
@@ -258,11 +288,11 @@ export function ReminderForm({
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose} disabled={save.busy}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
-            Сохранить
+          <button type="submit" className="btn primary" data-testid={source ? "repeat-plan-save" : undefined} aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
+            {source ? "Запланировать" : "Сохранить"}
           </button>
         </div>
       </form>
@@ -272,7 +302,7 @@ export function ReminderForm({
 
 /** Правка одного платежа серии: своя сумма и другой день; или переход к «этот и следующие». */
 function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) {
-  const [amount, setAmount] = useState(amountText(o.amount));
+  const [amount, setAmount] = useState(amountText(o.amount, o.minorUnits));
   const [day, setDay] = useState(o.payAt.slice(0, 10));
   const [time, setTime] = useState(o.payAt.slice(11, 16));
   const [following, setFollowing] = useState<Reminder | null>(null);
@@ -281,7 +311,7 @@ function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) 
   const loadSeries = useAction(() => api.getReminder(o.key.refId).then(setFollowing));
   if (following) return <ReminderForm reminder={following} from={o.key} onClose={onClose} />;
   const submit = () => {
-    const value = amount.trim() ? parseAmount(amount) : null;
+    const value = amount.trim() ? parseAmount(amount, o.minorUnits) : null;
     if (amount.trim() && (value === null || value <= 0)) return save.setError("Сумма должна быть больше нуля");
     const moved = `${day}T${time || "09:00"}`;
     save.run(value, moved === o.key.scheduledAt ? null : moved);
@@ -297,7 +327,7 @@ function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) 
       >
         <p className="muted">{o.title}: меняется только этот платёж, остальные остаются как были.</p>
         <div className="row">
-          <Field label="Сумма">{(id) => <AmountInput id={id} name="occAmount" value={amount} onChange={setAmount} />}</Field>
+          <Field label={`Сумма, ${o.currencySymbol}`}>{(id) => <AmountInput id={id} name="occAmount" value={amount} onChange={setAmount} minorUnits={o.minorUnits} />}</Field>
           <Field label="День">{(id) => <input id={id} name="occDate" type="date" value={day} onChange={(e) => setDay(e.target.value)} />}</Field>
           <Field label="Время">{(id) => <input id={id} name="occTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />}</Field>
         </div>
@@ -370,16 +400,12 @@ const SNOOZE: [string, () => string][] = [
 /** Форма платежа открывается после проверки совпадений. */
 function useCreateFromReminder() {
   const openTxnForm = useUi((s) => s.openTxnForm);
-  const accounts = useAccounts().data ?? [];
-  const base = useSettings().data?.base_currency;
   return (o: Occurrence, revision: string, allowSeparate: boolean, onCancelReminder: () => void) => {
-    // Сумма напоминания — в основной валюте: на счёт в другой валюте её не подставляем.
-    const foreign = accounts.find((a) => a.id === o.accountId)?.currencyCode !== base && o.accountId != null;
     openTxnForm({
       mode: "new",
       type: o.txnType ?? "expense",
       date: today(),
-      prefill: { amount: foreign ? null : o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
+      prefill: { amount: o.amount, amountCurrency: o.amountCurrency, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
       reminder: { key: o.key, revision, allowSeparate },
       onCancelReminder,
     });
@@ -438,11 +464,11 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         </span>
         {o.shortfall != null && (
           <span className="sub shortfall" data-testid="shortfall">
-            На счёте не хватит <Money amount={o.shortfall} symbol={o.currencySymbol} minorUnits={o.minorUnits} />
+            На счёте не хватит <Money amount={o.shortfall} symbol={o.currencySymbol} currencyCode={o.amountCurrency} minorUnits={o.minorUnits} />
           </span>
         )}
       </div>
-      {o.amount != null && <Money amount={o.amount} symbol={o.currencySymbol} minorUnits={o.minorUnits} />}
+      {o.amount != null && <Money amount={o.amount} symbol={o.currencySymbol} currencyCode={o.amountCurrency} minorUnits={o.minorUnits} />}
       <div className="occ-actions" ref={more.ref} onKeyDown={(event) => {
         if (event.key !== "Escape" || (!more.open && !snoozing)) return;
         event.stopPropagation();

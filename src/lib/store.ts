@@ -6,6 +6,7 @@ import { rememberSection, startSection } from "./fine";
 /** Что подставить в новую операцию (например, из напоминания). */
 export interface TxnPrefill {
   amount?: number | null;
+  amountCurrency?: string;
   accountId?: string | null;
   toAccountId?: string | null;
   categoryId?: string | null;

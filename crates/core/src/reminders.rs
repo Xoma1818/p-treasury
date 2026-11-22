@@ -22,6 +22,9 @@ use sha2::{Digest, Sha256};
 use crate::error::invalid;
 use crate::{categories, ids, settings, time, Error, Result};
 
+mod repeat_plan;
+pub use repeat_plan::{create_repeat_plan, get_repeat_plan};
+
 const DT: &str = "%Y-%m-%dT%H:%M";
 /// Время напоминаний о платежах по долгам.
 const DEBT_HOUR: &str = "09:00";
@@ -183,6 +186,9 @@ pub struct Reminder {
     pub day_of_month: Option<u32>,
     pub end_date: Option<String>,
     pub amount: Option<i64>,
+    pub amount_currency: String,
+    pub currency_symbol: String,
+    pub minor_units: u32,
     pub txn_type: Option<String>,
     pub account_id: Option<String>,
     pub category_id: Option<String>,
@@ -265,16 +271,20 @@ fn validate(conn: &Connection, input: &ReminderInput) -> Result<Checked> {
     if input.count == Some(0) {
         return invalid("повторить можно от одного раза");
     }
+    let day_of_month = match repeat {
+        Repeat::Monthly => Some(input.day_of_month.unwrap_or(start.day())),
+        _ => None,
+    };
+    if day_of_month.is_some_and(|d| !(1..=31).contains(&d)) {
+        return invalid("число месяца от 1 до 31");
+    }
     let end_date = match (input.count, repeat) {
         // «N раз»: последний день — дата N-го срабатывания.
         (Some(n), r) if r != Repeat::Once => {
             let rule = Rule {
                 start,
                 repeat,
-                day_of_month: match repeat {
-                    Repeat::Monthly => Some(input.day_of_month.unwrap_or(start.day())),
-                    _ => None,
-                },
+                day_of_month,
                 end_date: None,
             };
             nth(&rule, n).map(|d| d.date().to_string())
@@ -286,13 +296,6 @@ fn validate(conn: &Connection, input: &ReminderInput) -> Result<Checked> {
         if e < &input.start_at[..10] {
             return invalid("повторы заканчиваются раньше первой даты");
         }
-    }
-    let day_of_month = match repeat {
-        Repeat::Monthly => Some(input.day_of_month.unwrap_or(start.day())),
-        _ => None,
-    };
-    if day_of_month.is_some_and(|d| !(1..=31).contains(&d)) {
-        return invalid("число месяца от 1 до 31");
     }
     if input.amount.is_some_and(|a| a <= 0) || input.last_amount.is_some_and(|a| a <= 0) {
         return invalid("сумма должна быть больше нуля");
@@ -528,13 +531,15 @@ fn rule_of(r: &Reminder) -> Result<Rule> {
 }
 
 pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Reminder>> {
+    let base = crate::currencies::base_currency(conn)?;
     let mut stmt = conn.prepare(
         "SELECT id, title, start_at, repeat, day_of_month, end_date, amount, txn_type, account_id, category_id, note, active,
-                lead_days, last_amount, note_id, event_id
-         FROM reminders ORDER BY active DESC, title",
+                lead_days, last_amount, note_id, event_id, c.code, c.symbol, c.minor_units
+         FROM reminders r JOIN currencies c ON c.code = COALESCE(r.amount_currency, ?1)
+         ORDER BY active DESC, title",
     )?;
     let mut out: Vec<Reminder> = stmt
-        .query_map([], |r| {
+        .query_map([base], |r| {
             Ok(Reminder {
                 id: r.get(0)?,
                 title: r.get(1)?,
@@ -543,6 +548,9 @@ pub fn list(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Reminder>> {
                 day_of_month: r.get(4)?,
                 end_date: r.get(5)?,
                 amount: r.get(6)?,
+                amount_currency: r.get(16)?,
+                currency_symbol: r.get(17)?,
+                minor_units: r.get(18)?,
                 txn_type: r.get(7)?,
                 account_id: r.get(8)?,
                 category_id: r.get(9)?,
@@ -582,6 +590,7 @@ pub struct Occurrence {
     pub key: Key,
     pub title: String,
     pub amount: Option<i64>,
+    pub amount_currency: String,
     pub currency_symbol: String,
     pub minor_units: u32,
     pub txn_type: Option<String>,
@@ -667,12 +676,6 @@ fn states(conn: &Connection) -> Result<HashMap<Key, State>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-fn base_currency(conn: &Connection) -> Result<(String, u32)> {
-    let base = crate::currencies::base_currency(conn)?;
-    let c = crate::currencies::get(conn, &base)?;
-    Ok((c.symbol, c.minor_units))
-}
-
 /// Все срабатывания в промежутке `[from, to]`, со своим состоянием, по времени.
 pub fn occurrences(
     conn: &Connection,
@@ -680,7 +683,6 @@ pub fn occurrences(
     to: NaiveDateTime,
 ) -> Result<Vec<Occurrence>> {
     let states = states(conn)?;
-    let (symbol, minor) = base_currency(conn)?;
     let mut out = Vec::new();
     let (lo, hi) = (format_dt(from), format_dt(to));
     let mut add = |key: Key, mut o: Occurrence| {
@@ -764,8 +766,9 @@ pub fn occurrences(
                     } else {
                         r.amount
                     },
-                    currency_symbol: symbol.clone(),
-                    minor_units: minor,
+                    amount_currency: r.amount_currency.clone(),
+                    currency_symbol: r.currency_symbol.clone(),
+                    minor_units: r.minor_units,
                     txn_type: r.txn_type.clone(),
                     account_id: r.account_id.clone(),
                     category_id: r.category_id.clone(),
@@ -793,7 +796,7 @@ pub fn occurrences(
         .unwrap_or(3);
     let mut stmt = conn.prepare(
         "SELECT s.id, s.due_date, s.payment, d.id, d.counterparty, d.direction, c.symbol, c.minor_units,
-                d.remind_days
+                d.remind_days, c.code
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
          WHERE s.status = 'pending' AND d.status = 'active' AND COALESCE(d.remind_days, 0) >= 0",
     )?;
@@ -807,6 +810,7 @@ pub fn occurrences(
         String,
         u32,
         Option<i64>,
+        String,
     );
     let rows: Vec<DebtRow> = stmt
         .query_map([], |r| {
@@ -820,10 +824,11 @@ pub fn occurrences(
                 r.get(6)?,
                 r.get(7)?,
                 r.get(8)?,
+                r.get(9)?,
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    for (sid, due, payment, debt_id, who, direction, sym, mu, own) in rows {
+    for (sid, due, payment, debt_id, who, direction, sym, mu, own, currency) in rows {
         // Р18: у долга может быть своё «за сколько дней».
         let days = own.unwrap_or(days);
         let Ok(due_d) = NaiveDate::parse_from_str(&due, "%Y-%m-%d") else {
@@ -849,6 +854,7 @@ pub fn occurrences(
                 key,
                 title,
                 amount: Some(payment),
+                amount_currency: currency,
                 currency_symbol: sym,
                 minor_units: mu,
                 txn_type: None,
@@ -915,6 +921,11 @@ fn upsert(conn: &Connection, key: &Key, set: &str, values: &[&dyn rusqlite::ToSq
 
 /// «Выполнено» (с операцией, если её создали из напоминания).
 pub fn complete(conn: &Connection, key: &Key, transaction_id: Option<&str>) -> Result<()> {
+    if let Some(id) = transaction_id {
+        if key.source == "reminder" && repeat_plan::is_source(conn, &key.ref_id, id)? {
+            return invalid("исходная операция уже учтена до начала этой серии");
+        }
+    }
     upsert(
         conn,
         key,
@@ -1061,6 +1072,13 @@ pub fn edit_occurrence(
 /// «Изменить этот и все следующие»: серия до платежа `key` остаётся как была,
 /// с него начинается новая с `input`. Возвращает id той, что действует дальше.
 pub fn split_from(conn: &Connection, key: &Key, input: &ReminderInput) -> Result<String> {
+    let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let id = split_in_transaction(&tx, key, input)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+fn split_in_transaction(conn: &Connection, key: &Key, input: &ReminderInput) -> Result<String> {
     if key.source != "reminder" {
         return invalid("платёж по займу меняется в карточке займа");
     }
@@ -1082,6 +1100,7 @@ pub fn split_from(conn: &Connection, key: &Key, input: &ReminderInput) -> Result
     next.event_id = next.event_id.or(old.2);
     let old_rule = stored_rule(conn, &key.ref_id)?.expect("найдено выше");
     let id = create(conn, &next)?;
+    repeat_plan::inherit_segment(conn, &key.ref_id, &id)?;
     let new_rule = stored_rule(conn, &id)?.expect("только что записано");
     remap_states(conn, &key.ref_id, &old_rule, at, &id, &new_rule)?;
     // Старая серия заканчивается накануне; её последний платёж — обычной суммы.
@@ -1127,7 +1146,7 @@ fn pay_day(o: &Occurrence) -> String {
 
 /// Сколько не хватит на счетах к ближайшим расходам: идём по открытым платежам
 /// с выбранным счётом от `now` до `now + days` и вычитаем их из остатка.
-/// Счета не в основной валюте пропускаем: суммы напоминаний — в основной.
+/// Остаток ведётся в валюте счёта, а нехватка возвращается в валюте платежа.
 pub fn shortfalls(conn: &Connection, now: NaiveDateTime, days: i64) -> Result<HashMap<Key, i64>> {
     let mut out = HashMap::new();
     if days <= 0 {
@@ -1137,7 +1156,7 @@ pub fn shortfalls(conn: &Connection, now: NaiveDateTime, days: i64) -> Result<Ha
         .and_hms_opt(23, 59, 59)
         .expect("время");
     let n = format_dt(now);
-    let base = crate::currencies::base_currency(conn)?;
+    let today = now.date().to_string();
     let mut occ: Vec<Occurrence> = occurrences(conn, now - Duration::days(LOOKBACK_DAYS), horizon)?
         .into_iter()
         .filter(|o| {
@@ -1150,33 +1169,38 @@ pub fn shortfalls(conn: &Connection, now: NaiveDateTime, days: i64) -> Result<Ha
         })
         .collect();
     occ.sort_by(|a, b| a.pay_at.cmp(&b.pay_at));
-    let mut left: HashMap<String, Option<i64>> = HashMap::new();
+    let mut left: HashMap<String, (String, Option<i64>)> = HashMap::new();
     for o in occ {
         let acc = o.account_id.clone().expect("отобрано выше");
-        let balance = match left.get(&acc) {
-            Some(b) => *b,
-            None => {
-                let b = match crate::accounts::get(conn, &acc) {
-                    Ok(a) if a.currency_code == base => {
-                        Some(crate::accounts::balance(conn, &acc, None)?)
-                    }
-                    _ => None,
-                };
-                left.insert(acc.clone(), b);
-                b
+        let (currency, remaining) = match left.entry(acc) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let account = crate::accounts::get(conn, e.key())?;
+                e.insert((account.currency_code, Some(account.balance)))
             }
         };
-        let Some(mut b) = balance else { continue };
-        let a = o.amount.expect("отобрано выше");
+        let Some(b) = *remaining else { continue };
+        let amount = o.amount.expect("отобрано выше");
+        let Some(a) =
+            crate::currencies::convert(conn, amount, &o.amount_currency, currency, &today)?
+        else {
+            // Без стоимости этого платежа и дальнейший остаток неизвестен.
+            *remaining = None;
+            continue;
+        };
         if o.txn_type.as_deref() == Some("income") {
-            b += a;
+            *remaining = b.checked_add(a);
         } else {
-            b -= a;
-            if b < 0 {
-                out.insert(o.key.clone(), (-b).min(a));
+            *remaining = b.checked_sub(a);
+            if b < a {
+                let gap = a - b.max(0);
+                if let Some(gap) =
+                    crate::currencies::convert(conn, gap, currency, &o.amount_currency, &today)?
+                {
+                    out.insert(o.key.clone(), gap.min(amount));
+                }
             }
         }
-        left.insert(acc, Some(b));
     }
     Ok(out)
 }
@@ -1386,7 +1410,6 @@ fn collect_payment_candidates(
     let Some((currency, symbol, minor_units)) = currency else {
         return Ok((Vec::new(), false));
     };
-    let base = crate::currencies::base_currency(conn)?;
     let due = parse_dt(&o.pay_at)?.date();
     let window = Duration::days(PAYMENT_MATCH_DAYS);
     let from = (due - window).to_string();
@@ -1399,6 +1422,8 @@ fn collect_payment_candidates(
          FROM transactions t
          WHERE t.account_id = ?1 AND t.type = ?2 AND t.date BETWEEN ?3 AND ?4 AND t.date <= ?5
            AND t.status = 'cleared' AND t.debt_id IS NULL AND t.refund = 0 AND t.split_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM reminder_plan_sources s
+                           WHERE s.transaction_id = t.id AND s.reminder_id = ?6)
            AND NOT EXISTS (
                SELECT 1 FROM reminder_occurrences linked
                LEFT JOIN valid_reminder_actual_links valid ON valid.occurrence_id = linked.id
@@ -1406,7 +1431,7 @@ fn collect_payment_candidates(
                  AND (linked.linked_actual_amount IS NULL OR valid.occurrence_id IS NOT NULL)
            ) ORDER BY t.date DESC, t.id",
     )?;
-    let mut rows = stmt.query(params![account, kind, from, to, today])?;
+    let mut rows = stmt.query(params![account, kind, from, to, today, o.key.ref_id])?;
     let mut candidates = Vec::new();
     let mut more_candidates = false;
     while let Some(row) = rows.next()? {
@@ -1421,7 +1446,7 @@ fn collect_payment_candidates(
         let date: String = row.get(1)?;
         let amount: i64 = row.get(3)?;
         let Some(expected_amount) =
-            crate::currencies::convert(conn, expected, &base, &currency, &date)?
+            crate::currencies::convert(conn, expected, &o.amount_currency, &currency, &date)?
         else {
             continue;
         };
@@ -1470,6 +1495,7 @@ fn review_for_occurrence(conn: &Connection, o: &Occurrence, today: &str) -> Resu
         &o.account_id,
         &o.category_id,
         &o.note,
+        &o.amount_currency,
         &o.currency_symbol,
         o.minor_units,
         today,
@@ -1614,6 +1640,13 @@ pub enum Paid {
 /// «Оплачено» из уведомления: операция сегодняшним днём по напоминанию с
 /// суммой, счётом и категорией и отметка «выполнено».
 pub fn pay(conn: &Connection, key: &Key, today: &str) -> Result<Paid> {
+    let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let paid = pay_in_transaction(&tx, key, today)?;
+    tx.commit()?;
+    Ok(paid)
+}
+
+fn pay_in_transaction(conn: &Connection, key: &Key, today: &str) -> Result<Paid> {
     if key.source != "reminder" {
         return Ok(Paid::NeedsForm);
     }
@@ -1634,11 +1667,11 @@ pub fn pay(conn: &Connection, key: &Key, today: &str) -> Result<Paid> {
     {
         return Ok(Paid::NeedsForm);
     }
-    // Сумма напоминания — в основной валюте; на счёт в другой валюте —
-    // по курсу дня, а без курса — форма, где сумму видно и можно поправить.
-    let base = crate::currencies::base_currency(conn)?;
+    // Для счёта в другой валюте используем курс дня оплаты.
     let currency = crate::accounts::get(conn, &account)?.currency_code;
-    let Some(amount) = crate::currencies::convert(conn, amount, &base, &currency, today)? else {
+    let Some(amount) =
+        crate::currencies::convert(conn, amount, &o.amount_currency, &currency, today)?
+    else {
         return Ok(Paid::NeedsForm);
     };
     let id = crate::transactions::create(

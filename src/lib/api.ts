@@ -759,6 +759,7 @@ export interface Period {
 }
 
 export interface BudgetLine {
+  canRebalance: boolean;
   categoryId: string;
   categoryName: string;
   parentId: string | null;
@@ -1279,6 +1280,7 @@ export interface ReminderKey {
 }
 
 export interface Occurrence {
+  amountCurrency: string;
   key: ReminderKey;
   title: string;
   amount: number | null;
@@ -1356,6 +1358,9 @@ export interface ReminderPaymentCreation {
 }
 
 export interface Reminder extends ReminderInput {
+  amountCurrency: string;
+  minorUnits: number;
+  currencySymbol: string;
   id: string;
   active: boolean;
   nextAt: string | null;
@@ -2130,6 +2135,8 @@ export const api = {
   setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
   setBudgetLimitKind: (budgetId: string, categoryId: string, kind: LimitKind, value: number) =>
     invoke<void>("set_budget_limit_kind", { budgetId, categoryId, kind, value }),
+  coverBudgetOverspend: (input: { month: string; budgetId: string; from: string; to: string; amount: number; fromLimit: number; toLimit: number; fromRemaining: number }) =>
+    invoke<void>("cover_budget_overspend", { input }),
   copyBudgetForward: (month: string, months: number, overwrite: boolean) => invoke<CopyResult>("copy_budget_forward", { month, months, overwrite }),
   budgetYear: (year: number) => invoke<YearBudget>("budget_year", { year }),
   listBudgetGroups: () => invoke<BudgetGroup[]>("list_budget_groups"),
@@ -2208,6 +2215,8 @@ export const api = {
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),
   missedReminders: () => invoke<Occurrence[]>("missed_reminders"),
   createReminder: (input: ReminderInput) => invoke<string>("create_reminder", { input }),
+  getRepeatPlan: (sourceId: string) => invoke<Reminder | null>("get_repeat_plan", { sourceId }),
+  createRepeatPlan: (sourceId: string, input: ReminderInput) => invoke<string>("create_repeat_plan", { sourceId, input }),
   updateReminder: (id: string, input: ReminderInput) => invoke<void>("update_reminder", { id, input }),
   setReminderActive: (id: string, active: boolean) => invoke<void>("set_reminder_active", { id, active }),
   deleteReminder: (id: string) => invoke<void>("delete_reminder", { id }),

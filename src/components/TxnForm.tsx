@@ -19,6 +19,7 @@ import { Hint } from "./Hint";
 import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
 import { TxnHistory } from "./TxnHistory";
+import { canPlanRepeat, RepeatPlanDialog, useRepeatPlan } from "./TxnRepeatPlan";
 
 const TABS: [TxnType, string][] = [
   ["expense", "Расход"],
@@ -44,6 +45,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const openTxnForm = useUi((s) => s.openTxnForm);
   const openDebt = useUi((s) => s.openDebt);
   const editing = state.mode === "edit" ? state.txn : null;
+  const repeatSource = editing && canPlanRepeat(editing) ? editing : null;
+  const repeatPlan = useRepeatPlan(repeatSource?.id);
+  const [planningRepeat, setPlanningRepeat] = useState(false);
+  const repeatButton = useRef<HTMLButtonElement>(null);
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const reminder = state.mode === "new" ? state.reminder : undefined;
   const cancel = () => {
@@ -54,7 +59,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const categories = useCategories().data ?? [];
 
   const [type, setType] = useState<TxnType>(editing?.type ?? (state.mode === "new" ? state.type : "expense"));
-  const [amount, setAmount] = useState(amountText(editing?.amount ?? prefill?.amount, editing?.minorUnits));
+  const [amountDraft, setAmount] = useState<string | null>(null);
   const [toAmount, setToAmount] = useState(amountText(editing?.toAmount, editing?.toMinorUnits ?? 2));
   // Г9: настройка формы (поля без «Ещё», счёт и дата новой операции) — один раз на открытие.
   const [formPrefs] = useState(savedForm);
@@ -146,6 +151,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   }, [payee, type]);
 
   const from = accounts.find((a) => a.id === accountId);
+  const presetAmount = prefill?.amountCurrency && prefill.amountCurrency !== from?.currencyCode ? null : prefill?.amount;
+  const amount = amountDraft ?? amountText(editing?.amount ?? presetAmount, editing?.minorUnits ?? from?.minorUnits);
   const to = accounts.find((a) => a.id === toAccountId);
   const crossCurrency = type === "transfer" && from && to && from.currencyCode !== to.currencyCode;
   const minor = from?.minorUnits ?? 2;
@@ -364,6 +371,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
       !!friends);
   return (
+    <>
     <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={save.busy || remove.busy}>
       <form
         className="form"
@@ -628,6 +636,14 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             )}
           </>
         )}
+        {repeatSource && <div>
+          <button type="button" className="link" ref={repeatButton} data-testid="txn-plan-repeat"
+            disabled={dirty || save.busy || remove.busy || !!repeatPlan.error} onClick={() => setPlanningRepeat(true)}>
+            {repeatPlan.data ? "Открыть запланированный повтор" : "Запланировать повтор…"}
+          </button>
+          {dirty ? <p className="hint">Сначала сохраните изменения операции.</p>
+            : repeatPlan.error && <p className="hint">{String(repeatPlan.error)}</p>}
+        </div>}
         {editing && (!splitId || receiptLoaded.current) && <NotesBlock
           filter={{ transactionId: splitId ? undefined : editing.id }}
           initial={{ transactionId: splitId ? receipt.data?.parts.map((p) => p.id).sort().at(-1) : editing.id }}
@@ -716,5 +732,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         </div>
       </form>
     </Modal>
+    {repeatSource && planningRepeat && <RepeatPlanDialog source={repeatSource} onClose={() => {
+      setPlanningRepeat(false);
+      repeatButton.current?.focus();
+    }} />}
+    </>
   );
 }

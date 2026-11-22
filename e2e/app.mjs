@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { remote } from "webdriverio";
+import { Key, remote } from "webdriverio";
 
 const ROOT = resolve(import.meta.dirname, "..");
 /** В Windows нет pkill/pgrep/xdotool: процессы ищем по командной строке через PowerShell. */
@@ -265,22 +265,26 @@ export async function openSection(browser, title) {
 
 /** Поле по атрибуту name (в открытом диалоге, если он есть). */
 export async function field(browser, name) {
-  // Один селектор вместо поиска внутри диалога: диалог может перерисоваться
-  // между поисками, и ссылка на него устареет (stale element).
-  const inDialog = await browser.$('[role="dialog"]').isExisting();
-  return browser.$(inDialog ? `[role="dialog"] [name="${name}"]` : `[name="${name}"]`);
+  // Вложенная форма может содержать одноимённое поле. Ищем в верхнем диалоге
+  // или на странице, если диалогов нет. Один поиск не удерживает старый диалог.
+  return browser.$(`(//*[@role="dialog"])[last()]//*[@name="${name}"] | //*[@name="${name}" and not(//*[@role="dialog"])]`);
 }
 
 export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
-  // clearValue в WebKit не вызывает input: React при следующей перерисовке
-  // возвращал старое значение, и новое дописывалось к нему («6000» + «6230»).
-  // Очищаем так, чтобы React увидел изменение, и проверяем результат.
-  await setDate(browser, name, "");
-  await el.setValue(value);
+  const previous = await el.getValue();
+  if (previous !== "") {
+    await el.click();
+    // Ввод заменяет выделенный текст сразу. Промежуточная очистка управляемого
+    // поля и повторный elementClear в setValue ненадёжны в WebView2 и WebKit.
+    const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
+    if (value === "") keys.down(Key.Backspace).up(Key.Backspace);
+    await keys.perform();
+  }
+  if (value !== "") await el.addValue(value);
   const got = await el.getValue();
-  if (got !== value) throw new Error(`Поле ${name}: ожидалось «${value}», в поле «${got}»`);
+  if (got !== value) throw new Error(`Поле ${name}: было «${previous}», ожидалось «${value}», в поле «${got}»`);
 }
 
 export async function choose(browser, name, visibleText) {

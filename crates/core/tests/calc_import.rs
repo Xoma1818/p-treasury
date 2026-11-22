@@ -505,6 +505,94 @@ fn two_same_purchases_in_one_file_both_saved() {
 }
 
 #[test]
+fn planned_repeat_matches_next_statement_and_debits_the_account_once() {
+    use budget_core::{accounts, reminders};
+
+    let mut b = bank();
+    b.db.conn()
+        .execute(
+            "UPDATE accounts SET opening_balance = 4000000 WHERE id = ?1",
+            [&b.card],
+        )
+        .unwrap();
+    let first = statement(
+        b.dir.path(),
+        "oct.csv",
+        &[op("01.10.2026", "1140", "-10000,00", "Связь", "Провайдер")],
+    );
+    assert_eq!(import(&mut b, &first).added, 1);
+    let source = scalar_str(b.db.conn(), "SELECT id FROM transactions");
+    let t = budget_core::transactions::get(b.db.conn(), &source).unwrap();
+    let input = reminders::ReminderInput {
+        title: "Провайдер".into(),
+        start_at: "2026-11-01T09:00".into(),
+        repeat: "monthly".into(),
+        account_id: Some(t.account_id),
+        category_id: t.category_id,
+        amount: Some(t.amount),
+        txn_type: Some(t.kind),
+        ..Default::default()
+    };
+    let now = reminders::parse_dt("2026-10-01T18:00").unwrap();
+    let id = reminders::create_repeat_plan(b.db.conn_mut(), &source, &input, now.date()).unwrap();
+    assert_eq!(
+        reminders::create_repeat_plan(b.db.conn_mut(), &source, &input, now.date()).unwrap(),
+        id
+    );
+    assert_eq!(count(b.db.conn()), 1);
+    assert_eq!(
+        accounts::balance(b.db.conn(), &b.card, None).unwrap(),
+        3_000_000
+    );
+
+    let next = statement(
+        b.dir.path(),
+        "nov.csv",
+        &[op("01.11.2026", "1140", "-10000,00", "Связь", "Провайдер")],
+    );
+    assert_eq!(import(&mut b, &next).added, 1);
+    let key = reminders::Key {
+        source: "reminder".into(),
+        ref_id: id.clone(),
+        scheduled_at: input.start_at.clone(),
+    };
+    let today = "2026-11-01";
+    let c = b.db.conn_mut();
+    let review = reminders::payment_review(c, &key, today).unwrap();
+    assert_eq!(review.candidates.len(), 1);
+    let paid = &review.candidates[0].transaction_id;
+    assert_ne!(paid, &source);
+    assert_eq!(
+        reminders::pay(c, &key, today).unwrap(),
+        reminders::Paid::NeedsForm
+    );
+    reminders::attach_payment(c, &key, paid, &review.revision, today).unwrap();
+    assert!(reminders::attach_payment(c, &key, paid, &review.revision, today).is_err());
+    assert_eq!(
+        reminders::pay(c, &key, today).unwrap(),
+        reminders::Paid::Transaction(paid.clone())
+    );
+    assert_eq!(
+        reminders::get_repeat_plan(c, paid, now)
+            .unwrap()
+            .unwrap()
+            .id,
+        id
+    );
+    assert_eq!(
+        reminders::create_repeat_plan(c, paid, &input, now.date()).unwrap(),
+        id
+    );
+    assert_eq!(import(&mut b, &next).added, 0);
+    assert_eq!(count(b.db.conn()), 2);
+    assert_eq!(month_totals(b.db.conn(), "2026-11"), (0, 1_000_000));
+    assert_eq!(
+        accounts::balance(b.db.conn(), &b.card, None).unwrap(),
+        2_000_000
+    );
+}
+
+#[test]
 fn overlapping_statement_keeps_second_same_purchase() {
     let mut b = bank();
     let coffee = op("01.10.2026", "1140", "-350,00", "Рестораны", "KAFE");

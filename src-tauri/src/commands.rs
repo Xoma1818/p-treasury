@@ -695,6 +695,16 @@ pub fn set_budget_limit_kind(
     })
 }
 
+#[tauri::command(async)]
+pub fn cover_budget_overspend(
+    state: State<AppState>,
+    input: budgets::CoverRequest,
+) -> CmdResult<()> {
+    with_undo(&state, "Покрытие перерасхода", |c| {
+        budgets::cover_overspend(c, &input, &time::today_local())
+    })
+}
+
 /// Р11: скопировать лимиты на N месяцев вперёд.
 #[tauri::command(async)]
 pub fn copy_budget_forward(
@@ -1691,6 +1701,27 @@ pub fn missed_reminders(state: State<AppState>) -> CmdResult<Vec<Occurrence>> {
 pub fn create_reminder(state: State<AppState>, input: ReminderInput) -> CmdResult<String> {
     with_undo(&state, "Новое напоминание", |c| {
         reminders::create(c, &input)
+    })
+}
+
+#[tauri::command(async)]
+pub fn get_repeat_plan(
+    state: State<AppState>,
+    source_id: String,
+) -> CmdResult<Option<reminders::Reminder>> {
+    with_db(&state, |db| {
+        reminders::get_repeat_plan(db.conn(), &source_id, time::now_local())
+    })
+}
+
+#[tauri::command(async)]
+pub fn create_repeat_plan(
+    state: State<AppState>,
+    source_id: String,
+    input: ReminderInput,
+) -> CmdResult<String> {
+    with_undo(&state, "Планирование повтора", |c| {
+        reminders::create_repeat_plan(c, &source_id, &input, time::now_local().date())
     })
 }
 
