@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/qa-041-installed-update.yml'
       - '.github/qa/041-update/check-update.ps1'
+      - '.github/qa/041-update/prepare-tls.ps1'
       - '.github/qa/041-update/serve-feed.ps1'
       - '.github/qa/041-update/verify-update.mjs'
       - '.github/qa/041-update/windows-driver.ps1'
@@ -42,6 +43,8 @@ jobs:
         run: ./harness/.github/qa/041-update/check-update.ps1 -Source (Resolve-Path ./source).Path
   windows-scenarios:
     name: Девять сценариев в окне Windows 11
+    # A diagnostic retry of the updater on the same application commit can opt out explicitly.
+    if: ${{ !contains(github.event.head_commit.message, '[update-only]') }}
     runs-on: windows-11-arm
     timeout-minutes: 45
     steps:

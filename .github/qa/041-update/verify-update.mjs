@@ -108,7 +108,9 @@ function runningApp() {
 
 const usesProfile = (proc) => proc.arguments?.replaceAll('"', '').toLowerCase().includes(('--data-dir=' + data).toLowerCase());
 let ui, browser, oldPid;
+const phase = (label) => console.log(`[${new Date().toISOString()}] ${label}`);
 try {
+  phase('Opening installed 0.37.2 through WebDriver');
   ({ browser } = await start(data, { bin, homeDefaults: true }));
   ui = onWindow(browser);
   if (await ui.run(() => Boolean(document.querySelector('[data-testid="update-version"]')))) await ui.click('Позже', '[role="dialog"]');
@@ -119,6 +121,7 @@ try {
   assert.equal(info.schemaVersion, 28);
   assert.equal(resolve(info.dataDir).toLowerCase(), resolve(data).toLowerCase());
   assert.equal(info.portable, false);
+  phase('Old app responsive; setting up reference data');
   const original = runningApp();
   oldPid = original.processes.find(usesProfile)?.id;
   assert.ok(oldPid, 'old installed process in this exact data profile: ' + JSON.stringify(original));
@@ -134,6 +137,7 @@ try {
   if (await ui.run(() => Boolean(document.querySelector('[data-testid="update-version"]')))) await ui.click('Позже', '[role="dialog"]');
   await ui.click('Проверить обновления', '[data-testid="updates-card"]');
   await ui.text('[data-testid="update-version"]', 'Доступна версия 0.41.0 (у вас 0.37.2)');
+  phase('Update offered; snapshotting old data');
   const before = snapshot(databasePath);
   assert.equal(before.schema, 28);
   for (const name of ['accounts', 'transactions', 'categories', 'debts', 'notes', 'goals', 'reminders', 'payee_rules']) {
@@ -141,6 +145,7 @@ try {
   }
   console.log('Installed 0.37.2 offered candidate 0.41.0 via the local TLS feed.');
   await ui.click('Обновить', '[role="dialog"]');
+  phase('Clicked Update; waiting for automatic restart');
   const reboot = await until(() => {
     const app = runningApp();
     if (app.version !== '0.41.0') return null;
@@ -163,6 +168,7 @@ try {
   }
   // The updater ended the original WebDriver session. Independently exercise the installed UI
   // by opening the same installed binary and profile again after proving its automatic restart.
+  phase('Both backup copies and old rows verified; reopening installed 0.41.0');
   await stop(browser).catch(() => {});
   browser = undefined;
   ui = undefined;
@@ -191,6 +197,7 @@ try {
   assert.equal(savedRule.pattern, 'Проверка обновления');
   assert.equal(savedRule.payee, 'Тестовый магазин');
   assert.equal(savedRule.categoryId, categoryId);
+  phase('New installed window and saved rule/goal verified');
   const counts = Object.fromEntries(Object.entries(before.tables).filter(([, t]) => t.rows.length).map(([name, t]) => [name, t.rows.length]));
   console.log(JSON.stringify({ before: '0.37.2', after: '0.41.0', schema: '28 → 30', automaticRestartPid: reboot.id,
     reopenedInstalledWindow: { title: 'Kazna', version: newInfo.version, displayedSchema: 30, goalId, ruleId },

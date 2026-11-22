@@ -22,7 +22,9 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Folder 'latest.json') -Encoding utf8NoBOM
     [IO.File]::WriteAllText((Join-Path $Folder 'endpoint.txt'), "https://localhost:$port/latest.json")
-    while ($true) {
+    $stop = Join-Path $Folder 'stop'
+    while (!(Test-Path -LiteralPath $stop)) {
+        if (!$listener.Pending()) { Start-Sleep -Milliseconds 100; continue }
         $client = $listener.AcceptTcpClient()
         $client.ReceiveTimeout = 10000
         $client.SendTimeout = 15000
