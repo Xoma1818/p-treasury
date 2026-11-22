@@ -623,7 +623,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .hint-q:hover, .hint-q.open, .hint-q:focus-visible { opacity: 1; background: var(--accent); color: var(--on-accent); transform: scale(1.12); }
 .hint-q:focus-visible { outline: none; box-shadow: var(--ring); }
 .hint-tip {
-  position: fixed; z-index: 1000; max-width: 280px; padding: 10px 12px; border-radius: 10px;
+  position: fixed; z-index: 1000; width: max-content; max-width: min(280px, calc(100vw - 16px)); padding: 10px 12px; border-radius: 10px;
   background: var(--toast); color: #e6e9ef; border: 1px solid transparent; box-shadow: var(--shadow-lg);
   font-size: 13px; line-height: 1.45; text-align: left; font-weight: 400; white-space: normal;
   display: flex; flex-direction: column; gap: 4px;
