@@ -189,6 +189,7 @@ export interface Txn {
   splitId: string | null;
   /** Трата учитывается в месячных расчётах N месяцев (2–24). */
   spreadMonths: number | null;
+  countedShare?: { amount: number; budgetAmount: number; budgetCurrency: string; missingRate: boolean };
   /** Теги операции по алфавиту. */
   tags: string[];
   /** 0.29: возврат денег за покупку (приход, в бюджете — минус расход). */
@@ -249,6 +250,7 @@ export interface TxnFilter {
   quick?: QuickFilter[];
   /** Как в отчётах: возврат — минус расход на дату учёта. */
   counted?: boolean;
+  budgetMonth?: string;
   /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
   minAmount?: number;
   /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */

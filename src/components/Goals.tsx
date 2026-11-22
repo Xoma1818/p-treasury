@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Goal, type GoalFunding } from "../lib/api";
 import { formatDate, monthGenitive, today } from "../lib/dates";
-import { formatAmount, parseAmount } from "../lib/money";
+import { parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { Ring } from "./Dashboard";
@@ -79,10 +79,10 @@ export function GoalsCard() {
                 {g.shareBp != null && g.shareBp > 0 && <span className="muted small"> · {g.shareBp / 100} % свободных</span>}
               </div>
               <div className="goal-sum">
-                <Money amount={g.saved} symbol={g.currencySymbol} minorUnits={g.minorUnits} />
+                <Money amount={g.saved} symbol={g.currencySymbol} currencyCode={g.currencyCode} minorUnits={g.minorUnits} />
                 <span className="muted">
                   {" "}
-                  из {formatAmount(g.target, g.minorUnits)} {g.currencySymbol}
+                  из <Money amount={g.target} symbol={g.currencySymbol} currencyCode={g.currencyCode} minorUnits={g.minorUnits} />
                 </span>
               </div>
               <div className="sub" data-testid="goal-forecast">{forecast(g)}</div>
@@ -92,7 +92,7 @@ export function GoalsCard() {
                   {byMonth(g.deadline)}
                   {g.needPerMonth != null && !g.fundingMode && (
                     <>
-                      : нужно {formatAmount(g.needPerMonth, g.minorUnits)} {g.currencySymbol} в месяц
+                      : нужно <Money amount={g.needPerMonth} symbol={g.currencySymbol} currencyCode={g.currencyCode} minorUnits={g.minorUnits} /> в месяц
                     </>
                   )}
                 </div>
@@ -102,7 +102,7 @@ export function GoalsCard() {
                   {g.needThisPeriod === 0 ? "План на месяц выполнен" : (
                     <>
                       {g.fundingMode === "monthly" ? "В этом бюджетном месяце отложить ещё " : "До суммы цели пополнить на "}
-                      <Money amount={g.needThisPeriod} symbol={g.currencySymbol} minorUnits={g.minorUnits} />
+                      <Money amount={g.needThisPeriod} symbol={g.currencySymbol} currencyCode={g.currencyCode} minorUnits={g.minorUnits} />
                     </>
                   )}
                 </div>
@@ -114,14 +114,12 @@ export function GoalsCard() {
                     + Отложить
                   </button>
                 </div>
-              ) : g.accountName ? (
+              ) : g.accountId ? (
                 <div className="sub">Счёт «{g.accountName}»</div>
               ) : (
-                g.status !== "reached" && (
-                  <button className="link" data-testid="goal-deposit" onClick={() => setDepositing(g)}>
-                    + Пополнить
-                  </button>
-                )
+                <button type="button" className="link" data-testid="goal-deposit" onClick={() => setDepositing(g)}>
+                  {g.status === "reached" ? "Взять из цели" : "+ Пополнить"}
+                </button>
               )}
             </div>
           </div>
@@ -265,7 +263,7 @@ function GoalForm({ goal, onClose }: { goal: Goal | null; onClose: () => void })
 function DepositForm({ goal, onClose }: { goal: Goal; onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(today());
-  const [take, setTake] = useState(false);
+  const [take, setTake] = useState(!goal.accountId && goal.status === "reached");
   const save = useAction((v: number) => api.goalDeposit(goal.id, date, take ? -v : v), onClose, { singleSubmit: true });
   const submit = () => {
     const v = parseAmount(amount, goal.minorUnits);
@@ -276,10 +274,10 @@ function DepositForm({ goal, onClose }: { goal: Goal; onClose: () => void }) {
     <Modal title={`Цель «${goal.name}»`} onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <div className="tabs small">
-          <button type="button" className={take ? "tab" : "tab active"} onClick={() => setTake(false)}>
+          <button type="button" aria-pressed={!take} className={take ? "tab" : "tab active"} onClick={() => setTake(false)}>
             Отложить
           </button>
-          <button type="button" className={take ? "tab active" : "tab"} onClick={() => setTake(true)}>
+          <button type="button" aria-pressed={take} className={take ? "tab active" : "tab"} onClick={() => setTake(true)}>
             Взять из цели
           </button>
         </div>
@@ -288,8 +286,9 @@ function DepositForm({ goal, onClose }: { goal: Goal; onClose: () => void }) {
           <Field label="Дата">{(id) => <input id={id} name="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         </div>
         <p className="muted">
-          Осталось {formatAmount(goal.remaining, goal.minorUnits)} {goal.currencySymbol}
-          {goal.deadline && <> до {formatDate(goal.deadline)}</>}.
+          {take ? "Накоплено " : "Осталось "}
+          <Money amount={take ? goal.saved : goal.remaining} symbol={goal.currencySymbol} currencyCode={goal.currencyCode} minorUnits={goal.minorUnits} />
+          {!take && goal.deadline && <> до {formatDate(goal.deadline)}</>}.
         </p>
         <ErrorText error={save.error} />
         <div className="actions">

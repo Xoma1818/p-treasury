@@ -277,6 +277,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     return spread && Number.isInteger(n) ? n : null;
   })();
   const spreadPreview = type === "expense" && spreadMonths && spreadMonths >= 2 && spreadMonths <= 24 && amountValue && amountValue > 0 ? spreadParts(amountValue, spreadMonths) : null;
+  const spreadPeriod = useQuery({
+    queryKey: ["monthOf", date],
+    queryFn: () => api.monthOf(date),
+    enabled: !!spreadPreview && !!date,
+  });
   const startSplit = () => {
     const filled = amountValue && amountValue > 0;
     setParts([
@@ -600,8 +605,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   <Hint of="txn.spread" />
                   {spreadPreview && spreadMonths && (
                     <span className="hint" data-testid="spread-preview">
-                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
+                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц
+                      {date && spreadPeriod.data && `, ${monthTitle(spreadPeriod.data.month).toLowerCase()} – ${monthTitle(shiftMonth(spreadPeriod.data.month, spreadMonths - 1)).toLowerCase()}`}
                       {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
+                      {date && spreadPeriod.isError && " · Не удалось определить бюджетный период"}
                     </span>
                   )}
                 </div>

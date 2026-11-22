@@ -8,7 +8,7 @@ import { receiptTitle, rowIds, type TxnRow } from "../lib/receipt";
 import { COL_LABEL, COL_SORT, COMPACT_COLS, DEFAULT_TABLE, groupRows, type Col, type SortBy, type TxnTableLayout } from "../lib/txnTable";
 import { isRowSelected, type SelState } from "../lib/selection";
 import { useUi } from "../lib/store";
-import { Money } from "./Money";
+import { BaseMoney, Money } from "./Money";
 import { LookMark, useCategoryMap } from "./CategoryMark";
 import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
@@ -184,7 +184,11 @@ export function TxnTable({
             case "amount":
               return (
                 <td key={c} className="num">
-                  {r.kind === "receipt" ? <Money amount={-r.total} symbol={t.currencySymbol} minorUnits={t.minorUnits} signed /> : <Amount t={t} />}
+                  {r.kind === "txn" && t.countedShare && <div className="sub">Списано со счёта</div>}
+                  {r.kind === "receipt" ? <>
+                    <Money amount={-r.total} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} signed />
+                    {r.parts.some((p) => p.countedShare) && <div className="sub">Доли периода — внутри чека</div>}
+                  </> : <><Amount t={t} /><BudgetShare t={t} /></>}
                 </td>
               );
           }
@@ -208,7 +212,8 @@ export function TxnTable({
               </td>
             ) : c === "amount" ? (
               <td key={c} className="num">
-                <Money amount={-p.amount} symbol={p.currencySymbol} minorUnits={p.minorUnits} signed />
+                <Money amount={-p.amount} symbol={p.currencySymbol} currencyCode={p.currencyCode} minorUnits={p.minorUnits} signed />
+                <BudgetShare t={p} />
               </td>
             ) : (
               <td key={c} />
@@ -258,8 +263,9 @@ export function TxnTable({
                   <span className="muted group-count">{g.rows.length}</span>
                   {g.total && g.total.amount !== 0 && (
                     <span className="group-total" title={partial ? "Итог по загруженным операциям; «Показать ещё» загрузит остальные" : undefined}>
+                      {g.rows.some((r) => r.kind === "txn" ? r.txn.countedShare : r.parts.some((p) => p.countedShare)) && "По операциям целиком · "}
                       {partial && <span className="muted group-partial">по загруженным </span>}
-                      <Money amount={g.total.amount} symbol={g.total.symbol} minorUnits={g.total.minorUnits} signed />
+                      <Money amount={g.total.amount} symbol={g.total.symbol} currencyCode={g.total.currencyCode} minorUnits={g.total.minorUnits} signed />
                     </span>
                   )}
                 </td>
@@ -291,6 +297,16 @@ function describe(t: Txn): string {
   }
 }
 
+function BudgetShare({ t }: { t: Txn }) {
+  const share = t.countedShare;
+  if (!share) return null;
+  return <div className="sub" data-testid="txn-budget-share">
+    В бюджете за период · <BaseMoney amount={share.budgetAmount} currencyCode={share.budgetCurrency} />
+    {share.budgetCurrency !== t.currencyCode && <> (доля покупки · <Money amount={share.amount} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} />)</>}
+    {share.missingRate && <div className="warn">Доли без курса не вошли</div>}
+  </div>;
+}
+
 function Amount({ t }: { t: Txn }) {
   if (t.type === "transfer") {
     const same = t.toCurrencySymbol === t.currencySymbol;
@@ -307,5 +323,5 @@ function Amount({ t }: { t: Txn }) {
     );
   }
   const signed = t.type === "expense" ? -t.amount : t.amount;
-  return <Money amount={signed} symbol={t.currencySymbol} minorUnits={t.minorUnits} signed className={signed > 0 ? "plus" : ""} />;
+  return <Money amount={signed} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} signed className={signed > 0 ? "plus" : ""} />;
 }

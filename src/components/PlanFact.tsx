@@ -26,7 +26,7 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
     investFact: m.saved,
   });
   const sym = b.currencySymbol;
-  const money = (v: number, signed = false) => <Money amount={v} symbol={sym} minorUnits={minor} signed={signed} />;
+  const money = (v: number, signed = false) => <Money amount={v} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} signed={signed} />;
   return (
     <div className="card plan-fact" data-testid="plan-fact">
       <div className="notes-head">

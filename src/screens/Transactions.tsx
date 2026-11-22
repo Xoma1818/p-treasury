@@ -18,7 +18,7 @@ import { ErrorText } from "../components/Modal";
 import { parseView, SavedViews } from "../components/SavedViews";
 import { TxnTable } from "../components/TxnTable";
 import { api, QUICK_FILTERS, TXN_TYPES, type QuickFilter, type TxnFilter, type TxnType } from "../lib/api";
-import { formatDate, monthBounds, shiftMonth, today } from "../lib/dates";
+import { formatDate, monthBounds, monthTitle, shiftMonth, today } from "../lib/dates";
 import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { useUi } from "../lib/store";
@@ -118,7 +118,9 @@ export function Transactions() {
   );
   const set = (patch: Partial<TxnFilter>) => {
     setLimit(PAGE);
-    setF({ ...f, ...patch });
+    const next = { ...f, ...patch };
+    if (!next.counted || next.dateFrom !== f.dateFrom || next.dateTo !== f.dateTo) delete next.budgetMonth;
+    setF(next);
   };
 
   // После Ctrl+A выделены и операции на ещё не показанных страницах: их не чистим.
@@ -230,6 +232,7 @@ export function Transactions() {
   };
   // Включённые фильтры — плашками с крестиком, видны и при свёрнутой панели.
   const chips: { id: string; label: string; clear: () => void }[] = [];
+  if (f.budgetMonth) chips.push({ id: "chip-budget", label: `Бюджет · ${monthTitle(f.budgetMonth)}`, clear: () => set({ budgetMonth: undefined }) });
   if (f.accountId) chips.push({ id: "chip-account", label: accounts.find((a) => a.id === f.accountId)?.name ?? "Счёт", clear: () => set({ accountId: undefined }) });
   if (f.categoryId) chips.push({ id: "chip-category", label: categories.find((c) => c.id === f.categoryId)?.name ?? "Категория", clear: () => set({ categoryId: undefined }) });
   if (f.types?.length) {
@@ -426,7 +429,7 @@ export function Transactions() {
         {f.counted && f.types?.includes("expense") && (
           <p className="hint">
             Возвраты подобраны по дате учёта, распределённые расходы — по датам их частей.
-            В таблице показаны исходные даты и полные суммы операций.
+            {f.budgetMonth ? "У распределённой покупки видны полное списание и сумма, учтённая за период." : "В таблице показаны исходные даты и полные суммы операций."}
           </p>
         )}
         {page.error && <p className="error">{String(page.error)}</p>}
