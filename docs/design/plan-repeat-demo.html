@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Запланировать повтор · Kazna</title>
+  <style>
+    :root { color-scheme: dark; --bg:#14181c; --panel:#1e2429; --inset:#191e23; --line:#384149; --text:#f0f4f6; --muted:#b0bac2; --mint:#82dfc4; --wash:#233c35; --primary:#9ce6ce; --on-primary:#132e25; --warn:#ffb4ab; font:15px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif }
+    :root[data-theme="light"] { color-scheme:light; --bg:#f3f5f4; --panel:white; --inset:#f5f7f6; --line:#d2dad7; --text:#192720; --muted:#51635a; --mint:#136b51; --wash:#dff2e9; --primary:#14664f; --on-primary:#fff; --warn:#992e25 }
+    * { box-sizing:border-box } [hidden] { display:none!important } body { margin:0; background:var(--bg); color:var(--text) }
+    header { border-bottom:1px solid var(--line) } .bar, main { max-width:1232px; margin:auto; padding-inline:clamp(16px,4vw,54px) }
+    .bar { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:14px } .brand { font-weight:700; font-size:23px; letter-spacing:-.05em }
+    .meta,.sub,dt,.hint,small { color:var(--muted) } .meta,small { font-size:13px } .brand .meta { letter-spacing:0; font-weight:400; margin-left:12px }
+    main { padding-block:clamp(24px,4vw,56px); } .heading,.card-head,.line,.foot,.controls { display:flex; align-items:center; gap:12px; justify-content:space-between }
+    .heading { align-items:flex-end; flex-wrap:wrap; margin-bottom:22px } h1,h2,h3,p { margin:0 } h1 { font-size:clamp(30px,4vw,48px); letter-spacing:-.05em; line-height:1.1 }
+    h2 { font-size:21px; letter-spacing:-.025em } h3 { font-size:17px } .sub { margin-top:7px }
+    button,input,select { font:inherit } button { cursor:pointer; border:1px solid var(--line); color:var(--text); background:var(--inset); border-radius:9px; padding:8px 13px; transition:background-color .15s,border-color .15s,transform .12s }
+    button:hover { border-color:var(--mint) } button:active { transform:translateY(1px) } :focus-visible { outline:2px solid var(--mint); outline-offset:3px }
+    button.primary { background:var(--primary); border-color:var(--primary); color:var(--on-primary); font-weight:650 } button.quiet { border-color:transparent; background:transparent; color:var(--muted) } button.quiet:hover { color:var(--text); background:var(--inset) }
+    .switch { display:inline-flex; gap:2px; padding:3px; border:1px solid var(--line); border-radius:12px; background:var(--inset) } .switch button { border-color:transparent; background:transparent } .switch button[aria-pressed=true] { background:var(--wash); color:var(--mint) }
+    .summary { display:flex; flex-wrap:wrap; gap:16px 50px; padding:19px 24px; border:1px solid var(--line); background:var(--panel); border-radius:16px; margin-bottom:16px }
+    .summary>div { display:grid; gap:1px } .amount { font-size:clamp(26px,3vw,40px); letter-spacing:-.05em; font-variant-numeric:tabular-nums; line-height:1.15 } .summary .small-value { font-size:22px; line-height:1.5 }
+    .grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr); gap:16px; align-items:start }
+    .card { min-width:0; padding:clamp(16px,2.3vw,28px); border-radius:16px; border:1px solid var(--line); background:var(--panel) } .card-head { margin-bottom:20px; align-items:baseline }
+    ol { margin:0; padding:0; list-style:none }.row { padding:15px 0; border-top:1px solid var(--line) }.row .line { align-items:flex-start } .value { font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums } .income { color:var(--mint) }
+    .name { font-weight:650; overflow-wrap:anywhere } .detail { font-size:13px; color:var(--muted); margin-top:3px } .action-box { margin-top:10px; display:inline-block; position:relative } #actions { padding:4px 9px; font-size:13px }
+    .menu { display:grid; gap:4px; margin-top:5px; padding:5px; border:1px solid var(--line); border-radius:10px; background:var(--inset) } .menu button { text-align:left; border:0; background:transparent } .menu button:hover,.menu button:focus-visible { background:var(--wash) }
+    .calendar { padding:16px; border-radius:12px; background:var(--inset) } .calendar h3 { overflow-wrap:anywhere } .calendar p + p { margin-top:6px }
+    .foot { flex-wrap:wrap; justify-content:flex-start; margin-top:14px } .foot:empty { display:none } .hint { font-size:13px; margin-top:12px } .status { margin-top:14px; min-height:1.5em; color:var(--mint) }
+    dialog { width:min(450px,calc(100% - 24px)); max-height:calc(100dvh - 32px); overflow:auto; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:16px; padding:24px; box-shadow:0 24px 70px #0004 } dialog::backdrop { background:#08101499 } dialog[open] { animation:arrive .15s ease-out } @keyframes arrive { from{ opacity:0; transform:translateY(5px) } }
+    dialog h2 { margin-bottom:12px } label { display:grid; gap:5px; margin-top:12px } input,select { min-width:0; width:100%; border:1px solid var(--line); background:var(--inset); color:var(--text); border-radius:8px; padding:8px 10px }
+    input[type=radio] { width:auto; accent-color:var(--mint) } .radio { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--line); border-radius:10px } .fields { display:grid; grid-template-columns:1fr 1fr; align-items:start; gap:12px }
+    dl { display:grid; grid-template-columns:auto 1fr; gap:5px 16px; margin:15px 0; font-size:14px } dd { margin:0; text-align:right; overflow-wrap:anywhere } .error { color:var(--warn); margin-top:8px } .dialog-buttons { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-top:22px }
+    @media(max-width:730px) { .grid { grid-template-columns:1fr } .summary { gap:14px 28px } }
+    @media(max-width:430px) { .brand .meta { display:block; margin:0; font-size:12px } .bar { min-height:62px } .fields { grid-template-columns:1fr; gap:0 } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important } }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><span class="brand">Kazna <span class="meta">Демо · учебные данные</span></span><button class="quiet" id="theme">Светлая тема</button></div></header>
+  <main>
+    <div class="heading"><div><h1>Операции</h1><p class="sub">Выберите проведённый платёж, чтобы запланировать следующий.</p></div>
+      <div class="switch" role="group" aria-label="Учебный пример"><button id="rent" aria-pressed="true">Аренда</button><button id="salary" aria-pressed="false">Зарплата</button></div>
+    </div>
+    <div class="summary"><div><small id="account"></small><strong class="amount" id="balance"></strong></div><div><small>Операций по счёту</small><strong class="small-value" id="txn-count"></strong></div><div><small>Дата примера</small><span class="small-value" id="today"></span></div></div>
+    <div class="grid">
+      <section class="card"><div class="card-head"><h2>Журнал</h2><small>Проведено</small></div><ol id="journal"></ol></section>
+      <section class="card"><div class="card-head"><h2>Календарь</h2></div><div class="calendar" id="calendar"></div><div class="foot" id="calendar-actions"></div><p class="hint" id="calendar-hint"></p><div id="past" hidden><h3 class="foot">Учтённые платежи</h3><ol id="past-rows"></ol></div></section>
+    </div>
+    <p role="status" class="status" id="notice"></p><button class="quiet" id="reset">Начать этот пример заново</button>
+  </main>
+  <dialog id="dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><form id="form"><div id="dialog-body"></div><p id="error" class="error" role="alert"></p><div class="dialog-buttons"><button type="button" id="cancel">Отмена</button><button type="submit" id="confirm" class="primary"></button></div></form></dialog>
+  <script>
+    "use strict";
+    const cases = {
+      rent: { account:"Основной счёт", payee:"Арендодатель", category:"Жильё", label:"Аренда квартиры", type:"Расход", cents:-1000000, opening:4000000, date:"2027-03-31" },
+      salary: { account:"Зарплатный счёт", payee:"Работодатель", category:"Зарплата", label:"Зарплата за апрель", type:"Доход", cents:6500000, opening:1200000, date:"2027-04-25" }
+    };
+    const initialDay = "2027-04-30";
+    const lastDay = "2028-12-31";
+    const formatter = new Intl.NumberFormat("ru-RU", { style:"currency", currency:"RUB", maximumFractionDigits:0, minimumFractionDigits:0 });
+    const dateFormat = new Intl.DateTimeFormat("ru-RU", { day:"numeric", month:"long", year:"numeric", timeZone:"UTC" });
+    const $ = id => document.getElementById(id);
+    const dateText = iso => dateFormat.format(new Date(iso+"T12:00:00Z"));
+    const money = cents => formatter.format(cents/100);
+    const signed = cents => (cents>0?"+":"−")+money(Math.abs(cents));
+    const escape = value => String(value).replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[char]);
+    const iso = date => date.toISOString().slice(0,10);
+    const dayOf = date => Number(date.slice(8,10));
+    function advance(date, cadence, anchorDay=dayOf(date)) {
+      const next = new Date(date+"T12:00:00Z");
+      if (cadence==="weekly") next.setUTCDate(next.getUTCDate()+7);
+      else {
+        next.setUTCDate(1);
+        next.setUTCMonth(next.getUTCMonth()+1);
+        const end = new Date(next);
+        end.setUTCMonth(end.getUTCMonth()+1,0);
+        next.setUTCDate(Math.min(anchorDay,end.getUTCDate()));
+      }
+      return iso(next);
+    }
+    const fresh = key => ({ day:initialDay, plan:null, rows:[{ id:"original", date:cases[key].date, cents:cases[key].cents, name:cases[key].label }], serial:0 });
+    const budgets = { rent:fresh("rent"), salary:fresh("salary") };
+    let active="rent", action="", focusAfter="actions";
+    const model = () => budgets[active], source = () => cases[active];
+    function proposedDate(cadence) {
+      const record=source();
+      let date=record.date;
+      while(date<=model().day && date<lastDay) date=advance(date,cadence,dayOf(record.date));
+      return date<=lastDay && date>model().day ? date : "";
+    }
+    function eligible() {
+      const s=model();
+      return s.rows.find(row=>row.id==="bank-"+s.plan.date && !row.linked);
+    }
+    const button = (id,label,style="") => '<button type="button" id="'+id+'" class="'+style+'">'+label+'</button>';
+    function paint() {
+      const s=model(), rec=source(), p=s.plan;
+      for(const key of Object.keys(cases)) $(key).setAttribute("aria-pressed",String(active===key));
+      $("account").textContent=rec.account+" · остаток";
+      $("balance").textContent=money(s.rows.reduce((amount,row)=>amount+row.cents,rec.opening));
+      $("txn-count").textContent=String(s.rows.length);
+      $("today").textContent=dateText(s.day);
+      const ordered=[...s.rows].reverse().sort((a,b)=>b.date.localeCompare(a.date));
+      $("journal").innerHTML=ordered.map(row=>'<li class="row" data-row="'+escape(row.id)+'"><div class="line"><div><div class="name">'+escape(row.name)+'</div><div class="detail">'+dateText(row.date)+' · '+escape(rec.category)+'</div></div><span class="value '+(row.cents>0?"income":"")+'">'+signed(row.cents)+'</span></div>'+
+        (row.id==="original"?'<div class="action-box"><button type="button" id="actions" aria-expanded="false" aria-controls="actions-list">Действия ▾</button><div class="menu" hidden id="actions-list">'+button("repeat-today","Повторить сегодня…")+button("plan-action",p?"Открыть запланированный повтор":"Запланировать повтор…")+'</div></div>':
+          '<div class="detail">'+(row.linked?"Учтено в календаре":row.id.startsWith("bank-")?"Из учебной выписки":"Записано вручную")+'</div>')+'</li>').join("");
+      const card=$("calendar"), foot=$("calendar-actions"), hint=$("calendar-hint");
+      const past=ordered.filter(row=>row.linked && (!p?.linked || row.id!=="bank-"+p.date));
+      $("past").hidden=past.length===0;
+      $("past-rows").innerHTML=past.map(row=>'<li class="row"><div class="line"><span class="name">'+escape(row.name)+'</span><span class="value">'+signed(row.cents)+'</span></div><small>'+dateText(row.date)+' · Учтено по выписке</small></li>').join("");
+      if(!p) {
+        card.innerHTML=s.day>=lastDay ? "<h3>Учебный период завершён</h3><p class='detail'>Начните этот пример заново, чтобы выбрать будущую дату.</p>" : "<h3>Нет запланированных повторов</h3><p class='detail'>Откройте «Действия» у исходной операции.</p>";
+        foot.innerHTML=""; hint.textContent=""; return;
+      }
+      const completed=Boolean(p.linked);
+      const label=p.cadence==="monthly"?"Каждый месяц":"Каждую неделю";
+      card.innerHTML='<h3>'+escape(p.name)+'</h3><p>'+dateText(p.date)+' · '+signed(rec.cents)+'</p><p class="detail">'+label+' · '+(completed?"Учтено по выписке":"Запланировано")+'</p>';
+      if(completed) {
+        const next=advance(p.date,p.cadence,p.anchor);
+        hint.textContent=next<=lastDay ? "Следующий повтор — "+dateText(next)+". В примере можно пройти один срок серии." : "Следующий срок за пределами учебного периода. Чтобы попробовать ещё раз, начните пример заново.";
+        foot.innerHTML=button("stop","Остановить будущие повторы","quiet");
+      } else {
+        const found=eligible();
+        hint.textContent=found?"Запись уже в журнале. Выберите её, чтобы учесть платёж в календаре.":"Учебная выписка перенесёт дату примера на день платежа и добавит одну запись.";
+        foot.innerHTML=(found?button("match","Учесть платёж","primary"):button("import","Загрузить учебную выписку","primary"))+button("stop","Отменить повтор","quiet");
+      }
+    }
+    function announce(text) { $("notice").textContent=text; }
+    function closeDialog(target=focusAfter) {
+      $("dialog").close();
+      ($(target)||$("actions")).focus();
+    }
+    function show(kind) {
+      const s=model(), rec=source(), p=s.plan;
+      action=kind;
+      focusAfter=kind==="match"?"match":kind==="stop"?"stop":kind==="reset"?"reset":"actions";
+      const confirm=$("form").querySelector('button[type="submit"]');
+      confirm.id=kind==="plan"?"plan-save":kind==="match"?"match-save":"confirm";
+      const title=$("dialog-title"), body=$("dialog-body");
+      $("error").textContent=""; $("cancel").textContent="Отмена";
+      if(kind==="plan") {
+        if(s.day>=lastDay) { announce("Учебный период завершён. Чтобы продолжить, начните этот пример заново."); $("reset").focus(); return; }
+        title.textContent="Запланировать повтор";
+        body.innerHTML='<label>Название напоминания<input id="plan-name" required maxlength="90" value="'+escape(rec.payee)+'"></label><dl><dt>Тип</dt><dd>'+rec.type+'</dd><dt>Счёт</dt><dd>'+rec.account+'</dd><dt>Сумма</dt><dd>'+money(Math.abs(rec.cents))+'</dd><dt>Категория</dt><dd>'+rec.category+'</dd></dl><div class="fields"><label>Следующая дата<input id="payment-date" type="date" required></label><label>Периодичность<select id="cadence"><option value="monthly">Каждый месяц</option><option value="weekly">Каждую неделю</option></select></label></div><p class="hint">Сейчас изменится только календарь.</p>';
+        const input=$("payment-date"), tomorrow=new Date(s.day+"T12:00:00Z"); tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+        input.min=iso(tomorrow); input.max=lastDay; input.value=proposedDate("monthly");
+        const dateHint=document.createElement("small");
+        dateHint.id="date-limit"; dateHint.textContent="В этом примере до 31.12.2028"; input.after(dateHint); input.setAttribute("aria-describedby",dateHint.id);
+        let customDate=false;
+        input.addEventListener("input",()=>{customDate=true;input.setCustomValidity("")});
+        $("cadence").addEventListener("change",()=>{if(!customDate) input.value=proposedDate($("cadence").value)});
+        confirm.textContent="Запланировать";
+      } else if(kind==="today") {
+        title.textContent="Повторить сегодня";
+        body.textContent=rec.type+" "+money(Math.abs(rec.cents))+" за "+dateText(s.day)+". В журнале появится новая операция, остаток изменится.";
+        confirm.textContent="Записать операцию";
+      } else if(kind==="match") {
+        if(!p || p.linked || !eligible()) return;
+        title.textContent="Учесть платёж"; body.innerHTML='<p>Выберите проведённую операцию из выписки.</p><label class="radio"><input type="radio" required name="candidate" value="'+escape(eligible().id)+'"><span>'+escape(rec.payee)+' · '+signed(rec.cents)+'<br><small>'+dateText(p.date)+' · '+escape(rec.account)+'</small></span></label><p class="hint">Остаток и число операций сохранятся.</p>';
+        confirm.textContent="Связать с напоминанием";
+      } else if(kind==="stop") {
+        title.textContent=p.linked?"Остановить будущие повторы?":"Отменить запланированный повтор?";
+        body.textContent="Проведённые операции и остаток по счёту сохранятся.";
+        confirm.textContent=p.linked?"Остановить повторы":"Отменить повтор"; $("cancel").textContent="Оставить";
+      } else if(kind==="reset") {
+        title.textContent="Начать пример заново?";
+        body.textContent="Вернём исходную операцию и остаток для примера «"+(active==="rent"?"Аренда":"Зарплата")+"».";
+        confirm.textContent="Начать заново";
+      }
+      $("dialog").showModal();
+    }
+    $("form").addEventListener("submit",event=>{
+      event.preventDefault();
+      const s=model(), rec=source();
+      let target="actions";
+      if(action==="plan") {
+        if(s.plan) return;
+        const date=$("payment-date").value, name=$("plan-name").value.trim(), cadence=$("cadence").value;
+        if(!name) { $("error").textContent="Введите название напоминания."; return; }
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || date<=s.day || date>lastDay) { $("error").textContent="Выберите будущую дату учебного периода до 31.12.2028 включительно."; return; }
+        s.plan={name,date,cadence,anchor:date===proposedDate(cadence)?dayOf(rec.date):dayOf(date),linked:false};
+        announce("Повтор запланирован. Остаток и число операций прежние."); target="import";
+      } else if(action==="today") {
+        s.rows.push({id:"manual-"+(++s.serial),date:s.day,cents:rec.cents,name:rec.label});
+        announce("Операция записана в журнал.");
+      } else if(action==="match") {
+        const candidate=$("form").querySelector('input[name="candidate"]:checked'), row=s.plan && eligible();
+        if(!row || candidate?.value!==row.id || s.plan.linked) return;
+        row.linked=true; s.plan.linked=true; announce("Платёж учтён. Новых операций: 0."); target="stop";
+      } else if(action==="stop") {
+        s.plan=null; announce("Будущие повторы отменены. Проведённые операции сохранены.");
+      } else if(action==="reset") {
+        budgets[active]=fresh(active); announce("Исходные данные примера восстановлены."); target=active;
+      }
+      paint(); closeDialog(target);
+    });
+    function hideMenu(focus=false) {
+      if($("actions-list").hidden) return;
+      $("actions-list").hidden=true; $("actions").setAttribute("aria-expanded","false");
+      if(focus) $("actions").focus();
+    }
+    document.addEventListener("click",event=>{
+      const id=event.target.closest("button")?.id;
+      if(!event.target.closest(".action-box")) hideMenu();
+      if(id==="actions") {
+        const list=$("actions-list"); list.hidden=!list.hidden; $("actions").setAttribute("aria-expanded",String(!list.hidden));
+        if(!list.hidden) $("repeat-today").focus();
+      } else if(id==="plan-action") {
+        hideMenu();
+        if(model().plan) { $("calendar").tabIndex=-1; $("calendar").focus(); announce("Повтор уже в календаре."); }
+        else show("plan");
+      } else if(id==="repeat-today") { hideMenu(); show("today"); }
+      else if(id==="match" || id==="stop" || id==="reset") show(id);
+      else if(id==="import") {
+        const s=model(), rec=source(), p=s.plan;
+        if(!p || p.linked || eligible()) return;
+        s.rows.push({id:"bank-"+p.date,date:p.date,cents:rec.cents,name:rec.payee}); s.day=p.date;
+        paint(); announce("В выписке одна операция. Запись добавлена в журнал."); $("match").focus();
+      } else if(id==="salary" || id==="rent") { active=id; paint(); announce(""); }
+      else if(id==="cancel") closeDialog();
+      else if(id==="theme") {
+        const theme=document.documentElement.dataset.theme==="dark"?"light":"dark";
+        document.documentElement.dataset.theme=theme; $("theme").textContent=theme==="dark"?"Светлая тема":"Тёмная тема";
+      }
+    });
+    $("dialog").addEventListener("cancel",event=>{event.preventDefault();closeDialog()});
+    document.addEventListener("keydown",event=>{ if(event.key==="Escape" && !$("dialog").open) hideMenu(true); });
+    paint();
+  </script>
+</body>
+</html>
