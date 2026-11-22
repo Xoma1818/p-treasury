@@ -41,7 +41,7 @@ function journalPeriod(from?: string, to?: string) {
 export function Transactions() {
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories(true).data ?? [];
-  const { txnFilter, viewJump, openTxnForm } = useUi();
+  const { txnFilter, viewJump, openTxnForm, reportOrigin, returnToReport } = useUi();
   const reviewOpen = useUi((s) => s.operationReview);
   const [from, to] = monthBounds(today());
   const [f, setF] = useState<TxnFilter>({ dateFrom: from, dateTo: to });
@@ -290,6 +290,7 @@ export function Transactions() {
 
   return (
     <section className="screen wide txn-screen">
+      {reportOrigin && <button type="button" className="link" autoFocus data-testid="back-to-report" onClick={returnToReport}>Вернуться к отчёту</button>}
       <div className="screen-head txn-screen-head">
         <ScreenTitle id="transactions" />
         <div className="txn-actions">
@@ -428,14 +429,14 @@ export function Transactions() {
         </header>
         {f.counted && f.types?.includes("expense") && (
           <p className="hint">
-            Возвраты подобраны по дате учёта, распределённые расходы — по датам их частей.
-            {f.budgetMonth ? "У распределённой покупки видны полное списание и сумма, учтённая за период." : "В таблице показаны исходные даты и полные суммы операций."}
+            Возвраты подобраны по дате учёта, распределённые расходы — по датам их частей.{" "}
+            {f.budgetMonth || f.dateFrom || f.dateTo ? "У распределённой покупки видны полное списание и сумма, учтённая за период." : "В таблице показаны исходные даты и полные суммы операций."}
           </p>
         )}
         {page.error && <p className="error">{String(page.error)}</p>}
         {page.data && (
           <>
-            {page.data.items.length > 0 && <TxnTable items={page.data.items} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />}
+            {page.data.items.length > 0 && <TxnTable items={page.data.items} isBudgetPeriod={Boolean(f.budgetMonth)} selection={{ sel, onToggle }} layout={table} onSort={(by) => saveTable(clickSort(table, by))} partial={page.data.items.length < page.data.total} />}
             {emptyPage && !checkingEmpty && (
               <div className="txn-empty" data-testid="txn-empty">
                 <strong>{emptyJournal ? "В журнале пока нет операций" : "По этим условиям операций нет"}</strong>

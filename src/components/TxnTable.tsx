@@ -33,6 +33,7 @@ export function TxnTable({
   layout,
   onSort,
   partial,
+  isBudgetPeriod = false,
 }: {
   items: Txn[];
   compact?: boolean;
@@ -44,6 +45,7 @@ export function TxnTable({
   onSort?: (by: SortBy) => void;
   /** Загружены не все операции по фильтру: итоги групп — только по показанным. */
   partial?: boolean;
+  isBudgetPeriod?: boolean;
 }) {
   const open = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
@@ -188,7 +190,7 @@ export function TxnTable({
                   {r.kind === "receipt" ? <>
                     <Money amount={-r.total} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} signed />
                     {r.parts.some((p) => p.countedShare) && <div className="sub">Доли периода — внутри чека</div>}
-                  </> : <><Amount t={t} /><BudgetShare t={t} /></>}
+                  </> : <><Amount t={t} /><PeriodShare t={t} isBudget={isBudgetPeriod} /></>}
                 </td>
               );
           }
@@ -213,7 +215,7 @@ export function TxnTable({
             ) : c === "amount" ? (
               <td key={c} className="num">
                 <Money amount={-p.amount} symbol={p.currencySymbol} currencyCode={p.currencyCode} minorUnits={p.minorUnits} signed />
-                <BudgetShare t={p} />
+                <PeriodShare t={p} isBudget={isBudgetPeriod} />
               </td>
             ) : (
               <td key={c} />
@@ -297,11 +299,11 @@ function describe(t: Txn): string {
   }
 }
 
-function BudgetShare({ t }: { t: Txn }) {
+function PeriodShare({ t, isBudget }: { t: Txn; isBudget: boolean }) {
   const share = t.countedShare;
   if (!share) return null;
-  return <div className="sub" data-testid="txn-budget-share">
-    В бюджете за период · <BaseMoney amount={share.budgetAmount} currencyCode={share.budgetCurrency} />
+  return <div className="sub" data-testid={isBudget ? "txn-budget-share" : "txn-period-share"}>
+    {isBudget ? "В бюджете за период" : "Учтено за период"} · <BaseMoney amount={share.budgetAmount} currencyCode={share.budgetCurrency} />
     {share.budgetCurrency !== t.currencyCode && <> (доля покупки · <Money amount={share.amount} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} />)</>}
     {share.missingRate && <div className="warn">Доли без курса не вошли</div>}
   </div>;

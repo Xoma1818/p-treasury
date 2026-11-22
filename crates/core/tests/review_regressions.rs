@@ -91,6 +91,8 @@ fn counted_expenses_find_spread_parts_and_return_the_original_once() {
     assert_eq!(spread.id, "spread");
     assert_eq!(spread.date, "2026-01-27");
     assert_eq!(spread.amount, 120000);
+    assert_eq!(spread.counted_share.as_ref().unwrap().amount, 60000);
+    assert!(counted.items[0].counted_share.is_none());
 
     filter.date_from = Some("2026-01-25".into());
     filter.limit = Some(1);
@@ -99,6 +101,8 @@ fn counted_expenses_find_spread_parts_and_return_the_original_once() {
     assert_eq!(second_page.total, 2);
     assert_eq!(second_page.items.len(), 1);
     assert_eq!(second_page.items[0].id, "spread");
+    let combined = second_page.items[0].counted_share.as_ref().unwrap();
+    assert_eq!((combined.amount, combined.budget_amount), (120000, 120000));
 
     filter.date_from = Some("2026-02-01".into());
     filter.date_to = Some("2026-02-24".into());
@@ -168,7 +172,13 @@ fn budget_fact_drilldown_matches_its_currency_and_account_scope() {
 
     // Та же категория в отчёте охватывает все счета и события.
     filter.budget_month = None;
-    assert_eq!(transactions::list(c, &filter).unwrap().total, 3);
+    let report = transactions::list(c, &filter).unwrap();
+    assert_eq!(report.total, 3);
+    let purchase = report.items.iter().find(|t| t.id == "purchase").unwrap();
+    let share = purchase.counted_share.as_ref().unwrap();
+    assert_eq!(share.budget_currency, "RUB");
+    assert_eq!(share.budget_amount, 33334);
+    assert!(!share.missing_rate);
     assert_eq!(transactions::sum_filter(c, &filter).unwrap().expense, 68334);
 }
 

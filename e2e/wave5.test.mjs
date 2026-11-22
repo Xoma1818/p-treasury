@@ -197,7 +197,8 @@ test("из достигнутой ручной цели можно взять д
   await save(browser);
   await waitText(browser, manual, /Цель достигнута/);
   await click(browser, "Взять из цели", '//*[@data-testid="goal"][@data-name="Ручная копилка"]');
-  await waitText(browser, '[role="dialog"] [aria-pressed="true"]', /Взять из цели/);
+  const withdrawTab = browser.$('//*[@role="dialog"]//button[normalize-space()="Взять из цели" and @aria-pressed="true"]');
+  await withdrawTab.waitForDisplayed({ timeout: 5000 });
   await fill(browser, "amount", "12000");
   await click(browser, "Сохранить", '//*[@role="dialog"]');
   await waitText(browser, '[role="dialog"] [role="alert"]', /недостаточно накоплений/i);

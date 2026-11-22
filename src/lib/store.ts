@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { QuickFilter, ReminderPaymentCreation, SavedView, Txn, TxnType } from "./api";
+import type { CategoryKind, QuickFilter, ReminderPaymentCreation, ReportFilter, ReportPeriodKind, SavedView, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 import { rememberSection, startSection } from "./fine";
 
@@ -48,6 +48,19 @@ export interface TxnJump {
   budgetMonth?: string;
 }
 
+export interface ReportContext {
+  tab: "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
+  kind: ReportPeriodKind | "custom";
+  anchor: string | null;
+  custom: { start: string; end: string } | null;
+  filter: ReportFilter;
+  categoryKind: CategoryKind;
+  expanded: string[];
+  tagId: string;
+  balancesDate: string | null;
+  source?: string;
+}
+
 interface UiState {
   section: SectionId;
   /** Растёт при каждом переходе из меню: повторное нажатие пункта открывает раздел с начала. */
@@ -55,7 +68,9 @@ interface UiState {
   go: (section: SectionId) => void;
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
   txnFilter: TxnJump | null;
-  showTransactions: (f: TxnJump) => void;
+  showTransactions: (f: TxnJump, reportOrigin?: ReportContext) => void;
+  reportOrigin: ReportContext | null;
+  returnToReport: () => void;
   operationReview: boolean;
   openOperationReview: () => void;
   reconciliationAccount: string | null;
@@ -94,11 +109,13 @@ export interface SettingsJump {
 export const useUi = create<UiState>((set) => ({
   section: startSection(),
   visit: 0,
-  go: (section) => set((s) => ({ section, visit: s.visit + 1, operationReview: false, reconciliationAccount: null })),
+  go: (section) => set((s) => ({ section, visit: s.visit + 1, operationReview: false, reconciliationAccount: null, reportOrigin: null })),
   txnFilter: null,
-  showTransactions: (txnFilter) => set({ txnFilter, section: "transactions", operationReview: false }),
+  showTransactions: (txnFilter, reportOrigin) => set({ txnFilter, section: "transactions", operationReview: false, reportOrigin: reportOrigin ?? null }),
+  reportOrigin: null,
+  returnToReport: () => set((s) => s.reportOrigin && s.section === "transactions" ? { section: "reports" } : {}),
   operationReview: false,
-  openOperationReview: () => set({ operationReview: true, txnFilter: null, section: "transactions" }),
+  openOperationReview: () => set({ operationReview: true, txnFilter: null, section: "transactions", reportOrigin: null }),
   reconciliationAccount: null,
   openReconciliation: (reconciliationAccount) => set({ section: "accounts", reconciliationAccount }),
   planFocus: null,
@@ -108,9 +125,9 @@ export const useUi = create<UiState>((set) => ({
   debtJump: null,
   openDebt: (id, pay = false) => set((s) => ({ debtJump: { id, pay }, section: "debts", visit: s.visit + 1 })),
   viewJump: null,
-  openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1, operationReview: false })),
+  openView: (v) => set((s) => ({ viewJump: v, section: v.kind === "report" ? "reports" : "transactions", visit: s.visit + 1, operationReview: false, reportOrigin: null })),
   reportTab: null,
-  openReport: (reportTab) => set((s) => ({ reportTab, section: "reports", visit: s.visit + 1 })),
+  openReport: (reportTab) => set((s) => ({ reportTab, section: "reports", visit: s.visit + 1, reportOrigin: null })),
   palette: false,
   setPalette: (palette) => set({ palette }),
   help: false,

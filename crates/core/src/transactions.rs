@@ -665,18 +665,20 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
 /// Список операций по фильтру, новые сверху.
 pub fn list(conn: &Connection, f: &Filter) -> Result<Page> {
     let mut page = list_page(conn, f)?;
-    if let Some(month) = f.budget_month.as_deref().filter(|_| f.counted) {
-        attach_budget_shares(conn, &mut page.items, f, month)?;
+    if f.counted && (f.budget_month.is_some() || f.date_from.is_some() || f.date_to.is_some()) {
+        attach_period_shares(conn, &mut page.items, f)?;
     }
     Ok(page)
 }
 
-fn attach_budget_shares(
-    conn: &Connection,
-    items: &mut [Txn],
-    f: &Filter,
-    month: &str,
-) -> Result<()> {
+fn period_currency(conn: &Connection, f: &Filter) -> Result<String> {
+    match f.budget_month.as_deref().filter(|_| f.counted) {
+        Some(month) => crate::budgets::fact_currency(conn, month),
+        None => currencies::base_currency(conn),
+    }
+}
+
+fn attach_period_shares(conn: &Connection, items: &mut [Txn], f: &Filter) -> Result<()> {
     let positions: std::collections::HashMap<String, usize> = items
         .iter()
         .enumerate()
@@ -686,7 +688,7 @@ fn attach_budget_shares(
     if positions.is_empty() {
         return Ok(());
     }
-    let target = crate::budgets::fact_currency(conn, month)?;
+    let target = period_currency(conn, f)?;
     let ids = serde_json::json!(positions.keys().collect::<Vec<_>>()).to_string();
     let mut stmt = conn.prepare(
         "SELECT id, date, amount FROM txn_by_month
@@ -956,10 +958,7 @@ pub fn sum_ids(conn: &Connection, ids: &[String]) -> Result<Sums> {
 /// Сумма всех операций, найденных фильтром (без учёта страниц).
 pub fn sum_filter(conn: &Connection, f: &Filter) -> Result<Sums> {
     let mut out = Sums {
-        base_currency: match f.budget_month.as_deref().filter(|_| f.counted) {
-            Some(month) => crate::budgets::fact_currency(conn, month)?,
-            None => currencies::base_currency(conn)?,
-        },
+        base_currency: period_currency(conn, f)?,
         ..Default::default()
     };
     let (where_sql, mut args) = where_clause(conn, f)?;
