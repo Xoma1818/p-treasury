@@ -157,6 +157,20 @@ test("окно платежа: раньше даты — «в счёт плат�
 
   await click(browser, "Досрочный платёж");
   assert.equal(await (await browser.$('[role="dialog"] [name="asEarly"]')).isSelected(), true);
+  await fill(browser, "earlyAmount", "1000");
+  const debtPart = '[role="dialog"] [name="principal"]';
+  await browser.waitUntil(async () => (await browser.$(debtPart).getValue()) === "1000");
+  // Отправляем форму до пересчёта. Предыдущая разбивка не должна стать платежом.
+  const changeAndSubmit = (value) => browser.executeAsync((amount, done) => {
+    const input = document.querySelector('[role="dialog"] [name="earlyAmount"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, amount);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    setTimeout(() => { input.form.requestSubmit(); done(); }, 0);
+  }, value);
+  await changeAndSubmit("100");
+  await browser.waitUntil(async () => (await browser.$(debtPart).getValue()) === "100");
+  await changeAndSubmit("");
+  await browser.waitUntil(async () => (await browser.$('[name="earlyAmount"]').getValue()) === "");
   await fill(browser, "earlyAmount", "50000");
   await choose(browser, "recalcMode", "Уменьшить срок, платёж прежний");
   await waitText(browser, '[data-testid="pay-quote"]', /новый платёж .+ \/ срок до \d\d\.\d\d\.\d{4} \/ экономия/);
