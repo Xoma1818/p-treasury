@@ -48,6 +48,13 @@ jobs:
       - name: Закрыть платёж, сменить тему и вновь открыть
         run: node qa-window/theme-hint-acceptance.mjs theme
 
+      - name: Диагностика только тестового окна
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Process -Name 'Kazna','msedgewebview2','WerFault' -ErrorAction SilentlyContinue | Select-Object ProcessName,Responding,MainWindowTitle
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000; StartTime=(Get-Date).AddMinutes(-12)} -ErrorAction SilentlyContinue | Select-Object -First 3 -ExpandProperty Message
+          exit 0
       - name: Сохранить снимки и журнал
         if: always()
         uses: actions/upload-artifact@v5

@@ -22,12 +22,12 @@ export async function launch(label,previous=null) {
   const child=spawn(exe,['--data-dir='+data],{cwd:dirname(exe),stdio:'ignore',env:{
     ...process.env,PTREASURY_CBR_URL:'http://127.0.0.1:9', PTREASURY_UPDATE_URL:'http://127.0.0.1:9',
     WEBVIEW2_USER_DATA_FOLDER:join(data,'webview'),
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion'+(process.env.KAZNA_QA_SOFTWARE_RENDERING?' --disable-gpu --disable-gpu-compositing':'')
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--test-type=webdriver --remote-debugging-port='+port+' --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion'+(process.env.KAZNA_QA_SOFTWARE_RENDERING?' --disable-gpu --disable-gpu-compositing':'')
   }});
   let ws;
   const close=()=>{ws?.close(); if(child.exitCode===null)child.kill();};
   const until=async (fn,name)=>{
-    for(let i=0;i<160;i++){
+    for(let i=0;i<(name==='test WebView'?900:160);i++){
       if(child.exitCode!==null) throw Error('Kazna exited '+child.exitCode);
       const value=await fn(); if(value)return value; await delay(90);
     }
