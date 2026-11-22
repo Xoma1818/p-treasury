@@ -1,9 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { start, stop, openSection, choose, money, waitText } from "./app.mjs";
 
 test("Главная и расшифровка баланса совпадают для основной валюты без копеек", async (t) => {
-  const { browser } = await start(undefined, { homeDefaults: true });
+  // Настройка «Кодом» хранится также в профиле окна, отдельно от учебной базы.
+  const dir = mkdtempSync(join(tmpdir(), "kazna-e2e-yen-"));
+  const { browser } = await start(dir, {
+    homeDefaults: true,
+    env: { XDG_DATA_HOME: join(dir, "xdg-data"), WEBVIEW2_USER_DATA_FOLDER: join(dir, "webview") },
+  });
   t.after(() => stop(browser));
   await browser.$('[name="baseCurrency"]').waitForDisplayed({ timeout: 15000 });
   // Такой набор возможен после восстановления старых данных, где JPY уже использовалась.
