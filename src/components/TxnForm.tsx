@@ -220,7 +220,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       return;
     }
     await api.createTransactionFull(input, extra, event, reminder);
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)), onClose);
 
   // Шаблоны: подставить сохранённую операцию или сохранить текущую.
@@ -277,6 +277,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     return spread && Number.isInteger(n) ? n : null;
   })();
   const spreadPreview = type === "expense" && spreadMonths && spreadMonths >= 2 && spreadMonths <= 24 && amountValue && amountValue > 0 ? spreadParts(amountValue, spreadMonths) : null;
+  const spreadPeriod = useQuery({
+    queryKey: ["monthOf", date],
+    queryFn: () => api.monthOf(date),
+    enabled: !!spreadPreview && !!date,
+  });
   const startSplit = () => {
     const filled = amountValue && amountValue > 0;
     setParts([
@@ -292,9 +297,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     if (v > 0) setParts(parts.map((x, j) => (j === i ? { ...x, amount: amountToInput(v, minor) } : x)));
   };
 
-  const submitting = useRef(false);
   const submit = () => {
-    if (submitting.current || save.busy) return;
+    if (save.busy) return;
     if (splitId && !receiptLoaded.current) return save.setError("Дождитесь загрузки чека");
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (receiptParts) {
@@ -309,8 +313,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       if (split.mine < 0) return save.setError("Доли друзей больше общей суммы");
     }
     if (crossCurrency && (toAmountValue === null || toAmountValue <= 0)) return save.setError("Введите сумму зачисления");
-    submitting.current = true;
-    void save.runAsync({
+    save.run({
       type,
       date,
       accountId,
@@ -320,9 +323,6 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       toAmount: type === "transfer" ? (crossCurrency ? toAmountValue : null) : null,
       payee: payee || null,
       note: note || null,
-    }).catch(() => {
-      // useAction уже показывает ошибку. Повтор разрешаем после ответа ядра.
-      submitting.current = false;
     });
   };
 
@@ -605,8 +605,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   <Hint of="txn.spread" />
                   {spreadPreview && spreadMonths && (
                     <span className="hint" data-testid="spread-preview">
-                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
+                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц
+                      {date && spreadPeriod.data && `, ${monthTitle(spreadPeriod.data.month).toLowerCase()} – ${monthTitle(shiftMonth(spreadPeriod.data.month, spreadMonths - 1)).toLowerCase()}`}
                       {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
+                      {date && spreadPeriod.isError && " · Не удалось определить бюджетный период"}
                     </span>
                   )}
                 </div>

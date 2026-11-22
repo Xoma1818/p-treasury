@@ -173,7 +173,7 @@ test("Бюджет: цвет полос по порогам, пометки «к
 
 test("Операции: разбитый чек одной строкой с раскрытием, значки тега и «по месяцам»", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(60)));
   const receipt = '//tr[@data-testid="txn-row" and @data-receipt="3"]';
   await waitText(browser, receipt, /Ашан, 3 категории/);
@@ -204,7 +204,7 @@ test("Операции: разбитый чек одной строкой с р�
 
 test("выделение: флажки, Shift-диапазон, полоса «Выбрано», итог найденного без выделения", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   // Ничего не выделено, но включён поиск: полоса показывает итог по найденному.
@@ -221,7 +221,7 @@ test("выделение: флажки, Shift-диапазон, полоса «�
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 2/);
 
   // Shift-щелчок выделяет диапазон строк.
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(10)));
   await browser.$('[data-testid="txn-row"]').waitForDisplayed({ timeout: 5000 });
   await browser.pause(300);
@@ -247,7 +247,7 @@ test("выделение: флажки, Shift-диапазон, полоса «�
 
 test("пачка: категория двум операциям, переводы пропускаются, всё отменяется одним Ctrl+Z", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
@@ -268,7 +268,7 @@ test("пачка: категория двум операциям, перевод
   });
 
   // Переводы категорию не получают: программа говорит, сколько пропущено.
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(60)));
   const transfer = await browser.$('//tr[@data-testid="txn-row"][.//div[@class="main" and starts-with(normalize-space(), "Перевод")]]');
   if (await transfer.isExisting()) {
@@ -295,7 +295,7 @@ test("пачка: категория двум операциям, перевод
 
 test("удаление пачки спрашивает подтверждение на полосе и отменяется Ctrl+Z", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
@@ -356,7 +356,7 @@ test("форма расхода: разбить чек на две катего�
   await save(browser);
 
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Перекрёсток");
   const row = '//tr[@data-testid="txn-row" and @data-receipt="2"]';
   await waitText(browser, row, /Перекрёсток, 2 категории/);
@@ -385,12 +385,12 @@ test("форма расхода: «Учитывать по месяцам» по
 
 test("фильтр «Тег» в Операциях и Ctrl+K находит тег", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await openFilters(browser);
   await pickLike("filterTag", "#дача");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 1: расходы 4[\s ]500 ₽/);
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано \d+ из \d+/);
 
   await blur();
@@ -477,7 +477,7 @@ test("Категории → Теги: переименовать и объед�
   await browser.$(row("дом и дача")).waitForExist({ timeout: 5000, reverse: true });
   // Операция «Леруа Мерлен» осталась и теперь с тегом «отпуск».
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Леруа");
   await waitText(browser, '[data-testid="txn-row"]', /#отпуск/);
 });
@@ -530,7 +530,7 @@ test("событие разбитого чека: создание, смена �
   await choose(browser, "event", eventNames[0]);
   await save(browser);
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", payee);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await assertEvent(eventIds[0]);

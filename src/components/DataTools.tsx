@@ -115,6 +115,17 @@ function importRowFilter(row: ImportRow): Exclude<ImportRowFilter, "all"> {
   return "add";
 }
 
+const actionList = new Intl.ListFormat("ru");
+
+function importActionLabel(add: number, link: number, convert: number) {
+  const actions = [];
+  if (add > 0) actions.push(`загрузить ${add}`);
+  if (link > 0) actions.push(`связать ${link}`);
+  if (convert > 0) actions.push(`преобразовать в ${convert} ${plural(convert, "перевод", "перевода", "переводов")}`);
+  const label = actionList.format(actions);
+  return label ? label[0].toUpperCase() + label.slice(1) : "Завершить разбор";
+}
+
 function previewRowStatus(row: ImportRow, bank: boolean, mapped: boolean, showAmounts: boolean, decision?: BankImportDecision) {
   if (decision?.action === "link") return "Свяжем с выбранной операцией.";
   if (decision?.action === "add") return "Добавим отдельную операцию.";
@@ -163,12 +174,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   const toLoad = preview ? preview.valid - reviewRows.length + chosen.filter((decision) => decision.action === "add").length : 0;
   const toLink = (preview?.linked ?? 0) + chosen.filter((decision) => decision.action === "link").length;
   const actionable = toLoad + (preview?.toTransfers ?? 0) + toLink;
-  let saveLabel = `Загрузить ${toLoad}`;
-  if (preview && toLoad === 0) {
-    if (preview.toTransfers > 0) saveLabel = `Исправить ${preview.toTransfers}`;
-    else if (toLink > 0) saveLabel = `Связать ${toLink}`;
-    else if (skipped > 0) saveLabel = "Завершить разбор";
-  }
+  const saveLabel = importActionLabel(toLoad, toLink, preview?.toTransfers ?? 0);
   const [accountId, setAccountId] = useState<string | null>(null);
   // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
   const [selfId, setSelfId] = useState<string | null>(null);
@@ -183,6 +189,8 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   // Предпросмотр, по которому идёт загрузка: пока новый не пришёл, кнопки
   // загрузки выключены, а ответ на устаревший запрос не показывается.
   const [pending, setPending] = useState(false);
+  const allAccountedFor = !pending && !mapperOpen && !!preview?.rows.length
+    && rowsByFilter.duplicate.length === preview.rows.length && actionable === 0;
   const request = useRef(0);
   const [localSaveGuard] = useState(() => new ImportSaveGuard());
   const saveGuard = suppliedSaveGuard ?? localSaveGuard;
@@ -371,7 +379,9 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       {preview && !mapperOpen && (
         <section className="import-overview-preview" aria-labelledby="import-preview-title">
           <div className="import-overview-heading">
-            <h2 id="import-preview-title" ref={summaryFocus} tabIndex={-1}>{reviewRows.length && !unresolved ? "Итог перед сохранением" : "Проверка перед загрузкой"}</h2>
+            <h2 id="import-preview-title" ref={summaryFocus} tabIndex={-1}>
+              {allAccountedFor ? "Все строки уже учтены" : reviewRows.length && !unresolved ? "Итог перед сохранением" : "Проверка перед загрузкой"}
+            </h2>
             <p data-testid="import-summary" className={preview.errors ? "warn" : "muted"}>
               {baseName(path!)}: строк {preview.rows.length}, без ошибок {preview.rows.length - preview.errors}
               {preview.errors > 0 && `, с ошибками ${preview.errors}`}
@@ -507,11 +517,11 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       <div className="actions import-overview-actions">
         {preview && !mapperOpen && !unresolved && preview.errors > 0 && (actionable > 0 || skipped > 0) && (
           <button className="btn primary" disabled={pending || saving} onClick={() => commit(true)}>
-            {actionable ? `Загрузить только правильные (${actionable})` : "Завершить без загрузки"}
+            {actionable ? `${saveLabel} (без строк с ошибками)` : "Завершить без загрузки"}
           </button>
         )}
         <span className="spacer" />
-        <button className="btn" disabled={saving} onClick={dismiss}>
+        <button className={allAccountedFor ? "btn primary" : "btn"} disabled={saving} onClick={dismiss}>
           Закрыть
         </button>
         {preview && !mapperOpen && unresolved > 0 && (
@@ -519,10 +529,9 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
             Разобрать {unresolved} {plural(unresolved, "строку", "строки", "строк")}
           </button>
         )}
-        {preview && !mapperOpen && !unresolved && (
-          <button className={preview.errors ? "btn" : "btn primary"} disabled={pending || saving || preview.errors > 0 || (actionable === 0 && skipped === 0)} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+        {preview && !mapperOpen && !unresolved && (actionable > 0 || skipped > 0) && (
+          <button className={preview.errors ? "btn" : "btn primary"} data-testid="statement-save" disabled={pending || saving || preview.errors > 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {saveLabel}
-            {toLoad > 0 && preview.toTransfers > 0 && ` и исправить ${preview.toTransfers}`}
           </button>
         )}
       </div>

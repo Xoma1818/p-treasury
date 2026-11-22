@@ -24,6 +24,20 @@ after(async () => {
 const occ = (title) => `//*[@data-testid="rem-upcoming"]//li[@data-testid="occurrence" and @data-title="${title}"]`;
 const lastDialog = '(//*[@role="dialog"])[last()]';
 
+async function invoke(command, args = {}) {
+  const result = await browser.executeAsync((cmd, input, done) => {
+    window.__TAURI_INTERNALS__.invoke(cmd, input).then((value) => done({ value }), (error) => done({ error: String(error) }));
+  }, command, args);
+  assert.equal(result.error, undefined, `${command}: ${result.error}`);
+  return result.value;
+}
+
+async function cardEntries(title) {
+  const card = (await invoke("list_accounts", { includeArchived: false })).find((a) => a.name === "Карта");
+  const page = await invoke("list_transactions", { filter: { accountId: card.id, search: title, limit: 10 } });
+  return { balance: card.balance, total: page.total, entries: page.items.map(({ id, note }) => ({ id, note })).sort((a, b) => a.id.localeCompare(b.id)) };
+}
+
 async function openReminders() {
   await openSection(browser, "Календарь");
   await click(browser, "Напоминания");
@@ -64,6 +78,7 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
   await save(browser);
   await waitText(browser, `${occ("Аренда")}//*[@data-testid="shortfall"]`, money("50 000 ₽"));
+  const before = await cardEntries("Аренда");
 
   // Только этот платёж — 80 000 ₽ и на день позже.
   await click(browser, "Ещё", occ("Аренда"));
@@ -76,7 +91,11 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await browser.waitUntil(async () => !(await browser.$(`${occ("Аренда")}//*[@data-testid="shortfall"]`).isExisting()), { timeout: 5000 });
   await click(browser, "Ещё", occ("Аренда"));
   await click(browser, "Отметить выполненным без записи", occ("Аренда"));
-  await waitText(browser, '[data-testid="rem-done"]', /Аренда/);
+  const done = '[data-testid="rem-done"] [data-title="Аренда"]';
+  await browser.$(`${done} [data-testid="occ-status"][data-state="done"]`).waitForDisplayed();
+  assert.equal(await browser.$(`${done} [data-testid="occ-open-transaction"]`).isExisting(), false);
+  assert.equal((await invoke("reminders_overview")).done.find((item) => item.title === "Аренда").transactionId, null);
+  assert.deepEqual(await cardEntries("Аренда"), before);
   await openSection(browser, "Операции");
   await fill(browser, "search", "Аренда");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
@@ -154,19 +173,24 @@ test("напоминание связывается с проведённым с
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
 });
 
-test("несколько проведённых платежей: можно выбрать существующий без новой операции", async () => {
+test("два равных списания: календарь привязывает и дважды открывает выбранную операцию без изменения остатка", async () => {
   const title = "Проверка выбора платежа";
+  const firstNote = "По квитанции А: 872 ₽";
+  const secondNote = "По квитанции Б: 872 ₽";
   await openSection(browser, "Главная");
-  for (const amount of ["871", "872"]) {
+  for (const note of [firstNote, secondNote]) {
     await click(browser, "+ Расход");
-    await fill(browser, "amount", amount);
+    await fill(browser, "amount", "872");
     await choose(browser, "account", "Карта (₽)");
     await chooseLike(browser, "category", "Коммунальные платежи");
     await fill(browser, "payee", title);
     if (!(await browser.$('[role="dialog"] [name="note"]').isDisplayed())) await openMore(browser);
-    await fill(browser, "note", `По квитанции ${amount} ₽`);
+    await fill(browser, "note", note);
     await save(browser);
   }
+  const before = await cardEntries(title);
+  assert.equal(before.total, 2);
+  const selected = before.entries.find((item) => item.note === secondNote).id;
 
   await openReminders();
   await click(browser, "+ Напоминание");
@@ -177,10 +201,11 @@ test("несколько проведённых платежей: можно в�
   await choose(browser, "reminderAccount", "Карта (₽)");
   await chooseLike(browser, "reminderCategory", "Коммунальные платежи");
   await save(browser);
+  await browser.$(`${occ(title)}//*[@data-testid="occ-status" and @data-state="planned"]`).waitForDisplayed();
   await click(browser, "Учесть платёж", occ(title));
-  const match = (amount) => `//*[@data-testid="occ-match-candidate" and contains(., "${amount}")]`;
-  await waitText(browser, match("871"), money("871 ₽"));
-  await waitText(browser, match("872"), money("872 ₽"));
+  const match = (note) => `//*[@data-testid="occ-match-candidate" and contains(., "${note}")]`;
+  await waitText(browser, match(firstNote), money("872 ₽"));
+  await waitText(browser, match(secondNote), money("872 ₽"));
   const radioSelector = '[data-testid="occ-match-candidate"] input[type="radio"]';
   const accessibleNames = async () => {
     const names = [];
@@ -189,9 +214,10 @@ test("несколько проведённых платежей: можно в�
   };
   const namesShown = await accessibleNames();
   assert.ok(namesShown.every((name) => name.includes("Карта")));
-  assert.ok(namesShown.some((name) => money("871 ₽").test(name)));
-  assert.ok(namesShown.some((name) => money("872 ₽").test(name)));
-  assert.ok(namesShown.every((name) => name.includes("По квитанции")));
+  assert.equal(namesShown.length, 2);
+  assert.ok(namesShown.every((name) => money("872 ₽").test(name)));
+  assert.ok(namesShown.some((name) => name.includes(firstNote)));
+  assert.ok(namesShown.some((name) => name.includes(secondNote)));
   await browser.keys(["Control", "h"]);
   await waitText(browser, '[data-testid="occ-match-candidate"]', /•••/);
   const namesHidden = await accessibleNames();
@@ -203,16 +229,67 @@ test("несколько проведённых платежей: можно в�
   }
   assert.doesNotMatch(await browser.$(lastDialog).getText(), /871|872|900|₽|По квитанции/);
   await browser.keys(["Control", "h"]);
-  await waitText(browser, match("872"), money("872 ₽"));
+  await waitText(browser, match(secondNote), money("872 ₽"));
   assert.deepEqual(await accessibleNames(), namesShown);
   assert.equal(await (await browser.$(`${lastDialog}//button[normalize-space()="Связать с платежом"]`)).isEnabled(), false);
   await click(browser, "Записать отдельный расход", lastDialog);
   await waitText(browser, '[data-testid="reminder-save-impact"]', /добавит отдельную запись/);
   await click(browser, "Назад", lastDialog);
-  await waitText(browser, match("872"), money("872 ₽"));
-  await (await browser.$(`${match("872")}//input[@type="radio"]`)).click();
+  await waitText(browser, match(secondNote), money("872 ₽"));
+  await (await browser.$(`${match(secondNote)}//input[@type="radio"]`)).click();
+  const controls = await browser.execute(() => {
+    const footer = document.querySelector(".payment-review-actions");
+    return [...footer.querySelectorAll("button")].map((button) => ({
+      label: button.textContent.trim(),
+      clipped: button.scrollWidth > button.clientWidth + 1,
+      rightGap: footer.getBoundingClientRect().right - button.getBoundingClientRect().right,
+    }));
+  });
+  assert.deepEqual(controls.map((button) => button.label), ["Назад", "Записать отдельный расход", "Связать с платежом"]);
+  assert.ok(controls.every((button) => !button.clipped), "подписи кнопок помещаются");
+  assert.ok(Math.abs(controls.at(-1).rightGap) <= 1, "главное действие прилегает к правому краю даже при переносе");
+  for (const button of controls) {
+    await browser.keys("Tab");
+    assert.equal(await browser.execute(() => document.activeElement.textContent.trim()), button.label);
+  }
   await save(browser, "Связать с платежом");
-  await waitText(browser, '[data-testid="rem-done"]', /Проверка выбора платежа[\s\S]*связано с операцией/);
+  const occurrence = `[data-title="${title}"]`;
+  const linked = async () => (await invoke("reminders_overview")).done.find((item) => item.title === title);
+  await browser.$(`[data-testid="rem-done"] ${occurrence} [data-testid="occ-status"][data-state="linked"]`).waitForDisplayed();
+  assert.equal((await linked()).transactionId, selected);
+  for (const area of ["rem-done", "day-panel"]) {
+    if (area === "day-panel") {
+      await click(browser, "Месяц");
+      const payDate = inDays(1);
+      if (payDate.slice(0, 7) !== inDays(0).slice(0, 7)) await browser.$('[aria-label="Следующий месяц"]').click();
+      const day = await browser.$(`[data-testid="cal-day"][data-date="${payDate}"]`);
+      await day.waitForDisplayed();
+      await browser.execute((button) => button.focus(), day);
+      await browser.keys("Enter");
+      await browser.waitUntil(() => browser.$('[data-testid="day-panel"] h2').isFocused(), { timeout: 5000 });
+    }
+    const trigger = await browser.$(`[data-testid="${area}"] ${occurrence} [data-testid="occ-open-transaction"]`);
+    await trigger.waitForDisplayed();
+    await browser.execute((button) => button.focus(), trigger);
+    await browser.keys("Enter");
+    const detail = '[role="dialog"] [data-testid="linked-transaction"]';
+    await browser.$(detail).waitForDisplayed();
+    assert.equal(await browser.$(detail).getAttribute("data-transaction-id"), selected);
+    await waitText(browser, detail, money("872 ₽"));
+    await browser.keys(["Control", "h"]);
+    await waitText(browser, detail, /•••/);
+    assert.doesNotMatch(await browser.$(lastDialog).getText(), /872|₽|По квитанции/);
+    await browser.keys(["Control", "h"]);
+    await waitText(browser, detail, money("872 ₽"));
+    await browser.keys("Escape");
+    await browser.waitUntil(() => trigger.isFocused(), { timeout: 5000 });
+    assert.equal((await linked()).transactionId, selected);
+    assert.deepEqual(await cardEntries(title), before);
+    if (area === "day-panel") {
+      await browser.$('[aria-label="Закрыть день"]').click();
+      await browser.waitUntil(() => browser.$(`[data-testid="cal-day"][data-date="${inDays(1)}"]`).isFocused(), { timeout: 5000 });
+    }
+  }
 
   await openSection(browser, "Операции");
   await fill(browser, "search", title);

@@ -88,7 +88,7 @@ function AssetForm({ asset, onClose }: { asset: Asset | null; onClose: () => voi
       return asset ? api.updateAsset(asset.id, input) : api.createAsset(input);
     },
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteAsset(asset!.id), onClose);
   const submit = () => {

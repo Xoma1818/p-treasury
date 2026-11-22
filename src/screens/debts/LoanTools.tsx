@@ -7,7 +7,8 @@ import { ErrorText, Modal } from "../../components/Modal";
 import { Money } from "../../components/Money";
 import { api, REPAYMENTS, type DebtCard, type DebtDetail, type LoanChangeInput, type LoanCompare, type LoanSnap, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
-import { annualHint, earlyLines, keptRate, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
+import { useFine } from "../../lib/fine";
+import { annualHint, earlyLines, forecastChartRows, keptRate, METHODS, MODES, parseRate, plannedEarly, RATE_PERIODS, rateLabel, rateToInput, savedTerm, termToPayments, type EarlyLine, type TermUnit } from "../../lib/loan";
 import { parseAmount } from "../../lib/money";
 import { useAction } from "../../lib/useAction";
 import { useDebounced } from "../../lib/useDebounced";
@@ -15,7 +16,7 @@ import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor } from "./Editors";
 import { PayEverySelect, RatePeriodSelect } from "./LoanPlanner";
 
-const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} minorUnits={card.minorUnits} />;
+const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} currencyCode={card.currencyCode} minorUnits={card.minorUnits} />;
 
 /** Строка «было → стало» с подсветкой того, что изменилось. */
 function Diff({ label, was, now, testid, changed }: { label: string; was: ReactNode; now: ReactNode; testid?: string; changed?: boolean }) {
@@ -146,7 +147,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
     retry: false,
     placeholderData: keepPreviousData,
   });
-  const save = useAction((t: TermsInput) => api.updateDebtTerms(c.id, t), onClose, { celebrate: true });
+  const save = useAction((t: TermsInput) => api.updateDebtTerms(c.id, t), onClose, { singleSubmit: true });
   const bullet = f.repayment === "bullet";
 
   return (
@@ -246,7 +247,7 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
     const bp = parseRate(rate, card.ratePeriod);
     if (bp === null || rate.trim() === "") throw "Введите новую ставку";
     return api.addDebtRateChange(card.id, { from, rateBp: bp });
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const bp = parseRate(rate, card.ratePeriod);
   const preview = useChangePreview(card, bp !== null && rate.trim() !== "" && /^\d{4}-\d{2}-\d{2}$/.test(from) ? { kind: "rateChange", from, rateBp: bp } : null);
   return (
@@ -286,7 +287,7 @@ export function HolidayForm({ detail, onClose }: { detail: DebtDetail; onClose: 
   const [kind, setKind] = useState<HolidayKind>("interest_only");
   const [fromSeq, setFromSeq] = useState(String(pending[0]?.seq ?? 1));
   const [months, setMonths] = useState("3");
-  const save = useAction(() => api.addDebtHoliday(detail.card.id, { fromSeq: Number(fromSeq), months: Number(months), kind }), onClose, { celebrate: true });
+  const save = useAction(() => api.addDebtHoliday(detail.card.id, { fromSeq: Number(fromSeq), months: Number(months), kind }), onClose, { singleSubmit: true });
   const m = money(detail.card);
   const preview = useChangePreview(detail.card, { kind: "holiday", fromSeq: Number(fromSeq), months: Number(months), holidayKind: kind });
   return (
@@ -389,6 +390,7 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
 export function PlannedBlock({ detail }: { detail: DebtDetail }) {
   const c = detail.card;
   const mu = c.minorUnits;
+  const symbol = useFine().code ? c.currencyCode : c.currencySymbol;
   const [lines, setLines] = useState<EarlyLine[]>(() => earlyLines(detail.plannedEarly, mu));
   const forecast = useQuery({ queryKey: ["debtForecast", c.id], queryFn: () => api.debtForecast(c.id) });
   const save = useAction(() => api.setDebtPlannedEarly(c.id, plannedEarly(lines, mu)));
@@ -398,6 +400,8 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
   const dirty = JSON.stringify(draft) !== JSON.stringify(detail.plannedEarly.map((p) => ({ amount: p.amount, startDate: p.startDate, frequency: p.frequency, endDate: p.endDate, mode: p.mode })));
   const preview = useChangePreview(c, dirty ? { kind: "plannedEarly", list: draft } : null);
   const fc = forecast.data;
+  const chartFrom = fc && fc.from > c.issueDate ? fc.from : c.issueDate;
+  const hasOverdue = detail.schedule.some((row) => row.status === "pending" && row.dueDate < chartFrom);
   const hasPlanned = detail.plannedEarly.length > 0;
   return (
     <div className="columns loan-two">
@@ -406,7 +410,7 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
           Плановые досрочки
           <Hint of="loan.planned" />
         </h2>
-        <EarlyEditor lines={lines} onChange={setLines} minorUnits={mu} symbol={c.currencySymbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
+        <EarlyEditor lines={lines} onChange={setLines} minorUnits={mu} symbol={symbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
         {preview.compare && <LoanCompareTable card={c} compare={preview.compare} after="После сохранения" />}
         {preview.error && <p className="hint warn">{String(preview.error)}</p>}
         <div className="actions">
@@ -441,7 +445,15 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
                 <dd>{m(fc.savings)}</dd>
               </div>
             </dl>
-            <BalanceChart base={{ rows: detail.schedule, early: [] }} withEarly={{ rows: fc.rows, early: fc.early }} issueDate={c.issueDate} principal={c.principal} symbol={c.currencySymbol} minorUnits={mu} />
+            <p className="sub">Прогноз с {formatDate(chartFrom)}{hasOverdue && ". Предполагаем, что в этот день будут внесены все просроченные платежи."}</p>
+            <BalanceChart
+              base={{ rows: forecastChartRows(detail.schedule, chartFrom), early: [] }}
+              withEarly={{ rows: forecastChartRows(fc.rows, chartFrom), early: fc.early.filter((p) => p.planned && p.date >= chartFrom) }}
+              issueDate={chartFrom}
+              principal={c.outstanding}
+              symbol={symbol}
+              minorUnits={mu}
+            />
           </>
         ) : (
           <p className="muted">Добавьте плановые досрочки и сохраните: здесь появятся дата закрытия и экономия.</p>
@@ -536,7 +548,7 @@ export function History({ card }: { card: DebtCard }) {
   const signed = (x: number) => (
     <span className={x < 0 ? "good-text" : x > 0 ? "over" : "muted"}>
       {x > 0 ? "+" : x < 0 ? "−" : ""}
-      <Money amount={Math.abs(x)} symbol={card.currencySymbol} minorUnits={card.minorUnits} />
+      {m(Math.abs(x))}
     </span>
   );
   const when = (iso: string) => {
@@ -618,7 +630,7 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
       return api.setDebtRowAmount(c.id, { seq: row.seq, amount: v, mode });
     },
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const reset = useAction(() => api.deleteDebtRowAmount(own!.id), onClose);
   const v = parseAmount(amount, c.minorUnits);
@@ -626,7 +638,7 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
   return (
     <Modal title={`Платёж №${row.seq}, ${formatDate(row.dueDate)}`} onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
-        <Field label="Сколько заплатить" help="loan.rowAmount" hint={`По графику ${amountText(row.payment, c.minorUnits)} ${c.currencySymbol}, из них проценты ${amountText(row.interestPart, c.minorUnits)} ${c.currencySymbol}`}>
+        <Field label="Сколько заплатить" help="loan.rowAmount" hint={<>По графику {m(row.payment)}, из них проценты {m(row.interestPart)}</>}>
           {(id) => <AmountInput id={id} name="rowAmount" value={amount} onChange={setAmount} minorUnits={c.minorUnits} autoFocus />}
         </Field>
         {v !== null && v < row.interestPart && <p className="hint warn">Меньше процентов: в этот раз уйдут только проценты {m(row.interestPart)}, долг не уменьшится.</p>}

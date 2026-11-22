@@ -69,7 +69,11 @@
 .loan-chart .hover circle { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
 .loan-chart-foot { font-size: 12px; color: var(--muted); min-height: 18px; }
 .loan-chart-foot b { color: var(--text); }
-.loan-chart-foot .legend { display: inline-flex; align-items: center; gap: 6px; }
+.loan-chart .hover circle.base { stroke: var(--muted); }
+.loan-chart-date { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; font-variant-numeric: tabular-nums; }
+.loan-chart-date input[type="range"] { flex: 1 1 100px; min-width: 0; height: 24px; margin: 0; accent-color: var(--accent); }
+.loan-chart-foot .legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.loan-chart-foot .legend > span { display: inline-flex; align-items: center; gap: 5px; }
 .loan-chart-foot .key { display: inline-block; width: 18px; height: 0; border-top: 2.4px solid var(--accent); margin-left: 6px; }
 .loan-chart-foot .key:first-child { margin-left: 0; }
 .loan-chart-foot .key.base { border-top: 1.6px dashed var(--muted); }

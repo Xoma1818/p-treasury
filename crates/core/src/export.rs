@@ -392,14 +392,19 @@ fn summary_sheet(conn: &Connection, from: &str, to: &str, today: &str) -> Result
     Ok(sh)
 }
 
-fn categories_sheet(conn: &Connection, from: &str, to: &str) -> Result<Sheet> {
+fn categories_sheet(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+    filter: &reports::ReportFilter,
+) -> Result<Sheet> {
     let mu = currencies::minor_units(conn, &currencies::base_currency(conn)?)?;
     let mut sh = Sheet::new(
         "По категориям",
         &["Тип", "Категория", "Подкатегория", "Сумма", "Доля"],
     );
     for (kind, name) in [("expense", "Расход"), ("income", "Доход")] {
-        let rep = reports::by_category(conn, kind, from, to)?;
+        let rep = reports::by_category_in(conn, kind, from, to, filter)?;
         for item in &rep.items {
             sh.rows.push(vec![
                 Cell::text(name),
@@ -483,10 +488,15 @@ fn budget_sheet(conn: &Connection, from: &str, to: &str, today: &str) -> Result<
     Ok(sh)
 }
 
-fn months_sheet(conn: &Connection, from: &str, to: &str) -> Result<Sheet> {
+fn months_sheet(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+    filter: &reports::ReportFilter,
+) -> Result<Sheet> {
     let mu = currencies::minor_units(conn, &currencies::base_currency(conn)?)?;
     let months = months_of(conn, from, to)?;
-    let rep = reports::by_month(conn, &months[0], months.last().expect("месяц есть"))?;
+    let rep = reports::by_month_in(conn, &months[0], months.last().expect("месяц есть"), filter)?;
     let mut sh = Sheet::new(
         "По месяцам",
         &[
@@ -581,11 +591,12 @@ pub fn summary_workbook(
     if to < from {
         return invalid("конец периода раньше начала");
     }
+    let all = reports::ReportFilter::default();
     Ok(vec![
         summary_sheet(conn, from, to, today)?,
-        categories_sheet(conn, from, to)?,
+        categories_sheet(conn, from, to, &all)?,
         budget_sheet(conn, from, to, today)?,
-        months_sheet(conn, from, to)?,
+        months_sheet(conn, from, to, &all)?,
         debts_sheet(conn, today)?,
         transactions_sheet(
             conn,
@@ -600,9 +611,22 @@ pub fn summary_workbook(
 
 /// Открытый отчёт одним листом: `categories` (расходы и доходы) или `months`.
 pub fn report_sheet(conn: &Connection, report: &str, from: &str, to: &str) -> Result<Sheet> {
+    report_sheet_in(conn, report, from, to, &reports::ReportFilter::default())
+}
+
+pub fn report_sheet_in(
+    conn: &Connection,
+    report: &str,
+    from: &str,
+    to: &str,
+    filter: &reports::ReportFilter,
+) -> Result<Sheet> {
+    if to < from {
+        return invalid("конец периода раньше начала");
+    }
     match report {
-        "categories" => categories_sheet(conn, from, to),
-        "months" => months_sheet(conn, from, to),
+        "categories" => categories_sheet(conn, from, to, filter),
+        "months" => months_sheet(conn, from, to, filter),
         _ => invalid(format!("неизвестный отчёт: {report}")),
     }
 }
@@ -864,6 +888,41 @@ mod tests {
         assert_eq!(only_food.rows.len(), 1);
         assert!(report_sheet(c, "nope", "2026-10-01", "2026-10-31").is_err());
         assert!(summary_workbook(c, "2026-10-31", "2026-10-01", "2026-11-01").is_err());
+    }
+
+    #[test]
+    fn filtered_sheets_match_the_report_with_shifted_months() {
+        let db = setup();
+        let c = db.conn();
+        crate::settings::set(c, "month_start_day", "15").unwrap();
+        let (txn, account): (String, String) = c
+            .query_row(
+                "SELECT id, account_id FROM transactions WHERE date='2026-10-05'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        crate::tags::set_for(c, &txn, &["Работа".into()]).unwrap();
+        let filter = reports::ReportFilter {
+            account_id: Some(account),
+            tag_id: Some(crate::tags::ensure(c, "Работа").unwrap()),
+        };
+        let categories =
+            report_sheet_in(c, "categories", "2026-09-15", "2026-10-14", &filter).unwrap();
+        let total = categories
+            .rows
+            .iter()
+            .find(|r| r[0] == Cell::text("Расход") && r[1] == Cell::text("Итого"))
+            .unwrap();
+        assert_eq!(total[3], Cell::Money(234_050, 2));
+        let months = report_sheet_in(c, "months", "2026-10-01", "2026-11-01", &filter).unwrap();
+        assert_eq!(months.rows.len(), 3);
+        assert_eq!(months.rows[0][0], Cell::text("2026-10"));
+        assert_eq!(months.rows[1][0], Cell::text("2026-11"));
+        assert_eq!(months.rows[0][4], total[3]);
+        assert_eq!(months.rows[1][4], Cell::Money(0, 2));
+        assert_eq!(months.rows[2][4], total[3]);
+        assert!(report_sheet_in(c, "months", "2026-11-01", "2026-10-01", &filter).is_err());
     }
 
     #[test]

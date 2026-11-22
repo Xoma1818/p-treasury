@@ -145,6 +145,9 @@ describe("чистые активы (В3)", () => {
     expect(axisLabel(250_000)).toBe("2,5 тыс.");
     expect(axisLabel(-250_000_000)).toBe("−2,5 млн");
     expect(axisLabel(0)).toBe("0");
+    expect(axisLabel(5000, 0)).toBe("5 тыс.");
+    expect(axisLabel(-25, 2)).toBe("−0,25");
+    expect(netWorthScale([-2, 1]).step).toBe(1);
     expect(axisPad(["15 млн", "−2,5 млн"])).toBeGreaterThan(axisPad(["0"]));
   });
 

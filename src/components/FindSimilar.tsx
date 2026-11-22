@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Txn, type TxnFilter } from "../lib/api";
-import { formatMoney } from "../lib/money";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
-import { ErrorText } from "./Modal";
-import { Modal } from "./Modal";
+import { ErrorText, Modal } from "./Modal";
+import { Money } from "./Money";
 import { TxnTable } from "./TxnTable";
 
 type By = "payee" | "amount";
@@ -45,7 +44,6 @@ export function FindSimilar({ txn, onClose }: { txn: Txn; onClose: () => void })
     () => setTemplateDone(name),
   );
   const total = q.data?.total ?? 0;
-  const amountText = formatMoney(Math.abs(txn.amount), txn.currencySymbol, txn.minorUnits);
   return (
     <Modal title="Похожие операции" onClose={onClose} wide>
       <div className="tabs small" role="group" aria-label="Похожие по" data-testid="similar-by">
@@ -53,7 +51,7 @@ export function FindSimilar({ txn, onClose }: { txn: Txn; onClose: () => void })
           {txn.payee ? `Получатель «${txn.payee}»` : "Получатель не указан"}
         </button>
         <button type="button" className={by === "amount" ? "tab active" : "tab"} aria-pressed={by === "amount"} onClick={() => setBy("amount")} data-testid="similar-by-amount">
-          Сумма {amountText}
+          Сумма <Money amount={Math.abs(txn.amount)} symbol={txn.currencySymbol} currencyCode={txn.currencyCode} minorUnits={txn.minorUnits} />
         </button>
       </div>
       {q.error && <p className="error">{String(q.error)}</p>}

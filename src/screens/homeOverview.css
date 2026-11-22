@@ -19,11 +19,10 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  margin-block-end: 16px;
 }
 
 .home-screen .home-budget-today > b {
-  font-size: clamp(28px, 5vw, 48px);
+  font-size: clamp(24px, 3.5cqi, 32px);
   line-height: 1.2;
   letter-spacing: -.04em;
   font-variant-numeric: tabular-nums;
@@ -48,12 +47,23 @@
   background: var(--card);
 }
 
+.home-overview .home-period {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.home-balance-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  align-items: start;
+  gap: 16px 24px;
+}
+
 .home-overview.tiles .home-balance:hover {
   border-color: var(--border);
 }
 
-.home-balance-main,
-.home-balance-chart {
+.home-balance-metrics > * {
   min-width: 0;
 }
 
@@ -77,14 +87,48 @@
   text-align: start;
 }
 
-.home-overview .home-balance .tile-explain {
-  font-size: clamp(28px, 5cqi, 42px);
+.home-overview .home-balance .tile-explain,
+.home-free-explain strong {
+  font-size: clamp(26px, 4cqi, 36px);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-free-explain {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.home-calculation-link {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.home-free-explain:hover .home-calculation-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-free-explain:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .home-balance-chart > .spark {
-  height: clamp(72px, 13vw, 112px);
-  margin: 0;
+  width: 100%;
+  height: 40px;
+  margin: 6px 0 0;
 }
 
 .home-overview .home-balance-chart path {
@@ -94,13 +138,6 @@
 
 .home-balance .home-balance-detail {
   grid-column: 1 / -1;
-}
-
-@container (min-width: 560px) {
-  .home-overview .home-balance.has-chart {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: 24px;
-  }
 }
 
 .home-budget-card {
@@ -149,7 +186,8 @@
   background-color: var(--accent-soft);
 }
 
-.home-budget-card .home-budget-today > b {
+.home-budget-card .home-budget-today > b,
+.summary-card .home-budget-today > b {
   font-size: inherit;
   letter-spacing: normal;
 }

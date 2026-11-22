@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Forecast, GoalMark, MoneyFlow } from "./api";
-import { aheadSummary, chartPoints, describeChange, goalText, monthLine, seasonText, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon } from "./forecast";
+import { aheadSummary, chartPoints, describeChange, goalText, monthLine, seasonText, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon, scenarioRow, scenarioChange } from "./forecast";
 import { formatMoney } from "./money";
 
 const flow = (over: Partial<MoneyFlow>): MoneyFlow => ({
@@ -36,9 +36,33 @@ describe("подписи изменений сценария", () => {
   });
 
   it("заготовки начинаются от первого месяца прогноза", () => {
-    const p = presets("2026-11");
+    const p = presets("2026-11", 2);
     expect(p.map((x) => x.change.startMonth)).toEqual(["2026-12", "2027-02", "2026-12", "2026-12", "2026-11"]);
     expect(p.find((x) => x.label === "3 месяца без зарплаты")!.change).toMatchObject({ kind: "income_pct", percent: -100, months: 3 });
+  });
+
+  it.each([
+    { units: 0, label: "JPY", preset: -45_000, entered: "1205", expected: -1205, purchase: -300_000 },
+    { units: 2, label: "₽", preset: -4_500_000, entered: "1205,75", expected: -120575, purchase: -30_000_000 },
+    { units: 3, label: "KWD", preset: -45_000_000, entered: "1205,375", expected: -1205375, purchase: -300_000_000 },
+  ])("открывает и сохраняет сумму в $label с точностью валюты", ({ units, label, preset, entered, expected, purchase }) => {
+    const [mortgage, large, noPay] = presets("2026-11", units).map(p => p.change);
+    expect(mortgage.amount).toBe(preset);
+    expect(large.amount).toBe(purchase);
+    expect(scenarioRow(mortgage, units).amount).toBe("45000");
+    const change = scenarioChange({ ...scenarioRow(mortgage, units), amount: entered }, units);
+    expect(change.amount).toBe(expected);
+    expect(scenarioRow(change, units).amount).toBe(entered);
+    expect(describeChange(change, label, units)).toContain(formatMoney(Math.abs(expected), label, units));
+    expect(describeChange(change, label, units, false)).toMatch(/^••• каждый месяц/);
+    expect(scenarioChange(scenarioRow(noPay, units), units)).toEqual(noPay);
+    expect(describeChange(noPay, label, units, false)).toContain("−100 %");
+  });
+
+  it("отклоняет дробь и распознаёт выражение в иенах", () => {
+    const row = scenarioRow(presets("2026-11", 0)[0].change, 0);
+    expect(scenarioChange({ ...row, amount: "4,25" }, 0).amount).toBeNull();
+    expect(scenarioChange({ ...row, sign: 1, amount: "1200+5" }, 0).amount).toBe(1205);
   });
 });
 

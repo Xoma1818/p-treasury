@@ -19,8 +19,7 @@ pub struct Currency {
 /// Валюты, которые предлагает программа (по решению владельца, 0.15.1).
 pub const OFFERED: &[&str] = &["RUB", "USD", "EUR", "CNY", "GBP", "KZT"];
 
-/// Валюты для списков: предлагаемые и те прочие, что уже есть в счетах, долгах,
-/// бюджетах, имуществе или целях (старые данные остаются видны). Рубль первым.
+/// Основная валюта, предлагаемые и уже используемые валюты. Рубль первым.
 pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
     let offered = OFFERED
         .iter()
@@ -30,6 +29,7 @@ pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT code, name, symbol, minor_units FROM currencies
          WHERE code IN ({offered})
+            OR code = (SELECT value FROM settings WHERE key = 'base_currency')
             OR code IN (SELECT currency_code FROM accounts
                         UNION SELECT currency_code FROM debts
                         UNION SELECT currency_code FROM budgets
@@ -274,6 +274,17 @@ mod tests {
         let all = list(c).unwrap();
         assert!(all.iter().any(|x| x.code == "TRY"));
         assert!(!all.iter().any(|x| x.code == "JPY"));
+    }
+
+    #[test]
+    fn base_currency_stays_listed_without_accounts_or_debts() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        settings::set(c, "base_currency", "JPY").unwrap();
+        let yen = list(c).unwrap().into_iter().find(|x| x.code == "JPY");
+        assert_eq!(yen.unwrap().minor_units, 0);
+        settings::set(c, "base_currency", "RUB").unwrap();
+        assert!(!list(c).unwrap().iter().any(|x| x.code == "JPY"));
     }
 
     #[test]

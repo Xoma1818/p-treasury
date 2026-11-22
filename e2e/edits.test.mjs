@@ -140,12 +140,12 @@ test("напоминание: отложить до завтра, выполни
   await newReminder("Интернет");
   await click(browser, "Отложить", occ("rem-overdue", "Интернет"));
   await click(browser, "до завтра", occ("rem-overdue", "Интернет"));
-  await waitText(browser, occ("rem-upcoming", "Интернет"), /отложено/);
+  await waitText(browser, `${occ("rem-upcoming", "Интернет")}//*[@data-testid="occ-status" and @data-state="snoozed"]`, /отложено/i);
   assert.equal(await browser.$(occ("rem-overdue", "Интернет")).isExisting(), false);
 
   await newReminder("Вода");
   await click(browser, "Выполнено", occ("rem-overdue", "Вода"));
-  await waitText(browser, occ("rem-done", "Вода"), /выполнено/);
+  await waitText(browser, `${occ("rem-done", "Вода")}//*[@data-testid="occ-status" and @data-state="done"]`, /напоминание выполнено/i);
   await click(browser, "Вернуть", occ("rem-done", "Вода"));
   await browser.$(occ("rem-overdue", "Вода")).waitForExist({ timeout: 5000, timeoutMsg: "«Вернуть» не вернул напоминание в просроченные" });
 });

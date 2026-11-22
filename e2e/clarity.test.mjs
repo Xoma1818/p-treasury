@@ -50,7 +50,7 @@ test("строка выписки узнаёт ручную запись, сом
   await choose(browser, "importAccount", "Карта (₽)");
   await waitText(browser, '[data-testid="import-summary"]', /свяжутся с вашими записями 1, возможные совпадения 1/);
   await waitCount(browser, '[data-testid="import-row"][data-linked="1"]', 1);
-  assert.equal(await browser.$(`${dialog}//button[normalize-space()="Загрузить 2"]`).isExisting(), false, "без решения запись недоступна");
+  assert.equal(await browser.$('[data-testid="statement-save"]').isExisting(), false, "без решения запись недоступна");
   const before = await invoke("list_transactions", { filter: { accountId: card, types: ["expense"], limit: 100 } });
   assert.equal(before.items.filter((t) => t.amount === 120_000).length, 2);
 
@@ -67,7 +67,7 @@ test("строка выписки узнаёт ручную запись, сом
   await browser.$(`input[name="statement-choice"][value="link:${id}"]`).click();
   await click(browser, "К итогу", dialog);
   await waitText(browser, '[data-testid="statement-totals"]', /Связать\s*2/);
-  await click(browser, "Загрузить 2", dialog);
+  await click(browser, "Загрузить 2 и связать 2", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 2, связано с вашими записями: 2/);
   await browser.keys("Escape");
 

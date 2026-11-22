@@ -12,7 +12,7 @@ export function niceStep(v: number): number {
 export function netWorthScale(values: number[], ticks = 4): { min: number; max: number; step: number } {
   const lo = Math.min(0, ...values);
   const hi = Math.max(0, ...values);
-  const step = niceStep((hi - lo || 1) / ticks);
+  const step = Math.max(1, Math.ceil(niceStep((hi - lo || 1) / ticks)));
   return { min: Math.floor(lo / step) * step, max: Math.ceil(hi / step) * step || step, step };
 }
 
@@ -30,7 +30,8 @@ const axisFmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 export function axisLabel(v: number, minorUnits = 2): string {
   const units = v / 10 ** minorUnits;
   const abs = Math.abs(units);
-  const [n, suffix] = abs >= 1e6 ? [units / 1e6, " млн"] : abs >= 1e3 ? [units / 1e3, " тыс."] : [Math.round(units), ""];
+  if (abs < 1e3) return units.toLocaleString("ru-RU", { maximumFractionDigits: minorUnits }).replace("-", "−");
+  const [n, suffix] = abs >= 1e6 ? [units / 1e6, " млн"] : [units / 1e3, " тыс."];
   if (n === 0) return "0";
   return (axisFmt.format(n) + suffix).replace("-", "−");
 }

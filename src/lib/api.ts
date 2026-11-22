@@ -189,6 +189,7 @@ export interface Txn {
   splitId: string | null;
   /** Трата учитывается в месячных расчётах N месяцев (2–24). */
   spreadMonths: number | null;
+  countedShare?: { amount: number; budgetAmount: number; budgetCurrency: string; missingRate: boolean };
   /** Теги операции по алфавиту. */
   tags: string[];
   /** 0.29: возврат денег за покупку (приход, в бюджете — минус расход). */
@@ -249,6 +250,7 @@ export interface TxnFilter {
   quick?: QuickFilter[];
   /** Как в отчётах: возврат — минус расход на дату учёта. */
   counted?: boolean;
+  budgetMonth?: string;
   /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
   minAmount?: number;
   /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */
@@ -720,6 +722,7 @@ export interface UpcomingPayment {
   direction: Direction;
   dueDate: string;
   payment: number;
+  currencyCode: string;
   currencySymbol: string;
   minorUnits: number;
   overdue: boolean;
@@ -2067,6 +2070,7 @@ export const api = {
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   mergeCategories: (from: string, into: string) => invoke<void>("merge_categories", { from, into }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
+  getTransaction: (id: string) => invoke<Txn>("get_transaction", { id }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
   splitExpense: (input: SplitInput, reminder?: ReminderPaymentCreation) =>
@@ -2227,8 +2231,8 @@ export const api = {
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
   exportSummary: (from: string, to: string, path: string) => invoke<void>("export_summary", { from, to, path }),
   exportTransactions: (filter: TxnFilter, path: string) => invoke<void>("export_transactions", { filter, path }),
-  exportReport: (report: "categories" | "months", from: string, to: string, path: string) =>
-    invoke<void>("export_report", { report, from, to, path }),
+  exportReport: (report: "categories" | "months", from: string, to: string, path: string, filter?: ReportFilter) =>
+    invoke<void>("export_report", { report, from, to, path, filter: filter ?? null }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */

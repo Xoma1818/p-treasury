@@ -135,6 +135,30 @@ test("значок «?»: под мышкой подсказка, в Настр�
   const q = await browser.$('[data-testid="total-balance"] [data-testid="hint"]');
   await q.moveTo();
   await waitText(browser, '[data-testid="hint-tip"]', /Общий баланс[\s\S]*в основной валюте/);
+  const tip = await browser.$('[role="tooltip"]');
+  await tip.moveTo();
+  assert.ok(await browser.execute(() => document.querySelector('[role="tooltip"]')?.matches(':hover')), "пояснение доступно под указателем");
+  await browser.keys("Escape");
+  await tip.waitForExist({ reverse: true });
+  await (await browser.$("main h1")).moveTo();
+  await browser.execute((el) => el.focus(), q);
+  await tip.waitForDisplayed();
+  assert.equal(await q.getAttribute("aria-describedby"), await tip.getAttribute("id"));
+  const oldTop = await browser.execute((el) => {
+    const top = el.getBoundingClientRect().top;
+    window.scrollBy(0, window.scrollY > 20 ? -16 : 16);
+    return top;
+  }, q);
+  await browser.waitUntil(() => browser.execute((el, previousTop) => {
+    const popup = document.getElementById(el.getAttribute("aria-describedby"));
+    if (!popup) return false;
+    const anchor = el.getBoundingClientRect();
+    const box = popup.getBoundingClientRect();
+    const gap = popup.classList.contains("above") ? anchor.top - box.bottom : box.top - anchor.bottom;
+    return Math.abs(anchor.top - previousTop) > 8 && Math.abs(gap - 10) < 2;
+  }, q, oldTop), { timeout: 3000, timeoutMsg: "после прокрутки подсказка следует за значком" });
+  await browser.keys("Tab");
+  await tip.waitForExist({ reverse: true });
   // Знак «?» не попадает в текст карточки.
   assert.doesNotMatch(await browser.$('[data-testid="total-balance"] .tile-label').getText(), /\?/);
   await openSection(browser, "Настройки");
@@ -145,4 +169,62 @@ test("значок «?»: под мышкой подсказка, в Настр�
   assert.equal(await browser.$('[data-testid="hint"]').isExisting(), false);
   await openSection(browser, "Настройки");
   await (await browser.$('select[name="hints"]')).selectByVisibleText("Показывать");
+});
+
+test("из достигнутой ручной цели можно взять деньги без операции по счёту", async () => {
+  await openSection(browser, "Главная");
+  const ledger = async () => {
+    const snapshot = await browser.executeAsync((done) => {
+      const invoke = window.__TAURI_INTERNALS__.invoke;
+      Promise.all([
+        invoke("list_accounts", { includeArchived: false }),
+        invoke("list_transactions", { filter: { limit: 1 } }),
+      ]).then(([accounts, page]) => done({
+        balances: Object.fromEntries(accounts.map((a) => [a.id, a.balance])), count: page.total,
+      }), (error) => done({ error: String(error) }));
+    });
+    assert.equal(snapshot.error, undefined);
+    return snapshot;
+  };
+  const before = await ledger();
+  const manual = '[data-testid="goal"][data-name="Ручная копилка"]';
+  await click(browser, "+ Цель");
+  await fill(browser, "goalName", "Ручная копилка");
+  await fill(browser, "goalTarget", "10000");
+  await save(browser);
+  await (await browser.$(`${manual} [data-testid="goal-deposit"]`)).click();
+  await fill(browser, "amount", "10000");
+  await save(browser);
+  await waitText(browser, manual, /Цель достигнута/);
+  await click(browser, "Взять из цели", '//*[@data-testid="goal"][@data-name="Ручная копилка"]');
+  const withdrawTab = browser.$('//*[@role="dialog"]//button[normalize-space()="Взять из цели" and @aria-pressed="true"]');
+  await withdrawTab.waitForDisplayed({ timeout: 5000 });
+  await fill(browser, "amount", "12000");
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await waitText(browser, '[role="dialog"] [role="alert"]', /недостаточно накоплений/i);
+  await waitText(browser, '[role="dialog"] p.muted', money("Накоплено 10 000 ₽"));
+  assert.deepEqual(await ledger(), before);
+  await fill(browser, "amount", "2000");
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+  await waitText(browser, `${manual} .goal-sum`, money("8 000 ₽"));
+  await waitText(browser, manual, /80 %/);
+  await browser.keys(["Control", "h"]);
+  try {
+    await waitText(browser, `${manual} .goal-sum`, /•••\s*из\s*•••/);
+    assert.doesNotMatch(await browser.$(manual).getText(), /8\s*000|10\s*000|₽/);
+  } finally {
+    await browser.keys(["Control", "h"]);
+  }
+  await waitText(browser, `${manual} .goal-sum`, money("8 000 ₽"));
+  assert.deepEqual(await ledger(), before);
+
+  await click(browser, "+ Цель");
+  await fill(browser, "goalName", "Цель на счёте");
+  await fill(browser, "goalTarget", "1000");
+  await choose(browser, "goalAccount", "Карта (₽)");
+  await save(browser);
+  const linked = '[data-testid="goal"][data-name="Цель на счёте"]';
+  await waitText(browser, linked, /Цель достигнута/);
+  assert.equal(await browser.$(`${linked} [data-testid="goal-deposit"]`).isExisting(), false);
 });

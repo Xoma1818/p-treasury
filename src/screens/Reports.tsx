@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
 import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
 import { useModules } from "../lib/modules";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { ExportButton, useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
@@ -12,9 +12,9 @@ import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { ACCOUNT_TYPES, api, type CategoryItem, type CategoryKind, type MonthsReport, type ReportFilter, type ReportPeriodKind, type Period } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { formatAmount } from "../lib/money";
-import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
-import { useUi } from "../lib/store";
+import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
+import { useAccounts, useCurrencies, useMonthOf, useSettings } from "../lib/queries";
+import { type ReportContext, type TxnJump, useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { SubscriptionsReport } from "../components/Subscriptions";
 import { YearReviewReport } from "../components/YearReview";
@@ -90,7 +90,8 @@ function ReportTabs({ tab, onPick }: { tab: Tab; onPick: (t: Tab) => void }) {
   );
 }
 
-type Tab = "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
+type Tab = ReportContext["tab"];
+type OpenOperations = (filter: TxnJump, source: string) => void;
 
 /** Сохранённый вид отчёта: вкладка и вид периода; период берётся текущий. */
 interface ReportView {
@@ -98,7 +99,8 @@ interface ReportView {
   kind: Kind;
   custom?: { start: string; end: string } | null;
 }
-type Kind = ReportPeriodKind | "custom";
+type Kind = ReportContext["kind"];
+const initialDetail = { filter: {}, categoryKind: "expense", expanded: [], tagId: "", balancesDate: null } satisfies Partial<ReportContext>;
 
 const KINDS: [Kind, string][] = [
   ["month", "Месяц"],
@@ -120,20 +122,46 @@ function periodTitle(kind: Kind, p: Period) {
 export function Reports() {
   const currentMonth = useMonthOf(today());
   const current = currentMonth.data;
-  const [tab, setTab] = useState<Tab>(() => {
-    const t = useUi.getState().reportTab as Tab | null;
-    if (t) useUi.setState({ reportTab: null });
-    return t ?? "structure";
+  const [report, setReport] = useState<ReportContext>(() => {
+    const { reportOrigin, reportTab } = useUi.getState();
+    return reportOrigin ?? { ...initialDetail, tab: (reportTab as Tab | null) ?? "structure", kind: "month", anchor: null, custom: null };
   });
-  const [kind, setKind] = useState<Kind>("month");
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const [custom, setCustom] = useState<{ start: string; end: string } | null>(null);
-  const applyView = (v: ReportView) => {
-    setTab(v.tab);
-    setKind(v.kind);
-    setAnchor(null);
-    if (v.custom) setCustom(v.custom);
+  const { tab, kind, anchor, custom } = report;
+  const sectionRef = useRef<HTMLElement>(null);
+  const returnSource = useRef(report.source);
+  useEffect(() => {
+    useUi.setState({ reportTab: null, reportOrigin: null });
+    const section = sectionRef.current;
+    if (!section || !returnSource.current) return;
+    const selector = `[data-report-source="${CSS.escape(returnSource.current)}"]`;
+    const source = section.querySelector<HTMLElement>(selector);
+    if (source) {
+      source.focus();
+      return;
+    }
+    const tabButton = section.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!tabButton) return;
+    tabButton.focus();
+    // Строка появится после запроса, если отчёт уже вышел из кеша.
+    const observer = new MutationObserver(() => {
+      const loaded = section.querySelector<HTMLElement>(selector);
+      if (loaded && document.activeElement === tabButton) loaded.focus();
+    });
+    const cancel = () => observer.disconnect();
+    observer.observe(section, { childList: true, subtree: true });
+    tabButton.addEventListener("blur", cancel, { once: true });
+    return () => {
+      cancel();
+      tabButton.removeEventListener("blur", cancel);
+    };
+  }, []);
+  const update = (patch: Partial<ReportContext>) => setReport((r) => ({ ...r, ...patch }));
+  const pickTab = (next: Tab) => {
+    if (next !== tab) update({ ...initialDetail, tab: next });
   };
+  const applyView = (v: ReportView) => update({
+    ...(v.tab !== tab ? initialDetail : {}), tab: v.tab, kind: v.kind, anchor: null, custom: v.custom ?? null,
+  });
   // Вид, открытый из бокового меню.
   const viewJump = useUi((s) => s.viewJump);
   useEffect(() => {
@@ -149,8 +177,10 @@ export function Reports() {
     queryFn: () => api.reportPeriod(kind as ReportPeriodKind, month!),
     enabled: !!month && kind !== "custom",
   });
-  const period: Period | undefined =
+  const reversedDates = kind === "custom" && !!custom && custom.start > custom.end;
+  const selectedPeriod: Period | undefined =
     kind === "custom" ? (custom && month ? { month, ...custom } : current) : fixed.data;
+  const period = reversedDates ? undefined : selectedPeriod;
 
   const summary = useQuery({
     queryKey: ["summary", period?.start, period?.end],
@@ -159,15 +189,16 @@ export function Reports() {
   });
   const s = summary.data;
   const showTransactions = useUi((u) => u.showTransactions);
+  const openOperations: OpenOperations = (filter, source) => showTransactions(filter, { ...report, anchor: month ?? null, source });
   const openPeriodOperations = (type: CategoryKind) => {
-    if (period) showTransactions({ dateFrom: period.start, dateTo: period.end, types: [type], counted: true });
+    if (period) openOperations({ dateFrom: period.start, dateTo: period.end, types: [type], counted: true }, `total-${type}`);
   };
   const exp = useExport(`Kazna — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
     if (!period) return;
-    if (tab === "structure") return api.exportReport("categories", period.start, period.end, path);
-    // 28-е число всегда внутри своего расчётного месяца при любом «первом дне месяца» (1–28).
+    if (tab === "structure") return api.exportReport("categories", period.start, period.end, path, report.filter);
+    // Первое число всегда входит в одноимённый бюджетный месяц.
     const [from, to] = monthsRange(kind, period);
-    return api.exportReport("months", `${from}-28`, `${to}-28`, path);
+    return api.exportReport("months", `${from}-01`, `${to}-01`, path, report.filter);
   });
 
   // Р14: «На Главную» — цифра по образцу открытого отчёта (вид, период, отбор).
@@ -200,11 +231,11 @@ export function Reports() {
     ? (custom ? null : currentMonth.error)
     : (month ? fixed.error : currentMonth.error);
   return (
-    <section className="screen wide reports-overview">
+    <section ref={sectionRef} className="screen wide reports-overview">
       <div className="screen-head reports-heading">
         <ScreenTitle id="reports" />
         <div className="reports-actions">
-          <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
+          <button className="btn" disabled={!ownPeriod && reversedDates} onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
             На Главную
           </button>
           {!ownPeriod && tab !== "balances" && tab !== "fx" && tab !== "tag" && (
@@ -218,8 +249,7 @@ export function Reports() {
           <div className="period-picker" role="group" aria-labelledby="reports-period-title">
             <select name="periodKind" aria-label="Период" value={kind} onChange={(e) => {
               const k = e.target.value as Kind;
-              if (k === "custom" && period) setCustom({ start: period.start, end: period.end });
-              setKind(k);
+              update({ kind: k, ...(k === "custom" && period ? { custom: { start: period.start, end: period.end } } : {}) });
             }}>
               {KINDS.map(([k, label]) => (
                 <option key={k} value={k}>
@@ -229,14 +259,14 @@ export function Reports() {
             </select>
             {kind === "custom" ? (
               <>
-                <input type="date" name="reportFrom" aria-label="С даты" value={custom?.start ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: e.target.value, end: c?.end ?? e.target.value }))} />
+                <input type="date" name="reportFrom" aria-label="С даты" value={custom?.start ?? ""} onChange={(e) => e.target.value && update({ custom: { start: e.target.value, end: custom?.end ?? e.target.value } })} />
                 <span className="muted">—</span>
-                <input type="date" name="reportTo" aria-label="По дату" value={custom?.end ?? ""} onChange={(e) => e.target.value && setCustom((c) => ({ start: c?.start ?? e.target.value, end: e.target.value }))} />
+                <input type="date" name="reportTo" aria-label="По дату" value={custom?.end ?? ""} onChange={(e) => e.target.value && update({ custom: { start: custom?.start ?? e.target.value, end: e.target.value } })} />
               </>
             ) : (
               month && (
                 <div className="month-switch">
-                  <button className="icon-btn" aria-label="Предыдущий период" onClick={() => setAnchor(shiftMonth(month, -STEP[kind]))}>
+                  <button className="icon-btn" aria-label="Предыдущий период" onClick={() => update({ anchor: shiftMonth(month, -STEP[kind]) })}>
                     <ChevronLeft size={18} strokeWidth={1.75} aria-hidden="true" />
                   </button>
                   <div>
@@ -249,7 +279,7 @@ export function Reports() {
                       </div>
                     )}
                   </div>
-                  <button className="icon-btn" aria-label="Следующий период" onClick={() => setAnchor(shiftMonth(month, STEP[kind]))}>
+                  <button className="icon-btn" aria-label="Следующий период" onClick={() => update({ anchor: shiftMonth(month, STEP[kind]) })}>
                     <ChevronRight size={18} strokeWidth={1.75} aria-hidden="true" />
                   </button>
                 </div>
@@ -259,7 +289,8 @@ export function Reports() {
         </div>
       )}
       {!ownPeriod && periodError && <p className="error reports-status" role="alert">Не удалось загрузить период. {String(periodError)}</p>}
-      {!ownPeriod && !period && !periodError && <p className="muted reports-status" role="status">Загружаем период…</p>}
+      {!ownPeriod && reversedDates && <p className="error reports-status" role="alert">Выберите дату окончания не раньше даты начала.</p>}
+      {!ownPeriod && !reversedDates && !period && !periodError && <p className="muted reports-status" role="status">Загружаем период…</p>}
       {sent && (
         <p className="ok" role="status" data-testid="report-sent-home">
           Цифра добавлена на Главную, в «Свои цифры».
@@ -285,14 +316,14 @@ export function Reports() {
           <div className="tiles reports-tiles">
             <div className="card tile" data-testid="report-income">
               <div className="tile-label">Доходы</div>
-              <button type="button" className="tile-value tile-explain plus" title="Операции по доходам за период" onClick={() => openPeriodOperations("income")}>
+              <button type="button" data-report-source="total-income" className="tile-value tile-explain plus" title="Операции по доходам за период" onClick={() => openPeriodOperations("income")}>
                 <M amount={s.income} />
                 <span className="sr-only"> — открыть доходы за период</span>
               </button>
             </div>
             <div className="card tile" data-testid="report-expense">
               <div className="tile-label">Расходы</div>
-              <button type="button" className="tile-value tile-explain" title="Операции по расходам за период" onClick={() => openPeriodOperations("expense")}>
+              <button type="button" data-report-source="total-expense" className="tile-value tile-explain" title="Операции по расходам за период" onClick={() => openPeriodOperations("expense")}>
                 <M amount={s.expense} />
                 <span className="sr-only"> — открыть расходы и возвраты за период</span>
               </button>
@@ -320,7 +351,7 @@ export function Reports() {
         <div className="card hint warn">Нет курса для {s.missingRates.join(", ")}: такие операции не вошли. Курс вводится в Настройках.</div>
       )}
       {s && !noTiles && (
-        <p className="hint">Верхние итоги рассчитаны без фильтра по счёту и тегу. Нажмите на доходы или расходы, чтобы открыть операции за период. В списке показаны исходные суммы и даты. Из-за курсов и распределённых расходов список и отчёт могут различаться.</p>
+        <p className="hint">Доходы и расходы наверху включают все счета и теги. Нажмите на сумму, чтобы увидеть операции и доли распределённых покупок за период.</p>
       )}
 
       <section className="reports-detail" aria-labelledby="reports-detail-title">
@@ -330,16 +361,16 @@ export function Reports() {
           current={{ tab, kind, custom: kind === "custom" ? custom : null }}
           onApply={applyView}
         />
-        <ReportTabs tab={tab} onPick={setTab} />
+        <ReportTabs tab={tab} onPick={pickTab} />
 
-        {period && tab === "structure" && <Structure period={period} onDraft={setCtx} />}
-        {period && tab === "months" && <Months period={period} kind={kind} onDraft={setCtx} />}
-        {period && tab === "balances" && <Balances period={period} />}
+        {period && tab === "structure" && <Structure period={period} reportContext={report} update={update} openOperations={openOperations} onDraft={setCtx} />}
+        {period && tab === "months" && <Months period={period} kind={kind} filter={report.filter} onFilter={(filter) => update({ filter })} openOperations={openOperations} onDraft={setCtx} />}
+        {period && tab === "balances" && <Balances period={period} date={report.balancesDate} onDate={(balancesDate) => update({ balancesDate })} />}
         {tab === "compare" && <Compare />}
         {period && tab === "fx" && <FxGain period={period} />}
         {tab === "subs" && <SubscriptionsReport />}
         {tab === "year" && <YearReviewReport />}
-        {period && tab === "tag" && <TagReport period={period} onDraft={setCtx} />}
+        {period && tab === "tag" && <TagReport period={period} tagId={report.tagId} onTag={(tagId) => update({ tagId })} openOperations={openOperations} onDraft={setCtx} />}
         {tab === "networth" && <NetWorthReport />}
       </section>
     </section>
@@ -415,36 +446,31 @@ function ReportFilterBar({ value, onChange }: { value: ReportFilter; onChange: (
   );
 }
 
-function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<Figure>) => void }) {
-  const [kind, setKind] = useState<CategoryKind>("expense");
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<ReportFilter>({});
+function Structure({ period, reportContext, update, openOperations, onDraft }: {
+  period: Period; reportContext: ReportContext; update: (patch: Partial<ReportContext>) => void;
+  openOperations: OpenOperations; onDraft: (d: Partial<Figure>) => void;
+}) {
+  const { categoryKind: kind, expanded, filter } = reportContext;
   useEffect(() => onDraft?.({ measure: kind, accountId: filter.accountId ?? null, tagId: filter.tagId ?? null }), [kind, filter, onDraft]);
   const [chart, setChart] = useChartKind("structure");
   const report = useQuery({
     queryKey: ["reportByCategory", kind, period.start, period.end, filter],
     queryFn: () => api.reportByCategory(kind, period.start, period.end, filter),
   });
-  const showTransactions = useUi((u) => u.showTransactions);
   const catMap = useCategoryMap();
-  const go = (c: CategoryItem) => showTransactions({
+  const go = (c: CategoryItem) => openOperations({
     ...filter, categoryId: c.categoryId, dateFrom: period.start, dateTo: period.end, types: [kind], counted: true,
-  });
+  }, `category-${c.categoryId}`);
   const r = report.data;
   const max = r?.items[0]?.amount ?? 0;
-  const toggle = (id: string) => setOpen((o) => {
-    const n = new Set(o);
-    if (n.has(id)) n.delete(id);
-    else n.add(id);
-    return n;
-  });
+  const toggle = (id: string) => update({ expanded: expanded.includes(id) ? expanded.filter((c) => c !== id) : [...expanded, id] });
 
   const row = (c: CategoryItem, parent?: CategoryItem) => (
     <li key={parent ? `c-${c.categoryId}` : c.categoryId} className={parent ? "cat-row child" : "cat-row"} data-testid={parent ? "cat-child" : "cat-row"} data-category={c.name}>
       <span className="cat-name">
         {!parent && c.children.length > 0 ? (
-          <button className="icon-btn small" aria-label={open.has(c.categoryId) ? "Свернуть" : "Раскрыть"} aria-expanded={open.has(c.categoryId)} onClick={() => toggle(c.categoryId)}>
-            {open.has(c.categoryId) ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
+          <button className="icon-btn small" aria-label={expanded.includes(c.categoryId) ? "Свернуть" : "Раскрыть"} aria-expanded={expanded.includes(c.categoryId)} onClick={() => toggle(c.categoryId)}>
+            {expanded.includes(c.categoryId) ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
           </button>
         ) : (
           <span className="icon-gap" />
@@ -452,7 +478,7 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
         {parent?.categoryId === c.categoryId ? (
           <span><LookMark look={lookOf(c.categoryId, catMap)} />{c.name}</span>
         ) : (
-          <button type="button" className="link cat-link" title="Показать связанные операции" onClick={() => go(c)}>
+          <button type="button" className="link cat-link" data-report-source={`category-${c.categoryId}`} title="Показать связанные операции" onClick={() => go(c)}>
             <LookMark look={lookOf(c.categoryId, catMap)} />
             {c.name}
           </button>
@@ -479,14 +505,14 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
         <h2>{kind === "expense" ? "Расходы по категориям" : "Доходы по категориям"}</h2>
         <div className="tabs small motion-segments" role="group" aria-label="Тип операций">
           {(["expense", "income"] as CategoryKind[]).map((k) => (
-            <button key={k} className={kind === k ? "tab active" : "tab"} aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <button key={k} className={kind === k ? "tab active" : "tab"} aria-pressed={kind === k} onClick={() => update({ categoryKind: k })}>
               {k === "expense" ? "Расходы" : "Доходы"}
             </button>
           ))}
         </div>
       </div>
       <div className="filters-row reports-controls">
-        <ReportFilterBar value={filter} onChange={setFilter} />
+        <ReportFilterBar value={filter} onChange={(value) => update({ filter: value })} />
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="structure-chart" options={[["bars", "Полосы"], ["donut", "Доли"]]} />
       </div>
@@ -497,7 +523,7 @@ function Structure({ period, onDraft }: { period: Period; onDraft?: (d: Partial<
         <>
           {chart === "donut" && <Donut items={r.items} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
           <ul className="cat-report" data-testid="structure">
-            {r.items.map((c) => [row(c), ...(open.has(c.categoryId) ? c.children.map((x) => row(x, c)) : [])])}
+            {r.items.map((c) => [row(c), ...(expanded.includes(c.categoryId) ? c.children.map((x) => row(x, c)) : [])])}
           </ul>
           <div className="table-foot muted">
             Итого: <M amount={r.total} />. Категории открывают операции с выбранными счётом и тегом.
@@ -575,16 +601,17 @@ function monthsRange(kind: Kind, period: Period): [string, string] {
   return [from, shiftMonth(from, months - 1)];
 }
 
-function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft?: (d: Partial<Figure>) => void }) {
+function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
+  period: Period; kind: Kind; filter: ReportFilter; onFilter: (filter: ReportFilter) => void;
+  openOperations: OpenOperations; onDraft: (d: Partial<Figure>) => void;
+}) {
   const [from, to] = monthsRange(kind, period);
-  const [filter, setFilter] = useState<ReportFilter>({});
   useEffect(() => onDraft?.({ accountId: filter.accountId ?? null, tagId: filter.tagId ?? null }), [filter, onDraft]);
   const [chart, setChart] = useChartKind("months");
   const report = useQuery({ queryKey: ["reportByMonth", from, to, filter], queryFn: () => api.reportByMonth(from, to, filter) });
-  const showTransactions = useUi((u) => u.showTransactions);
-  const openMonth = (month: Period, type?: CategoryKind) => showTransactions({
+  const openMonth = (month: Period, type?: CategoryKind) => openOperations({
     ...filter, dateFrom: month.start, dateTo: month.end, types: type ? [type] : undefined, counted: type ? true : undefined,
-  });
+  }, `month-${month.month}-${type ?? "all"}`);
   const r = report.data;
   return (
     <div className="card">
@@ -592,7 +619,7 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
         Доходы и расходы по месяцам: {monthTitle(from).toLowerCase()} – {monthTitle(to).toLowerCase()}
       </h2>
       <div className="filters-row reports-controls">
-        <ReportFilterBar value={filter} onChange={setFilter} />
+        <ReportFilterBar value={filter} onChange={onFilter} />
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="months-chart" options={[["bars", "Столбцы"], ["line", "Линия"]]} />
       </div>
@@ -618,11 +645,11 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
                   className="clickable"
                   data-testid="month-row"
                   data-month={m.period.month}
-                  title="Показать все операции месяца"
+                  title="Показать все операции по дате записи за месяц"
                   onClick={() => openMonth(m.period)}
                 >
                   <td className="main">
-                    <button type="button" className="link" title="Показать все операции месяца" onClick={(e) => {
+                    <button type="button" className="link" data-report-source={`month-${m.period.month}-all`} title="Показать все операции по дате записи за месяц" onClick={(e) => {
                       e.stopPropagation();
                       openMonth(m.period);
                     }}>
@@ -630,7 +657,7 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
                     </button>
                   </td>
                   <td className="num plus">
-                    <button type="button" className="link" title="Показать операции по доходам" onClick={(e) => {
+                    <button type="button" className="link" data-report-source={`month-${m.period.month}-income`} title="Показать операции по доходам" onClick={(e) => {
                       e.stopPropagation();
                       openMonth(m.period, "income");
                     }}>
@@ -639,7 +666,7 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
                     </button>
                   </td>
                   <td className="num">
-                    <button type="button" className="link" title="Показать операции по расходам" onClick={(e) => {
+                    <button type="button" className="link" data-report-source={`month-${m.period.month}-expense`} title="Показать операции по расходам" onClick={(e) => {
                       e.stopPropagation();
                       openMonth(m.period, "expense");
                     }}>
@@ -678,23 +705,22 @@ function Months({ period, kind, onDraft }: { period: Period; kind: Kind; onDraft
 
 const W = 900;
 const H = 220;
-const PAD_L = 56;
 const PAD_B = 24;
 
 /** Столбцы «доходы / расходы» по месяцам; ось одна, подписи в тексте, подсказка при наведении. */
 export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
-  const hidden = useSettings().data?.hide_amounts === "1";
-  const max = Math.max(...r.months.map((m) => Math.max(m.income, m.expense)), 1);
-  const nice = niceMax(max);
+  const settings = useSettings().data;
+  const minorUnits = useCurrencies().data?.find(c => c.code === r.baseCurrency)?.minorUnits;
+  const { min, max, step } = netWorthScale(r.months.flatMap(m => [m.income, m.expense]), 3);
+  const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step);
+  const short = (v: number) => !settings || settings.hide_amounts === "1" ? "•••" : minorUnits == null ? "—" : axisLabel(v, minorUnits);
+  const PAD_L = axisPad(ticks.map(short));
   const plotW = W - PAD_L - 8;
   const plotH = H - PAD_B - 12;
   const slot = plotW / r.months.length;
-  const barW = Math.min(18, (slot - 10) / 2);
-  const y = (v: number) => 12 + plotH - (v / nice) * plotH;
-  const ticks = [0, nice / 2, nice];
-  // Подписи оси в тысячах: «50 тыс.».
-  const short = (v: number) => (hidden ? "•••" : v === 0 ? "0" : `${formatAmount(Math.round(v / 1000), 2)} тыс.`);
+  const barW = Math.min(18, slot * 0.38);
+  const y = (v: number) => 12 + plotH - ((v - min) / (max - min)) * plotH;
 
   return (
     <div className="chart" onMouseLeave={() => setHover(null)}>
@@ -755,23 +781,18 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   );
 }
 
-/** Столбец со скруглённым верхом, прижатый к оси. */
+/** Свободный конец столбца скруглён по обе стороны нулевой оси. */
 function bar(x: number, w: number, top: number, base: number) {
   const h = base - top;
-  if (h <= 0) return "";
-  const rr = Math.min(4, w / 2, h);
-  return `M${x},${base}V${top + rr}Q${x},${top} ${x + rr},${top}H${x + w - rr}Q${x + w},${top} ${x + w},${top + rr}V${base}Z`;
+  if (h === 0) return "";
+  const rr = Math.min(4, w / 2, Math.abs(h));
+  const corner = top + Math.sign(h) * rr;
+  return `M${x},${base}V${corner}Q${x},${top} ${x + rr},${top}H${x + w - rr}Q${x + w},${top} ${x + w},${corner}V${base}Z`;
 }
 
-function niceMax(v: number) {
-  const exp = 10 ** Math.floor(Math.log10(v));
-  for (const k of [1, 2, 2.5, 5, 10]) if (k * exp >= v) return k * exp;
-  return 10 * exp;
-}
-
-function Balances({ period }: { period: Period }) {
+function Balances({ period, date: selected, onDate }: { period: Period; date: string | null; onDate: (date: string) => void }) {
   const t = today();
-  const [date, setDate] = useState(period.end < t ? period.end : t);
+  const date = selected ?? (period.end < t ? period.end : t);
   const report = useQuery({ queryKey: ["reportBalances", date], queryFn: () => api.reportBalances(date), enabled: !!date });
   const showTransactions = useUi((u) => u.showTransactions);
   const r = report.data;
@@ -784,7 +805,7 @@ function Balances({ period }: { period: Period }) {
         </h2>
         <label className="check">
           на дату
-          <input type="date" name="balancesDate" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          <input type="date" name="balancesDate" value={date} onChange={(e) => e.target.value && onDate(e.target.value)} />
         </label>
       </div>
       {report.error && <p className="error">{String(report.error)}</p>}

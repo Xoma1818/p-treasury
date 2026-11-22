@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
-import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
+import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
 import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
 import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
+import { occurrenceStatus } from "../lib/occurrenceStatus";
 import { useAccounts, useCategories, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -118,7 +119,7 @@ export function ReminderForm({
     (input: ReminderInput) =>
       from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteReminder(reminder!.id), onClose);
 
@@ -389,11 +390,13 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [matching, setMatching] = useState(false);
+  const [viewing, setViewing] = useState<string | null>(null);
   const more = usePopup();
   const moreId = useId();
   const primary = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const snoozeButton = useRef<HTMLButtonElement>(null);
+  const transactionButton = useRef<HTMLButtonElement>(null);
   const done = useAction(() => api.completeReminder(o.key), onAction);
   const reopen = useAction(() => api.reopenReminder(o.key), onAction);
   const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), () => {
@@ -403,9 +406,15 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
   const create = useCreateFromReminder();
   const openDebt = useUi((s) => s.openDebt);
   const open = o.status === "pending" || o.status === "snoozed";
-  const late = open && o.dueAt <= nowLocal();
+  const status = occurrenceStatus(o, nowLocal());
   const debt = o.key.source === "debt";
   const payment = !debt && o.amount != null;
+  useEffect(() => {
+    if (viewing && (o.status !== "done" || o.transactionId !== viewing)) {
+      setViewing(null);
+      (transactionButton.current ?? primary.current)?.focus();
+    }
+  }, [viewing, o.status, o.transactionId]);
   const closeMatching = () => {
     setMatching(false);
     (payment ? primary : moreButton).current?.focus();
@@ -415,13 +424,15 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
     requestAnimationFrame(() => snoozeButton.current?.focus());
   };
   return (
-    <li className={late ? "occurrence late" : "occurrence"} data-testid="occurrence" data-title={o.title}>
+    <li className={status.state === "overdue" ? "occurrence late" : "occurrence"} data-testid="occurrence" data-title={o.title}>
       <div className="occ-main">
         <span className="main">{o.title}</span>
         <span className="sub">
-          {o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}` : formatDateTime(o.dueAt)}
-          {o.status === "snoozed" && " · отложено"}
-          {o.status === "done" && (o.linkedActual ? " · связано с операцией" : " · выполнено")}
+          <span data-testid="occ-status" data-state={status.state}>{status.label}</span>
+          {" · "}
+          {o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}`
+            : payment && o.payAt !== o.dueAt ? `платёж ${formatDateTime(o.payAt)}, напомнить ${formatDateTime(o.dueAt)}`
+            : formatDateTime(o.dueAt)}
           {o.last && " · последний"}
           {o.edited && <span className="edited"> · изменён</span>}
         </span>
@@ -480,12 +491,18 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
           <button type="button" className="btn small" disabled={snooze.busy} onClick={closeSnooze}>Назад</button>
         </>}
         {o.status === "done" && (
-          <button className="link" onClick={() => reopen.run()} title="Вернуть в ожидание">
-            Вернуть
-          </button>
+          <>
+            {o.transactionId && <button type="button" className="btn small" ref={transactionButton}
+              data-testid="occ-open-transaction" onClick={() => setViewing(o.transactionId)}>Открыть операцию</button>}
+            <button type="button" className="link" onClick={() => reopen.run()} title="Вернуть в ожидание">Вернуть</button>
+          </>
         )}
       </div>
       <ErrorText error={done.error ?? snooze.error ?? reopen.error} />
+      {viewing && o.status === "done" && viewing === o.transactionId && <LinkedTransaction id={viewing} onClose={() => {
+        setViewing(null);
+        (transactionButton.current ?? primary.current)?.focus();
+      }} />}
       {matching && (
         <PaymentMatch o={o} onClose={closeMatching} onCreate={(revision, allowSeparate) => {
           setMatching(false);
@@ -506,6 +523,52 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         />
       )}
     </li>
+  );
+}
+
+function LinkedTransaction({ id, onClose }: { id: string; onClose: () => void }) {
+  const settings = useSettings().data;
+  const accounts = useAccounts(true).data;
+  const query = useQuery({
+    queryKey: ["transactions", "linked", id],
+    queryFn: () => api.getTransaction(id),
+    refetchOnMount: "always",
+    gcTime: 0,
+    retry: false,
+  });
+  const t = query.data;
+  const destination = t?.toAccountId ? accounts?.find((a) => a.id === t.toAccountId) : null;
+  return (
+    <Modal title="Связанная операция" onClose={onClose}>
+      {query.isFetching ? <p role="status">Загружаем операцию…</p> : query.isError || !t ? (
+        <>
+          <p role="status">Связанная операция недоступна.</p>
+          <button type="button" className="link" onClick={() => void query.refetch()}>Проверить снова</button>
+        </>
+      ) : (
+        <dl className="facts linked-transaction" data-testid="linked-transaction" data-transaction-id={t.id}>
+          <dt>Вид операции</dt><dd>{TXN_TYPES[t.type]}</dd>
+          <dt>Дата</dt><dd>{formatDate(t.date)}</dd>
+          <dt>{t.type === "transfer" ? "Со счёта" : "Счёт"}</dt><dd>{t.accountName} · {t.currencyCode}</dd>
+          <dt>{t.type === "transfer" ? "Списано" : "Сумма"}</dt><dd><Money amount={t.amount} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} /></dd>
+          {t.type === "transfer" && <>
+            <dt>На счёт</dt><dd>{t.toAccountName}{destination && ` · ${destination.currencyCode}`}</dd>
+            {t.toAmount != null && <>
+              <dt>Зачислено</dt>
+              <dd>{destination
+                ? <Money amount={t.toAmount} symbol={destination.currencySymbol} currencyCode={destination.currencyCode} minorUnits={destination.minorUnits} />
+                : "—"}</dd>
+            </>}
+          </>}
+          {t.payee && <><dt>{t.type === "income" ? "От кого" : "Получатель"}</dt><dd>{t.payee}</dd></>}
+          {t.categoryName && <><dt>Категория</dt><dd>{t.categoryName}</dd></>}
+          {t.note && settings && settings.hide_amounts !== "1" && <><dt>Комментарий</dt><dd>{t.note}</dd></>}
+        </dl>
+      )}
+      <div className="actions">
+        <button type="button" className="btn" autoFocus onClick={onClose}>Закрыть</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -577,7 +640,6 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
       }}>Проверить снова</button>}
       {selected && <p className="hint" role="status">Связь завершит напоминание. Сумма проведённой операции и остаток на счёте сохранятся.</p>}
       <div className="actions payment-review-actions">
-        <span className="spacer" />
         <button type="button" className="btn" autoFocus disabled={attach.busy} onClick={onClose}>Назад</button>
         {review && candidates.length > 0 && <button type="button" className="btn" disabled={attach.busy || !!error}
           onClick={() => onCreate(review.revision, true)}>

@@ -1884,9 +1884,11 @@ pub fn export_report(
     from: String,
     to: String,
     path: String,
+    filter: Option<reports::ReportFilter>,
 ) -> CmdResult<()> {
     with_db(&state, |db| {
-        let sheet = export::report_sheet(db.conn(), &report, &from, &to)?;
+        let sheet =
+            export::report_sheet_in(db.conn(), &report, &from, &to, &filter.unwrap_or_default())?;
         export::write_one(Path::new(&path), &sheet)
     })
 }
