@@ -57,13 +57,14 @@ if (pathToFileURL(process.argv[1]).href === import.meta.url) {
   const anchor = '  await repeat.scrollIntoView({ block: "center" });\n  await repeat.waitForClickable();';
   if (original.split(anchor).length !== 2) throw Error("frequency test changed");
   const start = '  await snapshot(browser,"MODE-before-scroll",await repeat);\n';
-  const right = original.split("\n").find(line=>line.includes('Работодатель')&&line.includes('button: "right"'));
+  const right = '  await rowDate.click({ button: "right" });';
   const pick = original.split("\n").find(line=>line.includes('await click(browser, "Запланировать повтор…"'));
-  if(!right || !pick) throw Error("menu anchors changed");
+  if(original.split(right).length!==3 || !pick) throw Error("menu anchors changed");
   const before = `  await repeat.scrollIntoView({ block:"center" });
   await snapshot(browser,"pointer-after-scroll",await repeat);
   try { await repeat.waitForClickable(); } catch(e) { await snapshot(browser,"pointer-failed",await repeat); throw e; }`;
   const keyboard = `  const title = browser.$('[data-testid="repeat-plan-form"] input[name="reminderTitle"]');
+  await title.click();
   assert.equal(await browser.execute(()=>document.activeElement?.name),"reminderTitle");
   const visited=[];
   for(let i=0;i<12;i++){
@@ -75,17 +76,21 @@ if (pathToFileURL(process.argv[1]).href === import.meta.url) {
   console.log("real tab order",JSON.stringify(visited));
   await snapshot(browser,"keyboard-focused",await repeat);
   assert.equal(visited.at(-1)[1],"repeat","клавиатура достигает списка");`;
-  let keyboardPassed=false;
-  for(const [mode,attempt] of [["pointer",before],["keyboard",keyboard],["native",before],["explicit-up",before]]) {
+  let allPassed=true;
+  for(const [mode,attempt] of [["pointer",before],["native",keyboard]]) {
     let press=right;
-    if(mode==="explicit-up") press=right.replace('button: "right"','button: "right", skipRelease: true');
     if(mode==="native") {
-      press=`const row=browser.$('//*[@data-testid="txn-row" and contains(., "Работодатель")]//td[@class="date"]');
-      await row.moveTo();
-      execFileSync("xdotool",["click","3"]);`;
+      press=`{
+        await rowDate.scrollIntoView({block:"nearest"});
+        const [x,y]=await browser.execute(el=>{const r=el.getBoundingClientRect();return [Math.floor(r.x+r.width/2),Math.floor(r.y+r.height/2)];},await rowDate);
+        const win=execFileSync("xdotool",["search","--onlyvisible","--name","^Kazna$"],{encoding:"utf8"}).trim().split(/\\s+/).at(-1);
+        console.log("X11 window and pointer",win,x,y);
+        execFileSync("xdotool",["mousemove","--window",win,String(x),String(y),"click","3"]);
+      }`;
     }
     const copy='import {snapshot,traceInput,reportInput} from "./qa-linux-repeat.mjs";\nimport {execFileSync} from "node:child_process";\n'+original
-      .replace(right,"await traceInput(browser);\n"+press+"\nawait reportInput(browser,'"+mode+"-right');")
+      .replace('  const menu = browser.$(byTest("context-menu"));','  const menu = browser.$(byTest("context-menu"));\n  await traceInput(browser);')
+      .replaceAll(right,press+"\nawait reportInput(browser,'"+mode+"-right');")
       .replace(pick,pick+"\nawait reportInput(browser,'"+mode+"-pick');").replace(anchor,start.replace("MODE",mode)+attempt);
     const path="e2e/.qa-repeat-"+mode+".mjs";
     await writeFile(path,copy);
@@ -93,7 +98,10 @@ if (pathToFileURL(process.argv[1]).href === import.meta.url) {
     process.stdout.write(result.stdout??""); process.stderr.write(result.stderr??"");
     await writeFile(join(output,mode+".tap"),(result.stdout??"")+(result.stderr??""));
     console.log(mode,"exit",result.status);
-    if(mode==="keyboard") keyboardPassed=result.status===0;
+    allPassed=allPassed&&result.status===0;
   }
-  process.exitCode=keyboardPassed?0:1;
+  const selection=spawnSync(process.execPath,["--test","--test-name-pattern=выделение: флажки","e2e/wave7.test.mjs"],{encoding:"utf8",maxBuffer:8*1024*1024});
+  process.stdout.write(selection.stdout??"");process.stderr.write(selection.stderr??"");
+  await writeFile(join(output,"selection.tap"),(selection.stdout??"")+(selection.stderr??""));
+  process.exitCode=allPassed&&selection.status===0?0:1;
 }

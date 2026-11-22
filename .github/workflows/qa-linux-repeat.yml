@@ -27,6 +27,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Применить проверяемое исправление в рабочей копии
+        run: git apply e2e/qa-linux-repeat.patch
       - run: npm run build
       - run: cargo build -p budget-app --features custom-protocol --locked --quiet
       - name: Два пути от контекстного меню
