@@ -77,8 +77,8 @@ export async function openFilteredReportJournal(w) {
   return { before, first, second, row, card, tag, rows };
 }
 
-export async function checkReportJournal(w) {
-  const { before, first, second, row, card, tag } = await openFilteredReportJournal(w);
+export async function checkReportJournal(w, fixture) {
+  const { before, first, second, row, card, tag } = fixture ?? await openFilteredReportJournal(w);
   await w.contains(sum, "393,33");
   await w.contains(share, "333,33");
   if (w.shot) await w.shot("category");
@@ -141,4 +141,42 @@ export async function checkReportJournal(w) {
   assert.deepEqual(await ledger(w.invoke), before);
   return { first, second, balances: before.balances, transactionIds: before.ids, categoryExpense: 39333,
     periodExpense: 49333, customExpense: 82667, customShare: 66667 };
+}
+
+// Сверяем выгрузку с той же учебной базой. Строки тестового CSV не содержат
+// кавычек, переводов строки и разделителей в названиях.
+export async function checkReportExports(w, { second, row, card, tag }, readExport) {
+  await w.refresh();
+  await w.nav("Отчёты");
+  await w.click('[aria-label="Предыдущий период"]');
+  await w.contains(".month-switch", localDate(second.start));
+  const setFilter = async (accountId, tagId) => {
+    await w.choose('[name="reportAccount"]', accountId);
+    await w.choose('[name="reportTag"]', tagId);
+  };
+  const asNumber = s => Number(String(s).replace(",", "."));
+  await setFilter(card.id, tag.id);
+  await w.contains(row + " .num", "393,33");
+  const category = (await w.texts(row + " .cat-link"))[0].trim();
+  for (const [label, amount, total] of [["filtered", 393.33, 423.33], ["all", 463.33, 493.33]]) {
+    if (label === "all") await setFilter("", "");
+    await w.contains(".reports-detail .table-foot", String(total).replace(".", ","));
+    const rows = await readExport("categories-" + label);
+    const expense = name => rows.find(r => r[0] === "Расход" && r[1] === name && !r[2]);
+    assert.equal(asNumber(expense(category)?.[3]), amount, label + ": расход категории");
+    assert.equal(asNumber(expense("Итого")?.[3]), total, label + ": итог расходов");
+  }
+  await w.press("По месяцам", ".report-tabs");
+  await setFilter(card.id, tag.id);
+  const monthRow = `[data-testid="month-row"][data-month="${second.month}"] td:nth-child(3)`;
+  for (const [label, amount] of [["filtered", 423.33], ["all", 493.33]]) {
+    if (label === "all") await setFilter("", "");
+    await w.contains(monthRow, String(amount).replace(".", ","));
+    const visible = await w.monthKeys();
+    assert.equal(visible.length, 12);
+    assert.equal(visible.at(-1), second.month);
+    const rows = (await readExport("months-" + label)).filter(r => /^\d{4}-\d\d$/.test(r[0]));
+    assert.deepEqual(rows.map(r => r[0]), visible, label + ": месяцы таблицы и файла");
+    assert.equal(asNumber(rows.at(-1)[4]), amount, label + ": расходы последнего месяца");
+  }
 }

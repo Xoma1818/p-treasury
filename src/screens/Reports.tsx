@@ -177,8 +177,10 @@ export function Reports() {
     queryFn: () => api.reportPeriod(kind as ReportPeriodKind, month!),
     enabled: !!month && kind !== "custom",
   });
-  const period: Period | undefined =
+  const reversedDates = kind === "custom" && !!custom && custom.start > custom.end;
+  const selectedPeriod: Period | undefined =
     kind === "custom" ? (custom && month ? { month, ...custom } : current) : fixed.data;
+  const period = reversedDates ? undefined : selectedPeriod;
 
   const summary = useQuery({
     queryKey: ["summary", period?.start, period?.end],
@@ -193,10 +195,10 @@ export function Reports() {
   };
   const exp = useExport(`Kazna — отчёт ${period ? `${period.start} — ${period.end}` : ""}`, async (path) => {
     if (!period) return;
-    if (tab === "structure") return api.exportReport("categories", period.start, period.end, path);
-    // 28-е число всегда внутри своего расчётного месяца при любом «первом дне месяца» (1–28).
+    if (tab === "structure") return api.exportReport("categories", period.start, period.end, path, report.filter);
+    // Первое число всегда входит в одноимённый бюджетный месяц.
     const [from, to] = monthsRange(kind, period);
-    return api.exportReport("months", `${from}-28`, `${to}-28`, path);
+    return api.exportReport("months", `${from}-01`, `${to}-01`, path, report.filter);
   });
 
   // Р14: «На Главную» — цифра по образцу открытого отчёта (вид, период, отбор).
@@ -233,7 +235,7 @@ export function Reports() {
       <div className="screen-head reports-heading">
         <ScreenTitle id="reports" />
         <div className="reports-actions">
-          <button className="btn" onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
+          <button className="btn" disabled={!ownPeriod && reversedDates} onClick={() => (setSent(false), setToHome(true))} data-testid="report-to-home" title="Цифра этого отчёта карточкой на Главной">
             На Главную
           </button>
           {!ownPeriod && tab !== "balances" && tab !== "fx" && tab !== "tag" && (
@@ -287,7 +289,8 @@ export function Reports() {
         </div>
       )}
       {!ownPeriod && periodError && <p className="error reports-status" role="alert">Не удалось загрузить период. {String(periodError)}</p>}
-      {!ownPeriod && !period && !periodError && <p className="muted reports-status" role="status">Загружаем период…</p>}
+      {!ownPeriod && reversedDates && <p className="error reports-status" role="alert">Выберите дату окончания не раньше даты начала.</p>}
+      {!ownPeriod && !reversedDates && !period && !periodError && <p className="muted reports-status" role="status">Загружаем период…</p>}
       {sent && (
         <p className="ok" role="status" data-testid="report-sent-home">
           Цифра добавлена на Главную, в «Свои цифры».

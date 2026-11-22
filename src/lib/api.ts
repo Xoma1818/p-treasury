@@ -2231,8 +2231,8 @@ export const api = {
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
   exportSummary: (from: string, to: string, path: string) => invoke<void>("export_summary", { from, to, path }),
   exportTransactions: (filter: TxnFilter, path: string) => invoke<void>("export_transactions", { filter, path }),
-  exportReport: (report: "categories" | "months", from: string, to: string, path: string) =>
-    invoke<void>("export_report", { report, from, to, path }),
+  exportReport: (report: "categories" | "months", from: string, to: string, path: string, filter?: ReportFilter) =>
+    invoke<void>("export_report", { report, from, to, path, filter: filter ?? null }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
