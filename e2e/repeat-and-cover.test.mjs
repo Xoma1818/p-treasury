@@ -11,6 +11,12 @@ const byTest = name => `[data-testid="${name}"]`;
 
 async function capture(browser, name) {
   if (process.env.KAZNA_QA_SCREENSHOTS) {
+    await browser.executeAsync(done => {
+      const entering = document.getAnimations().filter(animation =>
+        animation.playState === "running" && animation.effect?.getComputedTiming().endTime <= 1500);
+      Promise.allSettled(entering.map(animation => animation.finished))
+        .then(() => requestAnimationFrame(() => requestAnimationFrame(() => done(true))));
+    });
     await browser.saveScreenshot(join(process.env.KAZNA_QA_SCREENSHOTS, name + ".png"));
   }
 }
@@ -181,7 +187,7 @@ test("Повтор аренды: выписка и план связываютс
     await checkDates(paidRow);
     const next = await waitText(browser, seriesRow, /следующее/);
     if (!visit) {
-      await browser.$(seriesRow).scrollIntoView({ block: "end" });
+      await browser.$(seriesRow).scrollIntoView({ block: "nearest", inline: "nearest" });
       await capture(browser, "03-rent-next-payment");
     }
     assert.ok(next.includes(`следующее ${nextDate}`), `Ожидался следующий платёж ${nextDate}. В списке: ${next}`);
@@ -297,7 +303,7 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   const homeCover = browser.$(homeRow + '//*[@data-testid="warning-cover"]');
   async function preview(button) {
     await button.waitForDisplayed();
-    await button.scrollIntoView({ block: "center" });
+    await button.scrollIntoView({ block: "center", inline: "nearest" });
     await button.click();
     const source = browser.$(byTest("cover-source"));
     await source.waitForDisplayed();
@@ -352,6 +358,7 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await browser.$(byTest("cover-confirm")).waitForExist({ reverse: true });
   await homeCover.waitForExist({ reverse: true });
   await waitText(browser, homeRow, /Лимит использован/);
+  assert.ok(await browser.$(homeRow).$(".qw-kind.used").isExisting());
   await browser.waitUntil(() => browser.execute(() => document.activeElement?.matches('[data-testid="home-checks"] h2')),
     { timeout: 3000, timeoutMsg: "После покрытия перерасхода фокус должен перейти на заголовок предупреждений" });
   await check(340_000, 160_000);
@@ -365,6 +372,8 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await browser.$(recipient).waitForDisplayed();
   assert.equal(await cover.isExisting(), false);
   await waitText(browser, recipient, /Лимит использован/);
+  assert.ok(await browser.$(recipient).$(".bar.used").isExisting());
+  await browser.$(recipient).scrollIntoView({ block: "center", inline: "nearest" });
   await capture(browser, "06-budget-used");
   await waitText(browser, byTest("budget-planned"), money("5 000 ₽"));
   await waitText(browser, byTest("budget-spent"), money("4 400 ₽"));
