@@ -9,7 +9,28 @@ on:
 permissions:
   contents: read
 jobs:
+  reference:
+    name: Эталон из опубликованного установщика на чистой Windows 11
+    runs-on: windows-11-arm
+    timeout-minutes: 7
+    outputs:
+      exe_sha: ${{ steps.install.outputs.exe_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/qa/041-update
+          path: harness
+      - uses: actions/checkout@v5
+        with:
+          ref: 344ace11d0c6cb27f3f5ffa41c7bbd6dbaf5868b
+          persist-credentials: false
+          path: source
+      - id: install
+        shell: pwsh
+        run: ./harness/.github/qa/041-update/public-check.ps1 -Source (Resolve-Path ./source).Path -ReferenceOnly
   public-update:
+    needs: reference
     name: Установленная Kazna обновляется из публичного канала
     runs-on: windows-11-arm
     timeout-minutes: 15
@@ -33,5 +54,7 @@ jobs:
         shell: pwsh
         run: ./harness/.github/qa/041-update/windows-driver.ps1
       - name: Публичное обновление установленной программы
+        env:
+          KAZNA_PUBLIC_REFERENCE_EXE: ${{ needs.reference.outputs.exe_sha }}
         shell: pwsh
         run: ./harness/.github/qa/041-update/public-check.ps1 -Source (Resolve-Path ./source).Path

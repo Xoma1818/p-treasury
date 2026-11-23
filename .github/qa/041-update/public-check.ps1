@@ -1,5 +1,5 @@
 # Read-only public release acceptance on an ephemeral Windows 11 runner.
-param([Parameter(Mandatory)][string]$Source)
+param([Parameter(Mandatory)][string]$Source, [switch]$ReferenceOnly)
 $ErrorActionPreference = 'Stop'
 $releaseRepo = 'Xoma1818/p-treasury-releases'
 $sourceSha = '344ace11d0c6cb27f3f5ffa41c7bbd6dbaf5868b'
@@ -44,14 +44,48 @@ try {
     $bins = @($archive.Entries | Where-Object Name -CEQ 'Kazna.exe')
     if ($bins.Count -ne 1 -or $bins[0].Length -le 0) { throw 'Missing unambiguous public Kazna.exe.' }
     $s = $bins[0].Open()
-    try { $expectedExe = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s)) } finally { $s.Dispose() }
+    try { $portableSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s)) } finally { $s.Dispose() }
 } finally { $archive.Dispose() }
+$bin = Join-Path $install 'Kazna.exe'
+if ($ReferenceOnly) {
+    $setup = Get-PublishedAsset 'Kazna_0.41.2_x64-setup.exe'
+    $proc = Start-Process -FilePath $setup -ArgumentList @('/S',"/D=$install") -PassThru -WindowStyle Hidden
+    if (!$proc.WaitForExit(120000)) { $proc.Kill($true); throw 'Reference installer timed out.' }
+    if ($proc.ExitCode -ne 0 -or (Get-Item -LiteralPath $bin).VersionInfo.ProductVersion -ne '0.41.2') { throw 'Could not install official 0.41.2 on the reference machine.' }
+    $referenceSha = (Get-FileHash -LiteralPath $bin -Algorithm SHA256).Hash
+    "exe_sha=$referenceSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+    Write-Host "Clean install SHA256=$referenceSha; portable SHA256=$portableSha; setup SHA256=$((Get-FileHash -LiteralPath $setup).Hash)"
+    $archive = [IO.Compression.ZipFile]::OpenRead($portablePath)
+    try {
+        $portableEntry = @($archive.Entries | Where-Object Name -CEQ 'Kazna.exe')[0]
+        $a = [IO.File]::ReadAllBytes($bin)
+        $b = [IO.MemoryStream]::new()
+        $inputStream = $portableEntry.Open()
+        try { $inputStream.CopyTo($b) } finally { $inputStream.Dispose() }
+        $bytes = $b.ToArray()
+        $b.Dispose()
+        if ($a.Length -eq $bytes.Length -and $referenceSha -ne $portableSha) {
+            $offsets = [System.Collections.Generic.List[int]]::new()
+            for ($i = 0; $i -lt $a.Length; $i++) {
+                if ($a[$i] -ne $bytes[$i]) {
+                    $offsets.Add($i)
+                    if ($offsets.Count -gt 64) { break }
+                }
+            }
+            if ($offsets.Count -le 64) {
+                foreach ($offset in $offsets) { Write-Host ('Bundle diff offset {0:X}: installed={1:X2}, portable={2:X2}' -f $offset,$a[$offset],$bytes[$offset]) }
+            } else { Write-Host 'More than 64 bytes differ between distributions.' }
+        } else { Write-Host "PE length: installer=$($a.Length) portable=$($bytes.Length)" }
+    } finally { $archive.Dispose() }
+    return
+}
+$expectedExe = $env:KAZNA_PUBLIC_REFERENCE_EXE
+if ($expectedExe -notmatch '^[A-Fa-f0-9]{64}$') { throw 'The digest from the independent installation is required.' }
 $old = Join-Path $root 'Kazna_0.37.2_x64-setup.exe'
 Invoke-WebRequest -Uri "https://github.com/$releaseRepo/releases/download/v0.37.2/Kazna_0.37.2_x64-setup.exe" -OutFile $old -TimeoutSec 20 -OperationTimeoutSeconds 90
 if ((Get-FileHash -LiteralPath $old).Hash -ne '6e31087e53ff29a4033caab937bd47c0558204914df0ef37108fcf37ededdfb7') { throw 'Unexpected original 0.37.2 installation file.' }
 $proc = Start-Process -FilePath $old -ArgumentList @('/S',"/D=$install") -PassThru -WindowStyle Hidden
 if (!$proc.WaitForExit(120000)) { $proc.Kill($true); throw 'Old installer timed out' }
-$bin = Join-Path $install 'Kazna.exe'
 if ($proc.ExitCode -ne 0 -or (Get-Item -LiteralPath $bin).VersionInfo.ProductVersion -ne '0.37.2') { throw 'Could not install official 0.37.2.' }
 $env:KAZNA_TEST_BIN = $bin
 $env:KAZNA_E2E_APP = Join-Path $Source 'e2e/app.mjs'
@@ -60,5 +94,5 @@ Write-Host "Public channel=$feedUrl release=$($release.tag_name) expectedExeSHA2
 & node (Join-Path $PSScriptRoot 'public-update.mjs')
 if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $env:KAZNA_UPDATE_EVIDENCE)) { throw 'The installed update and data verification failed.' }
 $actualExe = (Get-FileHash -LiteralPath $bin -Algorithm SHA256).Hash
-if ($actualExe -ne $expectedExe) { throw "The installed program differs from the published executable: $actualExe" }
+if ($actualExe -ne $expectedExe) { throw "The updated executable differs from the clean installation of the same published NSIS package: $actualExe" }
 Write-Host "Public installed exe SHA-256 $actualExe. Evidence: $([IO.File]::ReadAllText($env:KAZNA_UPDATE_EVIDENCE))"
