@@ -2188,26 +2188,52 @@ fn update_endpoint() -> Option<String> {
         .filter(|u| !u.is_empty())
 }
 
-fn updater(app: &tauri::AppHandle) -> Result<Option<tauri_plugin_updater::Updater>, String> {
+fn updater_error(error: tauri_plugin_updater::Error) -> String {
+    use tauri_plugin_updater::Error as E;
+
+    let message = match &error {
+        E::Minisign(_) | E::Base64(_) | E::SignatureUtf8(_) | E::MissingSignedVersion
+        | E::SignedVersionMismatch { .. } => {
+            "Подпись обновления не прошла проверку. Установка отменена."
+        }
+        E::Reqwest(e) if e.is_timeout() || e.is_connect() || e.is_request() || e.is_body() => {
+            "Нет связи с сервером обновлений. Проверьте подключение к интернету и попробуйте ещё раз."
+        }
+        E::ReleaseNotFound | E::Serialization(_) => {
+            "Сервер не предоставил сведения об обновлении. Попробуйте позже."
+        }
+        E::Reqwest(e) if e.is_decode() => {
+            "Не удалось прочитать ответ сервера обновлений. Попробуйте позже."
+        }
+        E::Network(_) => "Сервер не предоставил файл обновления. Попробуйте позже.",
+        E::PreviousAppNotRestored(path) => {
+            return format!("Не удалось завершить установку. Прежняя версия сохранена в {}.", path.display());
+        }
+        _ => "Не удалось завершить обновление. Попробуйте позже.",
+    };
+    message.to_owned()
+}
+
+fn updater(
+    app: &tauri::AppHandle,
+) -> tauri_plugin_updater::Result<Option<tauri_plugin_updater::Updater>> {
     use tauri_plugin_updater::UpdaterExt;
     let Some(url) = update_endpoint() else {
         return Ok(None);
     };
-    let url = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    let url = tauri::Url::parse(&url)?;
     let u = app
         .updater_builder()
-        .endpoints(vec![url])
-        .map_err(|e| e.to_string())?
+        .endpoints(vec![url])?
         .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     Ok(Some(u))
 }
 
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle) -> CmdResult<UpdateInfo> {
     let current = app.package_info().version.to_string();
-    let Some(u) = updater(&app)? else {
+    let Some(u) = updater(&app).map_err(updater_error)? else {
         return Ok(UpdateInfo {
             configured: false,
             current,
@@ -2215,10 +2241,7 @@ pub async fn check_update(app: tauri::AppHandle) -> CmdResult<UpdateInfo> {
             notes: None,
         });
     };
-    let update = u
-        .check()
-        .await
-        .map_err(|e| format!("не удалось проверить обновления: {e}"))?;
+    let update = u.check().await.map_err(updater_error)?;
     Ok(UpdateInfo {
         configured: true,
         current,
@@ -2239,16 +2262,16 @@ pub async fn install_update(app: tauri::AppHandle, state: State<'_, AppState>) -
             .join(format!("before-app-update-{}.db", time::file_stamp()));
         storage::backup_to(db.conn(), &dest).map_err(|e| e.to_string())?;
     }
-    let Some(u) = updater(&app)? else {
+    let Some(u) = updater(&app).map_err(updater_error)? else {
         return Err("адрес обновлений не задан".into());
     };
-    let Some(update) = u.check().await.map_err(|e| e.to_string())? else {
+    let Some(update) = u.check().await.map_err(updater_error)? else {
         return Err("новой версии нет".into());
     };
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("не удалось установить обновление: {e}"))?;
+        .map_err(updater_error)?;
     app.restart();
 }
 
@@ -2363,6 +2386,59 @@ mod tests {
             .unwrap();
         let err = block_on(super::fetch_cbr(&format!("http://{free}/"))).unwrap_err();
         assert!(err.starts_with("Нет связи с сайтом ЦБ РФ"), "{err}");
+    }
+
+    #[test]
+    fn updater_explains_interrupted_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || drop(listener.accept().unwrap()));
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let error = tauri::async_runtime::block_on(async {
+            reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/latest.json"))
+                .send()
+                .await
+                .unwrap_err()
+        });
+        server.join().unwrap();
+        assert_eq!(super::updater_error(error.into()),
+            "Нет связи с сервером обновлений. Проверьте подключение к интернету и попробуйте ещё раз.");
+    }
+
+    #[test]
+    fn updater_distinguishes_signature_failure_from_unavailable_release() {
+        use tauri_plugin_updater::Error;
+
+        for error in [
+            Error::SignatureUtf8("invalid signature data".into()),
+            Error::SignedVersionMismatch {
+                signed: "1.0.0".into(),
+                announced: "2.0.0".into(),
+            },
+        ] {
+            assert_eq!(
+                super::updater_error(error),
+                "Подпись обновления не прошла проверку. Установка отменена."
+            );
+        }
+        assert_eq!(
+            super::updater_error(Error::ReleaseNotFound),
+            "Сервер не предоставил сведения об обновлении. Попробуйте позже."
+        );
+    }
+
+    #[test]
+    fn updater_omits_private_details_from_unexpected_errors() {
+        let error = std::io::Error::other("https://updates.example.invalid/?token=private");
+        assert_eq!(
+            super::updater_error(error.into()),
+            "Не удалось завершить обновление. Попробуйте позже."
+        );
     }
 }
 
