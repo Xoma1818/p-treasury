@@ -1,29 +1,69 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type Txn } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
-import { amountToInput, parseAmount } from "../lib/money";
-import { useAccounts, useMonthOf } from "../lib/queries";
+import { amountToInput, formatMoney, HIDDEN_AMOUNT, parseAmount } from "../lib/money";
+import { useAccounts, useMonthOf, useSettings } from "../lib/queries";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, AmountInput, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
 
-/** 0.29: возврат за покупку. Деньги приходят на счёт, а в бюджете это минус
- *  расход категории покупки — в месяце покупки (по умолчанию) или возврата. */
-export function RefundDialog({ purchaseId, refund, onClose }: { purchaseId: string; refund?: Txn; onClose: () => void }) {
-  const info = useQuery({ queryKey: ["refundInfo", purchaseId, refund?.id ?? null], queryFn: () => api.refundInfo(purchaseId, refund?.id) });
-  if (!info.data) {
-    return (
-      <Modal title="Возврат" onClose={onClose}>
-        <p className="hint">{info.error ? String(info.error) : "Загрузка…"}</p>
-      </Modal>
-    );
-  }
-  return <RefundForm info={info.data} refund={refund} onClose={onClose} />;
+interface RefundDialogProps {
+  purchaseId: string;
+  receiptPurchase?: Txn;
+  choosePart?: boolean;
+  refund?: Txn;
+  onClose: () => void;
 }
 
-function RefundForm({ info, refund, onClose }: { info: NonNullable<Awaited<ReturnType<typeof api.refundInfo>>>; refund?: Txn; onClose: () => void }) {
+/** 0.29: возврат за покупку. Деньги приходят на счёт, а в бюджете это минус
+ *  расход категории покупки — в месяце покупки (по умолчанию) или возврата. */
+export function RefundDialog({ purchaseId, receiptPurchase, choosePart, refund, onClose }: RefundDialogProps) {
+  const [selectedId, setSelectedId] = useState(choosePart ? "" : purchaseId);
+  const locked = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const dismiss = () => { if (!locked.current) onClose(); };
+  const submit = async (action: () => Promise<unknown>) => {
+    if (locked.current) return;
+    locked.current = true;
+    setBusy(true);
+    try { await action(); }
+    catch { /* useAction показывает ошибку формы. */ }
+    finally { locked.current = false; setBusy(false); }
+  };
+  const splitId = receiptPurchase?.splitId;
+  const receipt = useQuery({ queryKey: ["receipt", splitId], queryFn: () => api.getReceipt(splitId!), enabled: !!splitId });
+  const info = useQuery({ queryKey: ["refundInfo", selectedId, refund?.id ?? null], queryFn: () => api.refundInfo(selectedId, refund?.id), enabled: !!selectedId });
+  const settings = useSettings().data;
+  const showAmounts = settings && settings.hide_amounts !== "1";
+  const error = receipt.error ?? info.error;
+  return (
+    <Modal title={refund ? "Возврат" : "Вернуть деньги за покупку"} onClose={dismiss} dismissDisabled={busy}>
+      {receiptPurchase && (
+        <Field label="За какую строку чека вернуть деньги?">{(id) => (
+          <select id={id} name="refundPart" value={selectedId} disabled={busy} onChange={(e) => { if (!locked.current) setSelectedId(e.target.value); }} autoFocus aria-busy={receipt.isFetching}>
+            <option value="" disabled>{receipt.isPending ? "Загружаем строки чека…" : "Выберите покупку"}</option>
+            {receipt.data?.parts.map((part) => (
+              <option key={part.id} value={part.id}>
+                {part.categoryName} · {showAmounts ? formatMoney(part.amount, receiptPurchase.currencySymbol, receiptPurchase.minorUnits) : HIDDEN_AMOUNT}
+                {part.note ? ` · ${part.note}` : ""}
+              </option>
+            ))}
+          </select>
+        )}</Field>
+      )}
+      <ErrorText error={error ? String(error) : null} />
+      {info.data ? <RefundForm key={selectedId} info={info.data} refund={refund} focusAmount={!receiptPurchase} onClose={onClose} onCancel={dismiss} submit={submit} busy={busy} />
+        : (info.isFetching || receipt.isFetching) && <p className="hint" role="status">Загрузка…</p>}
+    </Modal>
+  );
+}
+
+function RefundForm({ info, refund, focusAmount, onClose, onCancel, submit, busy }: {
+  info: NonNullable<Awaited<ReturnType<typeof api.refundInfo>>>; refund?: Txn; focusAmount: boolean;
+  onClose: () => void; onCancel: () => void; submit: (action: () => Promise<unknown>) => Promise<void>; busy: boolean;
+}) {
   const p = info.purchase;
   const accounts = useAccounts(false).data ?? [];
   const [amount, setAmount] = useState(amountToInput(refund?.amount ?? info.left, p.minorUnits));
@@ -43,13 +83,12 @@ function RefundForm({ info, refund, onClose }: { info: NonNullable<Awaited<Retur
   const sameMonth = refundMonth === info.purchaseMonth;
 
   return (
-    <Modal title={refund ? "Возврат" : "Вернуть деньги за покупку"} onClose={onClose}>
       <form
         className="form"
         data-testid="refund-form"
         onSubmit={(e) => {
           e.preventDefault();
-          save.run();
+          void submit(save.runAsync);
         }}
       >
         <p className="sub" data-testid="refund-purchase">
@@ -63,12 +102,12 @@ function RefundForm({ info, refund, onClose }: { info: NonNullable<Awaited<Retur
         </p>
         <div className="row">
           <Field label="Сумма возврата">
-            {(id) => <AmountInput id={id} name="amount" value={amount} onChange={setAmount} minorUnits={p.minorUnits} autoFocus />}
+            {(id) => <AmountInput id={id} name="amount" value={amount} onChange={setAmount} minorUnits={p.minorUnits} autoFocus={focusAmount} />}
           </Field>
           <Field label="Дата возврата">{(id) => <input id={id} name="date" type="date" value={date} min={p.date} onChange={(e) => setDate(e.target.value)} />}</Field>
         </div>
         <Field label="Деньги пришли на счёт">
-          {(id) => <AccountSelect id={id} name="accountId" accounts={accounts.filter((a) => a.currencySymbol === p.currencySymbol)} value={accountId} onChange={setAccountId} />}
+          {(id) => <AccountSelect id={id} name="accountId" accounts={accounts.filter((a) => a.currencyCode === p.currencyCode)} value={accountId} onChange={setAccountId} />}
         </Field>
         {!sameMonth && (
           <fieldset className="choice" data-testid="refund-month">
@@ -88,19 +127,18 @@ function RefundForm({ info, refund, onClose }: { info: NonNullable<Awaited<Retur
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {refund && (
-            <button type="button" className="btn danger" onClick={() => remove.run()} disabled={remove.busy}>
+            <button type="button" className="btn danger" onClick={() => void submit(remove.runAsync)} disabled={busy}>
               Удалить
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={busy}>
             Сохранить
           </button>
         </div>
       </form>
-    </Modal>
   );
 }

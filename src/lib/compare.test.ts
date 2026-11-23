@@ -25,7 +25,8 @@ describe("сравнение периодов", () => {
     expect(formatChange(25)).toBe("+25 %");
     expect(formatChange(-25)).toBe("−25 %");
     expect(formatChange(0)).toBe("0 %");
-    expect(formatChange(null)).toBe("новое");
+    expect(formatChange(null, "onlyB")).toBe("новое");
+    expect(formatChange(null, "both")).toBe("—");
   });
 
   it("для расходов хорошо, когда меньше, для доходов — когда больше", () => {

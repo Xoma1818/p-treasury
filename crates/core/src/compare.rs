@@ -49,7 +49,8 @@ pub struct Comparison {
     pub missing_rates: Vec<String>,
 }
 
-fn row(key: String, name: String, a: i64, b: i64, children: Vec<CompareRow>) -> CompareRow {
+fn row(key: String, name: String, first: Option<i64>, second: Option<i64>) -> CompareRow {
+    let (a, b) = (first.unwrap_or(0), second.unwrap_or(0));
     let diff = b - a;
     CompareRow {
         key,
@@ -58,12 +59,12 @@ fn row(key: String, name: String, a: i64, b: i64, children: Vec<CompareRow>) -> 
         b,
         diff,
         percent: (a != 0).then(|| reports::percent(diff, a)),
-        presence: match (a != 0, b != 0) {
+        presence: match (first.is_some(), second.is_some()) {
             (true, false) => "onlyA",
             (false, true) => "onlyB",
             _ => "both",
         },
-        children,
+        children: Vec::new(),
     }
 }
 
@@ -118,13 +119,13 @@ fn merge(
     let mut rows: Vec<CompareRow> = a
         .into_iter()
         .map(|(k, (name, va))| {
-            let vb = b.remove(&k).map_or(0, |(_, v)| v);
-            row(k, name, va, vb, vec![])
+            let vb = b.remove(&k).map(|(_, v)| v);
+            row(k, name, Some(va), vb)
         })
         .collect();
     rows.extend(
         b.into_iter()
-            .map(|(k, (name, vb))| row(k, name, 0, vb, vec![])),
+            .map(|(k, (name, vb))| row(k, name, None, Some(vb))),
     );
     rows
 }
@@ -216,6 +217,15 @@ mod tests {
     use crate::accounts::{self, tests::input};
     use crate::storage::Storage;
     use crate::transactions::{self, TxnInput};
+
+    #[test]
+    fn zero_net_spending_still_belongs_to_its_period() {
+        for (first, second, presence) in [(Some(0), Some(5000), "both"), (Some(0), None, "onlyA"), (None, Some(0), "onlyB"), (Some(0), Some(0), "both")] {
+            let r = row("id".into(), "Получатель".into(), first, second);
+            assert_eq!(r.presence, presence);
+            assert_eq!(r.percent, None);
+        }
+    }
 
     struct Fx {
         db: Storage,
@@ -354,6 +364,47 @@ mod tests {
         assert_eq!((card.diff, card.percent), (0, Some(0)));
         let cash = a.rows.iter().find(|r| r.key == f.cash).unwrap();
         assert_eq!((cash.a, cash.b, cash.percent), (200_000, 300_000, Some(50)));
+    }
+
+    #[test]
+    fn payee_drilldown_matches_each_report_key() {
+        let f = Fx::new();
+        let conn = f.db.conn();
+        for (name, amount) in [
+            (" Полис М15 ", 100_000),
+            ("Полис М15 копия", 27_500),
+            ("полис М15", 450),
+            ("", 900),
+        ] {
+            f.op("2026-10-11", amount, "Питание", name, &f.card);
+        }
+        let report = compare(
+            conn,
+            "expense",
+            "payee",
+            "2026-09-01",
+            "2026-09-30",
+            "2026-10-01",
+            "2026-10-31",
+        )
+        .unwrap();
+        assert_eq!(report.rows.len(), 4);
+        for row in report.rows {
+            let page = transactions::list(
+                conn,
+                &transactions::Filter {
+                    compare_payee: Some(row.key),
+                    types: vec!["expense".into()],
+                    counted: true,
+                    date_from: Some("2026-10-01".into()),
+                    date_to: Some("2026-10-31".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(page.total, 1);
+            assert_eq!(page.items[0].amount, row.b);
+        }
     }
 
     #[test]

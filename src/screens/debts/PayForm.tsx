@@ -146,8 +146,10 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
               <>
                 новый платёж <b>{m(q.newPayment)}</b> / срок до <b>{formatDate(q.after.totals.maturityDate)}</b>
               </>
-            ) : (
+            ) : q.principal >= card.outstanding ? (
               <b>долг будет погашен</b>
+            ) : (
+              <>остаток долга <b>{m(card.outstanding - q.principal)}</b></>
             )}{" "}
             / экономия <b>{m(Math.max(0, q.savings))}</b>
           </div>

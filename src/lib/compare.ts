@@ -9,9 +9,9 @@ export function splitRows(rows: CompareRow[]) {
   };
 }
 
-/** Изменение в процентах: «+25 %», «−25 %», «0 %»; без первого периода — «новое». */
-export function formatChange(percent: number | null): string {
-  if (percent == null) return "новое";
+/** При нулевой базе процент не определён. «Новое» относится только к появившейся позиции. */
+export function formatChange(percent: number | null, presence?: CompareRow["presence"]): string {
+  if (percent == null) return presence === "onlyB" ? "новое" : "—";
   if (percent > 0) return `+${percent} %`;
   if (percent < 0) return `−${Math.abs(percent)} %`;
   return "0 %";

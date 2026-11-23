@@ -133,12 +133,14 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 |r| r.get(0),
             )
             .optional()?;
-        let retry = match seen {
-            None => false,
-            Some(Some(e)) if e == NO_ACCOUNT => true,
+        let retry = match seen.as_ref() {
+            None => None,
+            Some(Some(e)) if e == NO_ACCOUNT || e == bank_import::NEED_TRANSFER_CHOICE => {
+                Some(e.as_str())
+            }
             // Отмечен до того, как программа научилась читать Excel по
             // шаблону и новую выгрузку Т-Банка: смотрим ещё раз, один раз.
-            Some(Some(e)) if OLD_NOT_OURS.contains(&e.as_str()) => false,
+            Some(Some(e)) if OLD_NOT_OURS.contains(&e.as_str()) => None,
             Some(_) => continue,
         };
         let name = path
@@ -193,14 +195,23 @@ pub fn scan(conn: &mut Connection, dir: &Path) -> Result<ScanResult> {
                 let no_account = parsed
                     .iter()
                     .any(|p| p.row.error.as_deref() == Some("выберите счёт для этой выписки"));
-                // Счёт всё ещё не выбран: об этом файле уже сказано, молчим.
-                if retry && no_account {
+                // Пока решение не изменилось, не повторяем уведомление.
+                let waiting_for = if extra.needs_transfer_choice {
+                    Some(bank_import::NEED_TRANSFER_CHOICE)
+                } else if no_account {
+                    Some(NO_ACCOUNT)
+                } else {
+                    None
+                };
+                if retry.is_some() && retry == waiting_for {
                     continue;
                 }
                 // Повторы уже отмечены при разборе: N-я одинаковая строка файла —
                 // повтор, только если таких операций записано не меньше N.
                 res.skipped = parsed.iter().filter(|p| p.input.is_none()).count();
-                if parsed.iter().any(|p| p.input.is_some()) {
+                if extra.needs_transfer_choice {
+                    res.error = Some(bank_import::NEED_TRANSFER_CHOICE.into());
+                } else if parsed.iter().any(|p| p.input.is_some()) {
                     let tx = conn.transaction()?;
                     csv_import::create_categories(&tx, &mut parsed, &extra.categories)?;
                     let saved = csv_import::save_rows(

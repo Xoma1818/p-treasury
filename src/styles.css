@@ -296,12 +296,12 @@ input.invalid { border-color: var(--over); }
 .account-list li { display: flex; justify-content: space-between; padding: 8px 6px; border-radius: 6px; }
 
 .tree { list-style: none; padding: 0; margin: 0; }
-.tree li { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.tree li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
 .tree li:last-child { border-bottom: 0; }
 .tree li.parent .name { font-weight: 500; }
 .tree li.child { padding-left: 24px; }
-.tree .row-actions { margin-left: auto; visibility: hidden; }
-.tree li:hover .row-actions { visibility: visible; }
+.tree .row-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; max-width: 100%; }
+.tree .name { min-width: 0; overflow-wrap: anywhere; }
 .tree .count { color: var(--muted); }
 
 .inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -766,11 +766,8 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 .nav-item:hover .icon-tile { transform: scale(1.04); }
 input[type="checkbox"]:checked { animation: none; }
 
-/* 0.15.2: ровные пропорции. Пункты меню в одну строку, номер клавиши не занимает место;
-   кнопки «Изменить/Удалить» у категорий появляются поверх строки и не сжимают название. */
+/* Пункты меню в одну строку, номер клавиши не занимает место. */
 .nav-item { white-space: nowrap; }
-.tree li { position: relative; }
-.tree .row-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; padding-left: 16px; background: linear-gradient(90deg, transparent, var(--card) 14px); }
 
 /* Напоминания наперёд (0.23) */
 .lead-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

@@ -103,7 +103,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
                 reminders: Vec::new(),
                 notes: 0,
                 memos: Vec::new(),
-                no_spend: false,
+                no_spend: true,
             },
         );
         d += Duration::days(1);
@@ -117,26 +117,34 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
 
     // Операции: доходы и расходы (переводы и корректировки не считаются).
     let mut stmt = conn.prepare(
-        "SELECT t.type, t.date, t.amount, a.currency_code FROM transactions t
+        "SELECT t.type, t.date, t.amount, a.currency_code, t.refund FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          WHERE t.status = 'cleared' AND t.type IN ('income', 'expense') AND t.date BETWEEN ?1 AND ?2",
     )?;
-    let rows: Vec<(String, String, i64, String)> = stmt
+    let rows: Vec<(String, String, i64, String, bool)> = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    for (kind, date, amount, currency) in rows {
+    for (kind, date, amount, currency, refund) in rows {
+        let Some(day) = days.get_mut(&date) else {
+            continue;
+        };
+        // Покупка прерывает серию дней без трат, даже если деньги вернули в тот же день.
+        if kind == "expense" {
+            day.no_spend = false;
+        }
         let Some(v) = currencies::convert(conn, amount, &currency, &base, &date)? else {
             miss(currency, &mut missing);
             continue;
         };
-        if let Some(day) = days.get_mut(&date) {
-            if kind == "income" {
-                day.income += v;
-            } else {
-                day.expense += v;
-            }
+        // Календарь показывает движение в день возврата, включая возвраты за прошлые месяцы.
+        if refund {
+            day.expense -= v;
+        } else if kind == "income" {
+            day.income += v;
+        } else {
+            day.expense += v;
         }
     }
 
@@ -147,7 +155,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
         "SELECT s.id, s.due_date, s.payment, s.status, d.id, d.counterparty, d.direction, d.currency_code,
                 c.symbol, c.minor_units
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
-         WHERE s.due_date BETWEEN ?1 AND ?2
+         WHERE s.payment > 0 AND s.due_date BETWEEN ?1 AND ?2
          ORDER BY s.due_date, d.counterparty",
     )?;
     type DebtRow = (
@@ -258,7 +266,7 @@ pub fn range(conn: &Connection, first: NaiveDate, last: NaiveDate, today: &str) 
     let started = crate::habits::first_day(conn)?;
     let mut days: Vec<Day> = days.into_values().collect();
     for d in &mut days {
-        d.no_spend = d.expense == 0
+        d.no_spend = d.no_spend
             && d.date.as_str() <= today
             && started.as_deref().is_some_and(|s| d.date.as_str() >= s);
     }
@@ -359,9 +367,10 @@ pub fn year_heat(conn: &Connection, year: i32) -> Result<YearHeat> {
     // пересчитываются каждая отдельно, как в календаре и отчётах: сумма
     // округлённых пересчётов, иначе день «Года» и календаря расходился на копейку.
     let mut stmt = conn.prepare(
-        "SELECT t.date, a.currency_code, sum(t.amount) FROM transactions t
+        "SELECT t.date, a.currency_code, sum(CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END)
+         FROM transactions t
          JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'cleared' AND t.type = 'expense' AND t.date BETWEEN ?1 AND ?2
+         WHERE t.status = 'cleared' AND (t.type = 'expense' OR t.refund = 1) AND t.date BETWEEN ?1 AND ?2
          GROUP BY t.date, a.currency_code, CASE WHEN a.currency_code = ?3 THEN '' ELSE t.id END",
     )?;
     let rows: Vec<(String, String, i64)> = stmt
@@ -389,7 +398,7 @@ pub fn year_heat(conn: &Connection, year: i32) -> Result<YearHeat> {
         currency_symbol: bc.symbol,
         minor_units: bc.minor_units,
         total: days.iter().map(|d| d.expense).sum(),
-        max: days.iter().map(|d| d.expense).max().unwrap_or(0),
+        max: days.iter().map(|d| d.expense).max().unwrap_or(0).max(0),
         days,
         missing_rates: missing,
     })
@@ -551,6 +560,115 @@ mod tests {
         let m = month(c, "2026-11", "2026-11-12").unwrap();
         assert_eq!(m.planned_expense, 1_425_000);
         assert_eq!(m.days[19].reminders[0].status, "done");
+
+        debts::add_holiday(
+            db.conn_mut(),
+            &debt,
+            &crate::loan_calc::HolidayInput {
+                from_seq: 2,
+                months: 1,
+                kind: "interest_only".into(),
+            },
+        )
+        .unwrap();
+        let c = db.conn();
+        let december = month(c, "2026-12", "2026-12-01").unwrap();
+        assert!(
+            december.days[14].debts.is_empty(),
+            "нулевой взнос не требует оплаты"
+        );
+        let during_holiday = reminders::occurrences(
+            c,
+            NaiveDate::from_ymd_opt(2026, 12, 1)
+                .unwrap()
+                .and_time(NaiveTime::MIN),
+            NaiveDate::from_ymd_opt(2026, 12, 31)
+                .unwrap()
+                .and_time(NaiveTime::MIN),
+        )
+        .unwrap();
+        assert!(during_holiday
+            .iter()
+            .all(|o| o.debt_id.as_deref() != Some(debt.as_str())));
+    }
+
+    #[test]
+    fn calendar_nets_refunds_on_actual_days_and_keeps_purchases_in_the_streak() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        categories::seed_defaults(c).unwrap();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let txn = |kind: &str, date: &str, amount| {
+            let category: String = c
+                .query_row(
+                    "SELECT id FROM categories WHERE kind = ?1 LIMIT 1",
+                    [kind],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            transactions::create(
+                c,
+                &TxnInput {
+                    kind: kind.into(),
+                    date: date.into(),
+                    account_id: card.clone(),
+                    amount,
+                    category_id: Some(category),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap()
+        };
+        let refund = |of: &str, date: &str, amount| {
+            crate::refunds::create(
+                c,
+                &crate::refunds::RefundInput {
+                    of: of.into(),
+                    date: date.into(),
+                    account_id: None,
+                    amount,
+                    in_purchase_month: true,
+                    note: None,
+                },
+            )
+            .unwrap();
+        };
+        let purchase = txn("expense", "2026-10-31", 100_000);
+        txn("income", "2026-11-23", 439_000);
+        txn("expense", "2026-11-23", 477_500);
+        refund(&purchase, "2026-11-23", 40_000);
+        refund(&purchase, "2026-11-24", 60_000);
+        let same_day = txn("expense", "2026-11-25", 200);
+        refund(&same_day, "2026-11-25", 200);
+
+        let m = month(c, "2026-11", "2026-11-26").unwrap();
+        assert_eq!((m.days[22].income, m.days[22].expense), (439_000, 437_500));
+        assert_eq!(
+            (m.days[23].income, m.days[23].expense, m.days[23].no_spend),
+            (0, -60_000, true)
+        );
+        assert_eq!((m.days[24].expense, m.days[24].no_spend), (0, false));
+        assert_eq!(m.expense, 377_500);
+        let year = year_heat(c, 2026).unwrap();
+        let expenses = |date: &str| year.days.iter().find(|d| d.date == date).unwrap().expense;
+        assert_eq!(
+            (
+                expenses("2026-10-31"),
+                expenses("2026-11-23"),
+                expenses("2026-11-24"),
+                year.total
+            ),
+            (100_000, 437_500, -60_000, 477_500)
+        );
+        let weekly = crate::habits::last_week(c, "2026-11-30").unwrap();
+        assert_eq!(
+            (weekly.income, weekly.expense, weekly.top_amount),
+            (439_000, 377_500, 377_500)
+        );
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), -38_500);
     }
 
     #[test]

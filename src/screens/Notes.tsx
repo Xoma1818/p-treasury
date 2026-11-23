@@ -31,7 +31,7 @@ export function Notes() {
         {notes.data && notes.data.length === 0 && <p className="muted">{query.trim() ? "Ничего не нашлось." : "Заметок пока нет. Их можно добавить и в карточке операции, долга или дня календаря."}</p>}
         {notes.data && <NoteList notes={notes.data} onOpen={setEdit} />}
       </div>
-      {edit && <NoteForm note={edit === "new" ? undefined : edit} onClose={() => setEdit(null)} />}
+      {edit && <NoteForm note={edit === "new" ? undefined : (notes.data?.find((n) => n.id === edit.id) ?? edit)} onClose={() => setEdit(null)} />}
     </section>
   );
 }

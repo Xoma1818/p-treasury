@@ -303,16 +303,17 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
   const look0 = account ? accountLook(account) : { icon: null, color: null };
   const [icon, setIcon] = useState<string | null>(look0.icon);
   const [color, setColor] = useState<CategoryColor | null>(look0.color);
+  const [iconChanged, setIconChanged] = useState(false);
+  const [colorChanged, setColorChanged] = useState(false);
   const liquid = type === "cash" || type === "debit" || type === "savings";
   const [investKind, setInvestKind] = useState<InvestKind>(account?.investKind ?? "broker");
   const save = useAction(
     async (input: AccountInput) => {
-      const id = account ? (await api.updateAccount(account.id, input), account.id) : await api.createAccount(input);
-      // Р19–Р21: группа, куда входит счёт, значок и цвет — отдельными шагами ядра.
-      if (!account || account.inBudget !== inBudget || account.inForecast !== inForecast || account.includeInTotal !== include)
-        await api.setAccountIncludes(id, include, inBudget, inForecast);
-      if (!account || (account.groupId ?? "") !== groupId) await api.setAccountGroup(id, groupId || null);
-      if (!account || accountLook(account).icon !== icon || accountLook(account).color !== color) await api.setAccountLook(id, icon, color);
+      const options = { inBudget, inForecast, groupId: groupId || null,
+        icon: account && !iconChanged ? account.icon : icon,
+        color: account && !colorChanged ? account.color : color };
+      if (account) await api.updateAccount(account.id, input, options);
+      else await api.createAccount(input, options);
     },
     onClose,
     { singleSubmit: true },
@@ -405,7 +406,7 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
           <summary>
             Значок и цвет <LookMark look={{ icon, color }} size={18} />
           </summary>
-          <LookPicker icon={icon} color={color} onIcon={setIcon} onColor={setColor} />
+          <LookPicker icon={icon} color={color} onIcon={(v) => { setIconChanged(true); setIcon(v); }} onColor={(v) => { setColorChanged(true); setColor(v); }} />
         </details>
         <ErrorText error={save.error} />
         <div className="actions">

@@ -100,7 +100,7 @@ interface ReportView {
   custom?: { start: string; end: string } | null;
 }
 type Kind = ReportContext["kind"];
-const initialDetail = { filter: {}, categoryKind: "expense", expanded: [], tagId: "", balancesDate: null } satisfies Partial<ReportContext>;
+const initialDetail = { filter: {}, categoryKind: "expense", expanded: [], tagId: "", balancesDate: null, comparison: undefined } satisfies Partial<ReportContext>;
 
 const KINDS: [Kind, string][] = [
   ["month", "Месяц"],
@@ -366,7 +366,8 @@ export function Reports() {
         {period && tab === "structure" && <Structure period={period} reportContext={report} update={update} openOperations={openOperations} onDraft={setCtx} />}
         {period && tab === "months" && <Months period={period} kind={kind} filter={report.filter} onFilter={(filter) => update({ filter })} openOperations={openOperations} onDraft={setCtx} />}
         {period && tab === "balances" && <Balances period={period} date={report.balancesDate} onDate={(balancesDate) => update({ balancesDate })} />}
-        {tab === "compare" && <Compare />}
+        {tab === "compare" && <Compare restored={report.comparison} openOperations={(filter, source, comparison) =>
+          showTransactions(filter, { ...report, anchor: month ?? null, comparison, source })} />}
         {period && tab === "fx" && <FxGain period={period} />}
         {tab === "subs" && <SubscriptionsReport openOperations={openOperations} showHidden={report.showHiddenSubscriptions ?? false} setShowHidden={(value) => update({ showHiddenSubscriptions: value })} />}
         {tab === "year" && <YearReviewReport />}

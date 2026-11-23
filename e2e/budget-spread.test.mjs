@@ -36,6 +36,10 @@ test("Факт бюджета: 1 000 ₽ списаны один раз и ра�
   await setDate(browser, "date", "2026-11-14");
   await openMore(browser);
   await browser.$('[role="dialog"] [name="spreadOn"]').click();
+  await setDate(browser, "spreadMonths", "");
+  assert.equal(await browser.$('[name="spreadOn"]').isSelected(), true);
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await waitText(browser, '[role="dialog"] [role="alert"]', /от 2 до 24/);
   await setDate(browser, "spreadMonths", "3");
   const preview = '[data-testid="spread-preview"]';
   await waitText(browser, preview, /ноябрь 2026 – январь 2027/);

@@ -117,6 +117,8 @@ export interface AccountInput {
   investKind?: InvestKind | null;
 }
 
+export type AccountOptions = Pick<Account, "inBudget" | "inForecast" | "groupId" | "icon" | "color">;
+
 export interface Totals {
   baseCurrency: string;
   baseSymbol: string;
@@ -232,6 +234,8 @@ export interface Payoff {
 }
 
 export interface TxnFilter {
+  /** Ключ получателя в сравнении периодов. Пустая строка означает «Без получателя». */
+  comparePayee?: string;
   /** Исходные списания, вошедшие в выбранную серию регулярных платежей. */
   paymentIds?: string[];
   dateFrom?: string;
@@ -449,6 +453,7 @@ export interface DebtPayment {
   date: string;
   principal: number;
   interest: number;
+  balanceAfter: number;
   scheduleSeq: number | null;
   recalcMode: string | null;
   accountName: string | null;
@@ -1481,6 +1486,7 @@ export interface ImportPreview {
   accountId: string | null;
   /** Строки «Между своими счетами» в выписке банка. */
   selfTransfers: number;
+  needsTransferChoice: boolean;
   /** Второй свой счёт для таких переводов (выбранный или запомненный). */
   selfAccountId: string | null;
   /** Уже загруженные расходом или доходом строки, которые станут переводами. */
@@ -2047,8 +2053,8 @@ export const api = {
   seedDemo: () => invoke<void>("seed_demo"),
   clearDemo: () => invoke<void>("clear_demo"),
   listAccounts: (includeArchived = false) => invoke<Account[]>("list_accounts", { includeArchived }),
-  createAccount: (input: AccountInput) => invoke<string>("create_account", { input }),
-  updateAccount: (id: string, input: AccountInput) => invoke<void>("update_account", { id, input }),
+  createAccount: (input: AccountInput, options?: AccountOptions) => invoke<string>("create_account", { input, options }),
+  updateAccount: (id: string, input: AccountInput, options?: AccountOptions) => invoke<void>("update_account", { id, input, options }),
   archiveAccount: (id: string, archived: boolean) => invoke<void>("archive_account", { id, archived }),
   setAccountIncludes: (id: string, inTotal: boolean, inBudget: boolean, inForecast: boolean) =>
     invoke<void>("set_account_includes", { id, inTotal, inBudget, inForecast }),

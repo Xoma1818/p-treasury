@@ -121,3 +121,28 @@ test("сравнение выгружается в Excel: лист «Сравн�
   assert.match(sheet, /<v>2500<\/v>/, "изменение по продуктам записано числом");
   assert.match(sheet, /<v>0\.25<\/v>/, "и процент тоже");
 });
+
+test("из точной строки получателя — в журнал и обратно к тем же периодам и строке", async () => {
+  await openSection(browser, "Главная");
+  for (const [payee, amount] of [["Полис М15", "1000"], ["Полис М15 копия", "275"]]) {
+    await click(browser, "+ Расход");
+    await fill(browser, "amount", amount);
+    await choose(browser, "account", "Карта (₽)");
+    await choose(browser, "category", "Питание");
+    await fill(browser, "payee", payee);
+    await setDate(browser, "date", cur);
+    await save(browser);
+  }
+  await openCompare();
+  await click(browser, "Получатели", '//*[contains(@class,"compare-switches")]');
+  await setDate(browser, "cmp1To", prev(15));
+  await waitText(browser, `${row("Полис М15")}//*[@data-testid="cmp-b"]`, money("1 000 ₽"));
+  const link = `${row("Полис М15")}//button[contains(@class,"cat-link")]`;
+  await browser.$(link).click();
+  await waitText(browser, '[data-testid="filter-compare-payee"]', /Полис М15/);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await waitText(browser, '[data-testid="txn-row"]', money("1 000 ₽"));
+  await browser.$('[data-testid="back-to-report"]').click();
+  await browser.waitUntil(() => browser.$(link).isFocused());
+  assert.equal(await browser.$('[name="cmp1To"]').getValue(), prev(15));
+});

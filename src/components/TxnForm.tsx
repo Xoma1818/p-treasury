@@ -33,7 +33,7 @@ export function TxnForm() {
   const close = useUi((s) => s.openTxnForm);
   if (!state) return null;
   // 0.29: возврат открывается своим окном, а не формой операции.
-  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} onClose={() => close(null)} />;
+  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} receiptPurchase={state.purchase.splitId ? state.purchase : undefined} choosePart={state.choosePart} onClose={() => close(null)} />;
   if (state.mode === "edit" && state.txn.refund && state.txn.refundOf) {
     return <RefundDialog key={state.txn.id} purchaseId={state.txn.refundOf} refund={state.txn} onClose={() => close(null)} />;
   }
@@ -75,7 +75,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const [friends, setFriends] = useState<{ name: string; amount: string }[] | null>(null);
   // Г6: теги; Г3: «Учитывать по месяцам» и разбивка чека по категориям.
   const [tags, setTags] = useState<string[]>(editing?.tags ?? prefill?.tags ?? []);
-  const [spread, setSpread] = useState<string>(editing?.spreadMonths ? String(editing.spreadMonths) : "");
+  const [spread, setSpread] = useState<string | null>(editing?.spreadMonths ? String(editing.spreadMonths) : null);
   // «Ещё» (0.29): комментарий, теги, «по месяцам» и «с друзьями» свёрнуты в одну строку.
   // Раскрываются сами, если что-то из них заполнено; выбор «раскрыто» запоминается.
   const [more, setMoreState] = useState(() => {
@@ -295,7 +295,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       { categoryId, amount: filled ? amountToInput(amountValue, minor) : "" },
       { categoryId: "", amount: "" },
     ]);
-    setSpread("");
+    setSpread(null);
   };
   const fillRemainder = (i: number) => {
     if (!parts || !receiptParts) return;
@@ -312,7 +312,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       const problem = receiptProblem(amountValue, receiptParts);
       if (problem) return save.setError(problem);
     }
-    if (type === "expense" && spread && (spreadMonths === null || spreadMonths < 2 || spreadMonths > 24))
+    if (type === "expense" && spread !== null && (spreadMonths === null || spreadMonths < 2 || spreadMonths > 24))
       return save.setError("Учитывать по месяцам можно от 2 до 24 месяцев");
     if (split) {
       if (split.shares.some((f) => !f.name)) return save.setError("Укажите имя у каждой доли");
@@ -339,7 +339,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   // Закреплённые поля (Г9) видны всегда и не раскрывают «Ещё» сами.
   const pinNote = formPrefs.pinNote;
   const pinTags = formPrefs.pinTags;
-  const filledMore = (!pinNote && note.trim() !== "") || (!pinTags && tags.length > 0) || spread !== "" || !!friends;
+  const filledMore = (!pinNote && note.trim() !== "") || (!pinTags && tags.length > 0) || spread !== null || !!friends;
   const showMore = more || filledMore;
   const moreLabel = [!pinNote && "комментарий", !pinTags && "теги", ...(type === "expense" ? ["по месяцам", "с друзьями"] : [])].filter(Boolean).join(" · ");
   const noteField = <Field label="Комментарий">{(id) => <input id={id} name="note" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>;
@@ -368,7 +368,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       note !== (editing.note ?? "") ||
       (eventId || null) !== (editing.eventId ?? null) ||
       tags.join("\u0000") !== editing.tags.join("\u0000") ||
-      spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
+      spread !== (editing.spreadMonths ? String(editing.spreadMonths) : null) ||
       !!friends);
   return (
     <>
@@ -593,10 +593,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
               {type === "expense" && !receiptParts && !split && (!editing || !editing.debtId) && (
                 <div className="spread" data-testid="spread">
                   <label className="check">
-                    <input type="checkbox" name="spreadOn" checked={spread !== ""} onChange={(e) => setSpread(e.target.checked ? "12" : "")} />
+                    <input type="checkbox" name="spreadOn" checked={spread !== null} onChange={(e) => setSpread(e.target.checked ? "12" : null)} />
                     Учитывать по месяцам
                   </label>
-                  {spread !== "" && (
+                  {spread !== null && (
                     <>
                       <input
                         type="number"
@@ -716,7 +716,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             </button>
           )}
           {editing && editing.type === "expense" && !editing.debtId && !editing.spreadMonths && (
-            <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing })} title="Деньги за покупку вернулись">
+            <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing, choosePart: state.mode === "edit" && state.wholeReceipt })} title="Деньги за покупку вернулись">
               Вернуть…
             </button>
           )}

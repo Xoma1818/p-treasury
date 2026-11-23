@@ -608,6 +608,9 @@ pub(crate) fn self_account(
     })
 }
 
+pub(crate) const NEED_TRANSFER_CHOICE: &str =
+    "выберите второй счёт для перевода своих денег или явно укажите, как записать его в «Импорте операций»";
+
 /// Перевод своих денег: «Между своими счетами», а в выгрузке Т-Банка ещё и
 /// перевод или пополнение, которые банк не учитывает в аналитике (копилка,
 /// пополнение из другого банка, возврат долга). Банк не считает их тратами и
@@ -1203,6 +1206,10 @@ pub(crate) fn to_parsed(
         }
     }
     mark_repeats(conn, &mut out, &mut extra)?;
+    extra.needs_transfer_choice = self_id != Some("")
+        && ops.iter().zip(&out).any(|(op, row)| {
+            own_transfer(op) && row.input.as_ref().is_some_and(|t| t.kind != "transfer")
+        });
     Ok((out, extra))
 }
 
@@ -2204,7 +2211,8 @@ mod tests {
 
         // Загрузка: возврат — возвратом покупки, новые категории созданы один раз.
         let mut db = db;
-        let saved = crate::csv_import::import(db.conn_mut(), &path, false, None).unwrap();
+        let saved =
+            crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some("")).unwrap();
         assert_eq!(saved.added, 14);
         let c = db.conn();
         let (refund_of, payee): (String, String) = c
@@ -2252,7 +2260,6 @@ mod tests {
     fn folder_reads_tbank_operations_xlsx() {
         let mut db = Storage::open_in_memory().unwrap();
         crate::categories::seed_defaults(db.conn()).unwrap();
-        account(db.conn(), "Premium");
         let dir = tempfile::tempdir().unwrap();
         std::fs::copy(
             testdata("tbank-operations.xlsx"),
@@ -2261,7 +2268,32 @@ mod tests {
         )
         .unwrap();
         let first = crate::auto_import::scan(db.conn_mut(), dir.path()).unwrap();
-        assert_eq!(first.added, 14, "{first:?}");
+        assert_eq!(first.added, 0);
+        assert!(first.files[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("не выбран счёт"));
+        assert!(crate::auto_import::scan(db.conn_mut(), dir.path())
+            .unwrap()
+            .files
+            .is_empty());
+        account(db.conn(), "Premium");
+        let second = crate::auto_import::scan(db.conn_mut(), dir.path()).unwrap();
+        assert_eq!(second.added, 0);
+        assert_eq!(second.files[0].error.as_deref(), Some(NEED_TRANSFER_CHOICE));
+        assert!(crate::auto_import::scan(db.conn_mut(), dir.path())
+            .unwrap()
+            .files
+            .is_empty());
+        let savings = account(db.conn(), "Накопительный");
+        remember_self(db.conn(), Bank::Tbank, Some(&savings)).unwrap();
+        let resolved = crate::auto_import::scan(db.conn_mut(), dir.path()).unwrap();
+        assert_eq!(resolved.added, 14, "{resolved:?}");
+        assert_eq!(
+            crate::import_log::history(db.conn(), 1).unwrap()[0].added,
+            14
+        );
         let c = db.conn();
         let refunds: i64 = c
             .query_row(
@@ -2282,13 +2314,17 @@ mod tests {
         let savings = account(db.conn(), "Накопительный");
         let path = testdata("tbank-operations.xlsx");
 
-        // Без второго счёта — как раньше: расход и доход «Переводы».
+        // До явного решения редактируется только план.
         let p = crate::csv_import::preview(db.conn(), &path, None).unwrap();
         // «Между своими счетами» и пополнение из другого банка вне аналитики банка.
         assert_eq!((p.self_transfers, p.self_account_id.as_deref()), (4, None));
+        assert!(p.needs_transfer_choice);
+        assert!(crate::csv_import::import(db.conn_mut(), &path, true, None).is_err());
+        assert!(crate::import_log::history(db.conn(), 1).unwrap().is_empty());
         assert_eq!(p.rows[13].kind, "Расход");
 
         let p = crate::csv_import::preview_with(db.conn(), &path, None, Some(&savings)).unwrap();
+        assert!(!p.needs_transfer_choice);
         let kinds: Vec<_> = [0, 8, 9, 12, 13]
             .iter()
             .map(|&i| (p.rows[i].kind.as_str(), p.rows[i].category.as_str()))
@@ -2349,7 +2385,7 @@ mod tests {
         account(db.conn(), "Premium");
         let savings = account(db.conn(), "Накопительный");
         let path = testdata("tbank-operations.xlsx");
-        crate::csv_import::import(db.conn_mut(), &path, false, None).unwrap();
+        crate::csv_import::import_with(db.conn_mut(), &path, false, None, Some("")).unwrap();
         let p = crate::csv_import::preview_with(db.conn(), &path, None, Some(&savings)).unwrap();
         assert_eq!((p.valid, p.duplicates, p.to_transfers), (0, 10, 4));
     }
@@ -2374,6 +2410,7 @@ mod tests {
         let p = crate::csv_import::preview(db.conn(), &path, None).unwrap();
         assert_eq!(p.rows[0].kind, "Перевод");
         assert_eq!(p.rows[0].category, "на «Вклад *2222»");
+        assert!(!p.needs_transfer_choice);
         assert!(p.rows[1].duplicate);
         assert_eq!(p.errors, 0);
         let saved = crate::csv_import::import(db.conn_mut(), &path, false, Some(&card)).unwrap();

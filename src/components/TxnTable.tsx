@@ -64,8 +64,8 @@ export function TxnTable({
   const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
-  const menuFor = (t: Txn, row: HTMLTableRowElement): CtxItem[] => {
-    const items: CtxItem[] = [{ text: "Открыть", onClick: () => open({ mode: "edit", txn: t }) }];
+  const menuFor = (t: Txn, row: HTMLTableRowElement, wholeReceipt: boolean): CtxItem[] => {
+    const items: CtxItem[] = [{ text: "Открыть", onClick: () => open({ mode: "edit", txn: t, wholeReceipt }) }];
     if (t.type !== "adjustment" && !t.refund && !t.splitId)
       items.push({
         text: "Повторить сегодня",
@@ -80,12 +80,20 @@ export function TxnTable({
       text: <RepeatMenuLabel id={t.id} />,
       onClick: () => { repeatRow.current = row; setRepeatSource(t); },
     });
-    if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
-    if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
+    if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t, choosePart: wholeReceipt }) });
+    if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ payee: t.payee! }) });
     if (t.type !== "adjustment") items.push({ text: "Найти похожие…", onClick: () => setSimilar(t) });
     // Платёж по долгу удаляется в карточке долга (ядро здесь откажет): вместо «Удалить» — «Открыть долг».
     if (t.debtId) items.push({ text: "Открыть долг", onClick: () => openDebt(t.debtId!) });
-    else if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => remove.run(t) });
+    else if (t.type !== "adjustment") items.push({ text: t.splitId ? "Удалить чек" : "Удалить", hint: "Ctrl+Z — отменить", danger: true, onClick: () => {
+      const rows = Array.from(row.closest("table")?.querySelectorAll<HTMLElement>('[data-testid="txn-row"]') ?? []);
+      const index = rows.indexOf(row);
+      const next = rows[index + 1] ?? rows[index - 1] ?? row.closest('.card, [role="dialog"]')?.querySelector<HTMLElement>("[data-txn-focus]");
+      next?.focus();
+      void remove.runAsync(t).catch(() => {
+        if (document.activeElement === next || document.activeElement === document.body) row.focus();
+      });
+    } });
     return items;
   };
   if (items.length === 0) return <p className="muted">Операций нет.</p>;
@@ -120,7 +128,10 @@ export function TxnTable({
         onClick={(e) => {
           // С Ctrl или Shift щелчок выделяет строку, без клавиш — открывает операцию.
           if (selection && (e.ctrlKey || e.metaKey || e.shiftKey)) return selection.onToggle(r.key, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
-          open({ mode: "edit", txn: t });
+          open({ mode: "edit", txn: t, wholeReceipt: r.kind === "receipt" });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.target === e.currentTarget) open({ mode: "edit", txn: t, wholeReceipt: r.kind === "receipt" });
         }}
         onMouseDown={(e) => {
           if (e.button === 0) contextRow.current = null;
@@ -128,7 +139,7 @@ export function TxnTable({
         }}
         onContextMenu={(e) => {
           contextRow.current = e.currentTarget;
-          openContextMenu(e, menuFor(t, e.currentTarget));
+          openContextMenu(e, menuFor(t, e.currentTarget, r.kind === "receipt"));
         }}
         tabIndex={-1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
@@ -229,14 +240,14 @@ export function TxnTable({
     return [
       main,
       ...r.parts.map((p) => (
-        <tr key={`${r.key}-${p.id}`} className={selected ? "receipt-part clickable selected" : "receipt-part clickable"} data-testid="receipt-part" onClick={() => open({ mode: "edit", txn: t })}>
+        <tr key={`${r.key}-${p.id}`} className={selected ? "receipt-part clickable selected" : "receipt-part clickable"} data-testid="receipt-part" onClick={() => open({ mode: "edit", txn: p })}>
           {selection && <td className="sel" />}
           {cols.map((c) =>
             c === "what" ? (
               <td key={c}>
                 <div className="main">
                   <LookMark look={lookOf(p.categoryId, catMap)} />
-                  {p.categoryName}
+                  <button type="button" className="link" onClick={(e) => { e.stopPropagation(); open({ mode: "edit", txn: p }); }}>{p.categoryName}</button>
                 </div>
                 {!compact && p.note && p.note !== t.note && <div className="sub">{p.note}</div>}
               </td>

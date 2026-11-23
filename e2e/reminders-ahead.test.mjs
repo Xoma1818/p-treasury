@@ -122,11 +122,15 @@ test("заметка «Продлить страховку»: напоминан
       const alert = await browser.$('[role="alert"]');
       throw new Error(`напоминание не сохранилось: ${(await alert.isExisting()) ? await alert.getText() : "диалогов " + (await browser.$$('[role="dialog"]')).length}`);
     });
-  if ((await browser.$$('[role="dialog"]')).length) await click(browser, "Отмена", '//*[@role="dialog"]');
+  await click(browser, "Напоминание", '//*[@role="dialog"]');
+  await waitText(browser, lastDialog, /Удалить/);
+  await click(browser, "Отмена", lastDialog);
+  await click(browser, "Отмена", '//*[@role="dialog"]');
   await (await browser.$('[data-testid="notes"] [aria-label="Есть напоминание"]')).waitForExist({ timeout: 5000 });
 
   await openReminders();
   await waitText(browser, '[data-testid="rem-all"]', /Продлить страховку.*за неделю.*из заметки/s);
+  assert.equal((await browser.$$('//*[@data-testid="reminder-row"][.//span[@class="main" and text()="Продлить страховку"]]')).length, 1);
 });
 
 test("Настройки: сроки «заранее» по умолчанию и проверка денег", async () => {

@@ -94,3 +94,58 @@ test("чек с возвратом: правка чека сохраняет в�
   const moved = await browser.executeAsync((id, date, done) => window.__TAURI_INTERNALS__.invoke("move_transaction", { id, date }).then(() => done("ok"), (e) => done(String(e))), refund, day(-3));
   assert.match(moved, /раньше покупки/);
 });
+
+test("у чека 640 + 360 ₽ выбирается строка возврата, а после удаления другого чека фокус остаётся в журнале", async () => {
+  const card = (await invoke("list_accounts", { includeArchived: false })).find((a) => a.name === "Карта").id;
+  const cats = (await invoke("list_categories", { includeArchived: false })).filter((c) => c.kind === "expense" && !c.parentId);
+  const fixture = { date: day(0), accountId: card, payee: "Учебный чек 640+360", note: null, total: 100000,
+    parts: [{ categoryId: cats[0].id, amount: 64000 }, { categoryId: cats[1].id, amount: 36000 }] };
+  const splitId = await invoke("create_receipt", { input: fixture });
+  await invoke("create_receipt", { input: { ...fixture, payee: "Удаляемый учебный чек" } });
+  const receipt = await invoke("get_receipt", { splitId });
+  const part = receipt.parts.find((p) => p.amount === 36000);
+  await browser.refresh();
+  await openSection(browser, "Операции");
+  const row = '//*[@data-testid="txn-row" and contains(., "Учебный чек 640+360")]';
+  await browser.$(row).waitForDisplayed();
+  await browser.$(`${row}//td[@class="date"]`).click({ button: "right" });
+  await click(browser, "Вернуть…", '//*[@role="menu"]');
+  const select = browser.$('[name="refundPart"]');
+  await select.waitForEnabled();
+  assert.equal(await select.getValue(), "");
+  assert.equal(await browser.$('[data-testid="refund-form"]').isExisting(), false);
+  await select.selectByAttribute("value", part.id);
+  await waitText(browser, '[data-testid="refund-purchase"]', /360[\s ]₽/);
+  await browser.keys("Escape");
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true });
+  await browser.$(`${row}//button[@aria-label="Раскрыть чек"]`).click();
+  await browser.$(`//*[@data-testid="receipt-part" and contains(., "${part.categoryName}")]//button`).click();
+  await browser.$('[data-testid="txn-refund"]').click();
+  await waitText(browser, '[data-testid="refund-purchase"]', /360[\s ]₽/);
+  assert.equal(await select.getValue(), part.id);
+  await fill(browser, "amount", "700");
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await waitText(browser, '[role="alert"]', /больше, чем стоила покупка/);
+  await fill(browser, "amount", "50");
+  await browser.execute(() => {
+    const form = document.querySelector('[data-testid="refund-form"]');
+    form.requestSubmit();
+    form.requestSubmit();
+  });
+  await browser.$('[data-testid="refund-form"]').waitForExist({ reverse: true });
+  assert.equal((await invoke("refund_info", { of: part.id, except: null })).left, 31000);
+  assert.equal((await invoke("refund_info", { of: receipt.parts.find((p) => p.amount === 64000).id, except: null })).left, 64000);
+
+  const search = browser.$('[name="search"]');
+  await fill(browser, "search", "Удаляемый учебный чек");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  await search.click();
+  await browser.keys(["Control", "k"]);
+  await browser.$('[name="paletteQuery"]').waitForDisplayed();
+  await browser.keys("Escape");
+  assert.ok(await search.isFocused());
+  await browser.$('[data-testid="txn-row"] td.date').click({ button: "right" });
+  await browser.$('//*[@role="menuitem"][contains(., "Удалить чек")]').click();
+  await browser.$('[data-testid="txn-row"]').waitForExist({ reverse: true });
+  assert.ok(await browser.$('[data-testid="txn-result-period"]').isFocused());
+});

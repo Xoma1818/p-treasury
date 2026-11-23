@@ -244,7 +244,8 @@ export function TrendCard({ period }: { period: Period }) {
 export function DaysCard() {
   const month = today().slice(0, 7);
   const cal = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) }).data;
-  const hidden = useSettings().data?.hide_amounts === "1";
+  const settings = useSettings().data;
+  const hidden = !settings || settings.hide_amounts === "1";
   if (!cal) return <div className="card" data-testid="home-days" />;
   const max = Math.max(...cal.days.map((d) => d.expense), 1);
   const lead = weekdayIndex(new Date(`${cal.days[0].date}T00:00:00`).getDay());
@@ -273,12 +274,14 @@ export function DaysCard() {
         ))}
         {cal.days.map((d) => {
           const future = d.date > t;
-          const amount = hidden ? "•••" : formatShort(d.expense, cal.currencySymbol, cal.minorUnits);
+          const amount = hidden ? "•••" : formatShort(Math.abs(d.expense), cal.currencySymbol, cal.minorUnits);
+          const description = d.expense < 0 ? `возвраты превысили расходы на ${amount}`
+            : d.noSpend ? "без трат" : `расходы за вычетом возвратов ${amount}`;
           return (
             <span
               key={d.date}
               className={future ? "heat-cell future" : `heat-cell l${level(d.expense)}`}
-              title={future ? undefined : `${Number(d.date.slice(8))}: ${d.expense > 0 ? amount : "без трат"}`}
+              title={future ? undefined : `${Number(d.date.slice(8))}: ${description}`}
               data-testid="heat-cell"
             >
               {Number(d.date.slice(8))}

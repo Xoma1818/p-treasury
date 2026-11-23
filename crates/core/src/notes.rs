@@ -150,7 +150,7 @@ const SELECT: &str = "SELECT n.id, n.body, n.date, n.transaction_id, n.account_i
           WHEN n.budget_id IS NOT NULL THEN 'Бюджет с ' || b.period_start
         END,
         n.created_at, n.updated_at,
-        (SELECT r.id FROM reminders r WHERE r.note_id = n.id ORDER BY r.created_at LIMIT 1),
+        (SELECT r.id FROM reminders r WHERE r.note_id = n.id ORDER BY r.created_at DESC, r.rowid DESC LIMIT 1),
         n.pinned
      FROM notes n
      LEFT JOIN transactions t ON t.id = n.transaction_id

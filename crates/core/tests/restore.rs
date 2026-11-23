@@ -289,35 +289,13 @@ fn damaged_copy_does_not_replace_data() {
 #[test]
 fn failed_migration_of_copy_keeps_live_data() {
     let dir = tempfile::tempdir().unwrap();
-    let version = MIGRATIONS.len() - 1;
-    let copy = old_copy(dir.path(), version);
-    // То, что создаёт последняя миграция (таблица или столбец), уже есть —
-    // миграция упадёт.
+    let copy = old_copy(dir.path(), 30);
+    // Реальная миграция 0031 обновляет added. Повреждённая схема копии
+    // должна прервать восстановление до замены рабочей базы.
     {
         let c = Connection::open(&copy).unwrap();
-        let sql = MIGRATIONS.last().unwrap().sql;
-        let word = |after: &str| {
-            sql.split(after)
-                .nth(1)
-                .and_then(|s| s.split_whitespace().next())
-                .map(|w| w.trim_end_matches(['(', ';']).to_string())
-        };
-        let clash = match (
-            word("CREATE TABLE "),
-            word("ALTER TABLE "),
-            word("ADD COLUMN "),
-        ) {
-            (Some(table), _, _) => format!("CREATE TABLE {table} (x)"),
-            (None, Some(table), Some(column)) => {
-                format!("ALTER TABLE {table} ADD COLUMN {column} INTEGER")
-            }
-            // Миграция только добавляет настройки: у таблицы нет столбца value — вставка упадёт.
-            _ if sql.contains("INTO settings") => {
-                "ALTER TABLE settings RENAME TO settings_old; CREATE TABLE settings (key TEXT PRIMARY KEY)".to_string()
-            }
-            _ => panic!("последняя миграция создаёт таблицу, столбец или настройку"),
-        };
-        c.execute_batch(&clash).unwrap();
+        c.execute_batch("ALTER TABLE import_batches RENAME COLUMN added TO invalid_added")
+            .unwrap();
     }
     let mut db = live(dir.path());
     let result = db.restore_from(&copy, &opts(dir.path()));

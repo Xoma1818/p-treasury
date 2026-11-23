@@ -8,7 +8,7 @@ import { api, type CategoryKind, type CompareBy, type ComparePeriods, type Compa
 import { barWidth, formatChange, isBetter, splitRows } from "../lib/compare";
 import { shiftMonth, today } from "../lib/dates";
 import { useMonthOf } from "../lib/queries";
-import { useUi } from "../lib/store";
+import type { ReportContext, TxnJump } from "../lib/store";
 
 /** Готовые пары периодов: тип периода и на сколько месяцев назад первый период. */
 const PRESETS: [string, ReportPeriodKind, number][] = [
@@ -25,12 +25,15 @@ const BY: [CompareBy, string][] = [
 ];
 
 /** Вкладка «Сравнение» в Отчётах: два любых периода, что выросло и что уменьшилось. */
-export function Compare() {
+type ComparisonView = NonNullable<ReportContext["comparison"]>;
+type OpenComparison = (filter: TxnJump, source: string, view: ComparisonView) => void;
+
+export function Compare({ restored, openOperations }: { restored?: ComparisonView; openOperations: OpenComparison }) {
   const current = useMonthOf(today()).data?.month;
-  const [periods, setPeriods] = useState<ComparePeriods | null>(null);
-  const [kind, setKind] = useState<CategoryKind>("expense");
-  const [by, setBy] = useState<CompareBy>("category");
-  const [preset, setPreset] = useState(0);
+  const [periods, setPeriods] = useState<ComparePeriods | null>(restored?.periods ?? null);
+  const [kind, setKind] = useState<CategoryKind>(restored?.kind ?? "expense");
+  const [by, setBy] = useState<CompareBy>(restored?.by ?? "category");
+  const [preset, setPreset] = useState(restored?.preset ?? 0);
 
   const applyPreset = async (i: number) => {
     if (!current) return;
@@ -125,7 +128,8 @@ export function Compare() {
             </div>
           </div>
         </div>
-        {c && periods && <Changes c={c.rows} kind={kind} by={by} periods={periods} total={[c.totalA, c.totalB, c.diff, c.percent]} />}
+        {c && periods && <Changes c={c.rows} kind={kind} by={by} periods={periods} total={[c.totalA, c.totalB, c.diff, c.percent]}
+          openOperations={(filter, source) => openOperations(filter, source, { periods, kind, by, preset })} />}
         {c && c.missingRates.length > 0 && <p className="hint warn">Нет курса для {c.missingRates.join(", ")}: такие операции не вошли.</p>}
       </div>
     </div>
@@ -166,20 +170,21 @@ function Tile({ label, a, b, better, testid, signed }: { label: string; a: numbe
 
 type Total = [number, number, number, number | null];
 
-function Changes({ c, kind, by, periods, total }: { c: CompareRow[]; kind: CategoryKind; by: CompareBy; periods: ComparePeriods; total: Total }) {
+function Changes({ c, kind, by, periods, total, openOperations }: { c: CompareRow[]; kind: CategoryKind; by: CompareBy; periods: ComparePeriods; total: Total; openOperations: (filter: TxnJump, source: string) => void }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const showTransactions = useUi((u) => u.showTransactions);
   if (c.length === 0) return <p className="muted">В обоих периодах операций нет.</p>;
   const groups = splitRows(c);
   const max = Math.max(...c.map((r) => Math.abs(r.diff)));
   const appeared = c.filter((r) => r.presence === "onlyB").length;
   const gone = c.filter((r) => r.presence === "onlyA").length;
   const go = (r: CompareRow) =>
-    showTransactions({
+    openOperations({
       dateFrom: periods.bFrom,
       dateTo: periods.bTo,
-      ...(by === "category" ? { categoryId: r.key } : by === "account" ? { accountId: r.key } : r.key ? { search: r.key } : {}),
-    });
+      counted: true,
+      types: [kind],
+      ...(by === "category" ? { categoryId: r.key } : by === "account" ? { accountId: r.key } : { comparePayee: r.key }),
+    }, `compare-${by}-${r.key}`);
   const toggle = (k: string) =>
     setOpen((o) => {
       const s = new Set(o);
@@ -204,7 +209,7 @@ function Changes({ c, kind, by, periods, total }: { c: CompareRow[]; kind: Categ
           {child ? (
             <span>{r.name}</span>
           ) : (
-            <button className="link cat-link" title="Операции периода 2" onClick={() => go(r)}>
+            <button className="link cat-link" title="Операции периода 2" data-report-source={`compare-${by}-${r.key}`} onClick={() => go(r)}>
               {r.name}
             </button>
           )}
@@ -217,7 +222,7 @@ function Changes({ c, kind, by, periods, total }: { c: CompareRow[]; kind: Categ
         <span className="num" data-testid="cmp-b">
           <M amount={r.b} />
         </span>
-        <span className="diverge" title={`${r.name}: было ${r.a / 100}, стало ${r.b / 100}`} aria-hidden>
+        <span className="diverge" aria-hidden>
           <span className="axis" />
           {w > 0 && <span className={`dbar ${r.diff > 0 ? "up" : "down"} ${tone}`} style={{ width: `${w / 2}%` }} />}
         </span>
@@ -225,7 +230,7 @@ function Changes({ c, kind, by, periods, total }: { c: CompareRow[]; kind: Categ
           {r.diff === 0 ? "—" : <M amount={r.diff} signed />}
         </span>
         <span className={`num change ${tone}`} data-testid="cmp-percent">
-          {r.diff === 0 && r.percent === 0 ? "0 %" : formatChange(r.percent)}
+          {formatChange(r.percent, r.presence)}
         </span>
       </li>
     );

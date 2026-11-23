@@ -83,12 +83,12 @@ pub fn last_week(conn: &Connection, today: &str) -> Result<WeekSummary> {
     )?;
     let base = currencies::base_currency(conn)?;
     let mut stmt = conn.prepare(
-        "SELECT COALESCE(p.name, c.name), t.amount, a.currency_code, t.date
+        "SELECT COALESCE(p.name, c.name), CASE WHEN t.refund = 1 THEN -t.amount ELSE t.amount END, a.currency_code, t.date
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          JOIN categories c ON c.id = t.category_id
          LEFT JOIN categories p ON p.id = c.parent_id
-         WHERE t.status = 'cleared' AND t.type = 'expense' AND t.date BETWEEN ?1 AND ?2",
+         WHERE t.status = 'cleared' AND (t.type = 'expense' OR t.refund = 1) AND t.date BETWEEN ?1 AND ?2",
     )?;
     let rows: Vec<(String, i64, String, String)> = stmt
         .query_map(params![from.to_string(), to.to_string()], |r| {
@@ -103,6 +103,7 @@ pub fn last_week(conn: &Connection, today: &str) -> Result<WeekSummary> {
     }
     let top = by_cat
         .into_iter()
+        .filter(|(_, amount)| *amount > 0)
         .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)));
     Ok(WeekSummary {
         from: from.to_string(),
@@ -135,7 +136,7 @@ pub fn weekly_due(conn: &Connection, now: NaiveDateTime) -> Result<Option<WeekSu
     }
     let s = last_week(conn, &today.to_string())?;
     settings::set(conn, "weekly_summary_sent", &week)?;
-    Ok((s.expense > 0 || s.income > 0).then_some(s))
+    Ok((s.expense != 0 || s.income > 0).then_some(s))
 }
 
 /// Текст уведомления: «Итог недели: расходы 12 400 ₽ (на 8 % меньше), 2 дня без трат».
@@ -147,8 +148,15 @@ pub fn weekly_text(s: &WeekSummary) -> String {
             s.currency_symbol
         )
     };
-    let mut text = format!("Итог недели: расходы {}", money(s.expense));
-    if s.prev_expense > 0 {
+    let mut text = if s.expense < 0 {
+        format!(
+            "Итог недели: возвраты превысили расходы на {}",
+            money(-s.expense)
+        )
+    } else {
+        format!("Итог недели: расходы {}", money(s.expense))
+    };
+    if s.prev_expense > 0 && s.expense >= 0 {
         let pct =
             ((s.expense - s.prev_expense) as f64 / s.prev_expense as f64 * 100.0).round() as i64;
         text.push_str(&match pct {
