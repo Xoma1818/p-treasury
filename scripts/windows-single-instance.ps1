@@ -47,6 +47,18 @@ public static class KaznaTestWindow {
         }, IntPtr.Zero);
         return found.ToArray();
     }
+    [DllImport("user32", CharSet=CharSet.Unicode)] private static extern IntPtr FindWindow(string cls, string name);
+    [DllImport("user32", SetLastError=true)] private static extern IntPtr SendMessageTimeout(IntPtr handle, uint msg,
+        IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr value);
+    public static bool Responds(IntPtr handle) {
+        IntPtr value;
+        return handle != IntPtr.Zero && SendMessageTimeout(handle, 0, IntPtr.Zero, IntPtr.Zero, 2, 400, out value) != IntPtr.Zero;
+    }
+    public static bool OwnsReceiver(int pid, string id) {
+        uint owner;
+        var handle = FindWindow(id+"-sic", id+"-siw");
+        return handle != IntPtr.Zero && GetWindowThreadProcessId(handle, out owner) != 0 && owner == pid && Responds(handle);
+    }
 }
 '@
 }
@@ -118,6 +130,21 @@ function Close-Window([Diagnostics.Process]$process, [IntPtr]$handle) {
     }
 }
 
+function Minimize-Window([Diagnostics.Process]$process, [IntPtr]$handle, [switch]$External) {
+    if ((Get-Window $process) -ne $handle -or $handle -eq [IntPtr]::Zero) {
+        throw 'The minimize target is not the original test window.'
+    }
+    if ($External) {
+        $null = [KaznaTestWindow]::ShowWindowAsync($handle, 6) # SW_MINIMIZE
+    } else {
+        # The caption and taskbar issue WM_SYSCOMMAND/SC_MINIMIZE.
+        if (-not [KaznaTestWindow]::PostMessage($handle, 0x112, [IntPtr]0xF020, [IntPtr]::Zero)) {
+            throw 'Could not send the minimize command to the test window.'
+        }
+    }
+    Wait-For 'minimization' { [KaznaTestWindow]::IsIconic($handle) }
+}
+
 function Confirm-Owner([Diagnostics.Process]$primary, [IntPtr]$handle) {
     Wait-For 'the original window is restored' {
         (Get-Window $primary) -eq $handle -and [KaznaTestWindow]::IsWindowVisible($handle) -and
@@ -165,15 +192,33 @@ function Test-StandardLaunch([Diagnostics.Process]$testOwner, [IntPtr]$testWindo
         (Get-Window $standard) -ne [IntPtr]::Zero -and (Test-Path -LiteralPath (Join-Path $profile 'budget.db'))
     }
     $window = Get-Window $standard
-    $null = [KaznaTestWindow]::ShowWindowAsync($window, 6)
-    Wait-For 'ordinary window minimized' { [KaznaTestWindow]::IsIconic($window) }
-    Confirm-Forwarded @(Start-Kazna $profile -PortableExe $binary)
-    Wait-For 'second shortcut restores the same ordinary window' {
-        (Get-Window $standard) -eq $window -and [KaznaTestWindow]::IsWindowVisible($window) -and
-            -not [KaznaTestWindow]::IsIconic($window)
+    foreach ($method in 'ShowWindowAsync','WM_SYSCOMMAND') {
+        # The first activation is sent as soon as the native window is usable.
+        # Delaying it until the renderer is ready would miss the startup race.
+        $early = $method -eq 'ShowWindowAsync'
+        if (-not $early) {
+            Wait-For 'ordinary window and activation receiver ready' {
+                [KaznaTestWindow]::Responds($window) -and [KaznaTestWindow]::OwnsReceiver($standard.Id, 'app.kazna.desktop')
+            }
+        }
+        Minimize-Window $standard $window -External:$early
+        $forward = Start-Kazna $profile -PortableExe $binary
+        Confirm-Forwarded @($forward)
+        try {
+            Wait-For "second shortcut restores the same ordinary window after $method" {
+                (Get-Window $standard) -eq $window -and [KaznaTestWindow]::IsWindowVisible($window) -and
+                    -not [KaznaTestWindow]::IsIconic($window)
+            }
+        } catch {
+            $results.Add([ordered]@{status='diagnostic'; method=$method; owner=$standard.Id; hwnd=$window.ToInt64()
+                minimized=[KaznaTestWindow]::IsIconic($window); visible=[KaznaTestWindow]::IsWindowVisible($window)
+                responsive=[KaznaTestWindow]::Responds($window); secondary=$forward.Id; secondaryExit=$forward.ExitCode
+                secondaryMs=($forward.ExitTime-$forward.StartTime).TotalMilliseconds})
+            throw
+        }
+        Confirm-Owner $testOwner $testWindow
+        Record "ordinary shortcut restores its own window after $method" $standard $window $profile
     }
-    Confirm-Owner $testOwner $testWindow
-    Record 'ordinary shortcut restores its own window alongside the test instance' $standard $window $profile
     Set-TrayMode $profile $false
     Close-Window $standard $window
     Wait-For 'ordinary portable exit' { $standard.HasExited }
@@ -192,8 +237,7 @@ try {
     Record 'ordinary window' $primary $original $profiles[0]
     Test-StandardLaunch $primary $original
 
-    $null = [KaznaTestWindow]::ShowWindowAsync($original, 6) # SW_MINIMIZE
-    Wait-For 'minimization' { [KaznaTestWindow]::IsIconic($original) }
+    Minimize-Window $primary $original
     Confirm-Forwarded @(Start-Kazna $profiles[0] -Argument)
     Confirm-Owner $primary $original
     Record 'same folder restores minimized owner' $primary $original $profiles[0]

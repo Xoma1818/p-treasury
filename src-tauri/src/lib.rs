@@ -81,6 +81,8 @@ pub(crate) fn test_browser_args() -> Option<String> {
 }
 
 pub fn run() {
+    #[cfg(windows)]
+    let reopen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let override_dir = data_dir_override();
     let portable = files::portable_dir();
     let context = tauri::generate_context!();
@@ -93,8 +95,11 @@ pub fn run() {
         if override_dir.is_some() || (portable.is_some() && test_browser_args().is_some()) {
             context.config_mut().identifier.push_str(".qa");
         }
-        let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            background::show_main(app);
+        let requested = reopen.clone();
+        let builder = builder.plugin(tauri_plugin_single_instance::init(move |app, _, _| {
+            // Windows может передать повторный запуск ещё во время создания WebView2.
+            requested.store(true, std::sync::atomic::Ordering::SeqCst);
+            show_requested_window(app, &requested);
         }));
         (builder, context)
     };
@@ -147,6 +152,8 @@ pub fn run() {
                     main = main.additional_browser_args(&args);
                 }
                 main.build()?;
+                #[cfg(windows)]
+                show_requested_window(app.handle(), &reopen);
             } else {
                 eprintln!("в tauri.conf.json нет окна \"main\": программа запущена без окна");
             }
@@ -481,6 +488,15 @@ pub fn run() {
                 vault::sync_on_exit(app);
             }
         });
+}
+
+#[cfg(windows)]
+fn show_requested_window(app: &tauri::AppHandle, requested: &std::sync::atomic::AtomicBool) {
+    if let Some(window) = app.get_webview_window("main") {
+        if requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            background::show_window(&window);
+        }
+    }
 }
 
 #[cfg(test)]
