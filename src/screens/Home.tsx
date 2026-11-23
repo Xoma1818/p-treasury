@@ -25,7 +25,8 @@ import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
-import { barClass, barLevel } from "../lib/budgetLevel";
+import { barLevel } from "../lib/budgetLevel";
+import { BudgetBar } from "../components/BudgetBar";
 import { ChecksCard, NetWorthSpark, UnusualCard } from "../components/QuickWins";
 import { ExplainDialog, type ExplainKind } from "../components/Explain";
 import { MonthReviewBanner } from "../components/MonthReview";
@@ -249,7 +250,7 @@ export function Home() {
             </div>
           </div>
     ),
-    checks: <ChecksCard />,
+    checks: <ChecksCard budget={budget} />,
     unusual: <UnusualCard />,
     cushion: <CushionCard />,
     ahead: <AheadCard />,
@@ -313,12 +314,9 @@ export function Home() {
                       .sort((a, b) => b.percent - a.percent)
                       .slice(0, 5)
                       .map((l) => (
-                        <li key={l.categoryId} className={barLevel(l.percent) === "over" ? "over" : undefined}>
+                        <li key={l.categoryId} className={l.over ? "over" : undefined}>
                           <span>{l.categoryName}</span>
-                          <div className={barClass(l.percent)}>
-                            <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                          </div>
-                          <span className="percent">{l.percent} %</span>
+                          <BudgetBar percent={l.percent} level={barLevel(l.actual, l.limit)} />
                         </li>
                       ))}
                   </ul>

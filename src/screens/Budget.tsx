@@ -16,7 +16,8 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CornerDownRight } from "lucide-react";
-import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
+import { barLevel, usualLabel } from "../lib/budgetLevel";
+import { BudgetBar } from "../components/BudgetBar";
 import { MonthReviewDialog } from "../components/MonthReview";
 import { BudgetCoverDialog } from "../components/BudgetCoverDialog";
 import "./budgetOverview.css";
@@ -348,7 +349,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                   data-testid="budget-line"
                   data-category={l.categoryName}
                   data-focus={focusCat === l.categoryId || undefined}
-                  className={[!income && barLevel(l.percent) === "over" && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
+                  className={[l.over && !income && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
                 >
                   <td className={l.parentId ? "child-name" : "main"}>
                     {l.categoryName}
@@ -423,12 +424,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                     )}
                   </td>
                   <td className="bar-col">
-                    <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
-                      <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                    </div>
-                    <span className={income || barLevel(l.percent) === "ok" ? "percent" : `percent ${barLevel(l.percent)}`} data-testid="percent">
-                      {l.percent} %
-                    </span>
+                    <BudgetBar percent={l.percent} level={income ? "ok" : barLevel(l.actual, l.limit)} />
                   </td>
                 </tr>
               ))}
@@ -631,10 +627,7 @@ function GroupsCard({ b, minor }: { b: BudgetData; minor: number }) {
                     <div className="sub">{g.target != null ? "цель" : "по лимитам"}</div>
                   </td>
                   <td className="bar-col">
-                    <div className={g.savings ? "bar" : barClass(pct)}>
-                      <span style={{ width: `${Math.min(pct, 100)}%` }} />
-                    </div>
-                    <span className="percent">{pct} %</span>
+                    <BudgetBar percent={pct} level={g.savings || goal <= 0 ? "ok" : barLevel(g.actual, goal)} />
                   </td>
                 </tr>
               );

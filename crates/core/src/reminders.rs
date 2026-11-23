@@ -585,6 +585,13 @@ pub struct Key {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ActualPayment {
+    pub date: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Occurrence {
     pub key: Key,
@@ -607,6 +614,8 @@ pub struct Occurrence {
     pub notified_at: Option<String>,
     pub completed_at: Option<String>,
     pub transaction_id: Option<String>,
+    /// Дата и вид действующей проведённой операции для выполненного платежа.
+    pub actual_payment: Option<ActualPayment>,
     /// Явно привязано к действующей операции, записанной отдельно.
     pub linked_actual: bool,
     /// День и время самого платежа: по расписанию или куда его перенесли.
@@ -634,6 +643,7 @@ struct State {
     notified_at: Option<String>,
     completed_at: Option<String>,
     transaction_id: Option<String>,
+    actual_payment: Option<ActualPayment>,
     linked_actual: bool,
     amount_override: Option<i64>,
     moved_to: Option<String>,
@@ -659,9 +669,11 @@ fn states(conn: &Connection) -> Result<States> {
                 o.snoozed_until, o.notified_at, o.completed_at, o.transaction_id,
                 o.amount_override, o.moved_to,
                 o.status = 'done' AND o.linked_actual_amount IS NOT NULL AND v.occurrence_id IS NULL,
-                v.occurrence_id IS NOT NULL
+                v.occurrence_id IS NOT NULL, t.date, t.type
          FROM reminder_occurrences o
-         LEFT JOIN valid_reminder_actual_links v ON v.occurrence_id = o.id",
+         LEFT JOIN valid_reminder_actual_links v ON v.occurrence_id = o.id
+         LEFT JOIN transactions t ON t.id = o.transaction_id AND t.status = 'cleared'
+              AND o.status = 'done' AND (o.linked_actual_amount IS NULL OR v.occurrence_id IS NOT NULL)",
     )?;
     let rows = stmt.query_map([], |r| {
         let stale_link: bool = r.get(10)?;
@@ -681,6 +693,10 @@ fn states(conn: &Connection) -> Result<States> {
                 notified_at: r.get(5)?,
                 completed_at: if stale_link { None } else { r.get(6)? },
                 transaction_id: if stale_link { None } else { r.get(7)? },
+                actual_payment: r
+                    .get::<_, Option<String>>(12)?
+                    .zip(r.get(13)?)
+                    .map(|(date, kind)| ActualPayment { date, kind }),
                 linked_actual: r.get(11)?,
                 amount_override: r.get(8)?,
                 moved_to: r.get(9)?,
@@ -797,6 +813,7 @@ fn occurrences_for(
             o.notified_at = s.notified_at.clone();
             o.completed_at = s.completed_at.clone();
             o.transaction_id = s.transaction_id.clone();
+            o.actual_payment = s.actual_payment.clone();
             o.linked_actual = s.linked_actual;
         }
         out.push(o);
@@ -861,6 +878,7 @@ fn occurrences_for(
                     notified_at: None,
                     completed_at: None,
                     transaction_id: None,
+                    actual_payment: None,
                     linked_actual: false,
                     pay_at: format_dt(at),
                     edited: false,
@@ -953,6 +971,7 @@ fn occurrences_for(
                 notified_at: None,
                 completed_at: None,
                 transaction_id: None,
+                actual_payment: None,
                 linked_actual: false,
                 pay_at: format!("{due}T{DEBT_HOUR}"),
                 edited: false,
@@ -2035,8 +2054,17 @@ mod tests {
             })
             .unwrap();
         check(c, "2026-12-24T09:00");
-        assert!(overview(c, now).unwrap().upcoming.is_empty());
+        let overview = overview(c, now).unwrap();
+        assert!(overview.upcoming.is_empty());
+        let done = &overview.done[0];
+        assert_eq!(done.pay_at, "2026-11-24T09:00");
+        let actual = done.actual_payment.as_ref().unwrap();
+        assert_eq!(
+            (actual.date.as_str(), actual.kind.as_str()),
+            ("2026-11-23", "expense")
+        );
         journal.undo(c).unwrap();
+        assert!(occurrence(c, &key).unwrap().actual_payment.is_none());
         check(c, "2026-11-24T09:00");
         journal.redo(c).unwrap();
         check(c, "2026-12-24T09:00");
@@ -2170,6 +2198,14 @@ mod tests {
         assert_eq!(planned(c).len(), 1);
         assert_eq!(journal.redo(c).unwrap().as_deref(), Some("Связь"));
         assert!(planned(c).is_empty());
+        c.execute(
+            "UPDATE transactions SET date = date(date, '-1 day') WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+        let stale = occurrence(c, &key).unwrap();
+        assert_eq!(stale.status, "pending");
+        assert!(stale.actual_payment.is_none());
         transactions::delete(c, &id).unwrap();
         let pending = occurrence(c, &key).unwrap();
         assert!(!pending.linked_actual);
@@ -2327,9 +2363,14 @@ mod tests {
         let (key, payment) = internet_payment(c, &card, 10_000, 10_000);
         let id = transactions::create(c, &payment).unwrap();
         complete(c, &key, Some(&id)).unwrap();
+        assert_eq!(
+            occurrence(c, &key).unwrap().actual_payment.unwrap().date,
+            payment.date
+        );
         transactions::delete(c, &id).unwrap();
         let o = occurrence(c, &key).unwrap();
         assert_eq!((o.status.as_str(), o.linked_actual), ("done", false));
+        assert!(o.actual_payment.is_none());
     }
 
     #[test]
