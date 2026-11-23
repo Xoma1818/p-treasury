@@ -81,26 +81,31 @@ pub(crate) fn test_browser_args() -> Option<String> {
 }
 
 pub fn run() {
+    let override_dir = data_dir_override();
+    let portable = files::portable_dir();
+    let context = tauri::generate_context!();
     let builder = tauri::Builder::default();
-    // Одна копия программы (должен регистрироваться первым): второй запуск
-    // показывает уже открытое окно, даже если оно свёрнуто в трей.
+    // Защита регистрируется до открытия базы, окна и трея. У проверок на этом
+    // рабочем столе один свой экземпляр, даже при разных временных папках.
     #[cfg(windows)]
-    let builder = if data_dir_override().is_none() {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            background::show_main(app)
-        }))
-    } else {
-        builder
+    let (builder, context) = {
+        let mut context = context;
+        if override_dir.is_some() || (portable.is_some() && test_browser_args().is_some()) {
+            context.config_mut().identifier.push_str(".qa");
+        }
+        let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            background::show_main(app);
+        }));
+        (builder, context)
     };
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(quick_window::plugin())
-        .setup(|app| {
-            let portable = files::portable_dir();
-            let test_dir = data_dir_override().is_some();
-            let data_dir = match (data_dir_override(), &portable) {
+        .setup(move |app| {
+            let test_dir = override_dir.is_some();
+            let data_dir = match (override_dir, &portable) {
                 (Some(dir), _) => dir,
                 (None, Some(dir)) => dir.clone(),
                 (None, None) => app.path().app_data_dir()?,
@@ -468,7 +473,7 @@ pub fn run() {
             commands::delete_duplicate,
             commands::net_worth_history,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("не удалось запустить приложение")
         .run(|app, event| {
             // Папка сохранности при закрытии приложения (из трея «Выход» или закрытием окна).

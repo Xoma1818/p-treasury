@@ -93,6 +93,10 @@ jobs:
         env:
           PTREASURY_VOLUME_DIR: ${{ runner.temp }}\kazna-volume
         run: cargo test --release -p budget-core --test volume --locked -- --ignored --nocapture
+      - name: Повторный запуск и возврат Kazna из трея
+        if: ${{ inputs.suite != 'volume' }}
+        shell: pwsh
+        run: ./scripts/windows-single-instance.ps1 -AppPath ./target/debug/budget-app.exe
       - name: Сквозные тесты
         shell: bash
         env:
