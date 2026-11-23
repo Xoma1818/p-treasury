@@ -50,6 +50,8 @@ fn seed(scenario: Scenario, today: NaiveDate) -> Result<Storage> {
         },
     )?;
     settings::set(db.conn(), "home_layout", r#"{"order":[],"hidden":[]}"#)?;
+    // После задания крестик должен закрыть учебный профиль вместе с окном.
+    settings::set(db.conn(), "close_to_tray", "0")?;
 
     let accounts = accounts::list(db.conn(), false)?;
     let categories = categories::list(db.conn(), false)?;
