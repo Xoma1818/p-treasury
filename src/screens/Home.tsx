@@ -19,7 +19,7 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { addDays, formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, withOverspendSlot, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
 import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
 import { useUi } from "../lib/store";
@@ -62,6 +62,7 @@ export function Home() {
   const accounts = useAccounts().data ?? [];
   const { showTransactions, go } = useUi();
   const [editing, setEditing] = useState(false);
+  const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
   const settings = useSettings().data;
@@ -108,6 +109,7 @@ export function Home() {
     }
   };
   const visible = (block: HomeBlock) => modules.blockOn(block) && !layout.hidden.includes(block);
+  const displayOrder = editing ? layout.order.filter(modules.blockOn) : withOverspendSlot(layout.order.filter(visible));
   const limitBlock = (["tiles", "plans", "summary"] as const).find(visible);
   const budgetToday = budget?.id ? (
     <div className="home-budget-today">
@@ -250,7 +252,7 @@ export function Home() {
             </div>
           </div>
     ),
-    checks: <ChecksCard budget={budget} />,
+    checks: <ChecksCard budget={budget} overspendSlot={editing ? null : overspendSlot} />,
     unusual: <UnusualCard />,
     cushion: <CushionCard />,
     ahead: <AheadCard />,
@@ -433,10 +435,10 @@ export function Home() {
         </p>
       )}
       <div className="home-grid">
-      {layout.order
-        .filter((b) => modules.blockOn(b) && (editing || !layout.hidden.includes(b)))
-        .map((b) =>
-          editing ? (
+      {displayOrder.map((b) =>
+          b === "overspend" ? (
+            <div key={b} ref={setOverspendSlot} className="home-overspend-slot" />
+          ) : editing ? (
             <div
               key={b}
               className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}

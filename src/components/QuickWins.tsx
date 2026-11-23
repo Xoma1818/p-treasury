@@ -2,6 +2,7 @@ import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check as CheckIcon, CircleAlert } from "lucide-react";
 import { api, type Budget, type BudgetLine, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
@@ -91,19 +92,23 @@ export function maskAmounts(text: string): string {
 const CHECKS_SHOWN = 5;
 
 /** А3: странные списания за 30 дней. */
-export function ChecksCard({ inOperations = false, budget }: { inOperations?: boolean; budget?: Budget } = {}) {
+export function ChecksCard({ inOperations = false, budget, overspendSlot }: {
+  inOperations?: boolean; budget?: Budget; overspendSlot?: HTMLElement | null;
+} = {}) {
   const date = today();
   const settings = useSettings().data;
   const hidden = !settings || settings.hide_amounts === "1";
   const show = (t: string) => (hidden ? maskAmounts(t) : t);
   const checkQuery = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["checks", date], queryFn: api.listChecks });
   const checks = checkQuery.data;
-  const warnings = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["budgetWarnings", date], queryFn: api.budgetWarnings, enabled: !inOperations }).data ?? [];
+  const warningsKey = ["budgetWarnings", date];
+  const warnings = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: warningsKey, queryFn: api.budgetWarnings, enabled: !inOperations }).data ?? [];
   const openTxnForm = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
   const openOperationReview = useUi((s) => s.openOperationReview);
   const editPlan = useUi((s) => s.editPlan);
   const heading = useRef<HTMLHeadingElement>(null);
+  const overspendHeading = useRef<HTMLHeadingElement>(null);
   const coverOpener = useRef<HTMLButtonElement | null>(null);
   const currencies = useCurrencies().data;
   const minor = currencies?.find((c) => c.code === budget?.currencyCode)?.minorUnits;
@@ -120,9 +125,18 @@ export function ChecksCard({ inOperations = false, budget }: { inOperations?: bo
       return { budget: latest, target, minor };
     },
   });
-  const closeCover = () => {
+  const closeCover = (outcome: "saved" | "cancelled") => {
     setCover(null);
-    requestAnimationFrame(() => (coverOpener.current?.isConnected ? coverOpener.current : heading.current)?.focus());
+    requestAnimationFrame(() => {
+      if (outcome === "cancelled" && coverOpener.current?.isConnected) {
+        coverOpener.current.focus();
+        return;
+      }
+      // После сохранения кэш уже обновлён, а прежняя кнопка ещё может быть в DOM.
+      const warnings = queries.getQueryData<BudgetWarning[]>(warningsKey);
+      const hasOverspend = warnings?.some(w => w.actual > w.limit);
+      (hasOverspend && overspendHeading.current ? overspendHeading.current : heading.current)?.focus();
+    });
   };
   const dismiss = useAction(api.dismissCheck);
   const removeSecond = useAction(api.deleteDuplicate);
@@ -156,6 +170,29 @@ export function ChecksCard({ inOperations = false, budget }: { inOperations?: bo
     }
   };
 
+  const promoted = overspendSlot ? warnings.filter(w => w.actual > w.limit) : [];
+  const inline = overspendSlot ? warnings.filter(w => w.actual <= w.limit) : warnings;
+  const previewError = preview.error instanceof Error ? preview.error.message : preview.error && String(preview.error);
+  const promotedPreview = promoted.some(w => w.key === preview.variables?.key);
+  const warningRow = (w: BudgetWarning) => {
+    const target = warningCoverTarget(budget, w);
+    const planAction = target && budget && minor !== undefined ? (
+      <button key="cover" className="btn small" type="button" aria-haspopup="dialog" data-testid="warning-cover"
+        disabled={preview.isPending} aria-busy={preview.isPending && preview.variables?.key === w.key}
+        onClick={(e) => { coverOpener.current = e.currentTarget; preview.mutate(w, { onSuccess: setCover }); }}>
+        Покрыть <Money amount={-target.remaining} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={minor} />…
+      </button>
+    ) : (
+      <button key="edit" className="btn small" onClick={() => editPlan(w.categoryId)} data-testid="warning-plan">Изменить план</button>
+    );
+    return <WarningRow key={w.key} w={w} hidden={hidden} planAction={planAction}
+      onOps={() => showTransactions({
+        categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end,
+        types: ["expense"], counted: true, budgetMonth: w.month,
+      })}
+      onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />;
+  };
+
   return (
     <div className="card qw-card" id={inOperations ? "operations-review" : undefined} data-testid={inOperations ? "operations-review" : "home-checks"}>
       <h2 ref={heading} tabIndex={-1}>
@@ -179,23 +216,16 @@ export function ChecksCard({ inOperations = false, budget }: { inOperations?: bo
           </button>
         </p>
       )}
-      {!inOperations && warnings.length > 0 && (
+      {overspendSlot && promoted.length > 0 && createPortal(
+        <section className="card qw-card" aria-labelledby="home-overspend-heading" data-testid="home-overspend">
+          <h2 id="home-overspend-heading" ref={overspendHeading} tabIndex={-1}>Перерасход по бюджету</h2>
+          <ul className="qw-list">{promoted.map(warningRow)}</ul>
+          {promotedPreview && <ErrorText error={previewError} />}
+        </section>, overspendSlot
+      )}
+      {!inOperations && inline.length > 0 && (
         <ul className="qw-list" data-testid="budget-warnings">
-          {warnings.map((w) => {
-            const target = warningCoverTarget(budget, w);
-            const planAction = target && budget && minor !== undefined ? (
-              <button key="cover" className="btn small" type="button" aria-haspopup="dialog" data-testid="warning-cover"
-                disabled={preview.isPending} aria-busy={preview.isPending && preview.variables?.key === w.key}
-                onClick={(e) => { coverOpener.current = e.currentTarget; preview.mutate(w, { onSuccess: setCover }); }}>
-                Покрыть <Money amount={-target.remaining} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={minor} />…
-              </button>
-            ) : (
-              <button key="edit" className="btn small" onClick={() => editPlan(w.categoryId)} data-testid="warning-plan">Изменить план</button>
-            );
-            return <WarningRow key={w.key} w={w} hidden={hidden} planAction={planAction}
-              onOps={() => showTransactions({ categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end })}
-              onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />;
-          })}
+          {inline.map(warningRow)}
         </ul>
       )}
       {cover && <BudgetCoverDialog {...cover} onClose={closeCover} />}
@@ -249,7 +279,7 @@ export function ChecksCard({ inOperations = false, budget }: { inOperations?: bo
       )}
       {inOperations && (checkQuery.isLoading || matchQuery.isLoading || uncategorized.isLoading) &&
         <p className="muted" role="status">Ищем операции…</p>}
-      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError ?? (preview.error ? String(preview.error instanceof Error ? preview.error.message : preview.error) : null) ??
+      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError ?? (promotedPreview ? null : previewError) ??
         (inOperations && (checkQuery.error ?? matchQuery.error ?? uncategorized.error)
           ? String(checkQuery.error ?? matchQuery.error ?? uncategorized.error) : null)} />
       {!inOperations && (

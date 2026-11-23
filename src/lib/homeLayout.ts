@@ -39,6 +39,17 @@ export const DEFAULT_SHOWN: HomeBlock[] = ["quick", "tiles", "checks", "plans", 
 
 export const DEFAULT_LAYOUT: HomeLayout = { order: ALL, hidden: ALL.filter((b) => !DEFAULT_SHOWN.includes(b)), v: 2 };
 
+/** Место для активных предупреждений в видимой раскладке. Карточка «Проверьте»
+ * может уже стоять выше сводки, а в основной раскладке сводка скрыта. */
+export function withOverspendSlot(blocks: HomeBlock[]): (HomeBlock | "overspend")[] {
+  const checks = blocks.indexOf("checks");
+  if (checks < 0) return blocks;
+  const summary = blocks.indexOf("summary");
+  const tiles = blocks.indexOf("tiles");
+  const index = Math.min(checks, summary >= 0 ? summary + 1 : Math.max(tiles, 0));
+  return [...blocks.slice(0, index), "overspend", ...blocks.slice(index)];
+}
+
 /** Разбор настройки: пусто — карточки по умолчанию; неизвестные карточки отбрасываются,
  * новые (из обновлений) встают после той карточки, за которой идут по умолчанию.
  * В раскладке до 0.21 новые карточки видны (как было), в новой — скрыты. */

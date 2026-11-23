@@ -33,7 +33,8 @@ const accountRow = (name) => `//tr[@data-testid="account-row"][.//div[@class="ma
 test("новый журнал показывает пустое состояние за месяц и за всё время", async () => {
   await openSection(browser, "Операции");
   await waitText(browser, '[data-testid="txn-empty"]', /В журнале пока нет операций/);
-  await click(browser, "Показать все операции");
+  assert.equal(await browser.$('[data-testid="txn-empty"] [data-testid="txn-show-all"]').isExisting(), false);
+  await click(browser, "Показать все операции", '//*[@data-testid="filters"]');
   await waitText(browser, '[data-testid="txn-result-period"]', /За всё время/i);
   await waitText(browser, '[data-testid="txn-empty"]', /В журнале пока нет операций/);
 });
@@ -144,7 +145,8 @@ test("найти трату: фильтр по категории и поиск 
   await waitText(browser, '[data-testid="chip-category"]', /Питание/);
   await fill(browser, "search", "несуществующая строка");
   await waitText(browser, '[data-testid="txn-empty"]', /По этим условиям операций нет/);
-  await click(browser, "Показать все операции");
+  assert.equal((await browser.$$('[data-testid="txn-show-all"]')).length, 1);
+  await click(browser, "Показать все операции", '//*[@data-testid="txn-empty"]');
   await browser.$('[data-testid="filter-chips"]').waitForExist({ reverse: true });
   assert.equal(await browser.$('[name="search"]').getValue(), "");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 6 из 6/);
@@ -152,7 +154,20 @@ test("найти трату: фильтр по категории и поиск 
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await fill(browser, "search", "2 340");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
-  await click(browser, "Показать все операции");
+  await click(browser, "Показать все операции", '//*[@data-testid="filters"]');
+});
+
+test("пустой месяц: команда у подсказки открывает полный журнал", async () => {
+  await openSection(browser, "Операции");
+  await click(browser, "Прошлый", '//*[@data-testid="period"]');
+  await waitText(browser, '[data-testid="txn-empty"]', /По этим условиям операций нет/);
+  assert.equal((await browser.$$('[data-testid="txn-show-all"]')).length, 1);
+  await click(browser, "Показать все операции", '//*[@data-testid="txn-empty"]');
+  await waitText(browser, '[data-testid="txn-result-period"]', /За всё время/i);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 6 из 6/);
+  assert.equal(await browser.$('[data-testid="txn-result-period"]').isFocused(), true);
+  assert.equal(await browser.$('[name="dateFrom"]').getValue(), "");
+  assert.equal(await browser.$('[name="dateTo"]').getValue(), "");
 });
 
 test("правка и удаление операции меняют баланс", async () => {

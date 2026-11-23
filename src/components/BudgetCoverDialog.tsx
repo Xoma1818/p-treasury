@@ -8,7 +8,7 @@ import { coverSources } from "../lib/budgetCover";
 import { useBudget } from "../lib/queries";
 
 export function BudgetCoverDialog({ budget, target, minor, onClose }: {
-  budget: Budget; target: BudgetLine; minor: number; onClose: () => void;
+  budget: Budget; target: BudgetLine; minor: number; onClose: (outcome: "saved" | "cancelled") => void;
 }) {
   const amount = -target.remaining;
   const latest = useBudget(budget.period.month).data ?? budget;
@@ -21,11 +21,11 @@ export function BudgetCoverDialog({ budget, target, minor, onClose }: {
   const [selected, select] = useState(() => sources[0]?.categoryId ?? "");
   const from = sources.find((l) => l.categoryId === selected);
   const queries = useQueryClient();
-  const save = useAction(api.coverBudgetOverspend, onClose, { singleSubmit: true });
+  const save = useAction(api.coverBudgetOverspend, () => onClose("saved"), { singleSubmit: true });
   const money = (value: number) => <Money amount={value} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={minor} />;
   const close = () => {
     if (save.error) void queries.invalidateQueries({ queryKey: ["budget"] });
-    onClose();
+    onClose("cancelled");
   };
   return (
     <Modal title="Покрыть перерасход" onClose={close} dismissDisabled={save.busy}>
