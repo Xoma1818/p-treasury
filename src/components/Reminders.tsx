@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
-import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat, type Txn } from "../lib/api";
+import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat, type Txn, type TxnType } from "../lib/api";
 import { addDays, formatDate, formatDateTime, isoDateTime, nextRepeatDate, nowLocal, today } from "../lib/dates";
 import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { occurrenceStatus } from "../lib/occurrenceStatus";
@@ -412,6 +412,19 @@ function useCreateFromReminder() {
   };
 }
 
+const PAYMENT_VERBS: Record<TxnType, string> = {
+  expense: "списано", income: "зачислено", transfer: "переведено", adjustment: "скорректировано",
+};
+
+function PaymentDates({ o, date, type, id }: { o: Occurrence; date: string; type: TxnType; id?: string }) {
+  const planned = o.dueDate ?? o.payAt.slice(0, 10);
+  return <span id={id} data-testid="payment-dates">
+    По плану <time dateTime={planned}>{formatDate(planned)}</time>
+    {!o.dueDate && ` ${o.payAt.slice(11, 16)}`}
+    {" · "}{PAYMENT_VERBS[type]} <time dateTime={date}>{formatDate(date)}</time>
+  </span>;
+}
+
 export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () => void }) {
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -456,7 +469,10 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
         <span className="sub">
           <span data-testid="occ-status" data-state={status.state}>{status.label}</span>
           {" · "}
-          {o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}`
+          {o.status === "done" && o.actualPayment ? <>
+            <PaymentDates o={o} {...o.actualPayment} />
+            {(o.dueDate || (payment && o.payAt !== o.dueAt)) && ` · напомнить ${formatDateTime(o.dueAt)}`}
+          </> : o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}`
             : payment && o.payAt !== o.dueAt ? `платёж ${formatDateTime(o.payAt)}, напомнить ${formatDateTime(o.dueAt)}`
             : formatDateTime(o.dueAt)}
           {o.last && " · последний"}
@@ -643,12 +659,13 @@ function PaymentMatch({ o, onClose, onLinked, onCreate }: {
           {candidates.length > 1 && (
             <label className="small">
               <input type="radio" name="reminderPaymentCandidate" checked={selectedId === match.transactionId}
-                aria-labelledby={`${id}-choice ${id}-payee ${id}-amount${note ? ` ${id}-note` : ""}`}
+                aria-labelledby={`${id}-choice ${id}-payee ${id}-dates ${id}-amount${note ? ` ${id}-note` : ""}`}
                 disabled={attach.busy} onChange={() => setSelectedId(match.transactionId)} />
               <span id={`${id}-choice`}>Выбрать операцию {index + 1}</span>
             </label>
           )}
-          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}{accountName && ` · ${accountName}`}</p>
+          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong>{accountName && ` · ${accountName}`}</p>
+          <p><PaymentDates id={`${id}-dates`} o={o} date={match.date} type={o.txnType ?? "expense"} /></p>
           {note && <p className="muted" id={`${id}-note`}>{note}</p>}
           <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
           <p id={`${id}-amount`}>В учёте · {showAmounts ? <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /> : hiddenMoney}</p>

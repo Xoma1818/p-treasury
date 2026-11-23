@@ -8,7 +8,7 @@ const planned: Occurrence = {
   title: "Интернет", status: "pending", amount: 79000, currencySymbol: "₽", minorUnits: 2,
   txnType: "expense", accountId: "card", categoryId: null, note: null, debtId: null,
   dueAt: "2026-11-22T18:00", payAt: "2026-11-22T18:00", dueDate: null,
-  notifiedAt: null, completedAt: null, transactionId: null,
+  notifiedAt: null, completedAt: null, transactionId: null, actualPayment: null,
   edited: false, last: false, leadDays: [], shortfall: null,
 };
 
