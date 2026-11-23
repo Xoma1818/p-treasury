@@ -14,6 +14,15 @@
   margin-block-end: 20px;
 }
 
+.home-overspend-slot {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.home-overspend-slot:empty {
+  display: none;
+}
+
 .home-screen .home-budget-today {
   display: flex;
   flex-direction: column;

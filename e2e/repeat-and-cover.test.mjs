@@ -316,11 +316,39 @@ test("Перенос 400 ₽: фиксированный общий план, ф
         [...row.cells].map(cell => cell.innerText.replace(/\s+/g, " ").trim())));
     assert.deepEqual(rows, [["Досуг", "2 000 ₽", "1 600 ₽"], ["Питание", "3 000 ₽", "3 400 ₽"]]);
   }
+  // Измеряем до клика и до любого помощника, способного прокрутить окно.
+  await homeCover.waitForExist();
+  const position = await browser.execute(button => {
+    const row = button.closest('[data-testid="warning-row"]').getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
+    return {
+      viewport: [innerWidth, innerHeight], rowTop: row.top, rowBottom: row.bottom,
+      buttonTop: rect.top, buttonBottom: rect.bottom,
+      summaryBottom: document.querySelector('[data-block="summary"]').getBoundingClientRect().bottom,
+      tilesTop: document.querySelector('[data-block="tiles"]').getBoundingClientRect().top,
+      clickable: button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)),
+    };
+  }, await homeCover);
+  t.diagnostic(`Главная до прокрутки: ${JSON.stringify(position)}`);
+  assert.ok(position.rowTop >= position.summaryBottom && position.rowBottom <= position.tilesTop,
+    "При включённой сводке строка перерасхода должна быть между сводкой и плитками");
+  assert.ok(position.rowTop >= 0 && position.rowBottom <= position.viewport[1] && position.clickable,
+    "Причина перерасхода и доступная кнопка должны целиком помещаться на первом экране");
+  assert.equal((await browser.$$(homeRow)).length, 1, "Перерасход показан один раз");
   await waitText(browser, homeRow + '//*[@data-testid="warning-cover"]', money("Покрыть 400 ₽"));
+  await capture(browser, "home-before-scroll");
   await browser.keys(["Control", "h"]);
   const masked = await waitText(browser, homeRow, /•••/);
   assert.doesNotMatch(masked, /3\s?[04]00|400/);
   assert.doesNotMatch(await homeCover.getComputedLabel(), /400/);
+  await capture(browser, "home-hidden");
+  await homeCover.click();
+  await waitText(browser, byTest("cover-confirm"), /•••/);
+  const maskedPreview = await browser.$('[role="dialog"]').getText();
+  assert.doesNotMatch(maskedPreview, /\d/u);
+  await capture(browser, "cover-hidden");
+  await browser.keys("Escape");
+  await browser.waitUntil(async () => browser.execute(el => el === document.activeElement, await homeCover));
   await browser.keys(["Control", "h"]);
   await waitText(browser, homeRow + '//*[@data-testid="warning-cover"]', money("Покрыть 400 ₽"));
   await preview(homeCover);
@@ -407,4 +435,44 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await waitText(browser, homeRow, amounts);
   assert.deepEqual(await w.ledger(), unchanged);
   t.diagnostic(`Лимиты 3 000/2 000 → 3 400/1 600 ₽. План 5 000, факт 4 400, счета 22 600 и 5 000 ₽. ID после отмены и повтора: ${ids.join(", ")}.`);
+});
+
+test("После покрытия одной из двух категорий фокус остаётся у второго перерасхода", async t => {
+  const w = await testBudget(t, [["Карта", 2_000_000]]);
+  const { browser, invoke } = w;
+  const { month, start } = await invoke("month_of", { date: w.today });
+  const budget = await invoke("get_budget", { month });
+  const budgetId = budget.id ?? await invoke("create_budget", { month, copyPrevious: false });
+  for (const [name, limit] of [["Питание", 300_000], ["Транспорт", 100_000], ["Досуг", 200_000]]) {
+    await invoke("set_budget_limit", { budgetId, categoryId: w.categoryId(name), limit });
+  }
+  await w.record("expense", "Карта", "Питание", 340_000, "Продукты");
+  const pass = await w.record("expense", "Карта", "Транспорт", 260_000, "Проезд на два месяца", shiftDay(start, -1));
+  await invoke("set_transaction_spread", { id: pass, months: 2 });
+  const before = await w.ledger();
+  assert.equal(before.balances.Карта, 1_400_000);
+  await w.refresh();
+  const card = '//*[@data-testid="home-overspend"]';
+  const rows = card + '//*[@data-testid="warning-row"]';
+  const food = browser.$(rows + '[contains(., "Питание")]//*[@data-testid="warning-cover"]');
+  const transport = browser.$(rows + '[contains(., "Транспорт")]//*[@data-testid="warning-cover"]');
+  await food.waitForDisplayed();
+  assert.equal((await browser.$$(rows)).length, 2);
+  await food.click();
+  await waitText(browser, byTest("cover-confirm"), money("400 ₽"));
+  await browser.$(byTest("cover-confirm")).click();
+  await food.waitForExist({ reverse: true });
+  await transport.waitForDisplayed();
+  await browser.waitUntil(() => browser.execute(() => document.activeElement?.matches('[data-testid="home-overspend"] h2')),
+    { timeout: 3000, timeoutMsg: "После покрытия питания фокус должен остаться в верхней карточке с перерасходом транспорта" });
+  assert.equal((await browser.$$(rows)).length, 1);
+  assert.match(await transport.getText(), money("300 ₽"));
+  // Из текущего предупреждения видна доля проездного, списанного в прошлом месяце.
+  await browser.$(rows + '[contains(., "Транспорт")]//*[@data-testid="warning-ops"]').click();
+  await waitText(browser, "main h1", /Операции/);
+  await waitText(browser, byTest("txn-count"), /Показано 1 из 1/);
+  await waitText(browser, byTest("txn-row"), money("2 600 ₽"));
+  await waitText(browser, byTest("txn-budget-share"), money("1 300 ₽"));
+  await capture(browser, "overspend-journal-share");
+  assert.deepEqual(await w.ledger(), before);
 });

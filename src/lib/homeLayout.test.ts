@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LAYOUT, DEFAULT_SHOWN, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting } from "./homeLayout";
+import { DEFAULT_LAYOUT, DEFAULT_SHOWN, moveBlock, parseLayout, placeBefore, toggleBlock, toSetting, withOverspendSlot } from "./homeLayout";
 
 describe("своя Главная", () => {
+  it("ставит активный перерасход сразу за сводкой или перед плитками, когда сводка скрыта", () => {
+    expect(withOverspendSlot(["quick", "summary", "tiles", "checks"])).toEqual(["quick", "summary", "overspend", "tiles", "checks"]);
+    expect(withOverspendSlot(["quick", "tiles", "checks"])).toEqual(["quick", "overspend", "tiles", "checks"]);
+    expect(withOverspendSlot(["main", "checks"])).toEqual(["overspend", "main", "checks"]);
+  });
+
+  it("учитывает пользовательский порядок и скрытие карточки «Проверьте»", () => {
+    expect(withOverspendSlot(["checks", "quick", "summary", "tiles"])).toEqual(["overspend", "checks", "quick", "summary", "tiles"]);
+    expect(withOverspendSlot(["summary", "tiles", "quick"])).toEqual(["summary", "tiles", "quick"]);
+  });
+
   it("пустая или повреждённая настройка — порядок по умолчанию", () => {
     expect(parseLayout("")).toEqual(DEFAULT_LAYOUT);
     expect(parseLayout("{oops")).toEqual(DEFAULT_LAYOUT);

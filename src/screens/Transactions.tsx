@@ -287,6 +287,8 @@ export function Transactions() {
   });
   const checkingEmpty = emptyPage && hasScope && (journal.isPending || journal.isFetching);
   const emptyJournal = emptyPage && (!hasScope || (journal.isSuccess && journal.data === 0));
+  const showAllInEmpty = emptyPage && hasScope && !checkingEmpty && journal.isSuccess && journal.data > 0;
+  const resultsTitle = useRef<HTMLHeadingElement>(null);
   let resultStatus = "";
   if (!scopeReady) {
     if (subscriptions.isPending) resultStatus = "Загружаем платежи подписки…";
@@ -297,6 +299,7 @@ export function Transactions() {
   }
   const showAll = () => {
     if (!hasScope && !search) return;
+    if (showAllInEmpty) resultsTitle.current?.focus();
     cancelSelection();
     selectAllRef.current = false;
     setSel(EMPTY_SEL);
@@ -305,6 +308,11 @@ export function Transactions() {
     setLimit(PAGE);
     setF({});
   };
+  const showAllButton = (
+    <button type="button" className="link" data-testid="txn-show-all" onClick={showAll}>
+      Показать все операции
+    </button>
+  );
 
   return (
     <section className="screen wide txn-screen">
@@ -365,9 +373,7 @@ export function Transactions() {
           <input type="date" aria-label="С даты" name="dateFrom" value={f.dateFrom ?? ""} onChange={(e) => set({ dateFrom: e.target.value || undefined })} />
           <span className="muted">—</span>
           <input type="date" aria-label="По дату" name="dateTo" value={f.dateTo ?? ""} onChange={(e) => set({ dateTo: e.target.value || undefined })} />
-          <button type="button" className="link" data-testid="txn-show-all" onClick={showAll}>
-            Показать все операции
-          </button>
+          {!showAllInEmpty && showAllButton}
         </div>
         {panelOpen && (
           <div className="filters-row" data-testid="filters-panel">
@@ -434,7 +440,7 @@ export function Transactions() {
       </div>
       <div className="card" role="region" aria-labelledby="txn-results-title">
         <header className="txn-results-header">
-          <h2 id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
+          <h2 ref={resultsTitle} tabIndex={-1} id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
           <span className="muted txn-results-status" role="status">
             {resultStatus}
           </span>
@@ -460,6 +466,7 @@ export function Transactions() {
               <div className="txn-empty" data-testid="txn-empty">
                 <strong>{emptyJournal ? "В журнале пока нет операций" : "По этим условиям операций нет"}</strong>
                 <p className="muted">{emptyJournal ? "Добавьте первую операцию или загрузите выписку." : "Измените период или снимите фильтры."}</p>
+                {showAllInEmpty && showAllButton}
               </div>
             )}
             {page.data.items.length < page.data.total && (
