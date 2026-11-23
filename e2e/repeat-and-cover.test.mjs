@@ -382,11 +382,22 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await invoke("set_budget_limit", { budgetId, categoryId: food, limit: 300_000 });
   await invoke("set_budget_limit", { budgetId, categoryId: leisure, limit: 110_000 });
   await w.refresh();
-  await waitText(browser, homeRow + '//*[@data-testid="warning-plan"]', /Изменить план/);
+  const editPlan = browser.$(homeRow + '//button[@data-testid="warning-plan" and normalize-space()="Изменить план"]');
+  await editPlan.waitForExist();
+  await editPlan.scrollIntoView({ block: "center", inline: "nearest" });
+  await editPlan.waitForClickable();
   assert.equal(await homeCover.isExisting(), false);
+  await editPlan.click();
+  await waitText(browser, "main h1", /Бюджет/);
+  await browser.waitUntil(() => browser.execute(() =>
+    document.activeElement?.matches('tr[data-category="Питание"] input[name="limit"]')),
+    { timeout: 5000, timeoutMsg: "После «Изменить план» должен быть выбран лимит питания" });
   // В предупреждении о приближении к лимиту обе суммы и пояснение также скрываются.
   await invoke("set_budget_limit", { budgetId, categoryId: food, limit: 350_000 });
   await w.refresh();
+  const warning = browser.$(homeRow);
+  await warning.waitForExist();
+  await warning.scrollIntoView({ block: "center", inline: "nearest" });
   const amounts = /3\s?400 из 3\s?500 ₽/;
   await waitText(browser, homeRow, amounts);
   await browser.keys(["Control", "h"]);
