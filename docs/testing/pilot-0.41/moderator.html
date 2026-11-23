@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'">
+  <title>Казна 0.41 — лист наблюдений ведущего</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.35 "Segoe UI", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { max-width: 54rem; margin: auto; padding: 1.2rem; }
+    .visit { margin: 2rem 0 3rem; }
+    .heading, .outcome { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem 1rem; }
+    .heading { justify-content: space-between; border-bottom: 2px solid; padding-bottom: .35rem; }
+    h1, h2, h3, p, ul { margin: 0; }
+    h1, h2 { font-size: 1.65rem; }
+    h3 { font-size: 1.16rem; margin: .8rem 0 .25rem; }
+    ul { padding-left: 1.3rem; }
+    li + li { margin-top: .15rem; }
+    .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7rem; margin: .6rem 0; }
+    .entry { display: block; min-width: 0; min-height: 1.5em; border-bottom: 1px solid #888; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .entry:focus-visible { outline: 2px solid Highlight; outline-offset: 1px; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: .4rem 0; }
+    th, td { border: 1px solid #888; text-align: left; vertical-align: top; padding: .25rem .35rem; overflow-wrap: anywhere; }
+    .step { width: 20%; } .quote { width: 39%; } .actual { width: 28%; } .score { width: 13%; }
+    td .entry { min-height: 3em; border: 0; }
+    .budget .entry { min-height: 4.5em; }
+    .results fieldset { min-width: 0; margin: .45rem 0 0; border: 1px solid #888; padding: .25rem .55rem; }
+    legend { padding: 0 .25rem; font-weight: 650; }
+    input { margin: 0; }
+    .time { margin-left: auto; }
+    .entry.short { display: inline-block; min-width: 4.4rem; vertical-align: bottom; }
+    .notes { margin-top: .25rem; }
+    .notes .entry { min-height: 2em; }
+    @media screen and (max-width: 36rem) {
+      .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .time { margin-left: 0; }
+    }
+    @page { size: A4; margin: 12mm 14mm; }
+    @media print {
+      :root { color-scheme: light; font-size: 10pt; }
+      main { max-width: none; padding: 0; }
+      .screen-note { display: none; }
+      .visit { margin: 0; }
+      .visit + .visit { break-before: page; }
+      tr, fieldset { break-inside: avoid; }
+      h3 { break-after: avoid; }
+      td .entry { min-height: 13mm; }
+      .budget .entry { min-height: 19mm; }
+      .notes .entry { min-height: 7mm; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="screen-note">Один бланк на участника. Заполняйте его на бумаге или в полях. Чтобы сохранить введённое до закрытия вкладки, выберите в меню печати браузера «Сохранить как PDF».</p>
+    <section class="visit" aria-labelledby="v1">
+      <header>
+        <p>Казна 0.41 · Только для ведущего</p>
+        <div class="heading">
+          <h1 id="v1">Лист наблюдений · Встреча 1</h1>
+          <label><input type="checkbox"> Встреча пропущена</label>
+        </div>
+      </header>
+      <div class="meta">
+        <div>Код участника <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1. Код участника" spellcheck="false"></span></div>
+        <div>Дата встречи <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1. Дата встречи" spellcheck="false"></span></div>
+        <div>Сборка <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1. Сборка" spellcheck="false"></span></div>
+        <div>Окно (Ш × В, пикс.) <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1. Размер окна" spellcheck="false"></span></div>
+      </div>
+      <p class="guide">Покажите участнику только карточку. Из распакованного комплекта запустите «Начать.cmd» перед каждой задачей. Выберите 1 для аренды, 2 для бюджета. Каждый запуск открывает «Главную» с чистым учебным бюджетом на системную дату. Записывайте только код участника.</p>
+
+      <h3>Прогноз до подтверждения и результат на экране</h3>
+      <p>Запишите первый ответ дословно. После действия сверьте факт. Точность отметьте словами «да», «частично», «нет» или «без ответа».</p>
+      <table>
+        <colgroup><col class="step"><col class="quote"><col class="actual"><col class="score"></colgroup>
+        <thead>
+          <tr><th scope="col">Действие</th><th scope="col">Первый прогноз</th><th scope="col">Факт на экране</th><th scope="col">Точность</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Планирование аренды</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Планирование аренды. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Планирование аренды. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Планирование аренды. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Загрузка выписки</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Загрузка выписки. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Загрузка выписки. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Загрузка выписки. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Отметка в календаре</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Отметка в календаре. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Отметка в календаре. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Отметка в календаре. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr class="budget">
+            <th scope="row">Покрытие перерасхода</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Покрытие перерасхода. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Покрытие перерасхода. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Покрытие перерасхода. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Сверка после действий</h3>
+      <ul>
+        <li><b>Расписание.</b> Один ежемесячный повтор с завтрашнего дня. В журнале одна оплата, на карте 30 000 ₽.</li>
+        <li><b>Выписка.</b> Две оплаты, на карте 20 000 ₽. <b>Календарь.</b> Те же две оплаты и 20 000 ₽. Откройте связанный платёж и сверьте сегодняшнюю дату.</li>
+        <li><b>Бюджет.</b> Лимиты на питание и досуг — 3 400 ₽ и 1 600 ₽. Общий план — 5 000 ₽, факт — 4 400 ₽. На карте 22 600 ₽, наличными 5 000 ₽.</li>
+      </ul>
+
+      <h3>Как прошли задачи</h3>
+      <p>Засеките время от чтения задачи до результата или остановки. Перед подсказкой запишите, где возникло затруднение.</p>
+      <div class="results">
+        <fieldset>
+          <legend>Аренда</legend>
+          <div class="outcome">
+            <label><input type="radio" name="v1-rent" value="independent"> Самостоятельно</label>
+            <label><input type="radio" name="v1-rent" value="assisted"> С помощью</label>
+            <label><input type="radio" name="v1-rent" value="stopped"> Остановился</label>
+            <span class="time">Время (мин, с) <span class="entry short" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Аренда. Время в минутах и секундах" spellcheck="false"></span></span>
+          </div>
+          <div class="notes">Где остановился и какая помощь понадобилась <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Аренда. Затруднение и подсказка" spellcheck="false"></span></div>
+        </fieldset>
+        <fieldset>
+          <legend>Бюджет</legend>
+          <div class="outcome">
+            <label><input type="radio" name="v1-budget" value="independent"> Самостоятельно</label>
+            <label><input type="radio" name="v1-budget" value="assisted"> С помощью</label>
+            <label><input type="radio" name="v1-budget" value="stopped"> Остановился</label>
+            <span class="time">Время (мин, с) <span class="entry short" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Бюджет. Время в минутах и секундах" spellcheck="false"></span></span>
+          </div>
+          <div class="notes">Где остановился и какая помощь понадобилась <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 1, Бюджет. Затруднение и подсказка" spellcheck="false"></span></div>
+        </fieldset>
+      </div>
+    </section>
+
+    <section class="visit" aria-labelledby="v2">
+      <header>
+        <p>Казна 0.41 · Только для ведущего</p>
+        <div class="heading">
+          <h2 id="v2">Лист наблюдений · Встреча 2</h2>
+          <label><input type="checkbox"> Встреча пропущена</label>
+        </div>
+      </header>
+      <div class="meta">
+        <div>Код участника <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2. Код участника" spellcheck="false"></span></div>
+        <div>Дата встречи <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2. Дата встречи" spellcheck="false"></span></div>
+        <div>Сборка <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2. Сборка" spellcheck="false"></span></div>
+        <div>Окно (Ш × В, пикс.) <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2. Размер окна" spellcheck="false"></span></div>
+      </div>
+      <p class="guide">Через семь дней дайте ту же карточку без напоминания о первой попытке. Снова запустите «Начать.cmd» перед каждой задачей. Выберите 1 для аренды, 2 для бюджета. Каждый запуск готовит чистый учебный бюджет на системную дату.</p>
+
+      <h3>Прогноз до подтверждения и результат на экране</h3>
+      <p>Запишите первый ответ дословно. После действия сверьте факт. Точность отметьте словами «да», «частично», «нет» или «без ответа».</p>
+      <table>
+        <colgroup><col class="step"><col class="quote"><col class="actual"><col class="score"></colgroup>
+        <thead>
+          <tr><th scope="col">Действие</th><th scope="col">Первый прогноз</th><th scope="col">Факт на экране</th><th scope="col">Точность</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Планирование аренды</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Планирование аренды. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Планирование аренды. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Планирование аренды. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Загрузка выписки</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Загрузка выписки. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Загрузка выписки. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Загрузка выписки. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Отметка в календаре</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Отметка в календаре. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Отметка в календаре. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Отметка в календаре. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+          <tr class="budget">
+            <th scope="row">Покрытие перерасхода</th>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Покрытие перерасхода. Первый прогноз дословно" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Покрытие перерасхода. Факт на экране" spellcheck="false"></span></td>
+            <td><span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Покрытие перерасхода. Точность прогноза" spellcheck="false"></span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Сверка после действий</h3>
+      <ul>
+        <li><b>Расписание.</b> Один ежемесячный повтор с завтрашнего дня. В журнале одна оплата, на карте 30 000 ₽.</li>
+        <li><b>Выписка.</b> Две оплаты, на карте 20 000 ₽. <b>Календарь.</b> Те же две оплаты и 20 000 ₽. Откройте связанный платёж и сверьте сегодняшнюю дату.</li>
+        <li><b>Бюджет.</b> Лимиты на питание и досуг — 3 400 ₽ и 1 600 ₽. Общий план — 5 000 ₽, факт — 4 400 ₽. На карте 22 600 ₽, наличными 5 000 ₽.</li>
+      </ul>
+
+      <h3>Как прошли задачи</h3>
+      <p>Засеките время от чтения задачи до результата или остановки. Перед подсказкой запишите, где возникло затруднение. Сравнивайте время только у завершённых задач.</p>
+      <div class="results">
+        <fieldset>
+          <legend>Аренда</legend>
+          <div class="outcome">
+            <label><input type="radio" name="v2-rent" value="independent"> Самостоятельно</label>
+            <label><input type="radio" name="v2-rent" value="assisted"> С помощью</label>
+            <label><input type="radio" name="v2-rent" value="stopped"> Остановился</label>
+            <span class="time">Время (мин, с) <span class="entry short" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Аренда. Время в минутах и секундах" spellcheck="false"></span></span>
+          </div>
+          <div class="notes">Где остановился и какая помощь понадобилась <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Аренда. Затруднение и подсказка" spellcheck="false"></span></div>
+        </fieldset>
+        <fieldset>
+          <legend>Бюджет</legend>
+          <div class="outcome">
+            <label><input type="radio" name="v2-budget" value="independent"> Самостоятельно</label>
+            <label><input type="radio" name="v2-budget" value="assisted"> С помощью</label>
+            <label><input type="radio" name="v2-budget" value="stopped"> Остановился</label>
+            <span class="time">Время (мин, с) <span class="entry short" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Бюджет. Время в минутах и секундах" spellcheck="false"></span></span>
+          </div>
+          <div class="notes">Где остановился и какая помощь понадобилась <span class="entry" contenteditable="plaintext-only" role="textbox" aria-label="Встреча 2, Бюджет. Затруднение и подсказка" spellcheck="false"></span></div>
+        </fieldset>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
