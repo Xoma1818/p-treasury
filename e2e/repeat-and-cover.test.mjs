@@ -11,6 +11,12 @@ const byTest = name => `[data-testid="${name}"]`;
 
 async function capture(browser, name) {
   if (process.env.KAZNA_QA_SCREENSHOTS) {
+    await browser.executeAsync(done => {
+      const entering = document.getAnimations().filter(animation =>
+        animation.playState === "running" && animation.effect?.getComputedTiming().endTime <= 1500);
+      Promise.allSettled(entering.map(animation => animation.finished))
+        .then(() => requestAnimationFrame(() => requestAnimationFrame(() => done(true))));
+    });
     await browser.saveScreenshot(join(process.env.KAZNA_QA_SCREENSHOTS, name + ".png"));
   }
 }
@@ -19,6 +25,12 @@ function shiftDay(date, days) {
   const value = new Date(date + "T12:00:00Z");
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
+}
+
+function nextMonthlyDate(due, dayOfMonth) {
+  const [year, month, day] = due.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(dayOfMonth ?? day, lastDay))).toISOString().slice(0, 10);
 }
 
 async function testBudget(t, openings) {
@@ -150,14 +162,36 @@ test("Повтор аренды: выписка и план связываютс
   await waitText(browser, byTest("occ-match-candidate"), money("10 000 ₽"));
   assert.equal((await browser.$$(byTest("occ-match-candidate"))).length, 1);
   assert.doesNotMatch(await browser.$(byTest("occ-match-candidate")).getText(), /Сумма отличается/);
+  async function checkDates(container) {
+    const row = browser.$(container);
+    await row.waitForDisplayed();
+    const dates = row.$(byTest("payment-dates"));
+    assert.ok(await dates.isExisting(), "в карточке нужны подписи плановой и фактической дат");
+    await dates.waitForDisplayed();
+    assert.match(await dates.getText(), /По плану.+списано/is);
+    const values = await dates.$$("time").map(time => time.getAttribute("datetime"));
+    assert.deepEqual(values, [due, today], "срок платежа и фактическое списание показаны в одном блоке");
+  }
+  await checkDates(byTest("occ-match-candidate"));
+  await capture(browser, "04-rent-match-dates");
   await click(browser, "Связать с платежом", dialog);
-  await waitText(browser, byTest("rem-done"), /Аренда[\s\S]*связано с операцией/);
+  const paidRow = `//*[@data-testid="rem-done"]//*[@data-title="${title}"]`;
+  const seriesRow = `//*[@data-testid="rem-all"]//*[@data-testid="reminder-row"][.//span[@class="main" and text()="${title}"]]`;
+  const nextDate = nextMonthlyDate(due, series.dayOfMonth).split("-").reverse().join(".");
   for (let visit = 0; visit < 2; visit++) {
     if (visit) {
       await w.refresh();
       await openReminders(browser);
     }
-    await browser.$(byTest("rem-done") + " " + byTest("occ-open-transaction")).click();
+    await waitText(browser, paidRow, /связано с операцией/);
+    await checkDates(paidRow);
+    const next = await waitText(browser, seriesRow, /следующее/);
+    if (!visit) {
+      await browser.$(seriesRow).scrollIntoView({ block: "nearest", inline: "nearest" });
+      await capture(browser, "03-rent-next-payment");
+    }
+    assert.ok(next.includes(`следующее ${nextDate}`), `Ожидался следующий платёж ${nextDate}. В списке: ${next}`);
+    await browser.$(paidRow + '//*[@data-testid="occ-open-transaction"]').click();
     const linked = browser.$(byTest("linked-transaction"));
     await linked.waitForDisplayed();
     assert.equal(await linked.getAttribute("data-transaction-id"), imported);
@@ -168,6 +202,12 @@ test("Повтор аренды: выписка и план связываютс
     assert.equal(done.filter(o => o.key.refId === series.id && o.transactionId === imported && o.linkedActual).length, 1);
     assert.deepEqual(await w.ledger(), after);
   }
+  await click(browser, "Месяц");
+  if (due.slice(0, 7) !== today.slice(0, 7)) await browser.$('[aria-label="Следующий месяц"]').click();
+  const day = browser.$(`[data-testid="cal-day"][data-date="${due}"]`);
+  await day.scrollIntoView({ block: "center" });
+  await day.click();
+  await checkDates(`//*[@data-testid="day-panel"]//*[@data-title="${title}"]`);
   // И из уже сопоставленного платежа открывается существующая серия.
   await openSection(browser, "Операции");
   await click(browser, "Всё время");
@@ -258,12 +298,13 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   }
   await check(300_000, 200_000);
   await w.refresh();
-  await openSection(browser, "Бюджет");
   const recipient = '//*[@data-testid="budget-line" and @data-category="Питание"]';
-  const cover = browser.$(recipient + '//button[contains(., "Покрыть перерасход")]');
-  async function preview() {
-    await cover.waitForDisplayed();
-    await cover.click();
+  const homeRow = '//*[@data-testid="warning-row"][contains(., "Питание")]';
+  const homeCover = browser.$(homeRow + '//*[@data-testid="warning-cover"]');
+  async function preview(button) {
+    await button.waitForDisplayed();
+    await button.scrollIntoView({ block: "center", inline: "nearest" });
+    await button.click();
     const source = browser.$(byTest("cover-source"));
     await source.waitForDisplayed();
     await browser.waitUntil(() => browser.execute(() => document.activeElement?.dataset.testid === "cover-source"),
@@ -275,8 +316,22 @@ test("Перенос 400 ₽: фиксированный общий план, ф
         [...row.cells].map(cell => cell.innerText.replace(/\s+/g, " ").trim())));
     assert.deepEqual(rows, [["Досуг", "2 000 ₽", "1 600 ₽"], ["Питание", "3 000 ₽", "3 400 ₽"]]);
   }
-  // Закрытие предпросмотра сохраняет исходные суммы.
-  await preview();
+  await waitText(browser, homeRow + '//*[@data-testid="warning-cover"]', money("Покрыть 400 ₽"));
+  await browser.keys(["Control", "h"]);
+  const masked = await waitText(browser, homeRow, /•••/);
+  assert.doesNotMatch(masked, /3\s?[04]00|400/);
+  assert.doesNotMatch(await homeCover.getComputedLabel(), /400/);
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, homeRow + '//*[@data-testid="warning-cover"]', money("Покрыть 400 ₽"));
+  await preview(homeCover);
+  await waitText(browser, "main h1", /Главная/);
+  await browser.keys("Escape");
+  await browser.waitUntil(async () => browser.execute(el => el === document.activeElement, await homeCover));
+  await check(300_000, 200_000);
+  await openSection(browser, "Бюджет");
+  const cover = browser.$(recipient + '//button[contains(., "Покрыть перерасход")]');
+  // Обычный вход из строки бюджета тоже удерживает и возвращает фокус.
+  await preview(cover);
   for (let i = 0; i < 4; i++) {
     await browser.keys("Tab");
     assert.ok(await browser.execute(() => !!document.activeElement?.closest('[role="dialog"]')), "Tab вышел из диалога");
@@ -285,7 +340,7 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await browser.waitUntil(async () => browser.execute(el => el === document.activeElement, await cover),
     { timeout: 3000, timeoutMsg: "После отмены фокус должен вернуться на кнопку строки «Питание»" });
   await check(300_000, 200_000);
-  await preview();
+  await preview(cover);
   await capture(browser, "02-cover-overspend");
   await browser.$(byTest("cover-confirm")).click();
   await browser.$(byTest("cover-confirm")).waitForExist({ reverse: true });
@@ -296,14 +351,60 @@ test("Перенос 400 ₽: фиксированный общий план, ф
   await click(browser, "Отменить", '//*[@data-testid="undo-bar"]');
   await cover.waitForDisplayed();
   await check(300_000, 200_000);
+  await openSection(browser, "Главная");
+  await preview(homeCover);
+  await capture(browser, "05-home-cover-preview");
+  await browser.$(byTest("cover-confirm")).click();
+  await browser.$(byTest("cover-confirm")).waitForExist({ reverse: true });
+  await homeCover.waitForExist({ reverse: true });
+  await waitText(browser, homeRow, /Лимит использован/);
+  assert.ok(await browser.$(homeRow).$(".qw-kind.used").isExisting());
+  await browser.waitUntil(() => browser.execute(() => document.activeElement?.matches('[data-testid="home-checks"] h2')),
+    { timeout: 3000, timeoutMsg: "После покрытия перерасхода фокус должен перейти на заголовок предупреждений" });
+  await check(340_000, 160_000);
+  await click(browser, "Отменить", '//*[@data-testid="undo-bar"]');
+  await homeCover.waitForDisplayed();
+  await check(300_000, 200_000);
   await click(browser, "Повторить", '//*[@data-testid="undo-bar"]');
-  await cover.waitForExist({ reverse: true });
+  await homeCover.waitForExist({ reverse: true });
   await w.refresh();
   await openSection(browser, "Бюджет");
   await browser.$(recipient).waitForDisplayed();
   assert.equal(await cover.isExisting(), false);
+  await waitText(browser, recipient, /Лимит использован/);
+  assert.ok(await browser.$(recipient).$(".bar.used").isExisting());
+  await browser.$(recipient).scrollIntoView({ block: "center", inline: "nearest" });
+  await capture(browser, "06-budget-used");
   await waitText(browser, byTest("budget-planned"), money("5 000 ₽"));
   await waitText(browser, byTest("budget-spent"), money("4 400 ₽"));
   await check(340_000, 160_000);
+  // Остатка досуга 100 ₽ недостаточно, чтобы покрыть 400 ₽ питания.
+  await invoke("set_budget_limit", { budgetId, categoryId: food, limit: 300_000 });
+  await invoke("set_budget_limit", { budgetId, categoryId: leisure, limit: 110_000 });
+  await w.refresh();
+  const editPlan = browser.$(homeRow + '//button[@data-testid="warning-plan" and normalize-space()="Изменить план"]');
+  await editPlan.waitForExist();
+  await editPlan.scrollIntoView({ block: "center", inline: "nearest" });
+  await editPlan.waitForClickable();
+  assert.equal(await homeCover.isExisting(), false);
+  await editPlan.click();
+  await waitText(browser, "main h1", /Бюджет/);
+  await browser.waitUntil(() => browser.execute(() =>
+    document.activeElement?.matches('tr[data-category="Питание"] input[name="limit"]')),
+    { timeout: 5000, timeoutMsg: "После «Изменить план» должен быть выбран лимит питания" });
+  // В предупреждении о приближении к лимиту обе суммы и пояснение также скрываются.
+  await invoke("set_budget_limit", { budgetId, categoryId: food, limit: 350_000 });
+  await w.refresh();
+  const warning = browser.$(homeRow);
+  await warning.waitForExist();
+  await warning.scrollIntoView({ block: "center", inline: "nearest" });
+  const amounts = /3\s?400 из 3\s?500 ₽/;
+  await waitText(browser, homeRow, amounts);
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, homeRow, /97 % лимита/);
+  assert.doesNotMatch(await browser.$(homeRow).getText(), /3\s?[45]00|100\s?₽/);
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, homeRow, amounts);
+  assert.deepEqual(await w.ledger(), unchanged);
   t.diagnostic(`Лимиты 3 000/2 000 → 3 400/1 600 ₽. План 5 000, факт 4 400, счета 22 600 и 5 000 ₽. ID после отмены и повтора: ${ids.join(", ")}.`);
 });

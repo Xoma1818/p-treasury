@@ -5,8 +5,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use budget_core::storage::{OpenOptions, Storage};
-use budget_core::{backups, settings, vault};
+use budget_core::storage::{backup_to, OpenOptions, Storage};
+use budget_core::{accounts, backups, settings, vault, Error};
 
 const AS_OF: &str = "2026-10-20";
 
@@ -95,54 +95,114 @@ fn off_switch_means_no_folder() {
         .is_none());
 }
 
-/// Кончилось место на диске с папкой сохранности. Нужна маленькая файловая
-/// система: `mount -t tmpfs -o size=1500k tmpfs <папка>` и
-/// `KAZNA_FULL_DIR=<папка> cargo test -p budget-core --test vault_edges -- --ignored`.
+/// KAZNA_FULL_DIR указывает на отдельный пустой тестовый том размером 16 МиБ.
+/// На Linux: после `mount -t tmpfs -o size=16m tmpfs <папка>` пометьте том
+/// командой `touch <папка>/.kazna-test-volume-16mib`.
 #[test]
-#[ignore]
+#[ignore = "требуется отдельный том 16 МиБ в KAZNA_FULL_DIR"]
 fn full_disk_keeps_last_good_copy_and_leaves_no_parts() {
-    let Some(full) = std::env::var_os("KAZNA_FULL_DIR").map(PathBuf::from) else {
-        return;
-    };
-    let dir = full.join("Kazna");
-    let _ = fs::remove_dir_all(&dir);
+    let full = PathBuf::from(
+        std::env::var_os("KAZNA_FULL_DIR").expect("укажите отдельный том 16 МиБ в KAZNA_FULL_DIR"),
+    );
+    assert!(full.is_absolute(), "KAZNA_FULL_DIR должен быть абсолютным");
+    assert!(
+        full.join(".kazna-test-volume-16mib").is_file(),
+        "в KAZNA_FULL_DIR нет метки подготовленного тома .kazna-test-volume-16mib"
+    );
+    let scratch = tempfile::tempdir_in(full).unwrap();
+    let dir = scratch.path().join("Kazna");
     let tmp = tempfile::tempdir().unwrap();
-    // Маленький бюджет помещается.
-    let mut db = Storage::open(&tmp.path().join("budget.db"), &opts(tmp.path())).unwrap();
-    db.conn()
-        .execute(
-            "INSERT INTO accounts (id, name, type, currency_code, opening_balance, opening_date, created_at, updated_at)
-             VALUES ('a', 'Наличные', 'cash', 'RUB', 100, '2026-01-01', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+    let db = demo(tmp.path(), "budget.db");
+    let card: String = db
+        .conn()
+        .query_row(
+            "SELECT id FROM accounts WHERE name='Карта Сбер'",
             [],
+            |row| row.get(0),
         )
         .unwrap();
-    vault::sync_copy(db.conn(), &dir, vault::MAIN_NAME).unwrap();
-    let good = backups::inspect(&dir.join("Мой бюджет.ptreasury")).unwrap();
-    // Пример заметно больше места на диске.
-    budget_core::demo::seed(db.conn_mut(), AS_OF).unwrap();
-    for _ in 0..3 {
-        let err = vault::sync(db.conn(), &dir, vault::MAIN_NAME)
-            .unwrap_err()
-            .to_string();
+    let balance = |s: &Storage| accounts::balance(s.conn(), &card, None).unwrap();
+    let original_balance = balance(&db);
+    let transactions = count(&db);
+    let copy = vault::sync_copy(db.conn(), &dir, vault::MAIN_NAME).unwrap();
+    let original = fs::read(&copy).unwrap();
+    db.conn()
+        .execute(
+            "UPDATE accounts SET opening_balance=opening_balance+40000 WHERE id=?1",
+            [&card],
+        )
+        .unwrap();
+    let updated_balance = original_balance + 40_000;
+    assert_eq!(balance(&db), updated_balance);
+
+    // На томе уже лежат основная и историческая копии. Оставляем примерно
+    // половину размера одной копии. На большом диске тест просто не получит ENOSPC.
+    const VOLUME_BYTES: usize = 16 * 1024 * 1024;
+    let reserve = scratch.path().join("reserve");
+    let reservation = VOLUME_BYTES
+        .checked_sub(original.len() * 2 + original.len() / 2)
+        .expect("тестовая база слишком велика для тома 16 МиБ");
+    fs::write(&reserve, vec![0x51; reservation]).unwrap();
+
+    // Проверяем исходную причину до того, как папка сохранности пояснит её пользователю.
+    let cause = backup_to(db.conn(), &copy)
+        .expect_err("копия поместилась: укажите отдельный том 16 МиБ в KAZNA_FULL_DIR");
+    let disk_full = match &cause {
+        Error::Db(e) => e.sqlite_error_code() == Some(rusqlite::ErrorCode::DiskFull),
+        Error::Io(e) => {
+            e.kind() == std::io::ErrorKind::StorageFull
+                || (cfg!(windows) && matches!(e.raw_os_error(), Some(39 | 112)))
+        }
+        _ => false,
+    };
+    assert!(disk_full, "ожидалась нехватка места: {cause:?}");
+    let msg = vault::sync(db.conn(), &dir, vault::MAIN_NAME)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        msg.contains("кончилось место") && msg.contains("прошлая копия цела"),
+        "{msg}"
+    );
+    assert_eq!(
+        settings::get(db.conn(), "vault_error").unwrap().as_deref(),
+        Some(msg.as_str())
+    );
+    assert!(
+        fs::read(&copy).unwrap() == original,
+        "предыдущая копия изменилась"
+    );
+    assert_eq!(backups::verify(&copy).unwrap().transactions, transactions);
+    assert_eq!(
+        balance(&Storage::rehearse_restore(&copy).unwrap()),
+        original_balance
+    );
+    assert_eq!((count(&db), balance(&db)), (transactions, updated_balance));
+    for entry in fs::read_dir(&dir)
+        .unwrap()
+        .chain(fs::read_dir(dir.join(vault::HISTORY)).unwrap())
+    {
+        let path = entry.unwrap().path();
         assert!(
-            err.contains("кончилось место") && err.contains("прошлая копия цела"),
-            "{err}"
+            !path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".part"),
+            "{}",
+            path.display()
         );
     }
-    let still = backups::inspect(&dir.join("Мой бюджет.ptreasury")).unwrap();
-    assert_eq!(still.accounts, good.accounts, "прошлая копия цела");
-    let leftovers: Vec<String> = history(&dir)
-        .into_iter()
-        .chain(
-            fs::read_dir(&dir)
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().into_owned()),
-        )
-        .filter(|n| n.ends_with(".part"))
-        .collect();
-    assert!(
-        leftovers.is_empty(),
-        "недописанные файлы занимают место: {leftovers:?}"
+
+    fs::remove_file(reserve).unwrap();
+    let retry = vault::sync(db.conn(), &dir, vault::MAIN_NAME).unwrap();
+    assert_eq!(retry.excel_error, None);
+    assert_eq!(
+        settings::get(db.conn(), "vault_error").unwrap().as_deref(),
+        Some("")
+    );
+    assert_eq!(backups::verify(&copy).unwrap().transactions, transactions);
+    assert_eq!(
+        balance(&Storage::rehearse_restore(&copy).unwrap()),
+        updated_balance
     );
 }

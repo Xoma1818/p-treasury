@@ -1297,6 +1297,8 @@ export interface Occurrence {
   notifiedAt: string | null;
   completedAt: string | null;
   transactionId: string | null;
+  /** Проводка выполненного платежа. Дата берётся из операции в журнале. */
+  actualPayment: { date: string; type: TxnType } | null;
   /** День и время самого платежа (с учётом переноса). */
   payAt: string;
   linkedActual?: boolean;

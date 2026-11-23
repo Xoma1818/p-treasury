@@ -141,29 +141,44 @@ test("Главная, «Необычно в этом месяце»: карто�
   }
 });
 
-test("Главная: полосы бюджета жёлтые от 80 %, красные от 100 %", async () => {
+async function expectedBudgetBars() {
+  const result = await browser.executeAsync((date, done) => {
+    const { invoke } = window.__TAURI_INTERNALS__;
+    invoke("month_of", { date }).then(({ month }) => invoke("get_budget", { month }))
+      .then(({ lines }) => done({ lines }), (error) => done({ error: String(error) }));
+  }, iso(now));
+  assert.ok(!result.error, result.error);
+  return new Map(result.lines.map(({ categoryName, actual, limit }) => {
+    if (actual > limit) return [categoryName, "bar over"];
+    if (limit > 0 && actual === limit) return [categoryName, "bar used"];
+    return [categoryName, limit > 0 && actual * 100 >= limit * 80 ? "bar warn" : "bar"];
+  }));
+}
+
+test("Главная: точный лимит нейтрален, красная полоса только при перерасходе", async () => {
   await openSection(browser, "Главная");
+  await browser.$(".budget-brief .bar").waitForExist();
+  const expected = await expectedBudgetBars();
   const bars = await browser.execute(() =>
-    [...document.querySelectorAll("main li")]
-      .filter((li) => li.querySelector(":scope > .bar") && li.querySelector(":scope > .percent"))
-      .map((li) => [parseInt(li.querySelector(".percent").textContent, 10), li.querySelector(".bar").className]),
+    [...document.querySelectorAll(".budget-brief li")]
+      .map((li) => [li.firstElementChild.textContent, li.querySelector(".bar").className]),
   );
   assert.ok(bars.length > 0, "на Главной есть полосы бюджета");
-  for (const [p, cls] of bars) assert.equal(cls, p >= 100 ? "bar over" : p >= 80 ? "bar warn" : "bar", `${p} % → ${cls}`);
+  for (const [name, cls] of bars) assert.equal(cls, expected.get(name), name);
 });
 
 test("Бюджет: цвет полос по порогам, пометки «к обычному», страховка по 1 000 ₽ в месяц", async () => {
   await openSection(browser, "Бюджет");
   await browser.$('[data-testid="budget-line"]').waitForDisplayed({ timeout: 5000 });
+  const expected = await expectedBudgetBars();
   const lines = await browser.execute(() =>
     [...document.querySelectorAll('[data-testid="budget-expense"] [data-testid="budget-line"]')].map((tr) => [
       tr.dataset.category,
-      parseInt(tr.querySelector('[data-testid="percent"]')?.textContent ?? "0", 10),
       tr.querySelector(".bar")?.className ?? "",
     ]),
   );
   assert.ok(lines.length > 0);
-  for (const [name, p, cls] of lines) assert.equal(cls, p >= 100 ? "bar over" : p >= 80 ? "bar warn" : "bar", `${name}: ${p} % → ${cls}`);
+  for (const [name, cls] of lines) assert.equal(cls, expected.get(name), name);
   const pills = await browser.execute(() => [...document.querySelectorAll('[data-testid="usual-pill"]')].map((e) => e.textContent));
   for (const t of pills) assert.match(t, /^[+−]\d+ % к обычному$/);
   assert.ok(await browser.$('[data-testid="budget-expense"] [data-testid="hint"]').isExisting(), "подсказка «?» у полос");
