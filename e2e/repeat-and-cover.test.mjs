@@ -21,6 +21,12 @@ function shiftDay(date, days) {
   return value.toISOString().slice(0, 10);
 }
 
+function nextMonthlyDate(due, dayOfMonth) {
+  const [year, month, day] = due.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(dayOfMonth ?? day, lastDay))).toISOString().slice(0, 10);
+}
+
 async function testBudget(t, openings) {
   const dir = await mkdtemp(join(tmpdir(), "kazna-repeat-cover-"));
   const { browser } = await start(dir, { homeDefaults: true, env: {
@@ -151,13 +157,24 @@ test("Повтор аренды: выписка и план связываютс
   assert.equal((await browser.$$(byTest("occ-match-candidate"))).length, 1);
   assert.doesNotMatch(await browser.$(byTest("occ-match-candidate")).getText(), /Сумма отличается/);
   await click(browser, "Связать с платежом", dialog);
-  await waitText(browser, byTest("rem-done"), /Аренда[\s\S]*связано с операцией/);
+  const paidRow = `//*[@data-testid="rem-done"]//*[@data-title="${title}"]`;
+  const seriesRow = `//*[@data-testid="rem-all"]//*[@data-testid="reminder-row"][.//span[@class="main" and text()="${title}"]]`;
+  const paidDate = due.split("-").reverse().join(".");
+  const nextDate = nextMonthlyDate(due, series.dayOfMonth).split("-").reverse().join(".");
   for (let visit = 0; visit < 2; visit++) {
     if (visit) {
       await w.refresh();
       await openReminders(browser);
     }
-    await browser.$(byTest("rem-done") + " " + byTest("occ-open-transaction")).click();
+    const paid = await waitText(browser, paidRow, /связано с операцией/);
+    assert.ok(paid.includes(paidDate), `Выполненная аренда должна сохранить срок ${paidDate}. В списке: ${paid}`);
+    const next = await waitText(browser, seriesRow, /следующее/);
+    if (!visit) {
+      await browser.$(seriesRow).scrollIntoView({ block: "end" });
+      await capture(browser, "03-rent-next-payment");
+    }
+    assert.ok(next.includes(`следующее ${nextDate}`), `Ожидался следующий платёж ${nextDate}. В списке: ${next}`);
+    await browser.$(paidRow + '//*[@data-testid="occ-open-transaction"]').click();
     const linked = browser.$(byTest("linked-transaction"));
     await linked.waitForDisplayed();
     assert.equal(await linked.getAttribute("data-transaction-id"), imported);
