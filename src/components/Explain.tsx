@@ -4,8 +4,8 @@ import { useAccounts, useCurrencies, useSettings } from "../lib/queries";
 import { formatRate, rateSource } from "../lib/rates";
 import { useUi } from "../lib/store";
 import { Modal } from "./Modal";
-import { Money } from "./Money";
-import { formatDate, today } from "../lib/dates";
+import { BaseMoney, Money } from "./Money";
+import { addDays, formatDate, today } from "../lib/dates";
 
 export type ExplainKind = "balance" | "income" | "expense" | "saldo" | "free";
 
@@ -14,7 +14,7 @@ const TITLE: Record<ExplainKind, string> = {
   income: "Из чего сложились доходы",
   expense: "Из чего сложились расходы",
   saldo: "Как посчитано сальдо месяца",
-  free: "Сколько свободно до дохода",
+  free: "Как посчитан свободный остаток",
 };
 
 /** «Как посчитано»: составляющие итога Главной и что в него не вошло. */
@@ -32,10 +32,6 @@ export function ExplainDialog({ kind, on, from, to, onClose }: { kind: ExplainKi
       </div>
     </Modal>
   );
-}
-
-function useBaseSymbol(code?: string) {
-  return useCurrencies().data?.find((c) => c.code === code)?.symbol ?? "₽";
 }
 
 /** Какими курсами пересчитано: «1 $ = 90,50 ₽ (ЦБ РФ, с 05.11.2026)». */
@@ -58,8 +54,6 @@ function RatesUsed({ codes, on, lead }: { codes: string[]; on: string; lead: str
 
 function BalanceParts({ on, onClose }: { on: string; onClose: () => void }) {
   const data = useQuery({ queryKey: ["explainBalance", on], queryFn: () => api.explainBalance(on) }).data;
-  const accounts = useAccounts().data ?? [];
-  const base = useBaseSymbol(data?.baseCurrency);
   const showTransactions = useUi((s) => s.showTransactions);
   if (!data) return null;
   const why = { in: "", excluded: "не учитывается в общем балансе (настройка счёта)", no_rate: "нет курса валюты — не вошёл" };
@@ -68,28 +62,25 @@ function BalanceParts({ on, onClose }: { on: string; onClose: () => void }) {
       <p className="muted">Сумма остатков всех счетов на сегодня в основной валюте по курсу на эту дату. Брокерские счета — по последней оценке.</p>
       <table className="table explain-table">
         <tbody>
-          {data.accounts.map((a) => {
-            const acc = accounts.find((x) => x.id === a.id);
-            return (
-              <tr key={a.id} className={a.status === "in" ? undefined : "dup"} data-testid="explain-row" data-status={a.status}>
-                <td>
-                  <button className="link" onClick={() => (showTransactions({ accountId: a.id }), onClose())}>
-                    {a.name}
-                  </button>
-                  {a.status !== "in" && <div className="hint">{why[a.status]}</div>}
-                </td>
-                <td className="num">{a.currency !== data.baseCurrency && <Money amount={a.balance} symbol={acc?.currencySymbol} minorUnits={acc?.minorUnits} />}</td>
-                <td className="num">{a.converted !== null ? <Money amount={a.converted} symbol={base} /> : "—"}</td>
-              </tr>
-            );
-          })}
+          {data.accounts.map((a) => (
+            <tr key={a.id} className={a.status === "in" ? undefined : "dup"} data-testid="explain-row" data-status={a.status}>
+              <td>
+                <button className="link" onClick={() => (showTransactions({ accountId: a.id }), onClose())}>
+                  {a.name}
+                </button>
+                {a.status !== "in" && <div className="hint">{why[a.status]}</div>}
+              </td>
+              <td className="num">{a.currency !== data.baseCurrency && <BaseMoney amount={a.balance} currencyCode={a.currency} />}</td>
+              <td className="num">{a.converted !== null ? <BaseMoney amount={a.converted} currencyCode={data.baseCurrency} /> : "—"}</td>
+            </tr>
+          ))}
         </tbody>
         <tfoot>
           <tr>
             <th>Итого</th>
             <th />
             <th className="num" data-testid="explain-total">
-              <Money amount={data.total} symbol={base} />
+              <BaseMoney amount={data.total} currencyCode={data.baseCurrency} />
             </th>
           </tr>
         </tfoot>
@@ -101,7 +92,6 @@ function BalanceParts({ on, onClose }: { on: string; onClose: () => void }) {
 
 function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; from: string; to: string; onClose: () => void }) {
   const data = useQuery({ queryKey: ["explainPeriod", from, to, kind], queryFn: () => api.explainPeriod(from, to, kind) }).data;
-  const base = useBaseSymbol(data?.baseCurrency);
   const showTransactions = useUi((s) => s.showTransactions);
   const outside = (useAccounts().data ?? []).filter((a) => !a.includeInTotal).map((a) => `«${a.name}»`);
   const startDay = useSettings().data?.month_start_day ?? "1";
@@ -137,7 +127,7 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
               </td>
               <td className="num muted">{c.count}</td>
               <td className="num">
-                <Money amount={c.amount} symbol={base} />
+                <BaseMoney amount={c.amount} currencyCode={data.baseCurrency} />
               </td>
             </tr>
           ))}
@@ -147,7 +137,7 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
             <th>Итого</th>
             <th />
             <th className="num" data-testid="explain-total">
-              <Money amount={data.total} symbol={base} />
+              <BaseMoney amount={data.total} currencyCode={data.baseCurrency} />
             </th>
           </tr>
         </tfoot>
@@ -170,7 +160,6 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
 function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
   const inc = useQuery({ queryKey: ["explainPeriod", from, to, "income"], queryFn: () => api.explainPeriod(from, to, "income") }).data;
   const exp = useQuery({ queryKey: ["explainPeriod", from, to, "expense"], queryFn: () => api.explainPeriod(from, to, "expense") }).data;
-  const base = useBaseSymbol(inc?.baseCurrency);
   const showTransactions = useUi((s) => s.showTransactions);
   if (!inc || !exp) return null;
   return (
@@ -185,7 +174,7 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
               </button>
             </td>
             <td className="num">
-              <Money amount={inc.total} symbol={base} signed />
+              <BaseMoney amount={inc.total} currencyCode={inc.baseCurrency} signed />
             </td>
           </tr>
           <tr data-testid="explain-row">
@@ -195,7 +184,7 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
               </button>
             </td>
             <td className="num">
-              <Money amount={-exp.total} symbol={base} />
+              <BaseMoney amount={-exp.total} currencyCode={inc.baseCurrency} />
             </td>
           </tr>
         </tbody>
@@ -203,7 +192,7 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
           <tr>
             <th>Сальдо</th>
             <th className="num" data-testid="explain-total">
-              <Money amount={inc.total - exp.total} symbol={base} signed />
+              <BaseMoney amount={inc.total - exp.total} currencyCode={inc.baseCurrency} signed />
             </th>
           </tr>
         </tfoot>
@@ -214,21 +203,23 @@ function Saldo({ from, to, onClose }: { from: string; to: string; onClose: () =>
 
 function FreeParts() {
   const data = useQuery({ queryKey: ["freeUntilIncome", today()], queryFn: api.freeUntilIncome }).data;
-  const base = useBaseSymbol(data?.baseCurrency);
+  const currency = useCurrencies().data?.find((c) => c.code === data?.baseCurrency);
   if (!data) return null;
-  const until = data.income ? `до ${formatDate(data.until)} (${data.income.title})` : "до конца месяца";
+  if (!currency) return <p className="muted">Загружаем данные валюты…</p>;
+  const money = { symbol: currency.symbol, currencyCode: data.baseCurrency, minorUnits: currency.minorUnits };
+  const end = addDays(data.until, -1);
   return (
     <>
       <p className="muted">
-        Деньги на картах, наличных и накопительных счетах прогноза минус известные платежи {until} и минус резервы.{" "}
-        {data.income ? "Ближайший доход взят из напоминаний и запланированных операций." : "Дохода в напоминаниях и запланированных операциях на два месяца вперёд нет — считаем до конца месяца."}
+        {data.income ? `Ближайший доход «${data.income.title}» ожидается ${formatDate(data.until)}.` : "Ближайшего дохода в планах на два месяца нет. Расчёт заканчивается в последний день бюджетного месяца."}{" "}
+        С {formatDate(data.today)} по {formatDate(end)} включительно к деньгам на счетах прогноза прибавлены ожидаемые поступления и вычтены платежи и резервы.
       </p>
       <table className="table explain-table">
         <tbody>
           <tr data-testid="explain-row">
             <td>Деньги сегодня</td>
             <td className="num">
-              <Money amount={data.liquid} symbol={base} />
+              <Money amount={data.liquid} {...money} />
             </td>
           </tr>
           {data.payments.map((p, i) => (
@@ -237,15 +228,15 @@ function FreeParts() {
                 {p.title} <span className="muted">{formatDate(p.date)}</span>
               </td>
               <td className="num">
-                <Money amount={-p.amount} symbol={base} />
+                <Money amount={-p.amount} {...money} />
               </td>
             </tr>
           ))}
           {data.inflowTotal > 0 && (
             <tr data-testid="explain-row">
-              <td>Другие приходы до дохода</td>
+              <td>Ожидаемые поступления за период</td>
               <td className="num">
-                <Money amount={data.inflowTotal} symbol={base} signed />
+                <Money amount={data.inflowTotal} {...money} signed />
               </td>
             </tr>
           )}
@@ -255,7 +246,7 @@ function FreeParts() {
                 Резерв «{r.name}» <span className="muted">на «{r.account}»</span>
               </td>
               <td className="num">
-                <Money amount={-r.amount} symbol={base} />
+                <Money amount={-r.amount} {...money} />
               </td>
             </tr>
           ))}
@@ -264,20 +255,20 @@ function FreeParts() {
           <tr>
             <th>Свободно</th>
             <th className="num" data-testid="explain-total">
-              <Money amount={data.free} symbol={base} />
+              <Money amount={data.free} {...money} />
             </th>
           </tr>
           <tr>
             <td className="muted">
-              В день, {data.days} {data.days === 1 ? "день" : "дн."}
+              В среднем на день за период ({data.days} дн.)
             </td>
             <td className="num">
-              <Money amount={data.perDay} symbol={base} />
+              <Money amount={data.perDay} {...money} />
             </td>
           </tr>
         </tfoot>
       </table>
-      {data.missingRates.length > 0 && <p className="hint warn">Нет курса для {data.missingRates.join(", ")}: такие счета не вошли.</p>}
+      {data.missingRates.length > 0 && <p className="hint warn">Расчёт включает только суммы, для которых есть курс. Отсутствует курс для {data.missingRates.join(", ")}.</p>}
     </>
   );
 }

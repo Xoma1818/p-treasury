@@ -30,6 +30,14 @@ async function newTxn(type, { amount, account, toAccount, toAmount, category, pa
 
 const accountRow = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
+test("новый журнал показывает пустое состояние за месяц и за всё время", async () => {
+  await openSection(browser, "Операции");
+  await waitText(browser, '[data-testid="txn-empty"]', /В журнале пока нет операций/);
+  await click(browser, "Показать все операции");
+  await waitText(browser, '[data-testid="txn-result-period"]', /За всё время/i);
+  await waitText(browser, '[data-testid="txn-empty"]', /В журнале пока нет операций/);
+});
+
 test("покупка в магазине: 2 340 ₽ на «Продукты» уменьшает баланс карты", async () => {
   await newTxn("expense", { amount: "2340", account: "Карта (₽)", category: "Питание", payee: "Пятёрочка" });
   await save(browser);
@@ -128,21 +136,46 @@ test("найти трату: фильтр по категории и поиск 
   await openFilters(browser);
   await choose(browser, "filterCategory", "Питание");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
-  await click(browser, "Сбросить");
+  await browser.$('[data-testid="filters-toggle"]').click();
+  await browser.$('[data-testid="filters-panel"]').waitForExist({ reverse: true });
+  await waitText(browser, '[data-testid="chip-category"]', /Питание/);
+  await click(browser, "Всё время", '//*[@data-testid="period"]');
+  await waitText(browser, '[data-testid="txn-result-period"]', /За всё время/i);
+  await waitText(browser, '[data-testid="chip-category"]', /Питание/);
+  await fill(browser, "search", "несуществующая строка");
+  await waitText(browser, '[data-testid="txn-empty"]', /По этим условиям операций нет/);
+  await click(browser, "Показать все операции");
+  await browser.$('[data-testid="filter-chips"]').waitForExist({ reverse: true });
+  assert.equal(await browser.$('[name="search"]').getValue(), "");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 6 из 6/);
   await fill(browser, "search", "пятёрочка");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await fill(browser, "search", "2 340");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
 });
 
 test("правка и удаление операции меняют баланс", async () => {
   await openSection(browser, "Операции");
-  await fill(browser, "search", "500");
-  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
-  await (await browser.$('[data-testid="txn-row"] td.date')).click();
+  // При отборе по получателю сохранённая покупка остаётся в списке и после изменения суммы.
+  await fill(browser, "search", "Пятёрочка");
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  const cashPurchase = '//*[@data-testid="txn-row"][td[normalize-space()="Наличные"]]/td[@class="date"]';
+  await browser.$(cashPurchase).click();
+  const amount = await field(browser, "amount");
+  assert.equal(await amount.getValue(), "500", "открылась исходная сумма наличной покупки");
   await fill(browser, "amount", "700");
+  assert.ok(await amount.isFocused(), "фокус остаётся в изменённом поле суммы");
+  await browser.keys("Tab");
+  assert.equal(await amount.getValue(), "700", "после ухода из поля сумма остаётся 700");
   await save(browser);
+  await browser.$(cashPurchase).click();
+  const undo = browser.$('[data-testid="undo-bar"] button[title="Ctrl+Z"]');
+  await undo.waitForDisplayed();
+  assert.equal(await (await field(browser, "amount")).getValue(), "700", "карточка открыла сохранённую сумму");
+  assert.equal(await undo.isClickable(), false, "модальная карточка перекрывает плашку отмены");
+  await browser.keys("Escape");
+  await undo.waitForClickable();
   await openSection(browser, "Счета");
   await waitText(browser, accountRow("Наличные"), money("4 300 ₽"));
   await openSection(browser, "Операции");

@@ -315,7 +315,7 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
       if (!account || accountLook(account).icon !== icon || accountLook(account).color !== color) await api.setAccountLook(id, icon, color);
     },
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
 
   const submit = () => {

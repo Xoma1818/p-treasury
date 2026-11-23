@@ -166,7 +166,7 @@ fn build(
         .iter()
         .filter(|l| l.kind == "expense" && l.limit > 0)
     {
-        // Как у полосы бюджета: 100 % и больше — красный порог.
+        // Полное использование и перерасход относятся к одному порогу для скрытия предупреждений.
         let reached = if l.actual >= l.limit {
             100
         } else if l.actual as i128 * 100 >= l.limit as i128 * WARN_PERCENT as i128 {

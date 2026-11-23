@@ -100,7 +100,7 @@ try {
 
       // Операции: выделение и полоса сумм.
       await section("Операции");
-      await button("Сбросить");
+      await button("Показать все операции");
       await setDate(browser, "dateFrom", iso(daysAgo(10)));
       await pause(800);
       await js(() => {

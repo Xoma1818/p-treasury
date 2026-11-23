@@ -1,19 +1,14 @@
-// Цвет полосы бюджета (А1): жёлтая от 80 %, красная от 100 %.
-export type BarLevel = "ok" | "warn" | "over";
+// Состояние по суммам в минимальных единицах валюты: «100 %» может означать и перерасход.
+export type BarLevel = "ok" | "warn" | "used" | "over";
 
 export const WARN_PERCENT = 80;
 
-export function barLevel(percent: number): BarLevel {
-  if (percent >= 100) return "over";
-  if (percent >= WARN_PERCENT) return "warn";
+export function barLevel(actual: number, limit: number): BarLevel {
+  if (actual > limit) return "over";
+  if (limit > 0 && actual === limit) return "used";
+  if (limit > 0 && actual >= limit * (WARN_PERCENT / 100)) return "warn";
   return "ok";
 }
-
-/** Класс полосы: «bar», «bar warn», «bar over». */
-export const barClass = (percent: number) => {
-  const l = barLevel(percent);
-  return l === "ok" ? "bar" : `bar ${l}`;
-};
 
 /** Пометка «+34 % к обычному» / «−40 % к обычному». */
 export function usualLabel(percent: number | null): string | null {

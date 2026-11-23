@@ -244,6 +244,27 @@ pub fn deposit(conn: &Connection, goal_id: &str, date: &str, amount: i64) -> Res
         Some((Some(_), false)) => {
             return invalid("цель привязана к счёту: пополняйте сам счёт переводом")
         }
+        Some((None, _)) if amount < 0 => {
+            // Задняя дата не должна лишить покрытия и более позднее изъятие.
+            let inserted = conn.execute(
+                "WITH movements(day, delta) AS (
+                     SELECT date, amount FROM goal_deposits WHERE goal_id = ?2
+                     UNION ALL SELECT ?3, ?4
+                 ), balances AS (
+                     SELECT day, sum(sum(delta)) OVER (ORDER BY day) AS balance
+                     FROM movements GROUP BY day
+                 )
+                 INSERT INTO goal_deposits (id, goal_id, date, amount, created_at)
+                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE NOT EXISTS (
+                     SELECT 1 FROM balances WHERE day >= ?3 AND balance < 0
+                 )",
+                params![ids::new_id(), goal_id, date, amount, time::now_utc()],
+            )?;
+            if inserted == 0 {
+                return invalid("в цели недостаточно накоплений для изъятия на эту дату");
+            }
+            return Ok(());
+        }
         Some((None, _)) => {}
     }
     conn.execute(
@@ -698,6 +719,22 @@ mod tests {
             (g.need_this_period, g.funding_mode.as_deref()),
             (None, None)
         );
+    }
+
+    #[test]
+    fn manual_withdrawal_preserves_daily_balances() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let id = create(c, &goal("Копилка", 10_000, None, None)).unwrap();
+        deposit(c, &id, "2026-11-15", 10_000).unwrap();
+        assert!(deposit(c, &id, "2026-11-14", -1).is_err());
+        assert!(deposit(c, &id, "2026-11-15", -12_000).is_err());
+        deposit(c, &id, "2026-11-20", -2_000).unwrap();
+        deposit(c, &id, "2026-11-21", 2_000).unwrap();
+        assert!(deposit(c, &id, "2026-11-16", -9_000).is_err());
+        assert_eq!(deposits_sum(c, &id).unwrap(), 10_000);
+        deposit(c, &id, "2026-11-16", -8_000).unwrap();
+        assert_eq!(deposits_sum(c, &id).unwrap(), 2_000);
     }
 
     #[test]

@@ -1,13 +1,15 @@
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 // Карточки Главной 0.16: «Необычно в этом месяце» (А2) и «Проверьте» (А3).
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useRef, useState } from "react";
 import { Check as CheckIcon, CircleAlert } from "lucide-react";
-import { api, type BudgetWarning, type Check } from "../lib/api";
+import { api, type Budget, type BudgetLine, type BudgetWarning, type Check } from "../lib/api";
 import { MatchesDialog, useSuggestions } from "./ImportHistory";
 import { formatDate, today } from "../lib/dates";
 import { backupRow, ratesRow, uncategorizedRow, type StatusRow } from "../lib/dataStatus";
-import { useAccounts, useMonthOf, useSettings, useSpendingVsUsual } from "../lib/queries";
+import { budgetQuery, useAccounts, useCurrencies, useMonthOf, useSettings, useSpendingVsUsual } from "../lib/queries";
+import { warningCoverTarget } from "../lib/budgetCover";
+import { BudgetCoverDialog } from "./BudgetCoverDialog";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { Hint } from "./Hint";
@@ -80,16 +82,19 @@ const KIND: Record<Check["kind"], string> = {
 
 /** Прячет суммы в готовом тексте ядра, когда включено «Скрыть суммы». */
 export function maskAmounts(text: string): string {
-  return text.replace(/[−+-]?\d[\d\s\u00a0\u202f]*(?:[.,]\d+)?\s?(?:₽|\$|€|¥|£|₸)/g, "•••");
+  return text
+    .replace(/[−+-]?\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?\s?(?:₽|\$|€|¥|£|₸|₺|Br\b|AED\b)/g, "•••")
+    .replace(/[−+-]?\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?(?= из •••)/g, "•••");
 }
 
 /** Сколько строк «Проверьте» видно сразу; остальные — по «Показать все». */
 const CHECKS_SHOWN = 5;
 
 /** А3: странные списания за 30 дней. */
-export function ChecksCard({ inOperations = false }: { inOperations?: boolean } = {}) {
+export function ChecksCard({ inOperations = false, budget }: { inOperations?: boolean; budget?: Budget } = {}) {
   const date = today();
-  const hidden = useSettings().data?.hide_amounts === "1";
+  const settings = useSettings().data;
+  const hidden = !settings || settings.hide_amounts === "1";
   const show = (t: string) => (hidden ? maskAmounts(t) : t);
   const checkQuery = useQuery({ staleTime: AGGREGATE_STALE_MS, queryKey: ["checks", date], queryFn: api.listChecks });
   const checks = checkQuery.data;
@@ -98,6 +103,27 @@ export function ChecksCard({ inOperations = false }: { inOperations?: boolean } 
   const showTransactions = useUi((s) => s.showTransactions);
   const openOperationReview = useUi((s) => s.openOperationReview);
   const editPlan = useUi((s) => s.editPlan);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const coverOpener = useRef<HTMLButtonElement | null>(null);
+  const currencies = useCurrencies().data;
+  const minor = currencies?.find((c) => c.code === budget?.currencyCode)?.minorUnits;
+  const [cover, setCover] = useState<{ budget: Budget; target: BudgetLine; minor: number } | null>(null);
+  const queries = useQueryClient();
+  const preview = useMutation({
+    mutationFn: async (warning: BudgetWarning) => {
+      const latest = await queries.fetchQuery({ ...budgetQuery(warning.month), staleTime: 0 });
+      const target = warningCoverTarget(latest, warning);
+      if (!budget || !target || latest.id !== budget.id || latest.currencyCode !== budget.currencyCode || minor === undefined) {
+        void queries.invalidateQueries({ queryKey: ["budgetWarnings"] });
+        throw new Error("Бюджет изменился. Проверьте актуальные лимиты.");
+      }
+      return { budget: latest, target, minor };
+    },
+  });
+  const closeCover = () => {
+    setCover(null);
+    requestAnimationFrame(() => (coverOpener.current?.isConnected ? coverOpener.current : heading.current)?.focus());
+  };
   const dismiss = useAction(api.dismissCheck);
   const removeSecond = useAction(api.deleteDuplicate);
   const [opening, setOpening] = useState<string | null>(null);
@@ -132,7 +158,7 @@ export function ChecksCard({ inOperations = false }: { inOperations?: boolean } 
 
   return (
     <div className="card qw-card" id={inOperations ? "operations-review" : undefined} data-testid={inOperations ? "operations-review" : "home-checks"}>
-      <h2>
+      <h2 ref={heading} tabIndex={-1}>
         {inOperations ? "Операции на проверке" : "Проверьте"}
         {!inOperations && <Hint of="home.checks" />}
       </h2>
@@ -155,11 +181,24 @@ export function ChecksCard({ inOperations = false }: { inOperations?: boolean } 
       )}
       {!inOperations && warnings.length > 0 && (
         <ul className="qw-list" data-testid="budget-warnings">
-          {warnings.map((w) => (
-            <WarningRow key={w.key} w={w} show={show} onOps={() => showTransactions({ categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end })} onPlan={() => editPlan(w.categoryId)} onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />
-          ))}
+          {warnings.map((w) => {
+            const target = warningCoverTarget(budget, w);
+            const planAction = target && budget && minor !== undefined ? (
+              <button key="cover" className="btn small" type="button" aria-haspopup="dialog" data-testid="warning-cover"
+                disabled={preview.isPending} aria-busy={preview.isPending && preview.variables?.key === w.key}
+                onClick={(e) => { coverOpener.current = e.currentTarget; preview.mutate(w, { onSuccess: setCover }); }}>
+                Покрыть <Money amount={-target.remaining} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={minor} />…
+              </button>
+            ) : (
+              <button key="edit" className="btn small" onClick={() => editPlan(w.categoryId)} data-testid="warning-plan">Изменить план</button>
+            );
+            return <WarningRow key={w.key} w={w} hidden={hidden} planAction={planAction}
+              onOps={() => showTransactions({ categoryId: w.categoryId, dateFrom: w.start, dateTo: w.end })}
+              onOk={() => dismiss.run(w.key)} busy={dismiss.busy} />;
+          })}
         </ul>
       )}
+      {cover && <BudgetCoverDialog {...cover} onClose={closeCover} />}
       {!inOperations && checks && checks.length === 0 && warnings.length === 0 && (
         <p className="qw-calm" data-testid="checks-calm">
           <CheckIcon className="qw-ok" size={16} aria-hidden />
@@ -210,7 +249,7 @@ export function ChecksCard({ inOperations = false }: { inOperations?: boolean } 
       )}
       {inOperations && (checkQuery.isLoading || matchQuery.isLoading || uncategorized.isLoading) &&
         <p className="muted" role="status">Ищем операции…</p>}
-      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError ??
+      <ErrorText error={dismiss.error ?? removeSecond.error ?? openError ?? (preview.error ? String(preview.error instanceof Error ? preview.error.message : preview.error) : null) ??
         (inOperations && (checkQuery.error ?? matchQuery.error ?? uncategorized.error)
           ? String(checkQuery.error ?? matchQuery.error ?? uncategorized.error) : null)} />
       {!inOperations && (
@@ -275,23 +314,24 @@ export function DataStatus() {
 }
 
 /** Предупреждение бюджета: что случилось, почему и что сделать. */
-function WarningRow({ w, show, onOps, onPlan, onOk, busy }: { w: BudgetWarning; show: (t: string) => string; onOps: () => void; onPlan: () => void; onOk: () => void; busy: boolean }) {
+export function WarningRow({ w, hidden, onOps, planAction, onOk, busy }: { w: BudgetWarning; hidden: boolean; onOps: () => void; planAction: ReactNode; onOk: () => void; busy: boolean }) {
+  const used = w.actual === w.limit;
   return (
     <li className="qw-check" data-testid="warning-row" data-level={w.level}>
-      <span className={w.level === 100 ? "qw-kind over" : "qw-kind warn"}>{w.level === 100 ? "Лимит превышен" : "Скоро лимит"}</span>
+      <span className={`qw-kind ${used ? "used" : w.level === 100 ? "over" : "warn"}`}>
+        {used ? "Лимит использован" : w.level === 100 ? "Лимит превышен" : "Скоро лимит"}
+      </span>
       <span className="qw-text">
-        <span className="qw-main">{show(w.text)}</span>
+        <span className="qw-main">{hidden ? `${w.categoryName} · ${w.percent} % лимита` : w.text}</span>
         <span className="qw-sub muted" data-testid="warning-reason">
-          {show(w.reason)}
+          {hidden ? "В операциях можно проверить расходы этой категории за бюджетный месяц." : w.reason}
         </span>
       </span>
       <span className="qw-actions">
         <button className="btn small" onClick={onOps} data-testid="warning-ops">
           Посмотреть операции
         </button>
-        <button className="btn small" onClick={onPlan} data-testid="warning-plan">
-          Изменить план
-        </button>
+        {planAction}
         <button className="btn small" onClick={onOk} disabled={busy} title="Скрыть до следующего порога в этом месяце">
           Понятно
         </button>

@@ -21,7 +21,7 @@ export function NoteForm({ note, initial, onClose }: { note?: Note; initial?: Pa
   const save = useAction(
     (input: NoteInput) => (note ? api.updateNote(note.id, input) : api.createNote(input)),
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteNote(note!.id), onClose);
   return (

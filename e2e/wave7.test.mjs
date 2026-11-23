@@ -141,29 +141,44 @@ test("Главная, «Необычно в этом месяце»: карто�
   }
 });
 
-test("Главная: полосы бюджета жёлтые от 80 %, красные от 100 %", async () => {
+async function expectedBudgetBars() {
+  const result = await browser.executeAsync((date, done) => {
+    const { invoke } = window.__TAURI_INTERNALS__;
+    invoke("month_of", { date }).then(({ month }) => invoke("get_budget", { month }))
+      .then(({ lines }) => done({ lines }), (error) => done({ error: String(error) }));
+  }, iso(now));
+  assert.ok(!result.error, result.error);
+  return new Map(result.lines.map(({ categoryName, actual, limit }) => {
+    if (actual > limit) return [categoryName, "bar over"];
+    if (limit > 0 && actual === limit) return [categoryName, "bar used"];
+    return [categoryName, limit > 0 && actual * 100 >= limit * 80 ? "bar warn" : "bar"];
+  }));
+}
+
+test("Главная: точный лимит нейтрален, красная полоса только при перерасходе", async () => {
   await openSection(browser, "Главная");
+  await browser.$(".budget-brief .bar").waitForExist();
+  const expected = await expectedBudgetBars();
   const bars = await browser.execute(() =>
-    [...document.querySelectorAll("main li")]
-      .filter((li) => li.querySelector(":scope > .bar") && li.querySelector(":scope > .percent"))
-      .map((li) => [parseInt(li.querySelector(".percent").textContent, 10), li.querySelector(".bar").className]),
+    [...document.querySelectorAll(".budget-brief li")]
+      .map((li) => [li.firstElementChild.textContent, li.querySelector(".bar").className]),
   );
   assert.ok(bars.length > 0, "на Главной есть полосы бюджета");
-  for (const [p, cls] of bars) assert.equal(cls, p >= 100 ? "bar over" : p >= 80 ? "bar warn" : "bar", `${p} % → ${cls}`);
+  for (const [name, cls] of bars) assert.equal(cls, expected.get(name), name);
 });
 
 test("Бюджет: цвет полос по порогам, пометки «к обычному», страховка по 1 000 ₽ в месяц", async () => {
   await openSection(browser, "Бюджет");
   await browser.$('[data-testid="budget-line"]').waitForDisplayed({ timeout: 5000 });
+  const expected = await expectedBudgetBars();
   const lines = await browser.execute(() =>
     [...document.querySelectorAll('[data-testid="budget-expense"] [data-testid="budget-line"]')].map((tr) => [
       tr.dataset.category,
-      parseInt(tr.querySelector('[data-testid="percent"]')?.textContent ?? "0", 10),
       tr.querySelector(".bar")?.className ?? "",
     ]),
   );
   assert.ok(lines.length > 0);
-  for (const [name, p, cls] of lines) assert.equal(cls, p >= 100 ? "bar over" : p >= 80 ? "bar warn" : "bar", `${name}: ${p} % → ${cls}`);
+  for (const [name, cls] of lines) assert.equal(cls, expected.get(name), name);
   const pills = await browser.execute(() => [...document.querySelectorAll('[data-testid="usual-pill"]')].map((e) => e.textContent));
   for (const t of pills) assert.match(t, /^[+−]\d+ % к обычному$/);
   assert.ok(await browser.$('[data-testid="budget-expense"] [data-testid="hint"]').isExisting(), "подсказка «?» у полос");
@@ -173,7 +188,7 @@ test("Бюджет: цвет полос по порогам, пометки «к
 
 test("Операции: разбитый чек одной строкой с раскрытием, значки тега и «по месяцам»", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(60)));
   const receipt = '//tr[@data-testid="txn-row" and @data-receipt="3"]';
   await waitText(browser, receipt, /Ашан, 3 категории/);
@@ -204,7 +219,7 @@ test("Операции: разбитый чек одной строкой с р�
 
 test("выделение: флажки, Shift-диапазон, полоса «Выбрано», итог найденного без выделения", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   // Ничего не выделено, но включён поиск: полоса показывает итог по найденному.
@@ -221,7 +236,7 @@ test("выделение: флажки, Shift-диапазон, полоса «�
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 2/);
 
   // Shift-щелчок выделяет диапазон строк.
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(10)));
   await browser.$('[data-testid="txn-row"]').waitForDisplayed({ timeout: 5000 });
   await browser.pause(300);
@@ -247,7 +262,7 @@ test("выделение: флажки, Shift-диапазон, полоса «�
 
 test("пачка: категория двум операциям, переводы пропускаются, всё отменяется одним Ctrl+Z", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
@@ -268,7 +283,7 @@ test("пачка: категория двум операциям, перевод
   });
 
   // Переводы категорию не получают: программа говорит, сколько пропущено.
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await setDate(browser, "dateFrom", iso(daysAgo(60)));
   const transfer = await browser.$('//tr[@data-testid="txn-row"][.//div[@class="main" and starts-with(normalize-space(), "Перевод")]]');
   if (await transfer.isExisting()) {
@@ -295,7 +310,7 @@ test("пачка: категория двум операциям, перевод
 
 test("удаление пачки спрашивает подтверждение на полосе и отменяется Ctrl+Z", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Самокат");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   for (const b of await browser.$$('[data-testid="txn-select"]')) await b.click();
@@ -356,7 +371,7 @@ test("форма расхода: разбить чек на две катего�
   await save(browser);
 
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Перекрёсток");
   const row = '//tr[@data-testid="txn-row" and @data-receipt="2"]';
   await waitText(browser, row, /Перекрёсток, 2 категории/);
@@ -385,12 +400,12 @@ test("форма расхода: «Учитывать по месяцам» по
 
 test("фильтр «Тег» в Операциях и Ctrl+K находит тег", async () => {
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await openFilters(browser);
   await pickLike("filterTag", "#дача");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
   await waitText(browser, '[data-testid="sel-sum"]', /Найдено 1: расходы 4[\s ]500 ₽/);
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано \d+ из \d+/);
 
   await blur();
@@ -477,7 +492,7 @@ test("Категории → Теги: переименовать и объед�
   await browser.$(row("дом и дача")).waitForExist({ timeout: 5000, reverse: true });
   // Операция «Леруа Мерлен» осталась и теперь с тегом «отпуск».
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", "Леруа");
   await waitText(browser, '[data-testid="txn-row"]', /#отпуск/);
 });
@@ -530,7 +545,7 @@ test("событие разбитого чека: создание, смена �
   await choose(browser, "event", eventNames[0]);
   await save(browser);
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await fill(browser, "search", payee);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
   await assertEvent(eventIds[0]);

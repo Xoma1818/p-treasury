@@ -19,6 +19,7 @@ import { Hint } from "./Hint";
 import { RefundDialog } from "./RefundDialog";
 import { TagInput } from "./TagInput";
 import { TxnHistory } from "./TxnHistory";
+import { canPlanRepeat, RepeatPlanDialog, useRepeatPlan } from "./TxnRepeatPlan";
 
 const TABS: [TxnType, string][] = [
   ["expense", "Расход"],
@@ -44,13 +45,21 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const openTxnForm = useUi((s) => s.openTxnForm);
   const openDebt = useUi((s) => s.openDebt);
   const editing = state.mode === "edit" ? state.txn : null;
+  const repeatSource = editing && canPlanRepeat(editing) ? editing : null;
+  const repeatPlan = useRepeatPlan(repeatSource?.id);
+  const [planningRepeat, setPlanningRepeat] = useState(false);
+  const repeatButton = useRef<HTMLButtonElement>(null);
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const reminder = state.mode === "new" ? state.reminder : undefined;
+  const cancel = () => {
+    onClose();
+    if (state.mode === "new") state.onCancelReminder?.();
+  };
   const accounts = useAccounts(true).data ?? [];
   const categories = useCategories().data ?? [];
 
   const [type, setType] = useState<TxnType>(editing?.type ?? (state.mode === "new" ? state.type : "expense"));
-  const [amount, setAmount] = useState(amountText(editing?.amount ?? prefill?.amount, editing?.minorUnits));
+  const [amountDraft, setAmount] = useState<string | null>(null);
   const [toAmount, setToAmount] = useState(amountText(editing?.toAmount, editing?.toMinorUnits ?? 2));
   // Г9: настройка формы (поля без «Ещё», счёт и дата новой операции) — один раз на открытие.
   const [formPrefs] = useState(savedForm);
@@ -142,6 +151,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   }, [payee, type]);
 
   const from = accounts.find((a) => a.id === accountId);
+  const presetAmount = prefill?.amountCurrency && prefill.amountCurrency !== from?.currencyCode ? null : prefill?.amount;
+  const amount = amountDraft ?? amountText(editing?.amount ?? presetAmount, editing?.minorUnits ?? from?.minorUnits);
   const to = accounts.find((a) => a.id === toAccountId);
   const crossCurrency = type === "transfer" && from && to && from.currencyCode !== to.currencyCode;
   const minor = from?.minorUnits ?? 2;
@@ -216,7 +227,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       return;
     }
     await api.createTransactionFull(input, extra, event, reminder);
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)), onClose);
 
   // Шаблоны: подставить сохранённую операцию или сохранить текущую.
@@ -273,6 +284,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     return spread && Number.isInteger(n) ? n : null;
   })();
   const spreadPreview = type === "expense" && spreadMonths && spreadMonths >= 2 && spreadMonths <= 24 && amountValue && amountValue > 0 ? spreadParts(amountValue, spreadMonths) : null;
+  const spreadPeriod = useQuery({
+    queryKey: ["monthOf", date],
+    queryFn: () => api.monthOf(date),
+    enabled: !!spreadPreview && !!date,
+  });
   const startSplit = () => {
     const filled = amountValue && amountValue > 0;
     setParts([
@@ -289,6 +305,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   };
 
   const submit = () => {
+    if (save.busy) return;
     if (splitId && !receiptLoaded.current) return save.setError("Дождитесь загрузки чека");
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (receiptParts) {
@@ -354,7 +371,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       spread !== (editing.spreadMonths ? String(editing.spreadMonths) : "") ||
       !!friends);
   return (
-    <Modal title={title} onClose={onClose} side={side} guardUnsaved>
+    <>
+    <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={save.busy || remove.busy}>
       <form
         className="form"
         onSubmit={(e) => {
@@ -595,8 +613,10 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   <Hint of="txn.spread" />
                   {spreadPreview && spreadMonths && (
                     <span className="hint" data-testid="spread-preview">
-                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц, {monthTitle(date.slice(0, 7)).toLowerCase()} – {monthTitle(shiftMonth(date.slice(0, 7), spreadMonths - 1)).toLowerCase()}
+                      по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц
+                      {date && spreadPeriod.data && `, ${monthTitle(spreadPeriod.data.month).toLowerCase()} – ${monthTitle(shiftMonth(spreadPeriod.data.month, spreadMonths - 1)).toLowerCase()}`}
                       {spreadPreview[0] !== spreadPreview[1] && ` (в первом ${formatAmount(spreadPreview[0], minor)})`}
+                      {date && spreadPeriod.isError && " · Не удалось определить бюджетный период"}
                     </span>
                   )}
                 </div>
@@ -616,6 +636,14 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             )}
           </>
         )}
+        {repeatSource && <div>
+          <button type="button" className="link" ref={repeatButton} data-testid="txn-plan-repeat"
+            disabled={dirty || save.busy || remove.busy || !!repeatPlan.error} onClick={() => setPlanningRepeat(true)}>
+            {repeatPlan.data ? "Открыть запланированный повтор" : "Запланировать повтор…"}
+          </button>
+          {dirty ? <p className="hint">Сначала сохраните изменения операции.</p>
+            : repeatPlan.error && <p className="hint">{String(repeatPlan.error)}</p>}
+        </div>}
         {editing && (!splitId || receiptLoaded.current) && <NotesBlock
           filter={{ transactionId: splitId ? undefined : editing.id }}
           initial={{ transactionId: splitId ? receipt.data?.parts.map((p) => p.id).sort().at(-1) : editing.id }}
@@ -666,6 +694,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
         <ErrorText error={receipt.error ? String(receipt.error) : null} />
         <ErrorText error={saveTemplate.error} />
         <ErrorText error={save.error ?? remove.error} />
+        {reminder && <p className="hint" data-testid="reminder-save-impact">
+          {reminder.allowSeparate
+            ? "Сохранение добавит отдельную запись и завершит напоминание."
+            : "После сохранения напоминание будет выполнено."}
+        </p>}
         {editing?.debtId && (
           <p className="hint" data-testid="txn-debt-hint">
             Это платёж по долгу: удалить или изменить его можно в карточке долга, там же пересчитается график.
@@ -688,16 +721,21 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
-            Отмена
+          <button type="button" className="btn" onClick={cancel} disabled={save.busy}>
+            {reminder?.allowSeparate ? "Назад" : "Отмена"}
           </button>
           {!isAdjustment && (
             <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || (!!splitId && !receiptLoaded.current)} title="Ctrl+Enter">
-              Сохранить
+              {reminder && type === "expense" ? "Записать расход" : reminder && type === "income" ? "Записать доход" : "Сохранить"}
             </button>
           )}
         </div>
       </form>
     </Modal>
+    {repeatSource && planningRepeat && <RepeatPlanDialog source={repeatSource} onClose={() => {
+      setPlanningRepeat(false);
+      repeatButton.current?.focus();
+    }} />}
+    </>
   );
 }

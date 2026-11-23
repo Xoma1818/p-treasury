@@ -57,6 +57,102 @@ fn reopening_is_idempotent() {
 }
 
 #[test]
+fn series_upgrade_preserves_legacy_preferences_and_restores_old_backup() {
+    use budget_core::settings;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let options = opts(dir.path());
+    let hidden = r#"["кино"]"#;
+    let notified = r#"{"кино":"2026-11-05"}"#;
+    let account = {
+        let old = Storage::open_with(&path, &options, &MIGRATIONS[..28]).unwrap();
+        settings::set(old.conn(), "subscriptions_hidden", hidden).unwrap();
+        settings::set(old.conn(), "subs_notified", notified).unwrap();
+        insert_account(&old)
+    };
+    let mut db = Storage::open(&path, &options).unwrap();
+    let backup = db.pre_migration_backup().unwrap().to_path_buf();
+    let verify = |db: &Storage| {
+        let prefs = settings::all(db.conn()).unwrap();
+        assert_eq!(prefs["subscriptions_hidden"], hidden);
+        assert_eq!(prefs["subs_notified"], notified);
+        assert_eq!(prefs["subs_notified_by_currency"], "{}");
+        let count: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM subscription_visibility", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        let balance: i64 = db
+            .conn()
+            .query_row(
+                "SELECT opening_balance FROM accounts WHERE id = ?1",
+                [&account],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(balance, 1_234_567);
+    };
+    verify(&db);
+    budget_core::subscriptions::set_series_hidden(db.conn(), "кино", "JPY", false).unwrap();
+    db.restore_from(&backup, &options).unwrap();
+    verify(&db);
+}
+
+#[test]
+fn repeat_upgrade_recognizes_paid_series_from_schema_29_and_its_backup() {
+    use budget_core::reminders;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("budget.db");
+    let options = opts(dir.path());
+    {
+        let old = Storage::open_with(&path, &options, &MIGRATIONS[..29]).unwrap();
+        let account = insert_account(&old);
+        let c = old.conn();
+        c.execute_batch(
+            "INSERT INTO categories (id,name,kind,created_at,updated_at)
+                         VALUES ('rent','Аренда','expense','','')",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO transactions (id,type,date,account_id,amount,category_id,created_at,updated_at)
+             VALUES ('paid','expense','2026-10-01',?1,98765,'rent','','')", [&account]
+        ).unwrap();
+        c.execute(
+            "INSERT INTO reminders (id,title,start_at,repeat,amount,txn_type,account_id,category_id,created_at,updated_at)
+             VALUES ('existing','Аренда','2026-10-01T09:00','monthly',98765,'expense',?1,'rent','','')", [&account]
+        ).unwrap();
+        c.execute_batch(
+            "INSERT INTO reminder_occurrences
+             (id,source,reminder_id,scheduled_at,status,transaction_id,linked_actual_amount,linked_actual_date)
+             VALUES ('oct','reminder','existing','2026-10-01T09:00','done','paid',98765,'2026-10-01')"
+        ).unwrap();
+    }
+    let mut db = Storage::open(&path, &options).unwrap();
+    let backup = db.pre_migration_backup().unwrap().to_path_buf();
+    let now = reminders::parse_dt("2026-10-02T12:00").unwrap();
+    let verify = |db: &Storage| {
+        let r = reminders::get_repeat_plan(db.conn(), "paid", now)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.id.as_str(), r.amount), ("existing", Some(98_765)));
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT count(*) FROM reminder_plan_sources", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    };
+    verify(&db);
+    db.restore_from(&backup, &options).unwrap();
+    verify(&db);
+}
+
+#[test]
 fn newer_schema_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("budget.db");
@@ -800,5 +896,7 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(26), "account_reconciliations");
     assert_eq!(at(27), "reminder_actual_links");
     assert_eq!(at(28), "goal_funding");
-    assert_eq!(LATEST_VERSION, 28);
+    assert_eq!(at(29), "subscription_series");
+    assert_eq!(at(30), "reminder_plan_sources");
+    assert_eq!(LATEST_VERSION, 30);
 }

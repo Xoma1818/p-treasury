@@ -104,7 +104,7 @@ function EventForm({ event, onClose }: { event: BudgetEvent | null; onClose: () 
     const input = { name, startDate: start, endDate: end, budget: b, note: event?.note ?? null };
     if (event) return api.updateEvent(event.id, input);
     await api.createEvent(input);
-  }, onClose, { celebrate: true });
+  }, onClose, { singleSubmit: true });
   const remove = useAction(() => api.deleteEvent(event!.id), onClose);
   const submit = () => {
     const b = budget.trim() === "" ? null : parseAmount(budget, minor);

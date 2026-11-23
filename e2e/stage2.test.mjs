@@ -51,6 +51,9 @@ async function expense(amount, category, account = "Карта (₽)") {
 }
 
 test("план месяца: пустой бюджет и лимиты по категориям", async () => {
+  await openSection(browser, "Главная");
+  await waitText(browser, '[data-testid="home-budget"]', /Составить/);
+  assert.equal(await browser.$('[data-testid="home-safe-to-spend"]').isExisting(), false, "при отсутствии бюджета лимит не подменён нулём");
   await openSection(browser, "Бюджет");
   await waitText(browser, '[data-testid="budget-month"]', new RegExp(title(now)));
   await waitText(browser, "main", /пока нет/);
@@ -118,7 +121,36 @@ test("«Можно тратить сегодня»: остаток лимито�
   await waitText(browser, '[data-testid="safe-to-spend"]', money(expected));
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="home-safe-to-spend"]', money(expected));
+  const hint = await waitText(browser, '.home-budget-today', /Дневной лимит по бюджету/);
+  const end = new Date(now.getFullYear(), now.getMonth(), last);
+  assert.ok(hint.includes(`с ${dmy(now)} по ${dmy(end)} включительно`));
   await waitText(browser, '[data-testid="home-budget"]', /Общепит\s*105 %/);
+  // Лимит переезжает к следующей видимой карточке и возвращается при включении плиток.
+  const limit = '[data-testid="home-safe-to-spend"]';
+  const onlyIn = async (block) => {
+    await waitText(browser, `[data-block="${block}"] ${limit}`, money(expected));
+    assert.equal((await browser.$$(limit)).length, 1, "лимит показан в одном месте");
+    const text = await browser.$(".home-screen").getText();
+    assert.equal((text.match(/дневной лимит по бюджету/gi) ?? []).length, 1, "другие карточки не повторяют подпись лимита");
+  };
+  const toggle = (block, action) => click(browser, action, `//*[@data-block="${block}"]`);
+  await onlyIn("tiles");
+  await click(browser, "Настроить Главную");
+  await toggle("tiles", "Скрыть");
+  await onlyIn("plans");
+  await toggle("plans", "Скрыть");
+  await onlyIn("summary");
+  const summaryLimit = await browser.$(`[data-block="summary"] ${limit}`);
+  assert.equal(await browser.execute((el) => getComputedStyle(el).color === getComputedStyle(document.body).color, summaryLimit), true, "сумма лимита окрашена основным цветом текста");
+  await toggle("summary", "Скрыть");
+  await browser.$(limit).waitForExist({ reverse: true });
+  await toggle("summary", "Показать");
+  await onlyIn("summary");
+  await toggle("plans", "Показать");
+  await onlyIn("plans");
+  await toggle("tiles", "Показать");
+  await click(browser, "Готово");
+  await onlyIn("tiles");
 });
 
 test("клик по факту открывает операции категории за месяц", async () => {

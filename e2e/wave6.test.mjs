@@ -47,10 +47,14 @@ test("выписка Т-Банка: счёт выбирается и запом�
   // Тот же файл ещё раз: счёт подставился сам, все строки — повторы.
   await pick(join(fixtures, "tbank.csv"));
   await click(browser, "Выбрать файл", dialog);
-  await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 0, уже загружено раньше 4$/);
+  await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 4, уже загружено раньше 4$/);
   assert.equal(await (await browser.$('select[name="importAccount"]')).getValue() !== "", true);
-  assert.equal(await (await browser.$(`${dialog}//button[normalize-space()="Загрузить 0"]`)).isEnabled(), false);
-  await browser.keys("Escape");
+  await waitText(browser, "#import-preview-title", /Все строки уже учтены/);
+  assert.equal(await browser.$('[data-testid="statement-save"]').isExisting(), false);
+  const close = browser.$(`${dialog}//button[normalize-space()="Закрыть"]`);
+  assert.match(await close.getAttribute("class"), /\bprimary\b/);
+  await close.click();
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true });
 });
 
 test("выписка Сбера (PDF): пять операций с переносом описания на счёт «Наличные»", async () => {

@@ -2,7 +2,7 @@ import { EventsCard } from "../components/Events";
 import { useModules } from "../lib/modules";
 import { InvestBudgetCard } from "../components/Invest";
 import { PlanFactCard } from "../components/PlanFact";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
@@ -16,8 +16,10 @@ import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CornerDownRight } from "lucide-react";
-import { barClass, barLevel, usualLabel } from "../lib/budgetLevel";
+import { barLevel, usualLabel } from "../lib/budgetLevel";
+import { BudgetBar } from "../components/BudgetBar";
 import { MonthReviewDialog } from "../components/MonthReview";
+import { BudgetCoverDialog } from "../components/BudgetCoverDialog";
 import "./budgetOverview.css";
 
 /** Экран «Бюджет»: лимиты по категориям на месяц, план/факт/остаток. */
@@ -137,7 +139,7 @@ function Forecast({ b, minor }: { b: BudgetData; minor: number }) {
   return (
     <div className={left < 0 ? "hint warn" : "hint"} data-testid="budget-forecast">
       При таком темпе к концу месяца {left < 0 ? "перерасход" : "останется"}{" "}
-      <Money amount={Math.abs(left)} symbol={b.currencySymbol} minorUnits={minor} />
+      <Money amount={Math.abs(left)} symbol={b.currencySymbol} currencyCode={b.currencyCode} minorUnits={minor} />
     </div>
   );
 }
@@ -167,7 +169,7 @@ function BudgetView({ b }: { b: BudgetData }) {
               <Hint of="budget.today" />
             </div>
             <div className={(b.safeToSpendToday ?? 0) < 0 ? "tile-value over" : "tile-value"}>
-              {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} minorUnits={minor} /> : <span className="muted">—</span>}
+              {b.safeToSpendToday != null ? <Money amount={Math.max(b.safeToSpendToday, 0)} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> : <span className="muted">—</span>}
             </div>
           </div>
           <div className="budget-today-detail">
@@ -181,22 +183,22 @@ function BudgetView({ b }: { b: BudgetData }) {
             <Hint of="budget.limits" />
           </div>
           <div className="tile-value">
-            <Money amount={b.plannedExpense} symbol={sym} minorUnits={minor} />
+            <Money amount={b.plannedExpense} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
           </div>
         </div>
         <div className="card tile" data-testid="budget-spent">
           <div className="tile-label">Потрачено по лимитам</div>
           <div className="tile-value">
-            <Money amount={spentInBudget} symbol={sym} minorUnits={minor} />
+            <Money amount={spentInBudget} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
           </div>
           {b.unbudgetedExpense > 0 && (
             <div className="hint">
-              и ещё <Money amount={b.unbudgetedExpense} symbol={sym} minorUnits={minor} /> без лимита
+              и ещё <Money amount={b.unbudgetedExpense} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> без лимита
             </div>
           )}
           {b.eventExpense > 0 && (
             <div className="hint" data-testid="budget-events">
-              поездки и события отдельно: <Money amount={b.eventExpense} symbol={sym} minorUnits={minor} />
+              поездки и события отдельно: <Money amount={b.eventExpense} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
             </div>
           )}
         </div>
@@ -206,7 +208,7 @@ function BudgetView({ b }: { b: BudgetData }) {
             <Hint of="budget.left" />
           </div>
           <div className={b.plannedExpense - spentInBudget < 0 ? "tile-value over" : "tile-value"}>
-            <Money amount={b.plannedExpense - spentInBudget} symbol={sym} minorUnits={minor} />
+            <Money amount={b.plannedExpense - spentInBudget} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
           </div>
         </div>
       </div>
@@ -218,8 +220,7 @@ function BudgetView({ b }: { b: BudgetData }) {
       {b.lines.length > 0 && (
         <p className="hint budget-fact-note" id="budget-fact-note">
           Нажмите сумму в колонке «Факт», чтобы открыть операции категории за этот период.
-          Список может отличаться от расчёта бюджета из-за распределения расходов по месяцам,
-          пересчёта валют, событий или исключённых счетов.
+          Для покупки, распределённой на несколько месяцев, рядом с полным списанием видна доля периода.
         </p>
       )}
       <Lines b={b} kind="expense" minor={minor} />
@@ -256,6 +257,13 @@ function BudgetView({ b }: { b: BudgetData }) {
 }
 
 function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: number }) {
+  const [cover, setCover] = useState<{ budget: BudgetData; target: BudgetLine } | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const closeCover = () => {
+    setCover(null);
+    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : heading.current)?.focus());
+  };
   const categories = useCategories().data ?? [];
   const showTransactions = useUi((s) => s.showTransactions);
   const lines = b.lines.filter((l) => l.kind === kind);
@@ -299,7 +307,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   return (
     <div className="card budget-lines" data-testid={`budget-${kind}`}>
       <div className="notes-head">
-        <h2>
+        <h2 ref={heading} tabIndex={-1}>
           {income ? "Доходы" : "Расходы"}
           {!income && <Hint of="budget.bars" />}
         </h2>
@@ -341,7 +349,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                   data-testid="budget-line"
                   data-category={l.categoryName}
                   data-focus={focusCat === l.categoryId || undefined}
-                  className={[!income && barLevel(l.percent) === "over" && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
+                  className={[l.over && !income && "over-row", focusCat === l.categoryId && "focus-row"].filter(Boolean).join(" ") || undefined}
                 >
                   <td className={l.parentId ? "child-name" : "main"}>
                     {l.categoryName}
@@ -383,7 +391,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                     <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} basis={b.incomeBasis} days={periodDays(b)} />
                     {l.carried > 0 && (
                       <span className="carried" data-testid="budget-carried" title="Остаток прошлого месяца">
-                        + <Money amount={l.carried} symbol={sym} minorUnits={minor} /> с прошлого месяца
+                        + <Money amount={l.carried} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> с прошлого месяца
                       </span>
                     )}
                   </td>
@@ -399,22 +407,24 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                         dateTo: b.period.end,
                         types: [kind],
                         counted: true,
+                        budgetMonth: b.period.month,
                       })}
                     >
-                      <Money amount={l.actual} symbol={sym} minorUnits={minor} />
+                      <Money amount={l.actual} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
                       <span className="sr-only"> — открыть операции категории «{l.categoryName}»</span>
                     </button>
                   </td>
                   <td className={l.over && !income ? "num over" : "num"}>
-                    <Money amount={l.remaining} symbol={sym} minorUnits={minor} />
+                    <Money amount={l.remaining} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
+                    {l.over && l.canRebalance && (
+                      <div><button className="link" type="button" aria-haspopup="dialog"
+                        onClick={(e) => { opener.current = e.currentTarget; setCover({ budget: b, target: l }); }}>
+                        Покрыть перерасход…
+                      </button></div>
+                    )}
                   </td>
                   <td className="bar-col">
-                    <div className={income ? "bar" : barClass(l.percent)} title={`${l.percent} %`}>
-                      <span style={{ width: `${Math.min(l.percent, 100)}%` }} />
-                    </div>
-                    <span className={income || barLevel(l.percent) === "ok" ? "percent" : `percent ${barLevel(l.percent)}`} data-testid="percent">
-                      {l.percent} %
-                    </span>
+                    <BudgetBar percent={l.percent} level={income ? "ok" : barLevel(l.actual, l.limit)} />
                   </td>
                 </tr>
               ))}
@@ -424,7 +434,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
       )}
       {!income && b.unbudgetedExpense > 0 && (
         <p className="hint">
-          Расходы по категориям без лимита: <Money amount={b.unbudgetedExpense} symbol={sym} minorUnits={minor} />
+          Расходы по категориям без лимита: <Money amount={b.unbudgetedExpense} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
         </p>
       )}
       <ErrorText error={fill.error ?? rollover.error} />
@@ -444,6 +454,9 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
         </button>
       </div>
       <ErrorText error={add.error} />
+      {cover && cover.budget.id === b.id && (
+        <BudgetCoverDialog budget={cover.budget} target={cover.target} minor={minor} onClose={closeCover} />
+      )}
     </div>
   );
 }
@@ -606,18 +619,15 @@ function GroupsCard({ b, minor }: { b: BudgetData; minor: number }) {
                     {g.shareBp != null && <span className="muted small"> · {g.shareBp / 100} % дохода</span>}
                   </td>
                   <td className="num">
-                    <Money amount={g.actual} symbol={sym} minorUnits={minor} />
+                    <Money amount={g.actual} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
                     <div className="sub">{g.savings ? "осталось от дохода" : "потрачено"}</div>
                   </td>
                   <td className="num">
-                    {g.target != null ? <Money amount={g.target} symbol={sym} minorUnits={minor} /> : <Money amount={g.planned} symbol={sym} minorUnits={minor} />}
+                    {g.target != null ? <Money amount={g.target} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> : <Money amount={g.planned} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />}
                     <div className="sub">{g.target != null ? "цель" : "по лимитам"}</div>
                   </td>
                   <td className="bar-col">
-                    <div className={g.savings ? "bar" : barClass(pct)}>
-                      <span style={{ width: `${Math.min(pct, 100)}%` }} />
-                    </div>
-                    <span className="percent">{pct} %</span>
+                    <BudgetBar percent={pct} level={g.savings || goal <= 0 ? "ok" : barLevel(g.actual, goal)} />
                   </td>
                 </tr>
               );
@@ -627,7 +637,7 @@ function GroupsCard({ b, minor }: { b: BudgetData; minor: number }) {
       )}
       {b.groups.length > 0 && (
         <p className="hint">
-          Доход месяца для долей: <Money amount={b.incomeBasis} symbol={sym} minorUnits={minor} /> (план доходов или факт, что больше).
+          Доход месяца для долей: <Money amount={b.incomeBasis} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> (план доходов или факт, что больше).
         </p>
       )}
       <ErrorText error={template.error} />

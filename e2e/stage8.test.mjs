@@ -70,9 +70,17 @@ const cat = (name) => `//li[@data-testid="category-item" and @data-name="${name}
 test("Р23–Р24: ключевое слово в карточке категории и объединение «Кафе» с «Общепитом»", async () => {
   await openSection(browser, "Категории");
   await click(browser, "+ Категория", '//*[@data-testid="categories-expense"]');
+  await click(browser, "Сохранить", '//*[@role="dialog"]');
+  await waitText(browser, '[role="dialog"] [role="alert"]', /укажите название категории/i);
   await fill(browser, "name", "Кафе");
-  await save(browser);
-  await browser.$(cat("Кафе")).waitForExist({ timeout: 5000 });
+  await browser.execute(() => {
+    const form = document.querySelector('[role="dialog"] form');
+    form.requestSubmit();
+    form.requestSubmit();
+  });
+  await browser.waitUntil(() => browser.execute(() => document.querySelector('[role="dialog"]') === null),
+    { timeout: 5000, timeoutMsg: "Форма категории должна закрыться после сохранения" });
+  await waitCount(browser, 'li[data-testid="category-item"][data-name="Кафе"]', 1);
 
   await click(browser, "Изменить", cat("Кафе"));
   await fill(browser, "categoryRule", "Шоколадница");

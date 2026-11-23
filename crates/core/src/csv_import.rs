@@ -40,6 +40,7 @@ pub struct Row {
     #[serde(rename = "type")]
     pub kind: String,
     pub account: String,
+    pub account_id: Option<String>,
     pub amount: String,
     pub category: String,
     pub category_source: Option<&'static str>,
@@ -519,6 +520,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
             date: get(c_date),
             kind: get(c_type),
             account: get(c_acc),
+            account_id: None,
             amount: get(c_amount),
             category: get(c_cat),
             payee: get(c_payee),
@@ -573,6 +575,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
                 })
                 .cloned()
                 .ok_or_else(|| format!("нет счёта «{}»", row.account))?;
+            row.account_id = Some(account_id.clone());
             let amount = money::parse_amount(&row.amount, mu)
                 .map_err(|_| format!("сумма «{}»", row.amount))?
                 .abs();

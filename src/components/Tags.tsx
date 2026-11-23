@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type Figure, type Period, type Tag } from "../lib/api";
 import { monthTitle } from "../lib/dates";
 import { plural } from "../lib/receipt";
-import { useUi } from "../lib/store";
+import { type TxnJump, useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { Hint } from "./Hint";
 import { ErrorText } from "./Modal";
@@ -124,20 +124,25 @@ export function TagsCard() {
 }
 
 /** Отчёт «По тегу» за период: итог, категории и месяцы. */
-export function TagReport({ period, onDraft }: { period: Period; onDraft?: (d: Partial<Figure>) => void }) {
+export function TagReport({ period, tagId: selectedTag, onTag, openOperations, onDraft }: {
+  period: Period; tagId: string; onTag: (id: string) => void;
+  openOperations: (filter: TxnJump, source: string) => void; onDraft: (d: Partial<Figure>) => void;
+}) {
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.listTags }).data;
-  const [tagId, setTagId] = useState("");
-  useEffect(() => onDraft?.({ measure: "expense", tagId: tagId || null }), [tagId, onDraft]);
+  const tagId = selectedTag || (tags?.length ? [...tags].sort((a, b) => b.count - a.count)[0].id : "");
+  useEffect(() => onDraft({ measure: "expense", tagId: tagId || null }), [tagId, onDraft]);
   useEffect(() => {
-    if (!tagId && tags?.length) setTagId([...tags].sort((a, b) => b.count - a.count)[0].id);
-  }, [tags, tagId]);
+    if (!selectedTag && tagId) onTag(tagId);
+  }, [selectedTag, tagId, onTag]);
   const report = useQuery({
     queryKey: ["reportByTag", tagId, period.start, period.end],
     queryFn: () => api.reportByTag(tagId, period.start, period.end),
     enabled: !!tagId,
   });
-  const showTransactions = useUi((s) => s.showTransactions);
   const r = report.data;
+  const openExpenses = (source: string, categoryId?: string) => openOperations({
+    tagId, categoryId, dateFrom: period.start, dateTo: period.end, types: ["expense"], counted: true,
+  }, source);
   const max = Math.max(1, ...(r?.byCategory.map((c) => c.amount) ?? []));
 
   if (tags && tags.length === 0)
@@ -158,7 +163,7 @@ export function TagReport({ period, onDraft }: { period: Period; onDraft?: (d: P
           По тегу
           <Hint of="reports.tag" />
         </h2>
-        <select name="reportTag" aria-label="Тег" value={tagId} onChange={(e) => setTagId(e.target.value)}>
+        <select name="reportTag" aria-label="Тег" value={tagId} onChange={(e) => onTag(e.target.value)}>
           {tags?.map((t) => (
             <option key={t.id} value={t.id}>
               #{t.name} ({t.count})
@@ -170,11 +175,12 @@ export function TagReport({ period, onDraft }: { period: Period; onDraft?: (d: P
       {r && (
         <>
           <div className="tiles three">
-            <div className="card tile clickable" data-testid="tag-expense" title="Показать операции" onClick={() => showTransactions({ tagId, dateFrom: r.from, dateTo: r.to })}>
+            <div className="card tile" data-testid="tag-expense">
               <div className="tile-label">Расходы</div>
-              <div className="tile-value">
+              <button type="button" className="tile-value tile-explain" data-report-source="tag-expense" title="Открыть расходы и возвраты с тегом" onClick={() => openExpenses("tag-expense")}>
                 <M amount={r.expense} />
-              </div>
+                <span className="sr-only"> — открыть расходы и возвраты с тегом</span>
+              </button>
             </div>
             <div className="card tile">
               <div className="tile-label">Доходы</div>
@@ -196,7 +202,7 @@ export function TagReport({ period, onDraft }: { period: Period; onDraft?: (d: P
                   <li key={c.categoryId} className="cat-row" data-testid="tag-cat">
                     <span className="cat-name">
                       <span className="icon-gap" />
-                      <button className="link cat-link" title="Показать операции" onClick={() => showTransactions({ tagId, categoryId: c.categoryId, dateFrom: r.from, dateTo: r.to })}>
+                      <button type="button" className="link cat-link" data-report-source={`tag-category-${c.categoryId}`} title="Открыть расходы и возвраты категории с тегом" onClick={() => openExpenses(`tag-category-${c.categoryId}`, c.categoryId)}>
                         {c.name}
                       </button>
                     </span>

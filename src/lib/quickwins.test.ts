@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Txn } from "./api";
-import { barClass, barLevel, usualLabel } from "./budgetLevel";
+import { barLevel, usualLabel } from "./budgetLevel";
 import { axisLabel, axisPad, changePercent, netWorthScale } from "./netWorth";
 import { groupReceipts, receiptProblem, receiptRemainder, receiptTitle, rowIds, spreadParts } from "./receipt";
 import { clickRow, EMPTY_SEL, isRowSelected, keepExisting, selectAll, type SelRow } from "./selection";
@@ -113,13 +113,14 @@ describe("теги (Г6)", () => {
 });
 
 describe("бюджет: цвет полосы и сравнение с обычным (А1, А2)", () => {
-  it("жёлтая от 80 %, красная от 100 %", () => {
-    expect(barLevel(79)).toBe("ok");
-    expect(barLevel(80)).toBe("warn");
-    expect(barLevel(99)).toBe("warn");
-    expect(barLevel(100)).toBe("over");
-    expect(barClass(150)).toBe("bar over");
-    expect(barClass(10)).toBe("bar");
+  it("различает приближение, исчерпание и превышение на одну минимальную единицу валюты", () => {
+    expect(barLevel(7999, 10000)).toBe("ok");
+    expect(barLevel(8000, 10000)).toBe("warn");
+    expect(barLevel(9999, 10000)).toBe("warn");
+    expect(barLevel(10000, 10000)).toBe("used");
+    expect(barLevel(10001, 10000)).toBe("over");
+    expect(barLevel(0, 0)).toBe("ok");
+    expect(barLevel(1, 0)).toBe("over");
   });
 
   it("пометка к обычному", () => {
@@ -145,6 +146,9 @@ describe("чистые активы (В3)", () => {
     expect(axisLabel(250_000)).toBe("2,5 тыс.");
     expect(axisLabel(-250_000_000)).toBe("−2,5 млн");
     expect(axisLabel(0)).toBe("0");
+    expect(axisLabel(5000, 0)).toBe("5 тыс.");
+    expect(axisLabel(-25, 2)).toBe("−0,25");
+    expect(netWorthScale([-2, 1]).step).toBe(1);
     expect(axisPad(["15 млн", "−2,5 млн"])).toBeGreaterThan(axisPad(["0"]));
   });
 
@@ -163,5 +167,13 @@ describe("maskAmounts", () => {
       "Яндекс Плюс: было •••, стало ••• (••• в месяц, ••• в год)",
     );
     expect(maskAmounts("Кафе: 8 400 ₽, на 34 % больше")).toBe("Кафе: •••, на 34 % больше");
+  });
+
+  it("скрывает обе суммы с общим знаком валюты, сохраняя проценты и число операций", () => {
+    for (const symbol of ["₽", "$", "€", "¥", "£", "₸", "Br", "₺", "AED"]) {
+      expect(maskAmounts(`Потрачено 95 % бюджета (9 500,50 из 10 000 ${symbol})`)).toBe("Потрачено 95 % бюджета (••• из •••)");
+      expect(maskAmounts(`Осталось 499,50 ${symbol} на 2 дня — около 249,75 ${symbol} в день. Кафе: 3 из 5 операций.`))
+        .toBe("Осталось ••• на 2 дня — около ••• в день. Кафе: 3 из 5 операций.");
+    }
   });
 });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api, type NetWorthPoint } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
 import { axisLabel, axisPad, changePercent, netWorthScale } from "../lib/netWorth";
-import { useSettings } from "../lib/queries";
+import { useCurrencies, useSettings } from "../lib/queries";
 import { Delta } from "./Dashboard";
 import { Hint } from "./Hint";
 import { BaseMoney as M } from "./Money";
@@ -64,7 +64,7 @@ export function NetWorthReport() {
               </div>
             )}
           </div>
-          <NetWorthChart points={r.points} />
+          <NetWorthChart points={r.points} currency={r.baseCurrency} />
           {r.missingRates.length > 0 && <p className="hint warn">Нет курса для {r.missingRates.join(", ")} на некоторые даты: такие суммы не вошли.</p>}
         </>
       )}
@@ -72,13 +72,14 @@ export function NetWorthReport() {
   );
 }
 
-export function NetWorthChart({ points }: { points: NetWorthPoint[] }) {
+export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; currency: string }) {
   const [hover, setHover] = useState<number | null>(null);
-  const hidden = useSettings().data?.hide_amounts === "1";
+  const settings = useSettings().data;
+  const minor = useCurrencies().data?.find(c => c.code === currency)?.minorUnits;
   const { min, max, step } = netWorthScale(points.map((p) => p.net));
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
-  const short = (v: number) => (hidden ? "•••" : axisLabel(v));
+  const short = (v: number) => (!settings || settings.hide_amounts === "1") ? "•••" : minor == null ? "—" : axisLabel(v, minor);
   // Отступ слева — под самую длинную подпись, чтобы «15 млн» не обрезалось.
   const PAD_L = axisPad(ticks.map(short));
   const plotW = W - PAD_L - PAD_R;

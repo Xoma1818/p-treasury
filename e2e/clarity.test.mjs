@@ -50,14 +50,24 @@ test("строка выписки узнаёт ручную запись, сом
   await choose(browser, "importAccount", "Карта (₽)");
   await waitText(browser, '[data-testid="import-summary"]', /свяжутся с вашими записями 1, возможные совпадения 1/);
   await waitCount(browser, '[data-testid="import-row"][data-linked="1"]', 1);
-  const save = await browser.$(`${dialog}//button[normalize-space()="Загрузить 2"]`);
-  assert.equal(await save.isEnabled(), false, "без решения запись недоступна");
+  assert.equal(await browser.$('[data-testid="statement-save"]').isExisting(), false, "без решения запись недоступна");
   const before = await invoke("list_transactions", { filter: { accountId: card, types: ["expense"], limit: 100 } });
   assert.equal(before.items.filter((t) => t.amount === 120_000).length, 2);
 
-  const select = await browser.$('[data-testid="bank-similar-decision"]');
-  await select.selectByAttribute("value", `link:${before.items.find((t) => t.payee === "Игра").id}`);
-  await click(browser, "Загрузить 2", dialog);
+  // Первый нерешённый случай доступен даже из фильтра, который скрывает его строку.
+  await browser.$('select[name="importRowFilter"]').selectByAttribute("value", "link");
+  await click(browser, "Разобрать 1 строку", dialog);
+  await waitText(browser, '.statement-review', /Игра другу/);
+  await browser.$('input[name="statement-choice"][value="skip"]').click();
+  await click(browser, "К итогу", dialog);
+  await waitText(browser, '[data-testid="statement-totals"]', /Пропустить\s*1/);
+  const revisit = await browser.$('select[name="statementReviewLine"]');
+  await revisit.selectByIndex(1);
+  const id = before.items.find((t) => t.payee === "Игра").id;
+  await browser.$(`input[name="statement-choice"][value="link:${id}"]`).click();
+  await click(browser, "К итогу", dialog);
+  await waitText(browser, '[data-testid="statement-totals"]', /Связать\s*2/);
+  await click(browser, "Загрузить 2 и связать 2", dialog);
   await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 2, связано с вашими записями: 2/);
   await browser.keys("Escape");
 

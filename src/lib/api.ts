@@ -189,6 +189,7 @@ export interface Txn {
   splitId: string | null;
   /** Трата учитывается в месячных расчётах N месяцев (2–24). */
   spreadMonths: number | null;
+  countedShare?: { amount: number; budgetAmount: number; budgetCurrency: string; missingRate: boolean };
   /** Теги операции по алфавиту. */
   tags: string[];
   /** 0.29: возврат денег за покупку (приход, в бюджете — минус расход). */
@@ -231,6 +232,8 @@ export interface Payoff {
 }
 
 export interface TxnFilter {
+  /** Исходные списания, вошедшие в выбранную серию регулярных платежей. */
+  paymentIds?: string[];
   dateFrom?: string;
   dateTo?: string;
   accountId?: string;
@@ -249,6 +252,7 @@ export interface TxnFilter {
   quick?: QuickFilter[];
   /** Как в отчётах: возврат — минус расход на дату учёта. */
   counted?: boolean;
+  budgetMonth?: string;
   /** Р3 «Крупные»: от этой суммы в минимальных единицах основной валюты. */
   minAmount?: number;
   /** Р5 «Та же сумма»: ровно эта сумма без знака, в минимальных единицах счёта. */
@@ -720,6 +724,7 @@ export interface UpcomingPayment {
   direction: Direction;
   dueDate: string;
   payment: number;
+  currencyCode: string;
   currencySymbol: string;
   minorUnits: number;
   overdue: boolean;
@@ -754,6 +759,7 @@ export interface Period {
 }
 
 export interface BudgetLine {
+  canRebalance: boolean;
   categoryId: string;
   categoryName: string;
   parentId: string | null;
@@ -1274,6 +1280,7 @@ export interface ReminderKey {
 }
 
 export interface Occurrence {
+  amountCurrency: string;
   key: ReminderKey;
   title: string;
   amount: number | null;
@@ -1290,6 +1297,8 @@ export interface Occurrence {
   notifiedAt: string | null;
   completedAt: string | null;
   transactionId: string | null;
+  /** Проводка выполненного платежа. Дата берётся из операции в журнале. */
+  actualPayment: { date: string; type: TxnType } | null;
   /** День и время самого платежа (с учётом переноса). */
   payAt: string;
   linkedActual?: boolean;
@@ -1351,6 +1360,9 @@ export interface ReminderPaymentCreation {
 }
 
 export interface Reminder extends ReminderInput {
+  amountCurrency: string;
+  minorUnits: number;
+  currencySymbol: string;
   id: string;
   active: boolean;
   nextAt: string | null;
@@ -1437,6 +1449,7 @@ export interface ImportRow {
   date: string;
   type: string;
   account: string;
+  accountId?: string | null;
   amount: string;
   category: string;
   categorySource?: string | null;
@@ -1676,6 +1689,8 @@ export const SUB_PERIODS: Record<SubPeriod, string> = {
 export interface Subscription {
   key: string;
   payee: string;
+  currencyCode: string;
+  paymentIds: string[];
   categoryName: string | null;
   period: SubPeriod;
   amount: number;
@@ -1778,6 +1793,9 @@ export interface MatchSide {
   accountId: string;
   account: string;
   toAccount: string | null;
+  toAccountId: string | null;
+  toAmount: number | null;
+  toCurrency: string | null;
   currency: string;
   category: string | null;
   payee: string | null;
@@ -2063,6 +2081,7 @@ export const api = {
   deleteCategory: (id: string, moveTo: string | null) => invoke<void>("delete_category", { id, moveTo }),
   mergeCategories: (from: string, into: string) => invoke<void>("merge_categories", { from, into }),
   listTransactions: (filter: TxnFilter) => invoke<Page>("list_transactions", { filter }),
+  getTransaction: (id: string) => invoke<Txn>("get_transaction", { id }),
   createTransaction: (input: TxnInput, eventId: string | null = null) => invoke<string>("create_transaction", { input, eventId }),
   moveTransaction: (id: string, date: string) => invoke<void>("move_transaction", { id, date }),
   splitExpense: (input: SplitInput, reminder?: ReminderPaymentCreation) =>
@@ -2118,6 +2137,8 @@ export const api = {
   setBudgetRollover: (budgetId: string, categoryId: string, on: boolean) => invoke<void>("set_budget_rollover", { budgetId, categoryId, on }),
   setBudgetLimitKind: (budgetId: string, categoryId: string, kind: LimitKind, value: number) =>
     invoke<void>("set_budget_limit_kind", { budgetId, categoryId, kind, value }),
+  coverBudgetOverspend: (input: { month: string; budgetId: string; from: string; to: string; amount: number; fromLimit: number; toLimit: number; fromRemaining: number }) =>
+    invoke<void>("cover_budget_overspend", { input }),
   copyBudgetForward: (month: string, months: number, overwrite: boolean) => invoke<CopyResult>("copy_budget_forward", { month, months, overwrite }),
   budgetYear: (year: number) => invoke<YearBudget>("budget_year", { year }),
   listBudgetGroups: () => invoke<BudgetGroup[]>("list_budget_groups"),
@@ -2196,6 +2217,8 @@ export const api = {
   remindersOverview: () => invoke<RemindersOverview>("reminders_overview"),
   missedReminders: () => invoke<Occurrence[]>("missed_reminders"),
   createReminder: (input: ReminderInput) => invoke<string>("create_reminder", { input }),
+  getRepeatPlan: (sourceId: string) => invoke<Reminder | null>("get_repeat_plan", { sourceId }),
+  createRepeatPlan: (sourceId: string, input: ReminderInput) => invoke<string>("create_repeat_plan", { sourceId, input }),
   updateReminder: (id: string, input: ReminderInput) => invoke<void>("update_reminder", { id, input }),
   setReminderActive: (id: string, active: boolean) => invoke<void>("set_reminder_active", { id, active }),
   deleteReminder: (id: string) => invoke<void>("delete_reminder", { id }),
@@ -2223,8 +2246,8 @@ export const api = {
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
   exportSummary: (from: string, to: string, path: string) => invoke<void>("export_summary", { from, to, path }),
   exportTransactions: (filter: TxnFilter, path: string) => invoke<void>("export_transactions", { filter, path }),
-  exportReport: (report: "categories" | "months", from: string, to: string, path: string) =>
-    invoke<void>("export_report", { report, from, to, path }),
+  exportReport: (report: "categories" | "months", from: string, to: string, path: string, filter?: ReportFilter) =>
+    invoke<void>("export_report", { report, from, to, path, filter: filter ?? null }),
   exportComparison: (kind: CategoryKind, by: CompareBy, periods: ComparePeriods, path: string) =>
     invoke<void>("export_comparison", { kind, by, periods, path }),
   /** `selfAccountId`: второй счёт для переводов «Между своими счетами»; null — запомненный, "" — не переводить. */
@@ -2304,7 +2327,7 @@ export const api = {
   deleteGoal: (id: string) => invoke<void>("delete_goal", { id }),
   goalDeposit: (id: string, date: string, amount: number) => invoke<void>("goal_deposit", { id, date, amount }),
   listSubscriptions: () => invoke<SubscriptionsReport>("list_subscriptions"),
-  hideSubscription: (key: string, hide: boolean) => invoke<void>("hide_subscription", { key, hide }),
+  hideSubscription: (key: string, currencyCode: string, hide: boolean) => invoke<void>("hide_subscription", { key, currencyCode, hide }),
   yearReview: (year: number) => invoke<YearReview>("year_review", { year }),
   globalSearch: (query: string) => invoke<SearchHit[]>("global_search", { query }),
   autoImportDir: () => invoke<string>("auto_import_dir"),

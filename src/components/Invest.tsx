@@ -184,7 +184,7 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
   const [amount, setAmount] = useState(m.plan.mode === "amount" ? amountText(m.plan.value) : "");
   const [percent, setPercent] = useState(m.plan.mode === "percent" ? String(m.plan.value) : "10");
   const [onlyMonth, setOnlyMonth] = useState(!!month && m.plan.onlyMonth);
-  const save = useAction(api.setInvestPlan, onClose, { celebrate: true });
+  const save = useAction(api.setInvestPlan, onClose, { singleSubmit: true });
   const reset = useAction(api.clearInvestMonthPlan, onClose);
   const target = onlyMonth ? m.month : null;
   const submit = () => {
@@ -254,7 +254,7 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
   const a = accounts.find((x) => x.id === id);
   const [value, setValue] = useState(a ? amountText(a.value, a.minorUnits) : "");
   const [date, setDate] = useState(today());
-  const save = useAction(api.setInvestValue, onClose, { celebrate: true });
+  const save = useAction(api.setInvestValue, onClose, { singleSubmit: true });
   const remove = useAction(api.deleteInvestValue);
   if (!a) return null;
   const parsed = parseAmount(value, a.minorUnits);

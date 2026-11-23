@@ -141,7 +141,7 @@ function CategoryForm({ edit, all, onClose }: { edit: Edit; all: Category[]; onC
   const save = useAction(
     () => (current ? api.updateCategory(current.id, name, parentId || null, look) : api.createCategory({ name, kind, parentId: parentId || null }, look)),
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const parents = all.filter((c) => c.kind === kind && !c.parentId && !c.archived && c.id !== current?.id);
   return (
@@ -241,7 +241,7 @@ function RenameOffer() {
 
 function RenameDialog({ items, onClose }: { items: CategoryRename[]; onClose: () => void }) {
   const [picked, setPicked] = useState<Set<string>>(() => new Set(items.map((i) => i.id)));
-  const apply = useAction(() => api.categoryRenameApply([...picked]), onClose, { celebrate: true });
+  const apply = useAction(() => api.categoryRenameApply([...picked]), onClose, { singleSubmit: true });
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p);

@@ -15,6 +15,14 @@ after(async () => {
 
 const theme = (b) => b.execute(() => document.documentElement.dataset.theme);
 
+function luminance(color) {
+  const [r, g, b] = color.match(/[\d.]+/g).slice(0, 3).map(Number).map((channel) => {
+    const s = channel / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 test("по умолчанию тёмная тема, переключатель в меню выбирает светлую и обратно", async () => {
   const { browser } = app;
   await browser.execute(() => localStorage.removeItem("p-treasury-theme"));
@@ -46,4 +54,23 @@ test("меню разбито на группы, у пункта меню зна
   assert.ok(await browser.$("nav .nav-item.active .icon-tile svg.lucide").isExisting());
   const title = await browser.$('//nav//button[normalize-space()="Бюджет"]').getAttribute("title");
   assert.equal(title, "Сколько можно тратить в этом месяце · Ctrl+4");
+});
+
+test("текст основной кнопки читается в светлой и тёмной темах", async () => {
+  const { browser } = app;
+  await openSection(browser, "Счета");
+  const primary = await browser.$("main .btn.primary");
+  await primary.waitForDisplayed();
+  for (const mode of ["light", "dark"]) {
+    await (await browser.$(`[data-testid="theme-${mode}"]`)).click();
+    await browser.waitUntil(() => browser.execute((mode) =>
+      document.documentElement.dataset.theme === mode && !document.documentElement.classList.contains("theme-fade"), mode));
+    const colors = await browser.execute((button) => {
+      const style = getComputedStyle(button);
+      return [style.color, style.backgroundColor];
+    }, primary);
+    const [lighter, darker] = colors.map(luminance).sort((a, b) => b - a);
+    const contrast = (lighter + 0.05) / (darker + 0.05);
+    assert.ok(contrast >= 4.5, `${mode}: контраст подписи основной кнопки ${contrast.toFixed(2)}:1`);
+  }
 });

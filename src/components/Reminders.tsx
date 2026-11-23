@@ -1,12 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
-import { api, REPEATS, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat } from "../lib/api";
-import { addDays, formatDate, formatDateTime, isoDateTime, nowLocal, today } from "../lib/dates";
+import { api, REPEATS, TXN_TYPES, type Occurrence, type Reminder, type ReminderInput, type ReminderKey, type Repeat, type Txn, type TxnType } from "../lib/api";
+import { addDays, formatDate, formatDateTime, isoDateTime, nextRepeatDate, nowLocal, today } from "../lib/dates";
 import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
-import { useAccounts, useCategories, useSettings } from "../lib/queries";
+import { occurrenceStatus } from "../lib/occurrenceStatus";
+import { useAccounts, useCategories, useCurrencies, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { usePopup } from "../lib/usePopup";
 import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { Money } from "./Money";
@@ -84,29 +86,38 @@ export function ReminderForm({
   date,
   preset,
   from,
+  source,
   onClose,
 }: {
   reminder?: Reminder;
   date?: string;
   preset?: Partial<ReminderInput>;
   from?: ReminderKey;
+  source?: Txn;
   onClose: () => void;
 }) {
   const accounts = useAccounts().data ?? [];
   const categories = useCategories().data ?? [];
   const settings = useSettings().data;
+  const currencies = useCurrencies().data;
+  const base = settings && currencies?.find((c) => c.code === (settings.base_currency ?? "RUB"));
+  const minor = source?.minorUnits ?? reminder?.minorUnits ?? base?.minorUnits ?? 2;
+  const unit = reminder?.currencySymbol ?? base?.symbol;
   const [title, setTitle] = useState(reminder?.title ?? preset?.title ?? "");
   const [day, setDay] = useState(from?.scheduledAt.slice(0, 10) ?? reminder?.startAt.slice(0, 10) ?? preset?.startAt?.slice(0, 10) ?? date ?? today());
   const [time, setTime] = useState(reminder?.startAt.slice(11, 16) ?? preset?.startAt?.slice(11, 16) ?? "09:00");
   const [repeat, setRepeat] = useState<Repeat>(reminder?.repeat ?? preset?.repeat ?? "once");
+  const [customDay, setCustomDay] = useState(false);
   const [endMode, setEndMode] = useState<EndMode>(reminder?.endDate ? "date" : "never");
   const [endDate, setEndDate] = useState(reminder?.endDate ?? "");
   const [count, setCount] = useState("12");
-  const [amount, setAmount] = useState(amountText(reminder?.amount ?? preset?.amount));
-  const [lastAmount, setLastAmount] = useState(amountText(reminder?.lastAmount));
-  const [txnType, setTxnType] = useState<"expense" | "income">(reminder?.txnType ?? "expense");
-  const [accountId, setAccountId] = useState(reminder?.accountId ?? "");
-  const [categoryId, setCategoryId] = useState(reminder?.categoryId ?? "");
+  const [amountDraft, setAmount] = useState<string | null>(null);
+  const [lastAmountDraft, setLastAmount] = useState<string | null>(null);
+  const amount = amountDraft ?? amountText(reminder?.amount ?? preset?.amount, minor);
+  const lastAmount = lastAmountDraft ?? amountText(reminder?.lastAmount, minor);
+  const [txnType, setTxnType] = useState<"expense" | "income">(reminder?.txnType ?? preset?.txnType ?? "expense");
+  const [accountId, setAccountId] = useState(reminder?.accountId ?? preset?.accountId ?? "");
+  const [categoryId, setCategoryId] = useState(reminder?.categoryId ?? preset?.categoryId ?? "");
   const [note, setNote] = useState(reminder?.note ?? preset?.note ?? "");
   const saved = reminder?.leadDays ?? preset?.leadDays;
   const [leadMode, setLeadMode] = useState<LeadMode>(saved == null ? "default" : saved === "" ? "none" : "own");
@@ -115,27 +126,40 @@ export function ReminderForm({
 
   const save = useAction(
     (input: ReminderInput) =>
-      from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
+      source ? api.createRepeatPlan(source.id, input) : from ? api.splitReminder(from, input) : reminder ? api.updateReminder(reminder.id, input) : api.createReminder(input),
     onClose,
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(() => api.deleteReminder(reminder!.id), onClose);
 
   const series = repeat !== "once";
   const ends = series && endMode !== "never";
+  const earliest = source && addDays(source.date > today() ? source.date : today(), 1);
+  const originalDay = from?.scheduledAt.slice(0, 10) ?? reminder?.startAt.slice(0, 10);
+  const monthlyDay = source && !customDay ? Number(source.date.slice(-2))
+    : day === originalDay && reminder?.dayOfMonth ? reminder.dayOfMonth : Number(day.slice(-2));
+  const changeRepeat = (next: Repeat) => {
+    setRepeat(next);
+    if (source && !customDay && (next === "monthly" || next === "weekly")) {
+      setDay(nextRepeatDate(source.date, next));
+    }
+  };
   const submit = () => {
-    const value = amount.trim() ? parseAmount(amount) : null;
+    if (earliest && (!day || day < earliest)) return save.setError("Выберите будущую дату после исходной операции.");
+    if (!title.trim()) return save.setError("Введите название напоминания.");
+    if (!source && !reminder && !base && amount.trim()) return save.setError("Дождитесь загрузки основной валюты.");
+    const value = source?.amount ?? (amount.trim() ? parseAmount(amount, minor) : null);
     if (amount.trim() && (value === null || value <= 0)) return save.setError("Сумма должна быть больше нуля");
-    const last = ends && value && lastAmount.trim() ? parseAmount(lastAmount) : null;
+    const last = ends && value && lastAmount.trim() ? parseAmount(lastAmount, minor) : null;
     if (ends && value && lastAmount.trim() && (last === null || last <= 0)) return save.setError("Последний платёж должен быть больше нуля");
     const n = Number(count);
     if (series && endMode === "count" && !(Number.isInteger(n) && n >= 1 && n <= 600)) return save.setError("Сколько раз: от 1 до 600");
     save.run({
-      title,
+      title: title.trim(),
       startAt: `${day}T${time || "09:00"}`,
       repeat,
-      // Ежемесячно — в число первой даты (31-е в коротком месяце — последний день).
-      dayOfMonth: repeat === "monthly" ? Number(day.slice(8, 10)) : null,
+      // Сохраняем исходное число, даже если ближайший срок выпал на 28–30-е.
+      dayOfMonth: repeat === "monthly" ? monthlyDay : null,
       endDate: series && endMode === "date" && endDate ? endDate : null,
       count: series && endMode === "count" ? n : null,
       amount: value,
@@ -151,9 +175,10 @@ export function ReminderForm({
   };
 
   return (
-    <Modal title={from ? "Этот и следующие платежи" : reminder ? "Напоминание" : "Новое напоминание"} onClose={onClose}>
+    <Modal title={source ? "Запланировать повтор" : from ? "Этот и следующие платежи" : reminder ? "Напоминание" : "Новое напоминание"} onClose={onClose} dismissDisabled={save.busy}>
       <form
         className="form"
+        data-testid={source ? "repeat-plan-form" : undefined}
         onSubmit={(e) => {
           e.preventDefault();
           // Форма может открываться поверх другой (заметки): та не должна сохраняться.
@@ -161,16 +186,21 @@ export function ReminderForm({
           submit();
         }}
       >
+        {source && <div data-testid="repeat-plan-source">
+          <p>{TXN_TYPES[source.type]} · <Money amount={source.amount} symbol={source.currencySymbol} currencyCode={source.currencyCode} minorUnits={source.minorUnits} /> · {formatDate(source.date)}</p>
+          <p className="muted">{[source.accountName, source.categoryName].filter(Boolean).join(" · ")}</p>
+          <p className="hint">Операция уже записана. Повтор добавит будущий платёж в календарь.</p>
+        </div>}
         <Field label="Название">{(id) => <input id={id} name="reminderTitle" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
         <div className="row">
-          <Field label={from ? "С какого дня" : "Дата"}>{(id) => <input id={id} name="reminderDate" type="date" value={day} onChange={(e) => setDay(e.target.value)} />}</Field>
+          <Field label={source ? "Следующий платёж" : from ? "С какого дня" : "Дата"}>{(id) => <input id={id} name="reminderDate" type="date" value={day} min={earliest} required={!!source} onChange={(e) => { setDay(e.target.value); setCustomDay(true); }} />}</Field>
           <Field label="Время">{(id) => <input id={id} name="reminderTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />}</Field>
         </div>
         <div className="row">
           <Field label="Повтор">
             {(id) => (
-              <select id={id} name="repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as Repeat)}>
-                {Object.entries(REPEATS).map(([k, v]) => (
+              <select id={id} name="repeat" value={repeat} onChange={(e) => changeRepeat(e.target.value as Repeat)}>
+                {Object.entries(REPEATS).filter(([k]) => !source || k === "monthly" || k === "weekly").map(([k, v]) => (
                   <option key={k} value={k}>
                     {v}
                   </option>
@@ -178,7 +208,7 @@ export function ReminderForm({
               </select>
             )}
           </Field>
-          {series && (
+          {series && !source && (
             <Field label="Сколько раз">
               {(id) => (
                 <select id={id} name="reminderEndMode" value={endMode} onChange={(e) => setEndMode(e.target.value as EndMode)}>
@@ -198,9 +228,10 @@ export function ReminderForm({
             </Field>
           )}
         </div>
-        {repeat === "monthly" && <p className="hint">Каждый месяц {Number(day.slice(8, 10))}-го; если такого числа нет, в последний день месяца.</p>}
+        {repeat === "monthly" && day && <p className="hint">Каждый месяц {monthlyDay}-го. Если такого числа нет, платёж приходится на последний день месяца.</p>}
+        {!source && <>
         <div className="row">
-          <Field label="Сумма (необязательно)">{(id) => <AmountInput id={id} name="reminderAmount" value={amount} onChange={setAmount} />}</Field>
+          <Field label={unit ? `Сумма, ${unit} (необязательно)` : "Сумма (необязательно)"}>{(id) => <AmountInput id={id} name="reminderAmount" value={amount} onChange={setAmount} minorUnits={minor} />}</Field>
           <Field label="Это">
             {(id) => (
               <select id={id} name="reminderType" value={txnType} onChange={(e) => setTxnType(e.target.value as "expense" | "income")}>
@@ -212,7 +243,7 @@ export function ReminderForm({
         </div>
         {ends && amount.trim() && (
           <Field label="Последний платёж, если другой (необязательно)">
-            {(id) => <AmountInput id={id} name="reminderLastAmount" value={lastAmount} onChange={setLastAmount} />}
+            {(id) => <AmountInput id={id} name="reminderLastAmount" value={lastAmount} onChange={setLastAmount} minorUnits={minor} />}
           </Field>
         )}
         <div className="row">
@@ -248,6 +279,7 @@ export function ReminderForm({
           <p className="hint">Если к платежу на счёте не будет хватать денег, программа предупредит заранее.</p>
         )}
         <Field label="Комментарий">{(id) => <input id={id} name="reminderNote" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+        </>}
         <ErrorText error={save.error ?? remove.error} />
         <div className="actions">
           {reminder && !from && (
@@ -256,11 +288,11 @@ export function ReminderForm({
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose} disabled={save.busy}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
-            Сохранить
+          <button type="submit" className="btn primary" data-testid={source ? "repeat-plan-save" : undefined} aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
+            {source ? "Запланировать" : "Сохранить"}
           </button>
         </div>
       </form>
@@ -270,7 +302,7 @@ export function ReminderForm({
 
 /** Правка одного платежа серии: своя сумма и другой день; или переход к «этот и следующие». */
 function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) {
-  const [amount, setAmount] = useState(amountText(o.amount));
+  const [amount, setAmount] = useState(amountText(o.amount, o.minorUnits));
   const [day, setDay] = useState(o.payAt.slice(0, 10));
   const [time, setTime] = useState(o.payAt.slice(11, 16));
   const [following, setFollowing] = useState<Reminder | null>(null);
@@ -279,7 +311,7 @@ function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) 
   const loadSeries = useAction(() => api.getReminder(o.key.refId).then(setFollowing));
   if (following) return <ReminderForm reminder={following} from={o.key} onClose={onClose} />;
   const submit = () => {
-    const value = amount.trim() ? parseAmount(amount) : null;
+    const value = amount.trim() ? parseAmount(amount, o.minorUnits) : null;
     if (amount.trim() && (value === null || value <= 0)) return save.setError("Сумма должна быть больше нуля");
     const moved = `${day}T${time || "09:00"}`;
     save.run(value, moved === o.key.scheduledAt ? null : moved);
@@ -295,7 +327,7 @@ function EditOccurrence({ o, onClose }: { o: Occurrence; onClose: () => void }) 
       >
         <p className="muted">{o.title}: меняется только этот платёж, остальные остаются как были.</p>
         <div className="row">
-          <Field label="Сумма">{(id) => <AmountInput id={id} name="occAmount" value={amount} onChange={setAmount} />}</Field>
+          <Field label={`Сумма, ${o.currencySymbol}`}>{(id) => <AmountInput id={id} name="occAmount" value={amount} onChange={setAmount} minorUnits={o.minorUnits} />}</Field>
           <Field label="День">{(id) => <input id={id} name="occDate" type="date" value={day} onChange={(e) => setDay(e.target.value)} />}</Field>
           <Field label="Время">{(id) => <input id={id} name="occTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />}</Field>
         </div>
@@ -368,97 +400,157 @@ const SNOOZE: [string, () => string][] = [
 /** Форма платежа открывается после проверки совпадений. */
 function useCreateFromReminder() {
   const openTxnForm = useUi((s) => s.openTxnForm);
-  const accounts = useAccounts().data ?? [];
-  const base = useSettings().data?.base_currency;
-  return (o: Occurrence, revision: string, allowSeparate: boolean) => {
-    // Сумма напоминания — в основной валюте: на счёт в другой валюте её не подставляем.
-    const foreign = accounts.find((a) => a.id === o.accountId)?.currencyCode !== base && o.accountId != null;
+  return (o: Occurrence, revision: string, allowSeparate: boolean, onCancelReminder: () => void) => {
     openTxnForm({
       mode: "new",
       type: o.txnType ?? "expense",
       date: today(),
-      prefill: { amount: foreign ? null : o.amount, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
+      prefill: { amount: o.amount, amountCurrency: o.amountCurrency, accountId: o.accountId, categoryId: o.categoryId, payee: o.title, note: o.note },
       reminder: { key: o.key, revision, allowSeparate },
+      onCancelReminder,
     });
   };
 }
 
-/** Строка срабатывания с действиями «Выполнено», «Отложить», «Создать операцию». */
+const PAYMENT_VERBS: Record<TxnType, string> = {
+  expense: "списано", income: "зачислено", transfer: "переведено", adjustment: "скорректировано",
+};
+
+function PaymentDates({ o, date, type, id }: { o: Occurrence; date: string; type: TxnType; id?: string }) {
+  const planned = o.dueDate ?? o.payAt.slice(0, 10);
+  return <span id={id} data-testid="payment-dates">
+    По плану <time dateTime={planned}>{formatDate(planned)}</time>
+    {!o.dueDate && ` ${o.payAt.slice(11, 16)}`}
+    {" · "}{PAYMENT_VERBS[type]} <time dateTime={date}>{formatDate(date)}</time>
+  </span>;
+}
+
 export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () => void }) {
   const [snoozing, setSnoozing] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [matching, setMatching] = useState<"find" | "create" | null>(null);
+  const [matching, setMatching] = useState(false);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const more = usePopup();
+  const moreId = useId();
+  const primary = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const snoozeButton = useRef<HTMLButtonElement>(null);
+  const transactionButton = useRef<HTMLButtonElement>(null);
   const done = useAction(() => api.completeReminder(o.key), onAction);
   const reopen = useAction(() => api.reopenReminder(o.key), onAction);
-  const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), onAction);
+  const snooze = useAction((until: string) => api.snoozeReminder(o.key, until), () => {
+    setSnoozing(false);
+    onAction?.();
+  });
   const create = useCreateFromReminder();
   const openDebt = useUi((s) => s.openDebt);
   const open = o.status === "pending" || o.status === "snoozed";
-  const late = open && o.dueAt <= nowLocal();
+  const status = occurrenceStatus(o, nowLocal());
+  const debt = o.key.source === "debt";
+  const payment = !debt && o.amount != null;
+  useEffect(() => {
+    if (viewing && (o.status !== "done" || o.transactionId !== viewing)) {
+      setViewing(null);
+      (transactionButton.current ?? primary.current)?.focus();
+    }
+  }, [viewing, o.status, o.transactionId]);
+  const closeMatching = () => {
+    setMatching(false);
+    (payment ? primary : moreButton).current?.focus();
+  };
+  const closeSnooze = () => {
+    setSnoozing(false);
+    requestAnimationFrame(() => snoozeButton.current?.focus());
+  };
   return (
-    <li className={late ? "occurrence late" : "occurrence"} data-testid="occurrence" data-title={o.title}>
+    <li className={status.state === "overdue" ? "occurrence late" : "occurrence"} data-testid="occurrence" data-title={o.title}>
       <div className="occ-main">
         <span className="main">{o.title}</span>
         <span className="sub">
-          {o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}` : formatDateTime(o.dueAt)}
-          {o.status === "snoozed" && " · отложено"}
-          {o.status === "done" && (o.linkedActual ? " · связано с операцией" : " · выполнено")}
+          <span data-testid="occ-status" data-state={status.state}>{status.label}</span>
+          {" · "}
+          {o.status === "done" && o.actualPayment ? <>
+            <PaymentDates o={o} {...o.actualPayment} />
+            {(o.dueDate || (payment && o.payAt !== o.dueAt)) && ` · напомнить ${formatDateTime(o.dueAt)}`}
+          </> : o.dueDate ? `платёж ${formatDate(o.dueDate)}, напомнить ${formatDateTime(o.dueAt)}`
+            : payment && o.payAt !== o.dueAt ? `платёж ${formatDateTime(o.payAt)}, напомнить ${formatDateTime(o.dueAt)}`
+            : formatDateTime(o.dueAt)}
           {o.last && " · последний"}
           {o.edited && <span className="edited"> · изменён</span>}
         </span>
         {o.shortfall != null && (
           <span className="sub shortfall" data-testid="shortfall">
-            На счёте не хватит <Money amount={o.shortfall} symbol={o.currencySymbol} minorUnits={o.minorUnits} />
+            На счёте не хватит <Money amount={o.shortfall} symbol={o.currencySymbol} currencyCode={o.amountCurrency} minorUnits={o.minorUnits} />
           </span>
         )}
       </div>
-      {o.amount != null && <Money amount={o.amount} symbol={o.currencySymbol} minorUnits={o.minorUnits} />}
-      <div className="occ-actions">
+      {o.amount != null && <Money amount={o.amount} symbol={o.currencySymbol} currencyCode={o.amountCurrency} minorUnits={o.minorUnits} />}
+      <div className="occ-actions" ref={more.ref} onKeyDown={(event) => {
+        if (event.key !== "Escape" || (!more.open && !snoozing)) return;
+        event.stopPropagation();
+        if (snoozing) closeSnooze();
+        else {
+          more.setOpen(false);
+          moreButton.current?.focus();
+        }
+      }}>
         {open && !snoozing && (
           <>
-            <button className="btn small primary" onClick={() => {
-              if (o.key.source === "debt" && o.debtId) openDebt(o.debtId, true);
-              else setMatching("create");
+            <button type="button" ref={primary} className="btn small primary" disabled={done.busy}
+              data-testid={payment ? "occ-match-payment" : undefined} onClick={() => {
+              more.setOpen(false);
+              if (debt && o.debtId) openDebt(o.debtId, true);
+              else if (payment || debt) setMatching(true);
+              else done.run();
             }}>
-              {o.key.source === "debt" ? "Оплачено" : "Создать операцию"}
+              {debt ? "Оплачено" : payment ? "Учесть платёж" : "Выполнено"}
             </button>
-            <button className="btn small" onClick={() => done.run()}>
-              Выполнено
-            </button>
-            <button className="btn small" onClick={() => setSnoozing(true)}>
+            <button type="button" ref={snoozeButton} className="btn small" disabled={done.busy} onClick={() => { more.setOpen(false); setSnoozing(true); }}>
               Отложить
             </button>
-            {o.key.source === "reminder" && (
-              <>
-                {o.accountId && o.amount != null && o.payAt.slice(0, 10) <= addDays(today(), 3) && (
-                  <button className="btn small" onClick={() => setMatching("find")} data-testid="occ-match-payment">Найти операцию</button>
+            <button type="button" ref={moreButton} className="btn small" aria-expanded={more.open}
+              aria-controls={more.open ? moreId : undefined} disabled={done.busy} onClick={() => more.setOpen(!more.open)}>Ещё</button>
+            {more.open && (
+              <div className="occ-secondary" id={moreId}>
+                {payment || debt ? (
+                  <button type="button" className="btn small" disabled={done.busy} onClick={() => { more.setOpen(false); done.run(); }}>Отметить выполненным без записи</button>
+                ) : (
+                  <button type="button" className="btn small" onClick={() => { more.setOpen(false); setMatching(true); }}>Создать операцию</button>
                 )}
-                <button className="btn small" onClick={() => setEditing(true)} data-testid="occ-edit">
+                {!debt && <button type="button" className="btn small" onClick={() => { more.setOpen(false); setEditing(true); }} data-testid="occ-edit">
                   Изменить
-                </button>
-              </>
+                </button>}
+              </div>
             )}
           </>
         )}
-        {snoozing &&
-          SNOOZE.map(([label, until]) => (
-            <button key={label} className="btn small" onClick={() => snooze.run(until())}>
+        {snoozing && <>
+          {SNOOZE.map(([label, until], index) => (
+            <button key={label} type="button" className="btn small" autoFocus={index === 0} disabled={snooze.busy} onClick={() => snooze.run(until())}>
               {label}
             </button>
           ))}
+          <button type="button" className="btn small" disabled={snooze.busy} onClick={closeSnooze}>Назад</button>
+        </>}
         {o.status === "done" && (
-          <button className="link" onClick={() => reopen.run()} title="Вернуть в ожидание">
-            Вернуть
-          </button>
+          <>
+            {o.transactionId && <button type="button" className="btn small" ref={transactionButton}
+              data-testid="occ-open-transaction" onClick={() => setViewing(o.transactionId)}>Открыть операцию</button>}
+            <button type="button" className="link" onClick={() => reopen.run()} title="Вернуть в ожидание">Вернуть</button>
+          </>
         )}
       </div>
       <ErrorText error={done.error ?? snooze.error ?? reopen.error} />
+      {viewing && o.status === "done" && viewing === o.transactionId && <LinkedTransaction id={viewing} onClose={() => {
+        setViewing(null);
+        (transactionButton.current ?? primary.current)?.focus();
+      }} />}
       {matching && (
-        <PaymentMatch o={o} autoCreate={matching === "create"} onClose={() => setMatching(null)} onCreate={(revision, allowSeparate) => {
-          setMatching(null);
-          create(o, revision, allowSeparate);
+        <PaymentMatch o={o} onClose={closeMatching} onCreate={(revision, allowSeparate) => {
+          setMatching(false);
+          create(o, revision, allowSeparate, allowSeparate ? () => setMatching(true) : closeMatching);
         }} onLinked={() => {
-          setMatching(null);
+          setMatching(false);
           onAction?.();
         }} />
       )}
@@ -467,6 +559,7 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
           o={o}
           onClose={() => {
             setEditing(false);
+            moreButton.current?.focus();
             onAction?.();
           }}
         />
@@ -475,14 +568,60 @@ export function OccurrenceItem({ o, onAction }: { o: Occurrence; onAction?: () =
   );
 }
 
-function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
+function LinkedTransaction({ id, onClose }: { id: string; onClose: () => void }) {
+  const settings = useSettings().data;
+  const accounts = useAccounts(true).data;
+  const query = useQuery({
+    queryKey: ["transactions", "linked", id],
+    queryFn: () => api.getTransaction(id),
+    refetchOnMount: "always",
+    gcTime: 0,
+    retry: false,
+  });
+  const t = query.data;
+  const destination = t?.toAccountId ? accounts?.find((a) => a.id === t.toAccountId) : null;
+  return (
+    <Modal title="Связанная операция" onClose={onClose}>
+      {query.isFetching ? <p role="status">Загружаем операцию…</p> : query.isError || !t ? (
+        <>
+          <p role="status">Связанная операция недоступна.</p>
+          <button type="button" className="link" onClick={() => void query.refetch()}>Проверить снова</button>
+        </>
+      ) : (
+        <dl className="facts linked-transaction" data-testid="linked-transaction" data-transaction-id={t.id}>
+          <dt>Вид операции</dt><dd>{TXN_TYPES[t.type]}</dd>
+          <dt>Дата</dt><dd>{formatDate(t.date)}</dd>
+          <dt>{t.type === "transfer" ? "Со счёта" : "Счёт"}</dt><dd>{t.accountName} · {t.currencyCode}</dd>
+          <dt>{t.type === "transfer" ? "Списано" : "Сумма"}</dt><dd><Money amount={t.amount} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} /></dd>
+          {t.type === "transfer" && <>
+            <dt>На счёт</dt><dd>{t.toAccountName}{destination && ` · ${destination.currencyCode}`}</dd>
+            {t.toAmount != null && <>
+              <dt>Зачислено</dt>
+              <dd>{destination
+                ? <Money amount={t.toAmount} symbol={destination.currencySymbol} currencyCode={destination.currencyCode} minorUnits={destination.minorUnits} />
+                : "—"}</dd>
+            </>}
+          </>}
+          {t.payee && <><dt>{t.type === "income" ? "От кого" : "Получатель"}</dt><dd>{t.payee}</dd></>}
+          {t.categoryName && <><dt>Категория</dt><dd>{t.categoryName}</dd></>}
+          {t.note && settings && settings.hide_amounts !== "1" && <><dt>Комментарий</dt><dd>{t.note}</dd></>}
+        </dl>
+      )}
+      <div className="actions">
+        <button type="button" className="btn" autoFocus onClick={onClose}>Закрыть</button>
+      </div>
+    </Modal>
+  );
+}
+
+function PaymentMatch({ o, onClose, onLinked, onCreate }: {
   o: Occurrence;
-  autoCreate: boolean;
   onClose: () => void;
   onLinked: () => void;
   onCreate: (revision: string, allowSeparate: boolean) => void;
 }) {
   const groupId = useId();
+  const accountName = useAccounts(true).data?.find((account) => account.id === o.accountId)?.name;
   const settings = useSettings().data;
   const showAmounts = settings !== undefined && settings.hide_amounts !== "1";
   const hiddenMoney = <span className="money"><span aria-hidden="true">{HIDDEN_AMOUNT}</span><span className="sr-only">Сумма скрыта</span></span>;
@@ -500,17 +639,18 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
   const error = attach.error ?? (query.error ? String(query.error) : null);
   const openedForm = useRef(false);
   useEffect(() => {
-    if (autoCreate && review && review.candidates.length === 0 && !error && !openedForm.current) {
+    if (review && review.candidates.length === 0 && !error && !openedForm.current) {
       openedForm.current = true;
       onCreate(review.revision, false);
     }
-  }, [autoCreate, review, error, onCreate]);
+  }, [review, error, onCreate]);
   return (
-    <Modal title={`Операция для «${o.title}»`} onClose={onClose} dismissDisabled={attach.busy}>
+    <Modal title={`Учесть платёж · ${o.title}`} onClose={onClose} dismissDisabled={attach.busy}>
       {query.isFetching && !attach.busy && <p className="muted" role="status">Ищем в операциях…</p>}
       {review && candidates.length === 0 && (
         <p className="muted" data-testid="occ-match-empty">Подходящих операций нет.</p>
       )}
+      {candidates.length === 1 && <p className="muted">Найдена проведённая операция. Проверьте дату и сумму.</p>}
       {candidates.length > 1 && <p className="muted">Выберите проведённую операцию для связи.</p>}
       {candidates.map((match, index) => {
         const id = `${groupId}-${index}`;
@@ -519,12 +659,13 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
           {candidates.length > 1 && (
             <label className="small">
               <input type="radio" name="reminderPaymentCandidate" checked={selectedId === match.transactionId}
-                aria-labelledby={`${id}-choice ${id}-payee ${id}-amount${note ? ` ${id}-note` : ""}`}
+                aria-labelledby={`${id}-choice ${id}-payee ${id}-dates ${id}-amount${note ? ` ${id}-note` : ""}`}
                 disabled={attach.busy} onChange={() => setSelectedId(match.transactionId)} />
               <span id={`${id}-choice`}>Выбрать операцию {index + 1}</span>
             </label>
           )}
-          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong> · {formatDate(match.date)}</p>
+          <p id={`${id}-payee`}><strong>{match.payee || "Операция"}</strong>{accountName && ` · ${accountName}`}</p>
+          <p><PaymentDates id={`${id}-dates`} o={o} date={match.date} type={o.txnType ?? "expense"} /></p>
           {note && <p className="muted" id={`${id}-note`}>{note}</p>}
           <p className="hint">Совпали счёт и {match.matchReason === "payee" ? "получатель" : "категория"}.</p>
           <p id={`${id}-amount`}>В учёте · {showAmounts ? <Money amount={match.amount} symbol={match.currencySymbol} minorUnits={match.minorUnits} /> : hiddenMoney}</p>
@@ -536,18 +677,24 @@ function PaymentMatch({ o, autoCreate, onClose, onLinked, onCreate }: {
       {review?.moreCandidates && <p className="muted">Показаны 10 последних совпадений.</p>}
       <ErrorText error={error} />
       {error && <button type="button" className="link" disabled={query.isFetching || attach.busy} onClick={() => {
+        openedForm.current = false;
         attach.setError(null);
         void query.refetch();
       }}>Проверить снова</button>}
-      <div className="actions">
-        <span className="spacer" />
-        <button type="button" className="btn" disabled={attach.busy} onClick={onClose}>Закрыть</button>
-        {review && <button type="button" className="btn" disabled={attach.busy || !!error}
-          onClick={() => onCreate(review.revision, candidates.length > 0)}>
-          {candidates.length > 0 ? "Создать отдельную операцию" : "Создать операцию"}
+      {selected && <p className="hint" role="status">Связь завершит напоминание. Сумма проведённой операции и остаток на счёте сохранятся.</p>}
+      <div className="actions payment-review-actions">
+        <button type="button" className="btn" autoFocus disabled={attach.busy} onClick={onClose}>Назад</button>
+        {review && candidates.length > 0 && <button type="button" className="btn" disabled={attach.busy || !!error}
+          onClick={() => onCreate(review.revision, true)}>
+          {o.txnType === "income" ? "Записать отдельный доход" : "Записать отдельный расход"}
         </button>}
         {candidates.length > 0 && <button type="button" className="btn primary" disabled={!selected || attach.busy || !!error} aria-busy={attach.busy}
-          onClick={() => selected && attach.run(o.key, selected.transactionId, selected.revision)}>Связать</button>}
+          onClick={() => {
+            if (!selected || openedForm.current) return;
+            // После связи обновление календаря вернёт пустой список для завершённого платежа.
+            openedForm.current = true;
+            attach.run(o.key, selected.transactionId, selected.revision);
+          }}>Связать с платежом</button>}
       </div>
     </Modal>
   );

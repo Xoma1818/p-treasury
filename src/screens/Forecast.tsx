@@ -1,7 +1,7 @@
 // Экран «Взгляд вперёд» (0.18): прогноз остатка на 12 месяцев со сценариями
 // «что если» и поток денег за месяц или год. Всё считает ядро (forecast.rs).
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { AmountInput, Field } from "../components/Fields";
 import { Hint } from "../components/Hint";
@@ -10,8 +10,9 @@ import { BaseMoney as M } from "../components/Money";
 import { ScreenTitle } from "../components/SectionIcon";
 import { api, type ChangeInput, type ChangeKind, type Forecast as ForecastData, type ForecastItem, type ForecastMonth, type MoneyFlow, type Scenario } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, seasonText, type FlowBand } from "../lib/forecast";
-import { amountToInput, parseAmount } from "../lib/money";
+import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, scenarioChange, scenarioRow, seasonText, type FlowBand, type ScenarioRow } from "../lib/forecast";
+import { useFine } from "../lib/fine";
+import { HIDDEN_AMOUNT } from "../lib/money";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
@@ -123,12 +124,12 @@ function ForecastTab() {
               <button className="fc-chip-main" onClick={() => setScenarioId(s.id)} data-testid="scenario-chip">
                 {s.name}
               </button>
-              <button className="fc-chip-edit" onClick={() => setEditing(s)} aria-label={`Изменить сценарий «${s.name}»`} title="Изменить">
+              <button className="fc-chip-edit" disabled={!f} onClick={() => setEditing(s)} aria-label={`Изменить сценарий «${s.name}»`} title="Изменить">
                 ✎
               </button>
             </span>
           ))}
-          <button className="btn small" onClick={() => setEditing("new")} data-testid="scenario-new">
+          <button className="btn small" disabled={!f} onClick={() => setEditing("new")} data-testid="scenario-new">
             + Сценарий
           </button>
         </div>
@@ -162,6 +163,7 @@ function ForecastTab() {
         <ScenarioForm
           scenario={editing === "new" ? null : editing}
           firstMonth={f.months[0].month}
+          currency={f}
           onClose={() => setEditing(null)}
           onSaved={(id) => setScenarioId(id)}
           onDeleted={() => setScenarioId(null)}
@@ -172,6 +174,8 @@ function ForecastTab() {
 }
 
 function ForecastView({ f, second }: { f: ForecastData; second: ForecastData | null }) {
+  const settings = useSettings().data;
+  const showAmounts = !!settings && settings.hide_amounts !== "1";
   const last = f.months[f.months.length - 1];
   const withScenario = f.scenarioId != null;
   const end = withScenario && last.scenario ? last.scenario.closing : last.closing;
@@ -243,19 +247,19 @@ function ForecastView({ f, second }: { f: ForecastData; second: ForecastData | n
             </div>
           )}
         </div>
-        <ForecastChart f={f} second={second} />
+        <ForecastChart f={f} second={second} showAmounts={showAmounts} />
         {f.goals.length > 0 && (
           <ul className="fc-goals" data-testid="fc-goals">
             {f.goals.map((g) => (
               <li key={g.id} className={g.free >= 0 ? "ok" : "over"}>
-                <span className="fc-goal-key" /> {goalText(g, f.currencySymbol, f.minorUnits)}
+                <span className="fc-goal-key" /> {showAmounts ? goalText(g, f.currencySymbol, f.minorUnits) : `${g.name} к ${formatDate(g.deadline)} · сумма скрыта`}
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      <MonthsTable f={f} />
+      <MonthsTable f={f} second={second} showAmounts={showAmounts} />
       <HowCounted f={f} />
     </>
   );
@@ -279,9 +283,8 @@ const PAD_R = 12;
 const PAD_T = 12;
 const PAD_B = 24;
 
-function ForecastChart({ f, second }: { f: ForecastData; second: ForecastData | null }) {
+function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: ForecastData | null; showAmounts: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
-  const hidden = useSettings().data?.hide_amounts === "1";
   const points = chartPoints(f);
   // Р16: второй сценарий — по тем же месяцам (прогноз тот же, другой сценарий поверх).
   const secondAt = (i: number): number | null => (!second ? null : i === 0 ? second.liquid : (second.months[i - 1]?.scenario?.closing ?? null));
@@ -295,7 +298,7 @@ function ForecastChart({ f, second }: { f: ForecastData; second: ForecastData | 
   const { min, max, step } = netWorthScale(values);
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
-  const short = (v: number) => (hidden ? "•••" : axisLabel(v, f.minorUnits));
+  const short = (v: number) => (showAmounts ? axisLabel(v, f.minorUnits) : "•••");
   const PAD_L = axisPad(ticks.map(short));
   const plotW = W - PAD_L - PAD_R;
   const plotH = H - PAD_T - PAD_B;
@@ -407,8 +410,9 @@ const ITEM_KIND: Record<ForecastItem["kind"], string> = {
   change: "сценарий",
 };
 
-function MonthsTable({ f }: { f: ForecastData }) {
+function MonthsTable({ f, second, showAmounts }: { f: ForecastData; second: ForecastData | null; showAmounts: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
+  const detailPrefix = useId();
   const withScenario = f.scenarioId != null;
   return (
     <div className="card">
@@ -429,13 +433,28 @@ function MonthsTable({ f }: { f: ForecastData }) {
         <tbody>
           {f.months.map((m, i) => {
             const isOpen = open === m.month;
+            const detailId = `${detailPrefix}-${m.month}`;
+            const comparison = second?.months.find((month) => month.month === m.month)?.scenario;
+            const season = (m.seasonIncome || m.seasonExpense) && (showAmounts
+              ? seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits)
+              : "как год назад. Сумма скрыта");
             const items = [...m.items, ...(m.scenario?.items ?? [])].sort((a, b) => a.date.localeCompare(b.date));
             return (
               <Fragment key={m.month}>
-                <tr className={isOpen ? "clickable open" : "clickable"} onClick={() => setOpen(isOpen ? null : m.month)} data-testid="fc-row">
+                <tr className={isOpen ? "clickable open" : "clickable"} data-testid="fc-row" onClick={(event) => {
+                  // Щелчок по числу действует так же, как нажатие кнопки месяца.
+                  if (event.target instanceof Element && !event.target.closest("button")) {
+                    const button = event.currentTarget.querySelector("button");
+                    button?.focus({ preventScroll: true });
+                    button?.click();
+                  }
+                }}>
                   <td>
-                    <span className="fc-caret">{isOpen ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}</span> {monthTitle(m.month)}
-                    {i === 0 && <span className="muted"> · с {formatDate(m.start)}</span>}
+                    <button type="button" className="fc-month-toggle" aria-expanded={isOpen}
+                      aria-controls={isOpen ? detailId : undefined} onClick={() => setOpen(isOpen ? null : m.month)}>
+                      <span className="fc-caret">{isOpen ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}</span>
+                      <span>{monthTitle(m.month)}{i === 0 && <span className="muted"> · с {formatDate(m.start)}</span>}</span>
+                    </button>
                   </td>
                   <td className="num plus">
                     <M amount={m.regularIncome + m.plannedIncome} />
@@ -451,10 +470,24 @@ function MonthsTable({ f }: { f: ForecastData }) {
                   )}
                 </tr>
                 {isOpen && (
-                  <tr className="fc-detail">
+                  <tr id={detailId} className="fc-detail">
                     <td colSpan={withScenario ? 5 : 4}>
                       <div className="fc-detail-grid">
                         <div>
+                          <div className="fc-detail-row">
+                            <span>На начало месяца</span>
+                            <M amount={m.opening} />
+                          </div>
+                          {comparison && <div className="fc-detail-row" data-testid="fc-second-closing">
+                            <span>{second?.scenarioName} · на конец месяца</span>
+                            <M amount={comparison.closing} />
+                          </div>}
+                          {f.goals.filter((goal) => goal.month === m.month).map((goal) => (
+                            <div className="fc-detail-row" key={goal.id}>
+                              <span>Цель «{goal.name}»</span>
+                              <M amount={goal.need} />
+                            </div>
+                          ))}
                           <div className="fc-detail-row">
                             <span>Обычные доходы {i === 0 ? "(ещё ожидаются)" : "(среднее)"}</span>
                             <M amount={m.regularIncome} />
@@ -463,9 +496,9 @@ function MonthsTable({ f }: { f: ForecastData }) {
                             <span>Обычные траты {i === 0 ? "(ещё ожидаются)" : "(среднее)"}</span>
                             <M amount={-m.regularExpense} />
                           </div>
-                          {seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits) && (
+                          {!!season && (
                             <div className="hint" data-testid="fc-season">
-                              Учтена сезонность, {seasonText(m.seasonIncome, m.seasonExpense, f.currencySymbol, f.minorUnits)}
+                              Учтена сезонность, {season}
                             </div>
                           )}
                         </div>
@@ -567,66 +600,34 @@ function AccountsPicker() {
 // ---------------------------------------------------------------------------
 // Редактор сценария
 
-interface Row {
-  kind: ChangeKind;
-  title: string;
-  /** Для сумм: трата или доход. */
-  sign: -1 | 1;
-  amount: string;
-  percent: string;
-  startMonth: string;
-  months: string;
-}
-
-function toRow(c: ChangeInput): Row {
-  return {
-    kind: c.kind,
-    title: c.title,
-    sign: (c.amount ?? -1) < 0 ? -1 : 1,
-    amount: c.amount != null ? amountToInput(Math.abs(c.amount)) : "",
-    percent: c.percent != null ? String(c.percent) : "",
-    startMonth: c.startMonth,
-    months: c.months != null ? String(c.months) : "",
-  };
-}
-
-function toChange(r: Row): ChangeInput {
-  const money = r.kind === "once" || r.kind === "monthly";
-  const amount = parseAmount(r.amount);
-  const percent = r.percent.trim() === "" ? null : Number(r.percent.replace(",", ".").replace("−", "-"));
-  const months = r.months.trim() === "" ? null : Number(r.months);
-  return {
-    kind: r.kind,
-    title: r.title,
-    amount: money && amount != null ? r.sign * Math.abs(amount) : null,
-    percent: money ? null : percent != null && Number.isFinite(percent) ? Math.round(percent) : null,
-    startMonth: r.startMonth,
-    months: r.kind === "once" ? null : months,
-  };
-}
-
 function ScenarioForm({
   scenario,
   firstMonth,
+  currency,
   onClose,
   onSaved,
   onDeleted,
 }: {
   scenario: Scenario | null;
   firstMonth: string;
+  currency: Pick<ForecastData, "baseCurrency" | "currencySymbol" | "minorUnits">;
   onClose: () => void;
   onSaved: (id: string) => void;
   onDeleted: () => void;
 }) {
   const [name, setName] = useState(scenario?.name ?? "");
-  const [rows, setRows] = useState<Row[]>(() => scenario?.changes.map(toRow) ?? []);
+  const { minorUnits } = currency;
+  const currencyLabel = useFine().code ? currency.baseCurrency : currency.currencySymbol;
+  const settings = useSettings().data;
+  const showAmounts = !!settings && settings.hide_amounts !== "1";
+  const [rows, setRows] = useState<ScenarioRow[]>(() => scenario?.changes.map((c) => scenarioRow(c, minorUnits)) ?? []);
   const save = useAction(
     (input: { name: string; changes: ChangeInput[] }) => (scenario ? api.updateScenario(scenario.id, input).then(() => scenario.id) : api.createScenario(input)),
     (id) => {
       onSaved(id);
       onClose();
     },
-    { celebrate: true },
+    { singleSubmit: true },
   );
   const remove = useAction(
     () => api.deleteScenario(scenario!.id),
@@ -635,14 +636,14 @@ function ScenarioForm({
       onClose();
     },
   );
-  const set = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const set = (i: number, patch: Partial<ScenarioRow>) => setRows((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   const add = (c: ChangeInput) => {
-    setRows((rs) => [...rs, toRow(c)]);
+    setRows((rs) => [...rs, scenarioRow(c, minorUnits)]);
     if (!name.trim()) setName(c.title);
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    save.run({ name, changes: rows.map(toChange) });
+    save.run({ name, changes: rows.map((r) => scenarioChange(r, minorUnits)) });
   };
 
   return (
@@ -651,7 +652,7 @@ function ScenarioForm({
         <Field label="Название">{(id) => <input id={id} name="scenario-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: ипотека с лета" autoFocus />}</Field>
         <div className="scenario-presets">
           <span className="muted">Быстро добавить:</span>
-          {presets(firstMonth).map((p) => (
+          {presets(firstMonth, minorUnits).map((p) => (
             <button type="button" key={p.label} className="fc-chip" onClick={() => add(p.change)} data-testid="scenario-preset">
               {p.label}
             </button>
@@ -674,7 +675,14 @@ function ScenarioForm({
                   <option value={-1}>трата</option>
                   <option value={1}>доход</option>
                 </select>
-                <AmountInput name="scenario-amount" value={r.amount} onChange={(v) => set(i, { amount: v })} />
+                <label className="scenario-when">
+                  <span className="sr-only">Сумма, </span>{currencyLabel}
+                  {showAmounts ? (
+                    <AmountInput name="scenario-amount" minorUnits={minorUnits} value={r.amount} onChange={(v) => set(i, { amount: v })} />
+                  ) : (
+                    <span className="amount-field"><input type="password" className="amount" name="scenario-amount" inputMode="decimal" autoComplete="off" value={r.amount} onChange={(e) => set(i, { amount: e.target.value })} /></span>
+                  )}
+                </label>
               </>
             ) : (
               <span className="scenario-pct">
@@ -695,13 +703,13 @@ function ScenarioForm({
             <button type="button" className="icon-btn" aria-label="Убрать изменение" onClick={() => setRows((rs) => rs.filter((_, k) => k !== i))}>
               <X size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
-            <div className="scenario-desc muted">{previewText(r)}</div>
+            <div className="scenario-desc muted">{previewText(scenarioChange(r, minorUnits), currencyLabel, minorUnits, showAmounts)}</div>
           </div>
         ))}
         <button
           type="button"
           className="btn small"
-          onClick={() => setRows((rs) => [...rs, toRow({ kind: "monthly", title: "", amount: null, percent: null, startMonth: firstMonth, months: null })])}
+          onClick={() => setRows((rs) => [...rs, scenarioRow({ kind: "monthly", title: "", amount: null, percent: null, startMonth: firstMonth, months: null }, minorUnits)])}
           data-testid="scenario-add"
         >
           + Изменение
@@ -726,11 +734,10 @@ function ScenarioForm({
   );
 }
 
-function previewText(r: Row): string {
-  const c = toChange(r);
+function previewText(c: ChangeInput, currencyLabel: string, minorUnits: number, showAmounts: boolean): string {
   if ((c.kind === "once" || c.kind === "monthly") && !c.amount) return "";
   if ((c.kind === "income_pct" || c.kind === "expense_pct") && !c.percent) return "";
-  return describeChange(c);
+  return describeChange(c, currencyLabel, minorUnits, showAmounts);
 }
 
 // ---------------------------------------------------------------------------
@@ -790,6 +797,9 @@ function FlowChart({ f }: { f: MoneyFlow }) {
   const [group, setGroup] = useState<FlowBand | null>(null);
   const returnFocus = useRef<SVGElement | HTMLElement | null>(null);
   const showTransactions = useUi((s) => s.showTransactions);
+  const settings = useSettings().data;
+  const showAmounts = !!settings && settings.hide_amounts !== "1";
+  const currencyLabel = useFine().code ? f.baseCurrency : f.currencySymbol;
   const missingRates = f.missingRates.length > 0 && <p className="hint warn">Нет курса для {f.missingRates.join(", ")}: такие суммы не вошли.</p>;
   if (flowIsEmpty(f)) return (
     <>
@@ -852,7 +862,8 @@ function FlowChart({ f }: { f: MoneyFlow }) {
       >
         <path d={path} className={`flow-band ${b.kind}${state}`} />
         <rect x={x} y={top + b.y0} width={NODE_W} height={Math.max(1, b.y1 - b.y0)} rx={3} className={`flow-node ${b.kind}`} />
-        <FlowLabel x={left ? xl - 8 : xr + NODE_W + 8} y={top + (b.y0 + b.y1) / 2} anchor={left ? "end" : "start"} name={b.name} amount={b.amount} />
+        <FlowLabel x={left ? xl - 8 : xr + NODE_W + 8} y={top + (b.y0 + b.y1) / 2} anchor={left ? "end" : "start"} name={b.name}
+          amount={showAmounts ? `${axisLabel(b.amount, f.minorUnits)} ${currencyLabel}` : HIDDEN_AMOUNT} />
       </g>
     );
   };
@@ -931,15 +942,14 @@ function FlowChart({ f }: { f: MoneyFlow }) {
   );
 }
 
-function FlowLabel({ x, y, anchor, name, amount }: { x: number; y: number; anchor: "start" | "end"; name: string; amount: number }) {
-  const hidden = useSettings().data?.hide_amounts === "1";
+function FlowLabel({ x, y, anchor, name, amount }: { x: number; y: number; anchor: "start" | "end"; name: string; amount: string }) {
   return (
     <text x={x} y={y} textAnchor={anchor} className="flow-label">
       <tspan x={x} dy="-0.15em">
         {name.length > 26 ? `${name.slice(0, 25)}…` : name}
       </tspan>
       <tspan x={x} dy="1.15em" className="flow-amount">
-        {hidden ? "•••" : axisLabel(amount)}
+        {amount}
       </tspan>
     </text>
   );

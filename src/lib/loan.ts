@@ -1,6 +1,6 @@
 // Форма займа (калькулятор и «Новый долг» — одна форма): перевод полей в CalcInput
 // для ядра и точки диаграммы остатка. Чистые функции, без React.
-import type { CalcInput, EarlyFrequency, EarlyRow, InterestMethod, LoanRow, PayEvery, PlannedEarlyInput, RateChangeInput, RatePeriod, RecalcMode, Repayment } from "./api";
+import type { CalcInput, EarlyFrequency, EarlyRow, InterestMethod, LoanRow, PayEvery, PlannedEarlyInput, RateChangeInput, RatePeriod, RecalcMode, Repayment, SimRow } from "./api";
 import { amountToInput, formatAmount, parseAmount } from "./money";
 
 export type Solve = "payment" | "term" | "principal" | "rate";
@@ -231,11 +231,14 @@ export function toCalcInput(f: LoanForm, minorUnits = 2): FormResult {
   if (solve !== "payment" && (payment === null || payment <= 0)) return fail("Введите желаемый платёж");
   const base = { principal, rateBp, repayment: f.repayment, issueDate: f.issueDate, interestMethod: f.method, ratePeriod: f.ratePeriod, payEvery: bullet ? ("month" as const) : f.payEvery };
   const rates = rateChanges(f.rates, f.ratePeriod);
+  if (rates.length !== f.rates.length) return fail("Заполните дату и ставку в каждой строке изменения ставки");
+  const early = plannedEarly(f.early, minorUnits);
+  if (early.length !== f.early.length) return fail("Укажите дату и сумму для каждого досрочного погашения");
   if (bullet) {
     if (!isDate(f.maturity)) return fail("Укажите дату возврата");
     return {
       error: null,
-      input: { ...base, termMonths: null, firstPaymentDate: null, maturityDate: f.maturity, rateChanges: rates, plannedEarly: plannedEarly(f.early, minorUnits), solve: "payment", payment: null },
+      input: { ...base, termMonths: null, firstPaymentDate: null, maturityDate: f.maturity, rateChanges: rates, plannedEarly: early, solve: "payment", payment: null },
     };
   }
   // Срок у ядра — число платежей: раз в квартал срок кратен трём месяцам.
@@ -253,7 +256,7 @@ export function toCalcInput(f: LoanForm, minorUnits = 2): FormResult {
       firstPaymentDate: isDate(f.firstPayment) ? f.firstPayment : null,
       maturityDate: null,
       rateChanges: rates,
-      plannedEarly: plannedEarly(f.early, minorUnits),
+      plannedEarly: early,
       solve,
       payment,
     },
@@ -265,16 +268,27 @@ export interface Point {
   balance: number;
 }
 
-/** Остаток долга по датам: выдача, строки графика и досрочки (после досрочки — её остаток). */
+/** Прогноз начинается с актуального остатка. Просроченные платежи моделируются в первый день. */
+export function forecastChartRows(rows: (LoanRow & Pick<SimRow, "status">)[], from: string): LoanRow[] {
+  return rows.filter((row) => row.status === "pending")
+    .map((row) => row.dueDate < from ? { ...row, dueDate: from } : row);
+}
+
+/** Остаток основного долга на конец дня. Погашения только уменьшают его;
+ * проценты учитываются отдельно. Это сохраняет итог при нескольких платежах одной датой. */
 export function balancePoints(view: { rows: LoanRow[]; early: EarlyRow[] }, issueDate: string, principal: number): Point[] {
-  const pts: Point[] = [{ date: issueDate, balance: principal }];
-  const events: (Point & { order: number })[] = [
-    ...view.rows.map((r) => ({ date: r.dueDate, balance: r.balanceAfter, order: 1 })),
-    ...view.early.map((e) => ({ date: e.date, balance: e.balanceAfter, order: 0 })),
-  ];
-  events.sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order);
-  for (const e of events) pts.push({ date: e.date, balance: e.balance });
-  return pts;
+  const balances = new Map([[issueDate, principal]]);
+  const record = (date: string, balance: number) => balances.set(date, Math.min(balances.get(date) ?? balance, balance));
+  for (const row of view.rows) record(row.dueDate, row.balanceAfter);
+  for (const row of view.early) record(row.date, row.balanceAfter);
+  return Array.from(balances, ([date, balance]) => ({ date, balance })).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Последний рассчитанный ядром остаток на конец выбранного дня. */
+export function balanceOnDate(points: readonly Point[], date: string): number | undefined {
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].date <= date) return points[i].balance;
+  }
 }
 
 /** Дни от 1970-01-01 для оси времени (без часовых поясов). */

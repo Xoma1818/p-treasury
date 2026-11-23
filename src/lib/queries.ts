@@ -25,8 +25,9 @@ export const useCategories = (includeArchived = false) =>
 
 /** Бюджетный месяц, в который попадает дата (с учётом «первого дня месяца»). */
 export const useMonthOf = (date: string) => useQuery({ queryKey: ["monthOf", date], queryFn: () => api.monthOf(date) });
-export const useBudget = (month: string | undefined) =>
-  useQuery({ queryKey: ["budget", month, today()], queryFn: () => api.getBudget(month!), enabled: !!month, staleTime: AGGREGATE_STALE_MS });
+export const budgetQuery = (month: string | undefined) =>
+  queryOptions({ queryKey: ["budget", month, today()], queryFn: () => api.getBudget(month!), enabled: !!month, staleTime: AGGREGATE_STALE_MS });
+export const useBudget = (month: string | undefined) => useQuery(budgetQuery(month));
 
 export const useInvestOverview = () =>
   useQuery({ queryKey: ["investOverview", today()], queryFn: api.investOverview, staleTime: AGGREGATE_STALE_MS });

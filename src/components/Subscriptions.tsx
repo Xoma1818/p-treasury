@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { api, SUB_PERIODS, type Subscription } from "../lib/api";
 import { addDays, formatDate, today } from "../lib/dates";
-import { useUi } from "../lib/store";
+import { type TxnJump, useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { plural } from "./Dashboard";
 import { Hint } from "./Hint";
@@ -29,24 +28,32 @@ function Next({ date }: { date: string }) {
   return <>следующий {formatDate(date)}</>;
 }
 
-function Row({ s, onHide, busy }: { s: Subscription; onHide?: (s: Subscription) => void; busy?: boolean }) {
+const seriesId = (s: Subscription) => `sub-${s.currencyCode}-${s.key}`;
+type OpenPayments = (filter: TxnJump, source: string) => void;
+
+function Row({ s, openOperations, onHide, busy }: { s: Subscription; openOperations?: OpenPayments; onHide?: (s: Subscription) => void; busy?: boolean }) {
   const showTransactions = useUi((u) => u.showTransactions);
+  const openPayments = () => {
+    const filter = { subscription: { key: s.key, currencyCode: s.currencyCode } };
+    if (openOperations) openOperations(filter, seriesId(s));
+    else showTransactions(filter);
+  };
   return (
-    <li className={s.hidden ? "hidden-sub" : undefined} data-testid="sub-row" data-key={s.key}>
+    <li className={s.hidden ? "hidden-sub" : undefined} data-testid="sub-row" data-key={s.key} data-currency={s.currencyCode}>
       <span className="sub-badge" aria-hidden="true">
         {s.payee.slice(0, 1).toUpperCase()}
       </span>
       <span className="sub-name">
-        <button className="link main" onClick={() => showTransactions({ search: s.payee })} title="Показать платежи">
+        <button type="button" className="link main" onClick={openPayments} data-report-source={seriesId(s)} aria-label={`Показать платежи: ${s.payee}, ${s.currencyCode}`} title="Показать платежи">
           {s.payee}
         </button>
         <span>
-          {s.categoryName ? `${s.categoryName} · ` : ""}
+          {s.categoryName ? `${s.categoryName} · ` : ""}{s.currencyCode} ·{" "}
           <Next date={s.nextDate} />
         </span>
       </span>
       <span className="sub-sum">
-        <Money amount={s.amount} symbol={s.currencySymbol} minorUnits={s.minorUnits} />
+        <Money amount={s.amount} symbol={s.currencySymbol} currencyCode={s.currencyCode} minorUnits={s.minorUnits} />
         <span>
           {SUB_PERIODS[s.period]}
           {s.yearly != null && s.period !== "year" && (
@@ -102,7 +109,7 @@ export function SubscriptionsCard() {
           </div>
           <ul className="subs-list">
             {first.slice(0, 4).map((s) => (
-              <Row key={s.key} s={s} />
+              <Row key={seriesId(s)} s={s} />
             ))}
           </ul>
         </>
@@ -112,10 +119,11 @@ export function SubscriptionsCard() {
 }
 
 /** Вкладка «Подписки» в Отчётах: полный список, можно скрыть лишнее. */
-export function SubscriptionsReport() {
+export function SubscriptionsReport({ openOperations, showHidden, setShowHidden }: {
+  openOperations: OpenPayments; showHidden: boolean; setShowHidden: (value: boolean) => void;
+}) {
   const data = useSubscriptions().data;
-  const [showHidden, setShowHidden] = useState(false);
-  const hide = useAction((s: Subscription) => api.hideSubscription(s.key, !s.hidden));
+  const hide = useAction((s: Subscription) => api.hideSubscription(s.key, s.currencyCode, !s.hidden));
   if (!data) return null;
   const hiddenCount = data.items.filter((s) => s.hidden).length;
   const items = data.items.filter((s) => showHidden || !s.hidden);
@@ -148,7 +156,7 @@ export function SubscriptionsReport() {
       ) : (
         <ul className="subs-list">
           {items.map((s) => (
-            <Row key={s.key} s={s} onHide={hide.run} busy={hide.busy} />
+            <Row key={seriesId(s)} s={s} openOperations={openOperations} onHide={hide.run} busy={hide.busy} />
           ))}
         </ul>
       )}

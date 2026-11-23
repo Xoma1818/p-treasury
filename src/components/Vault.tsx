@@ -145,7 +145,7 @@ export function TransferDialog({ onClose, onDone, fresh }: { onClose: () => void
 /** Выбор места папки: Документы, облака, своя папка (флешка). */
 function PlaceDialog({ current, onClose }: { current: string; onClose: () => void }) {
   const places = useQuery({ queryKey: ["vaultPlaces"], queryFn: api.vaultPlaces }).data ?? [];
-  const set = useAction((path: string | null) => api.setVaultDir(path), onClose, { celebrate: true });
+  const set = useAction((path: string | null) => api.setVaultDir(path), onClose, { singleSubmit: true });
   const other = async () => {
     const dir = await pickFolder();
     if (dir) set.run(dir);

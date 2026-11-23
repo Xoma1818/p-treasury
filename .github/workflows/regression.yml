@@ -44,6 +44,17 @@ jobs:
       - name: Тесты ядра и обновления данных
         if: ${{ !cancelled() }}
         run: cargo test -p budget-core --locked --quiet
+      - name: Сохранность копии при нехватке места
+        shell: bash
+        run: |
+          disk=$(mktemp -d "$RUNNER_TEMP/kazna-full.XXXXXX")
+          sudo mount -t tmpfs -o "size=16m,mode=0700,uid=$(id -u),gid=$(id -g)" tmpfs "$disk"
+          trap 'sudo umount "$disk"' EXIT
+          touch "$disk/.kazna-test-volume-16mib"
+          test_name=full_disk_keeps_last_good_copy_and_leaves_no_parts
+          KAZNA_FULL_DIR="$disk" cargo test -p budget-core --locked --test vault_edges -- \
+            --ignored --exact "$test_name" | tee "${disk}.log"
+          grep -Fxq "test $test_name ... ok" "${disk}.log"
       - name: Проверка Rust
         if: ${{ !cancelled() }}
         run: cargo clippy -p budget-core --all-targets --locked --quiet -- -D warnings

@@ -85,7 +85,7 @@ async function snapshot() {
   await openSection(browser, "Счета");
   s.accounts = await browser.execute(() => [...document.querySelectorAll('[data-testid="account-row"]')].map((r) => r.textContent));
   await openSection(browser, "Операции");
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   await waitText(browser, '[data-testid="txn-count"]', /Показано/);
   s.txnCount = await text('[data-testid="txn-count"]');
   s.txns = await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"]')].map((r) => r.textContent));

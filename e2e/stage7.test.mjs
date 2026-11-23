@@ -103,7 +103,7 @@ test("Ctrl+Z в поле ввода отменяет набор текста, а
   await browser.pause(500);
   const bar = await browser.$('[data-testid="undo-bar"]');
   assert.equal(await bar.isExisting(), false, `отмены действия не было: «${(await bar.isExisting()) ? await bar.getText() : ""}»`);
-  await (await browser.$('//button[normalize-space()="Сбросить"]')).click();
+  await (await browser.$('//button[normalize-space()="Показать все операции"]')).click();
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
 });
 
@@ -134,6 +134,7 @@ test("горячие клавиши: F1 — справка, Ctrl+F — поис�
   await keys("Control", "n");
   await (await browser.$('[role="dialog"] [name="amount"]')).waitForDisplayed();
   await fill(browser, "amount", "100");
+  await keys("Control", "Enter");
   await keys("Control", "Enter");
   await browser.waitUntil(async () => !(await browser.$('[role="dialog"]').isExisting()), { timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', /Показано 3 из 3/);

@@ -61,7 +61,9 @@ fn validate(key: &str, value: &str) -> Result<()> {
         "subscriptions_hidden" | "forecast_excluded_accounts" | "ui_modules" => {
             serde_json::from_str::<Vec<String>>(value).is_ok()
         }
-        "subs_notified" => serde_json::from_str::<BTreeMap<String, String>>(value).is_ok(),
+        "subs_notified" | "subs_notified_by_currency" => {
+            serde_json::from_str::<BTreeMap<String, String>>(value).is_ok()
+        }
         "bank_accounts" | "ui_prefs" => {
             serde_json::from_str::<BTreeMap<String, String>>(value).is_ok()
         }

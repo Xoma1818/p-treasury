@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react";
 import { api, type Txn } from "../lib/api";
 import { useAction } from "../lib/useAction";
@@ -8,11 +8,12 @@ import { receiptTitle, rowIds, type TxnRow } from "../lib/receipt";
 import { COL_LABEL, COL_SORT, COMPACT_COLS, DEFAULT_TABLE, groupRows, type Col, type SortBy, type TxnTableLayout } from "../lib/txnTable";
 import { isRowSelected, type SelState } from "../lib/selection";
 import { useUi } from "../lib/store";
-import { Money } from "./Money";
+import { BaseMoney, Money } from "./Money";
 import { LookMark, useCategoryMap } from "./CategoryMark";
 import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
 import { FindSimilar } from "./FindSimilar";
+import { canPlanRepeat, RepeatPlanDialog, useRepeatPlan } from "./TxnRepeatPlan";
 
 /** Тип данных перетаскивания операции (на другой день календаря). */
 export const TXN_DRAG = "application/x-p-treasury-txn";
@@ -21,6 +22,11 @@ export const TXN_DRAG = "application/x-p-treasury-txn";
 export interface TableSelection {
   sel: SelState;
   onToggle: (key: string, mods: { shift: boolean; ctrl: boolean }) => void;
+}
+
+/** Запрашиваем связь только для открытого меню, а не для всех строк журнала. */
+function RepeatMenuLabel({ id }: { id: string }) {
+  return useRepeatPlan(id).data ? "Открыть запланированный повтор" : "Запланировать повтор…";
 }
 
 /** Список операций; нажатие на строку открывает операцию. `draggable` — строку можно перетащить.
@@ -33,6 +39,7 @@ export function TxnTable({
   layout,
   onSort,
   partial,
+  isBudgetPeriod = false,
 }: {
   items: Txn[];
   compact?: boolean;
@@ -44,16 +51,20 @@ export function TxnTable({
   onSort?: (by: SortBy) => void;
   /** Загружены не все операции по фильтру: итоги групп — только по показанным. */
   partial?: boolean;
+  isBudgetPeriod?: boolean;
 }) {
   const open = useUi((s) => s.openTxnForm);
   const showTransactions = useUi((s) => s.showTransactions);
   const openDebt = useUi((s) => s.openDebt);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [similar, setSimilar] = useState<Txn | null>(null);
+  const [repeatSource, setRepeatSource] = useState<Txn | null>(null);
+  const repeatRow = useRef<HTMLTableRowElement>(null);
+  const contextRow = useRef<HTMLTableRowElement | null>(null);
   const catMap = useCategoryMap();
   const remove = useAction((t: Txn) => (t.splitId ? api.deleteReceipt(t.splitId) : api.deleteTransaction(t.id)));
   // Г2: правая кнопка — все действия с операцией в одном меню.
-  const menuFor = (t: Txn): CtxItem[] => {
+  const menuFor = (t: Txn, row: HTMLTableRowElement): CtxItem[] => {
     const items: CtxItem[] = [{ text: "Открыть", onClick: () => open({ mode: "edit", txn: t }) }];
     if (t.type !== "adjustment" && !t.refund && !t.splitId)
       items.push({
@@ -65,6 +76,10 @@ export function TxnTable({
             prefill: { amount: t.amount, accountId: t.accountId, toAccountId: t.toAccountId, categoryId: t.categoryId, payee: t.payee, note: t.note, tags: t.tags },
           }),
       });
+    if (canPlanRepeat(t)) items.push({
+      text: <RepeatMenuLabel id={t.id} />,
+      onClick: () => { repeatRow.current = row; setRepeatSource(t); },
+    });
     if (t.type === "expense" && !t.debtId && !t.spreadMonths && !t.refund) items.push({ text: "Вернуть…", onClick: () => open({ mode: "refund", purchase: t }) });
     if (t.payee) items.push({ text: `Все с «${t.payee}»`, onClick: () => showTransactions({ search: t.payee! }) });
     if (t.type !== "adjustment") items.push({ text: "Найти похожие…", onClick: () => setSimilar(t) });
@@ -94,13 +109,28 @@ export function TxnTable({
     const main = (
       <tr
         key={r.key}
+        onClickCapture={(e) => {
+          // В WebKitGTK после contextmenu бывает click с button=0 без нового
+          // нажатия левой кнопки. Останавливаем его и для флажка, и для самой строки.
+          if (e.detail > 0 && contextRow.current === e.currentTarget) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
         onClick={(e) => {
           // С Ctrl или Shift щелчок выделяет строку, без клавиш — открывает операцию.
           if (selection && (e.ctrlKey || e.metaKey || e.shiftKey)) return selection.onToggle(r.key, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
           open({ mode: "edit", txn: t });
         }}
-        onMouseDown={(e) => selection && e.shiftKey && e.preventDefault()}
-        onContextMenu={(e) => openContextMenu(e, menuFor(t))}
+        onMouseDown={(e) => {
+          if (e.button === 0) contextRow.current = null;
+          if (selection && e.shiftKey) e.preventDefault();
+        }}
+        onContextMenu={(e) => {
+          contextRow.current = e.currentTarget;
+          openContextMenu(e, menuFor(t, e.currentTarget));
+        }}
+        tabIndex={-1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
         data-receipt={r.kind === "receipt" ? r.parts.length : undefined}
@@ -184,7 +214,11 @@ export function TxnTable({
             case "amount":
               return (
                 <td key={c} className="num">
-                  {r.kind === "receipt" ? <Money amount={-r.total} symbol={t.currencySymbol} minorUnits={t.minorUnits} signed /> : <Amount t={t} />}
+                  {r.kind === "txn" && t.countedShare && <div className="sub">Списано со счёта</div>}
+                  {r.kind === "receipt" ? <>
+                    <Money amount={-r.total} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} signed />
+                    {r.parts.some((p) => p.countedShare) && <div className="sub">Доли периода — внутри чека</div>}
+                  </> : <><Amount t={t} /><PeriodShare t={t} isBudget={isBudgetPeriod} /></>}
                 </td>
               );
           }
@@ -208,7 +242,8 @@ export function TxnTable({
               </td>
             ) : c === "amount" ? (
               <td key={c} className="num">
-                <Money amount={-p.amount} symbol={p.currencySymbol} minorUnits={p.minorUnits} signed />
+                <Money amount={-p.amount} symbol={p.currencySymbol} currencyCode={p.currencyCode} minorUnits={p.minorUnits} signed />
+                <PeriodShare t={p} isBudget={isBudgetPeriod} />
               </td>
             ) : (
               <td key={c} />
@@ -224,6 +259,10 @@ export function TxnTable({
       {/* Отказ удаления из меню правой кнопки виден, а не теряется молча. */}
       <ErrorText error={remove.error} />
       {similar && <FindSimilar txn={similar} onClose={() => setSimilar(null)} />}
+      {repeatSource && <RepeatPlanDialog source={repeatSource} onClose={() => {
+        setRepeatSource(null);
+        repeatRow.current?.focus();
+      }} />}
       <table className={selection ? "table txn-table selectable" : "table txn-table"}>
         {onSort && !compact && (
           <thead>
@@ -258,8 +297,9 @@ export function TxnTable({
                   <span className="muted group-count">{g.rows.length}</span>
                   {g.total && g.total.amount !== 0 && (
                     <span className="group-total" title={partial ? "Итог по загруженным операциям; «Показать ещё» загрузит остальные" : undefined}>
+                      {g.rows.some((r) => r.kind === "txn" ? r.txn.countedShare : r.parts.some((p) => p.countedShare)) && "По операциям целиком · "}
                       {partial && <span className="muted group-partial">по загруженным </span>}
-                      <Money amount={g.total.amount} symbol={g.total.symbol} minorUnits={g.total.minorUnits} signed />
+                      <Money amount={g.total.amount} symbol={g.total.symbol} currencyCode={g.total.currencyCode} minorUnits={g.total.minorUnits} signed />
                     </span>
                   )}
                 </td>
@@ -291,6 +331,16 @@ function describe(t: Txn): string {
   }
 }
 
+function PeriodShare({ t, isBudget }: { t: Txn; isBudget: boolean }) {
+  const share = t.countedShare;
+  if (!share) return null;
+  return <div className="sub" data-testid={isBudget ? "txn-budget-share" : "txn-period-share"}>
+    {isBudget ? "В бюджете за период" : "Учтено за период"} · <BaseMoney amount={share.budgetAmount} currencyCode={share.budgetCurrency} />
+    {share.budgetCurrency !== t.currencyCode && <> (доля покупки · <Money amount={share.amount} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} />)</>}
+    {share.missingRate && <div className="warn">Доли без курса не вошли</div>}
+  </div>;
+}
+
 function Amount({ t }: { t: Txn }) {
   if (t.type === "transfer") {
     const same = t.toCurrencySymbol === t.currencySymbol;
@@ -307,5 +357,5 @@ function Amount({ t }: { t: Txn }) {
     );
   }
   const signed = t.type === "expense" ? -t.amount : t.amount;
-  return <Money amount={signed} symbol={t.currencySymbol} minorUnits={t.minorUnits} signed className={signed > 0 ? "plus" : ""} />;
+  return <Money amount={signed} symbol={t.currencySymbol} currencyCode={t.currencyCode} minorUnits={t.minorUnits} signed className={signed > 0 ? "plus" : ""} />;
 }

@@ -40,3 +40,11 @@
 .txn-results-status {
   flex: 1;
 }
+
+.txn-empty {
+  padding: 16px 0 8px;
+}
+
+.txn-empty p {
+  margin: 4px 0;
+}

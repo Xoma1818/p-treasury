@@ -32,8 +32,8 @@ export function ReconcileAccount({ account, onClose }: { account: Account; onClo
     enabled: showRows && !!quote,
     retry: false,
   });
-  const complete = useAction(api.completeReconciliation, onClose, { celebrate: true });
-  const adjust = useAction(api.adjustBalanceChecked, onClose, { celebrate: true });
+  const complete = useAction(api.completeReconciliation, onClose, { singleSubmit: true });
+  const adjust = useAction(api.adjustBalanceChecked, onClose, { singleSubmit: true });
   const busy = complete.busy || adjust.busy;
   const error = complete.error ?? adjust.error;
   const clearErrors = () => {

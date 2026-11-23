@@ -66,6 +66,23 @@ export function addDays(date: string, delta: number): string {
   return isoDate(new Date(y, m - 1, d + delta));
 }
 
+/** Следующий срок после сегодняшнего дня и самой операции, с привязкой к её дню. */
+export function nextRepeatDate(source: string, repeat: "monthly" | "weekly", current = today()): string {
+  const after = current > source ? current : source;
+  if (repeat === "weekly") {
+    const weekday = (iso: string) => new Date(iso + "T12:00:00Z").getUTCDay();
+    return addDays(after, (weekday(source) - weekday(after) + 7) % 7 || 7);
+  }
+  const inMonth = (month: string) => {
+    const last = monthBounds(month)[1].slice(-2);
+    const day = source.slice(-2);
+    return month + "-" + (day > last ? last : day);
+  };
+  const month = after.slice(0, 7);
+  const candidate = inMonth(month);
+  return candidate > after ? candidate : inMonth(shiftMonth(month, 1));
+}
+
 /** Понедельник недели, в которую попадает дата. */
 export function weekStart(date: string): string {
   const [y, m, d] = date.split("-").map(Number);

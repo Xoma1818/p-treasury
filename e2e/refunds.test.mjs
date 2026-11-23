@@ -39,7 +39,7 @@ after(async () => {
 test("«Вернуть…»: возврат в месяце покупки уменьшает его расходы, деньги на счёте", async () => {
   await openSection(browser, "Операции");
   // Покупка в прошлом месяце: снимаем фильтр месяца и открываем строку.
-  await click(browser, "Сбросить");
+  await click(browser, "Показать все операции");
   const row = await browser.$('//tr[@data-testid="txn-row"][contains(., "Куртка")]/td[contains(@class, "date")]');
   await row.waitForExist({ timeout: 5000 });
   await row.click();

@@ -462,6 +462,7 @@ fn parse(
             date: date.clone(),
             kind: String::new(),
             account: account.name.clone(),
+            account_id: Some(account_id.to_owned()),
             amount: String::new(),
             category: String::new(),
             category_source: None,
@@ -682,6 +683,19 @@ mod tests {
             currency: Some(4),
         };
         let first = preview(db.conn(), &path, &account, &mapping).unwrap();
+        let dollar_card = accounts::create(db.conn(), &input("Карта", "debit", "USD", 0)).unwrap();
+        let dollars = CsvMapping {
+            currency: None,
+            ..mapping.clone()
+        };
+        let dollar_preview = preview(db.conn(), &path, &dollar_card, &dollars).unwrap();
+        assert!(dollar_preview.rows[0].error.is_none());
+        assert_eq!(first.rows[0].account, dollar_preview.rows[0].account);
+        assert_eq!(first.rows[0].account_id.as_deref(), Some(account.as_str()));
+        assert_eq!(
+            dollar_preview.rows[0].account_id.as_deref(),
+            Some(dollar_card.as_str())
+        );
         assert_eq!((first.valid, first.errors, first.duplicates), (3, 1, 0));
         assert_eq!(first.rows[0].date, "2026-10-05");
         assert_eq!(first.rows[0].kind, "Расход");

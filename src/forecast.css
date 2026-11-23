@@ -28,6 +28,7 @@
 .fc-table td, .fc-table th { padding: 6px 8px; }
 .fc-table .strong { font-weight: 600; }
 .fc-table tr.open td { background: var(--hover); }
+.fc-month-toggle { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; border: 0; padding: 2px 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .fc-caret { display: inline-block; width: 12px; color: var(--muted); }
 .fc-detail td { background: var(--bg); }
 .fc-detail-grid { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 24px; padding: 4px 0 4px 20px; }
