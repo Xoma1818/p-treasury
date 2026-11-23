@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'">
+  <title>Казна 0.41 — карточка участника</title>
+  <style>
+    :root { color-scheme: light dark; font: 18px/1.55 "Segoe UI", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: CanvasText; background: Canvas; }
+    main { max-width: 44rem; margin: auto; padding: clamp(1.2rem, 5vw, 3.5rem); }
+    header { border-bottom: 2px solid currentColor; padding-bottom: 1rem; }
+    header p { margin: 0 0 .35rem; }
+    h1, h2 { line-height: 1.2; margin: 0; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.4rem; }
+    section { margin-top: 2rem; }
+    p, ol { margin: .7rem 0 0; }
+    ol { padding-left: 1.6rem; }
+    li { padding-left: .15rem; margin-bottom: .5rem; }
+    @page { size: A4; margin: 22mm; }
+    @media print {
+      :root { color-scheme: light; font-size: 13pt; }
+      main { max-width: none; padding: 0; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p>Казна 0.41</p>
+      <h1>Карточка участника</h1>
+    </header>
+
+    <section aria-labelledby="rent">
+      <h2 id="rent">1. Аренда</h2>
+      <p>Прошлая оплата аренды уже есть в журнале. Перед подтверждением каждого из трёх действий скажите, <strong>сколько записей об оплате аренды будет в журнале и сколько денег будет на карте</strong>.</p>
+      <ol>
+        <li>По прошлой оплате запланируйте ежемесячную аренду. Ближайший срок — завтра.</li>
+        <li>Возьмите у ведущего учебную выписку. Банк списал деньги сегодня, на день раньше срока. Загрузите выписку.</li>
+        <li>Отметьте в календаре, какой платёж уже прошёл.</li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="budget">
+      <h2 id="budget">2. Бюджет на питание</h2>
+      <p>В этом месяце на питание потрачено на 400 ₽ больше плана. Покройте эту разницу за счёт свободной части бюджета на досуг.</p>
+      <p><strong>Перед подтверждением</strong> скажите, какими станут лимиты на питание и досуг, общий план и фактические расходы. Сколько денег будет на карте и сколько наличными?</p>
+    </section>
+  </main>
+</body>
+</html>
