@@ -25,8 +25,8 @@ function Wait-Child([Diagnostics.Process]$Child, [int]$Seconds, [string]$Phase) 
     Write-Phase "$Phase complete"
 }
 $repo = 'Xoma1818/p-treasury'
-$expectedHead = '07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba'
-$runId = 45082106249L
+$expectedHead = 'e43448858979be832162d274a0aefb7c54403763'
+$runId = 45198791888L
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_REPOSITORY -ne $repo -or
     $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') { throw 'Use the disposable GitHub-hosted Windows runner only.' }
 $os = Get-CimInstance Win32_OperatingSystem
@@ -65,7 +65,7 @@ Invoke-WebRequest -Uri $archiveUrl -Headers $headers -OutFile $zip -TimeoutSec 2
 $headers.Clear()
 $env:GH_TOKEN = $null
 if ("sha256:$((Get-FileHash -LiteralPath $zip).Hash)" -ne $candidate.digest) { throw 'Artifact digest mismatch.' }
-$exe = 'Kazna_0.41.0_x64-setup.exe'
+$exe = 'Kazna_0.41.2_x64-setup.exe'
 $archive = [IO.Compression.ZipFile]::OpenRead($zip)
 try {
     foreach ($name in @($exe,"$exe.sig")) {
@@ -78,6 +78,11 @@ $old = Join-Path $root 'Kazna_0.37.2_x64-setup.exe'
 Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.37.2/Kazna_0.37.2_x64-setup.exe' -OutFile $old -TimeoutSec 20 -OperationTimeoutSeconds 60
 if ((Get-FileHash -LiteralPath $old).Hash -ne '6e31087e53ff29a4033caab937bd47c0558204914df0ef37108fcf37ededdfb7') {
     throw 'The previous installer digest differs from the published release.'
+}
+$previousSignature = Join-Path $feed 'previous-installer.sig'
+Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.37.2/Kazna_0.37.2_x64-setup.exe.sig' -OutFile $previousSignature -TimeoutSec 20 -OperationTimeoutSeconds 60
+if ((Get-FileHash -LiteralPath $previousSignature).Hash -ne 'ec77e42c7b706182b88c7f3855d2cb109f84b57f23a520fc6a0819f3149ce04e') {
+    throw 'The negative-control signature differs from the published 0.37.2 asset.'
 }
 $driver = Get-Command msedgedriver.exe -ErrorAction Stop
 Write-Host "Windows $($os.Caption) build $($os.BuildNumber), $($os.OSArchitecture); driver $($driver.Source)"
@@ -103,10 +108,11 @@ try {
     if (!(Test-Path -LiteralPath $addressFile)) { throw 'The local HTTPS listener did not report readiness.' }
     $env:PTREASURY_UPDATE_URL = [IO.File]::ReadAllText($addressFile)
     $manifest = Invoke-RestMethod -Uri $env:PTREASURY_UPDATE_URL -TimeoutSec 12 -OperationTimeoutSeconds 15 -NoProxy
-    if ($manifest.version -ne '0.41.0') { throw 'The normal Windows TLS client did not receive the expected candidate manifest.' }
+    if ($manifest.version -ne '0.41.2') { throw 'The normal Windows TLS client did not receive the expected candidate manifest.' }
     $env:NO_PROXY = 'localhost,127.0.0.1'
     $env:KAZNA_TEST_BIN = $bin
     $env:KAZNA_E2E_APP = Join-Path $Source 'e2e/app.mjs'
+    $env:KAZNA_QA_FEED_FOLDER = $feed
     $env:KAZNA_UPDATE_EVIDENCE = Join-Path $root 'verified-update.json'
     Write-Phase 'Starting the installed app and checking the update'
     $test = Start-Child (Get-Command node.exe).Source @((Join-Path $PSScriptRoot 'verify-update.mjs'))

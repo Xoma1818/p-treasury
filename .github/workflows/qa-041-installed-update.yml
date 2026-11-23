@@ -1,4 +1,4 @@
-name: Проверка обновления Kazna 0.37.2 до 0.41.0
+name: Проверка обновления Kazna 0.37.2 до 0.41.2
 on:
   push:
     branches: [codex/qa-041-installed-update]
@@ -9,6 +9,7 @@ on:
       - '.github/qa/041-update/serve-feed.ps1'
       - '.github/qa/041-update/verify-update.mjs'
       - '.github/qa/041-update/windows-driver.ps1'
+      - '.github/qa/041-update/windows-full-disk.ps1'
       - '.github/qa/041-update/test-windows.ps1'
 permissions:
   contents: read
@@ -25,7 +26,7 @@ jobs:
           path: harness
       - uses: actions/checkout@v5
         with:
-          ref: 07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba
+          ref: e43448858979be832162d274a0aefb7c54403763
           persist-credentials: false
           path: source
       - uses: actions/setup-node@v5
@@ -42,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: ./harness/.github/qa/041-update/check-update.ps1 -Source (Resolve-Path ./source).Path
   windows-scenarios:
-    name: Десять групп в окне Windows 11
+    name: Одиннадцать групп в окне Windows 11
     # A diagnostic retry of the updater on the same application commit can opt out explicitly.
     if: ${{ !contains(github.event.head_commit.message, '[update-only]') }}
     runs-on: windows-11-arm
@@ -55,7 +56,7 @@ jobs:
           path: harness
       - uses: actions/checkout@v5
         with:
-          ref: 07141ebe647f9a8a60ea6a41f0fbc31f2c55c8ba
+          ref: e43448858979be832162d274a0aefb7c54403763
           persist-credentials: false
           path: source
       - uses: actions/setup-node@v5
@@ -79,3 +80,25 @@ jobs:
           path: ${{ runner.temp }}/kazna-041-scenarios/logs
           if-no-files-found: warn
           retention-days: 7
+
+  full-disk:
+    name: Сохранность копии при заполнении диска Windows 11
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/qa/041-update
+          path: harness
+      - uses: actions/checkout@v5
+        with:
+          ref: e43448858979be832162d274a0aefb7c54403763
+          persist-credentials: false
+          path: source
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Проверка резервной копии на отдельном томе
+        shell: pwsh
+        run: ./harness/.github/qa/041-update/windows-full-disk.ps1 -Source (Resolve-Path ./source).Path

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -19,6 +20,35 @@ const root = await mkdtemp(join(tmpdir(), 'kazna-inapp-e2e-'));
 const data = join(root, 'data');
 await mkdir(data);
 const databasePath = join(data, 'budget.db');
+const feedFolder = process.env.KAZNA_QA_FEED_FOLDER;
+assert.ok(feedFolder, 'missing private control directory of the loopback fixture');
+const changeFeed = (mode) => writeFile(join(feedFolder, 'scenario.txt'), mode, 'utf8');
+async function observedRequest(value) {
+  await until(async () => (await readFile(join(feedFolder, 'requests.txt'), 'utf8')).split(/\r?\n/).includes(value), value);
+}
+async function backupFiles() {
+  let names;
+  try { names = await readdir(join(data, 'backups')); }
+  catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+  const result = {};
+  for (const name of names.filter(name => name.startsWith('before-app-update-') || name.startsWith('before-update-'))) {
+    result[name] = createHash('sha256').update(await readFile(join(data, 'backups', name))).digest('hex');
+  }
+  return result;
+}
+function checkBackupDelta(previous, current, expectedPrefixes, before) {
+  for (const [name, digest] of Object.entries(previous)) assert.equal(current[name], digest, `existing backup ${name}`);
+  const added = Object.keys(current).filter(name => !(name in previous));
+  assert.equal(added.length, expectedPrefixes.length, 'number of new backup files');
+  for (const prefix of expectedPrefixes) {
+    const matching = added.filter(name => name.startsWith(prefix));
+    assert.equal(matching.length, 1, `new backup ${prefix}`);
+    const saved = snapshot(join(data, 'backups', matching[0]), before.tables);
+    assert.equal(saved.schema, 28);
+    verifyData(before, saved, matching[0]);
+  }
+  return added;
+}
 const { start, stop, openSection } = await import(pathToFileURL(resolve(process.env.KAZNA_E2E_APP)).href);
 
 async function until(get, label, timeout = 25_000, interval = 175) {
@@ -135,20 +165,65 @@ try {
   await ui.click('Настройки', 'nav');
   await ui.text('main h1', 'Настройки');
   if (await ui.run(() => Boolean(document.querySelector('[data-testid="update-version"]')))) await ui.click('Позже', '[role="dialog"]');
-  await ui.click('Проверить обновления', '[data-testid="updates-card"]');
-  await ui.text('[data-testid="update-version"]', 'Доступна версия 0.41.0 (у вас 0.37.2)');
-  phase('Update offered; snapshotting old data');
   const before = snapshot(databasePath);
   assert.equal(before.schema, 28);
   for (const name of ['accounts', 'transactions', 'categories', 'debts', 'notes', 'goals', 'reminders', 'payee_rules']) {
     assert.ok(before.tables[name]?.rows.length, `fixture has data in ${name}`);
   }
-  console.log('Installed 0.37.2 offered candidate 0.41.0 via the local TLS feed.');
+  const beforeFailures = await backupFiles();
+  const visibleError = (scope, pattern) => until(async () => {
+    const description = await ui.run(selector => {
+      const el = document.querySelector(selector + ' [role="alert"]');
+      return el?.getClientRects().length ? el.textContent.trim() : '';
+    }, scope);
+    return pattern.test(description) ? description : null;
+  }, 'visible updater error in ' + scope);
+  async function checkOriginal(label) {
+    const info = await ui.invoke('app_info');
+    assert.equal(info.version, '0.37.2');
+    assert.equal(info.schemaVersion, 28);
+    assert.equal(resolve(info.dbPath).toLowerCase(), resolve(databasePath).toLowerCase());
+    const processState = runningApp();
+    assert.equal(processState.version, '0.37.2');
+    assert.deepEqual(processState.processes.filter(usesProfile).map(p => p.id), [oldPid]);
+    const current = snapshot(databasePath, before.tables);
+    assert.equal(current.schema, 28);
+    verifyData(before, current, label);
+  }
+  phase('Closing the local update feed connection to check a network failure');
+  await changeFeed('network');
+  await ui.click('Проверить обновления', '[data-testid="updates-card"]');
+  const networkError = await visibleError('[data-testid="updates-card"]', /не удалось проверить обновления/i);
+  await observedRequest('network:latest.json');
+  await checkOriginal('network failure');
+  const afterNetwork = await backupFiles();
+  checkBackupDelta(beforeFailures, afterNetwork, [], before);
+  phase(`Original window and database verified after network failure: ${networkError}`);
+
+  phase('Supplying the public signature of the previous installer for this candidate');
+  await changeFeed('signature');
+  await ui.click('Проверить обновления', '[data-testid="updates-card"]');
+  await ui.text('[data-testid="update-version"]', 'Доступна версия 0.41.2 (у вас 0.37.2)');
+  await ui.click('Обновить', '[role="dialog"]');
+  const signatureError = await visibleError('[role="dialog"]', /signatur|verification|подпис/i);
+  await observedRequest('signature:Kazna_0.41.2_x64-setup.exe');
+  await checkOriginal('signature failure');
+  const afterSignature = await backupFiles();
+  const failedCopies = checkBackupDelta(afterNetwork, afterSignature, ['before-app-update-'], before);
+  phase(`Original window, database and safety copy verified after signature rejection: ${signatureError}`);
+  await ui.click('Позже', '[role="dialog"]');
+
+  // 0.37.2 names its safety copies to the nearest second. Give the retry its own name.
+  await sleep(1050);
+  await changeFeed('normal');
+  await ui.click('Проверить обновления', '[data-testid="updates-card"]');
+  await ui.text('[data-testid="update-version"]', 'Доступна версия 0.41.2 (у вас 0.37.2)');
+  console.log('Installed 0.37.2 offered signed candidate 0.41.2 via the local TLS feed after both failures.');
   await ui.click('Обновить', '[role="dialog"]');
   phase('Clicked Update; waiting for automatic restart');
   const reboot = await until(() => {
     const app = runningApp();
-    if (app.version !== '0.41.0') return null;
+    if (app.version !== '0.41.2') return null;
     return app.processes.find((proc) => proc.id !== oldPid && proc.visible && proc.window?.includes('Kazna') && usesProfile(proc));
   }, 'the installer replaces the binary and automatically restarts the same data profile', 150_000, 1100);
   console.log(`Installer restarted Kazna with the same test directory: new PID ${reboot.id}.`);
@@ -158,17 +233,11 @@ try {
     return state.schema === 30 && state;
   }, 'automatic restart opens and migrates the original database', 30_000, 400);
   verifyData(before, after, 'upgraded DB');
-  const files = await readdir(join(data, 'backups'));
-  for (const prefix of ['before-app-update-', 'before-update-']) {
-    const copies = files.filter((name) => name.startsWith(prefix));
-    assert.equal(copies.length, 1, prefix);
-    const copy = snapshot(join(data, 'backups', copies[0]), before.tables);
-    assert.equal(copy.schema, 28);
-    verifyData(before, copy, `backup ${prefix}`);
-  }
+  await observedRequest('normal:Kazna_0.41.2_x64-setup.exe');
+  const successfulCopies = checkBackupDelta(afterSignature, await backupFiles(), ['before-app-update-', 'before-update-'], before);
   // The updater ended the original WebDriver session. Independently exercise the installed UI
   // by opening the same installed binary and profile again after proving its automatic restart.
-  phase('Both backup copies and old rows verified; reopening installed 0.41.0');
+  phase('Both backup copies and old rows verified; reopening installed 0.41.2');
   await stop(browser).catch(() => {});
   browser = undefined;
   ui = undefined;
@@ -176,11 +245,11 @@ try {
   ui = onWindow(browser);
   await openSection(browser, 'Настройки');
   await ui.text('main h1', 'Настройки');
-  await ui.text('#set-about .facts', '0.41.0');
+  await ui.text('#set-about .facts', '0.41.2');
   await ui.text('#set-about .facts', '30 из 30');
   assert.equal(await ui.run(() => document.title), 'Kazna');
   const newInfo = await ui.invoke('app_info');
-  assert.equal(newInfo.version, '0.41.0');
+  assert.equal(newInfo.version, '0.41.2');
   assert.equal(newInfo.schemaVersion, 30);
   assert.equal(newInfo.supportedSchemaVersion, 30);
   assert.equal(resolve(newInfo.dataDir).toLowerCase(), resolve(data).toLowerCase());
@@ -199,9 +268,12 @@ try {
   assert.equal(savedRule.categoryId, categoryId);
   phase('New installed window and saved rule/goal verified');
   const counts = Object.fromEntries(Object.entries(before.tables).filter(([, t]) => t.rows.length).map(([name, t]) => [name, t.rows.length]));
-  const evidence = { before: '0.37.2', after: '0.41.0', schema: '28 → 30', automaticRestartPid: reboot.id,
+  const evidence = { before: '0.37.2', after: '0.41.2', schema: '28 → 30', automaticRestartPid: reboot.id,
     reopenedInstalledWindow: { title: 'Kazna', version: newInfo.version, displayedSchema: 30, goalId, ruleId },
-    tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok', backups: 2 };
+    tablesCompared: Object.keys(before.tables).length, counts, integrity: 'ok', foreignKeys: 'ok',
+    networkFailure: { message: networkError, retainedPid: oldPid, newBackups: 0 },
+    signatureFailure: { message: signatureError, retainedPid: oldPid, newBackups: failedCopies.length },
+    successfulUpdateBackups: successfulCopies.length };
   await writeFile(process.env.KAZNA_UPDATE_EVIDENCE, JSON.stringify(evidence), { flag: 'wx' });
   console.log(JSON.stringify(evidence));
 } catch (error) {

@@ -9,18 +9,23 @@ $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 $listener.Start()
 try {
     $port = $listener.LocalEndpoint.Port
-    $exe = 'Kazna_0.41.0_x64-setup.exe'
+    $exe = 'Kazna_0.41.2_x64-setup.exe'
     $signed = @{
         url = "https://localhost:$port/$exe"
         signature = [IO.File]::ReadAllText((Join-Path $Folder "$exe.sig")).Trim()
     }
     $manifest = @{
-        version = '0.41.0'
+        version = '0.41.2'
         notes = 'Isolated verification of the pull request installer'
         pub_date = [DateTimeOffset]::UtcNow.ToString('o')
         platforms = @{ 'windows-x86_64' = $signed; 'windows-x86_64-nsis' = $signed }
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Folder 'latest.json') -Encoding utf8NoBOM
+    # Only the local manifest changes. The downloaded installer and both published signatures stay byte-identical.
+    $signed.signature = [IO.File]::ReadAllText((Join-Path $Folder 'previous-installer.sig')).Trim()
+    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Folder 'different-signature.json') -Encoding utf8NoBOM
+    $modeFile = Join-Path $Folder 'scenario.txt'
+    [IO.File]::WriteAllText($modeFile, 'normal')
     [IO.File]::WriteAllText((Join-Path $Folder 'endpoint.txt'), "https://localhost:$port/latest.json")
     $stop = Join-Path $Folder 'stop'
     while (!(Test-Path -LiteralPath $stop)) {
@@ -37,12 +42,19 @@ try {
                 for ($i = 0; $i -lt 100; $i++) {
                     if ([string]::IsNullOrEmpty($reader.ReadLine())) { break }
                 }
-                if ($request -notmatch '^GET /(latest\.json|Kazna_0\.41\.0_x64-setup\.exe) HTTP/1\.[01]$') {
+                if ($request -notmatch '^GET /(latest\.json|Kazna_0\.41\.2_x64-setup\.exe) HTTP/1\.[01]$') {
                     $ssl.Write([Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 0`r`nConnection: close`r`n`r`n"))
                     continue
                 }
                 $name = $Matches[1]
-                $file = [IO.File]::OpenRead((Join-Path $Folder $name))
+                $mode = [IO.File]::ReadAllText($modeFile).Trim()
+                if ($mode -eq 'network' -and $name -eq 'latest.json') {
+                    Add-Content -LiteralPath (Join-Path $Folder 'requests.txt') -Value 'network:latest.json'
+                    # Close the established connection before sending an HTTP response.
+                    continue
+                }
+                $payload = if ($mode -eq 'signature' -and $name -eq 'latest.json') { 'different-signature.json' } else { $name }
+                $file = [IO.File]::OpenRead((Join-Path $Folder $payload))
                 try {
                     $type = if ($name -eq 'latest.json') { 'application/json' } else { 'application/octet-stream' }
                     $header = "HTTP/1.1 200 OK`r`nContent-Type: $type`r`nContent-Length: $($file.Length)`r`nConnection: close`r`n`r`n"
@@ -50,6 +62,7 @@ try {
                     $file.CopyTo($ssl)
                     $ssl.Flush()
                     Add-Content -LiteralPath (Join-Path $Folder 'requests.txt') -Value $name
+                    Add-Content -LiteralPath (Join-Path $Folder 'requests.txt') -Value "${mode}:$name"
                 } finally { $file.Dispose() }
             } finally { $reader.Dispose() }
         } catch { Write-Warning $_.Exception.Message }
