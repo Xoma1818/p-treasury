@@ -220,7 +220,12 @@ mod tests {
 
     #[test]
     fn zero_net_spending_still_belongs_to_its_period() {
-        for (first, second, presence) in [(Some(0), Some(5000), "both"), (Some(0), None, "onlyA"), (None, Some(0), "onlyB"), (Some(0), Some(0), "both")] {
+        for (first, second, presence) in [
+            (Some(0), Some(5000), "both"),
+            (Some(0), None, "onlyA"),
+            (None, Some(0), "onlyB"),
+            (Some(0), Some(0), "both"),
+        ] {
             let r = row("id".into(), "Получатель".into(), first, second);
             assert_eq!(r.presence, presence);
             assert_eq!(r.percent, None);

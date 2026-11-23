@@ -236,10 +236,18 @@ pub(crate) fn fact_currency(conn: &Connection, month: &str) -> Result<String> {
 
 /// Выбранный месяц бюджета не меняется при редактировании настроек периода.
 fn current_budget_period(conn: &Connection, id: &str) -> Result<Period> {
-    let start: String = conn.query_row("SELECT period_start FROM budgets WHERE id = ?1", [id], |r| r.get(0))?;
+    let start: String = conn.query_row(
+        "SELECT period_start FROM budgets WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
     let date = time::parse_date(&start)?;
     let month = date.format("%Y-%m").to_string();
-    let month = if date.day() == 1 { month } else { shift_month(&month, 1)? };
+    let month = if date.day() == 1 {
+        month
+    } else {
+        shift_month(&month, 1)?
+    };
     period(&month, start_day(conn)?)
 }
 
@@ -947,8 +955,18 @@ pub fn fill(
         });
     }
     let tx = conn.transaction()?;
+    // Генератор учебной базы используется и на исторических схемах миграции.
+    let has_limit_kind: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('budget_lines') WHERE name='limit_kind')",
+        [],
+        |r| r.get(0),
+    )?;
     for (cat, v) in &suggested {
-        set_limit_kind(&tx, budget_id, cat, "month", *v)?;
+        if has_limit_kind {
+            set_limit_kind(&tx, budget_id, cat, "month", *v)?;
+        } else {
+            set_limit(&tx, budget_id, cat, Some(*v))?;
+        }
     }
     tx.commit()?;
     Ok(suggested.len())
@@ -1341,11 +1359,23 @@ mod tests {
         );
         settings::set(f.db.conn(), "month_start_day", "1").unwrap();
         set_limit_kind(f.db.conn(), &id, &food, "week", 7_000).unwrap();
-        let stored: i64 = f.db.conn().query_row("SELECT limit_amount FROM budget_lines WHERE budget_id=?1 AND category_id=?2", params![id,food], |r| r.get(0)).unwrap();
+        let stored: i64 =
+            f.db.conn()
+                .query_row(
+                    "SELECT limit_amount FROM budget_lines WHERE budget_id=?1 AND category_id=?2",
+                    params![id, food],
+                    |r| r.get(0),
+                )
+                .unwrap();
         assert_eq!(stored, 31_000);
         spend(f.db.conn(), &f.card, "2025-03-05", 30_000, "Питание");
         fill(f.db.conn_mut(), &id, FillMode::LastYear, Some(&food)).unwrap();
-        assert_eq!(get(f.db.conn(), "2026-03", "2026-03-02").unwrap().planned_expense, 30_000);
+        assert_eq!(
+            get(f.db.conn(), "2026-03", "2026-03-02")
+                .unwrap()
+                .planned_expense,
+            30_000
+        );
     }
 
     #[test]
