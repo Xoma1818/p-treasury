@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompareRow } from "./api";
-import { barWidth, formatChange, isBetter, splitRows } from "./compare";
+import { barWidth, formatChange, hasNewAmount, isBetter, splitRows } from "./compare";
 
 const row = (name: string, a: number, b: number): CompareRow => ({
   key: name,
@@ -21,12 +21,18 @@ describe("сравнение периодов", () => {
     expect(s.same.map((r) => r.name)).toEqual(["Связь"]);
   });
 
-  it("пишет изменение в процентах со знаком, новое — словом", () => {
+  it("пишет изменение в процентах со знаком и прочерк при нулевой базе", () => {
     expect(formatChange(25)).toBe("+25 %");
     expect(formatChange(-25)).toBe("−25 %");
     expect(formatChange(0)).toBe("0 %");
-    expect(formatChange(null, "onlyB")).toBe("новое");
-    expect(formatChange(null, "both")).toBe("—");
+    expect(formatChange(null)).toBe("—");
+  });
+
+  it("отличает новую сумму от первого появления получателя с полностью возвращённой покупкой", () => {
+    expect(hasNewAmount({ presence: "onlyB", diff: 150 })).toBe(true);
+    expect(hasNewAmount({ presence: "onlyB", diff: 0 })).toBe(false);
+    expect(hasNewAmount({ presence: "both", diff: 150 })).toBe(false);
+    expect(hasNewAmount({ presence: "both", diff: 0 })).toBe(false);
   });
 
   it("для расходов хорошо, когда меньше, для доходов — когда больше", () => {

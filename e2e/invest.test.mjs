@@ -1,13 +1,13 @@
 // Обновление 0.11: раздел «Инвестиции» (инвест-копилка). Сценарии из docs/product/mvp-features.md («Версия 0.11»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, click, save, waitText, money } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, fill, choose, click, save, waitText, money } from "./app.mjs";
 
 const card = '[data-testid="home-invest"]';
 let browser;
 before(async () => {
   ({ browser } = await start());
-  await browser.setWindowSize(1280, 1000);
+  await resizeAppWindow(browser, 1280, 1000);
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await click(browser, "Посмотреть на примере");
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });

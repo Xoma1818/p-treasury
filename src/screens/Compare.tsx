@@ -5,7 +5,7 @@ import { ExportButton, useExport } from "../components/DataTools";
 import { ErrorText } from "../components/Modal";
 import { BaseMoney as M } from "../components/Money";
 import { api, type CategoryKind, type CompareBy, type ComparePeriods, type CompareRow, type ReportPeriodKind } from "../lib/api";
-import { barWidth, formatChange, isBetter, splitRows } from "../lib/compare";
+import { barWidth, formatChange, hasNewAmount, isBetter, splitRows } from "../lib/compare";
 import { shiftMonth, today } from "../lib/dates";
 import { useMonthOf } from "../lib/queries";
 import type { ReportContext, TxnJump } from "../lib/store";
@@ -195,6 +195,7 @@ function Changes({ c, kind, by, periods, total, openOperations }: { c: CompareRo
 
   const line = (r: CompareRow, child = false) => {
     const tone = r.diff === 0 ? "" : isBetter(kind, r.diff) ? "better" : "worse";
+    const newAmount = hasNewAmount(r);
     const w = barWidth(r.diff, max);
     return (
       <li key={child ? `c-${r.key}` : r.key} className={child ? "cmp-row child" : "cmp-row"} data-testid={child ? "cmp-child" : "cmp-row"} data-name={r.name} data-presence={r.presence}>
@@ -213,7 +214,7 @@ function Changes({ c, kind, by, periods, total, openOperations }: { c: CompareRo
               {r.name}
             </button>
           )}
-          {r.presence === "onlyB" && <span className="badge good">новое</span>}
+          {r.presence === "onlyB" && <span className={newAmount ? "badge good" : "badge"}>{newAmount ? "новое" : "только в периоде 2"}</span>}
           {r.presence === "onlyA" && <span className="badge">нет в периоде 2</span>}
         </span>
         <span className="num muted" data-testid="cmp-a">
@@ -230,7 +231,7 @@ function Changes({ c, kind, by, periods, total, openOperations }: { c: CompareRo
           {r.diff === 0 ? "—" : <M amount={r.diff} signed />}
         </span>
         <span className={`num change ${tone}`} data-testid="cmp-percent">
-          {formatChange(r.percent, r.presence)}
+          {newAmount ? "новое" : formatChange(r.percent)}
         </span>
       </li>
     );

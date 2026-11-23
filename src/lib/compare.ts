@@ -9,9 +9,13 @@ export function splitRows(rows: CompareRow[]) {
   };
 }
 
-/** При нулевой базе процент не определён. «Новое» относится только к появившейся позиции. */
-export function formatChange(percent: number | null, presence?: CompareRow["presence"]): string {
-  if (percent == null) return presence === "onlyB" ? "новое" : "—";
+/** При покупке с полным возвратом получатель может появиться без изменения суммы. */
+export function hasNewAmount(row: Pick<CompareRow, "presence" | "diff">): boolean {
+  return row.presence === "onlyB" && row.diff !== 0;
+}
+
+export function formatChange(percent: number | null): string {
+  if (percent == null) return "—";
   if (percent > 0) return `+${percent} %`;
   if (percent < 0) return `−${Math.abs(percent)} %`;
   return "0 %";

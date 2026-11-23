@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { start, stop, onboard, openSection, fill, choose, click, save, setDate, waitText } from "./app.mjs";
+import { start, stop, resizeAppWindow, onboard, openSection, fill, choose, click, save, setDate, waitText } from "./app.mjs";
 
 const dir = resolve(process.argv[2] ?? "screens");
 const width = Number(process.argv[3] ?? 1280);
@@ -20,11 +20,11 @@ const shot = async (name, theme) => {
   await browser.execute(() => document.querySelector('[data-testid="undo-bar"] button[aria-label="Закрыть"]')?.click());
   // На 1920 окно увеличено масштабом, и WebKitWebDriver промахивается координатами:
   // всё нажимаем на 1280, а размер меняем только на время снимка.
-  if (width !== 1280) await browser.setWindowSize(width, height);
+  if (width !== 1280) await resizeAppWindow(browser, width, height);
   await browser.pause(900);
   await browser.saveScreenshot(join(dir, `${name}-${theme}-${width}.png`));
   if (width !== 1280) {
-    await browser.setWindowSize(1280, 800);
+    await resizeAppWindow(browser, 1280, 800);
     await browser.pause(400);
   }
 };
@@ -37,7 +37,7 @@ try {
     { name: "Наличные", balance: "0" },
     { name: "Карта", balance: "150000" },
   ]);
-  await browser.setWindowSize(1280, 800);
+  await resizeAppWindow(browser, 1280, 800);
 
   // Займ с историей: досрочка, смена ставки, плановые досрочки.
   await openSection(browser, "Займы и долги");

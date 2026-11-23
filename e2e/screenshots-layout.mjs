@@ -1,6 +1,6 @@
 // Снимки всех разделов на примере в обычном окне и на весь экран:
 // node e2e/screenshots-layout.mjs <папка> (под xvfb-run с экраном 1920x1080).
-import { start, stop, click } from "./app.mjs";
+import { start, stop, resizeAppWindow, click } from "./app.mjs";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -14,7 +14,7 @@ try {
   await click(browser, "Посмотреть на примере");
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 15000 });
   for (const [tag, w, h] of SIZES) {
-    await browser.setWindowSize(w, h);
+    await resizeAppWindow(browser, w, h);
     await browser.pause(800);
     for (const [i, title] of SECTIONS.entries()) {
       // Нажатие через страницу: при масштабе WebKitWebDriver промахивается координатами.
