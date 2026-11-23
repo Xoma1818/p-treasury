@@ -18,21 +18,51 @@ public static extern bool GetClientRect(System.IntPtr hwnd, out ClientBounds rec
 '@
 }
 
+function Test-OnboardingFrame([Drawing.Bitmap]$image) {
+    # The fresh profile shows a centered card on a solid background in both themes.
+    # A blank frame has no card. A displaced WebView exposes a different background at one edge.
+    $background = $image.GetPixel(12, 12).ToArgb()
+    foreach ($x in @(12, ($image.Width - 13))) {
+        foreach ($y in @(12, ($image.Height - 13))) {
+            if ($image.GetPixel($x, $y).ToArgb() -ne $background) { return $false }
+        }
+    }
+    $colors = [Collections.Generic.HashSet[int]]::new()
+    for ($y = 12; $y -lt $image.Height; $y += 9) {
+        for ($x = 12; $x -lt $image.Width; $x += 9) {
+            $null = $colors.Add($image.GetPixel($x, $y).ToArgb())
+            if ($colors.Count -ge 8) { return $true }
+        }
+    }
+    return $false
+}
+
 function Save-ClientImage($app, [string]$phase) {
-    if (!$CaptureDirectory -or $app.HasExited) { return }
+    if (!$CaptureDirectory) { return }
+    if ($app.HasExited) { throw "Kazna closed before capturing $phase." }
     $hwnd = $app.MainWindowHandle
     $bounds = [KaznaTest.WindowCapture+ClientBounds]::new()
-    if (![KaznaTest.WindowCapture]::GetClientRect($hwnd, [ref]$bounds) -or $bounds.right -le 0 -or $bounds.bottom -le 0) { return }
+    if (![KaznaTest.WindowCapture]::GetClientRect($hwnd, [ref]$bounds) -or $bounds.right -le 25 -or $bounds.bottom -le 25) {
+        throw "Cannot capture client bounds for $phase."
+    }
     $image = [Drawing.Bitmap]::new($bounds.right, $bounds.bottom)
     try {
-        $graphics = [Drawing.Graphics]::FromImage($image)
-        try {
-            $dc = $graphics.GetHdc()
-            try { $captured = [KaznaTest.WindowCapture]::PrintWindow($hwnd, $dc, 3) }
-            finally { $graphics.ReleaseHdc($dc) }
-        } finally { $graphics.Dispose() }
-        if ($captured) { $image.Save((Join-Path $CaptureDirectory "$phase.png"), [Drawing.Imaging.ImageFormat]::Png) }
-        else { Write-Warning "PrintWindow could not capture $phase. Geometry was measured separately." }
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        do {
+            $graphics = [Drawing.Graphics]::FromImage($image)
+            try {
+                $dc = $graphics.GetHdc()
+                try { $captured = [KaznaTest.WindowCapture]::PrintWindow($hwnd, $dc, 3) }
+                finally { $graphics.ReleaseHdc($dc) }
+            } finally { $graphics.Dispose() }
+            if ($captured -and ($phase -eq 'failure' -or (Test-OnboardingFrame $image))) {
+                $image.Save((Join-Path $CaptureDirectory "$phase.png"), [Drawing.Imaging.ImageFormat]::Png)
+                return
+            }
+            if ($phase -eq 'failure') { return }
+            Start-Sleep -Milliseconds 200
+        } while ($timer.Elapsed.TotalSeconds -lt 15)
+        throw "No painted first-run screen with matching client edges at $phase."
     } finally { $image.Dispose() }
 }
 
