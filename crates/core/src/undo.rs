@@ -36,11 +36,25 @@ enum Action {
         before: crate::invest::PlanValues,
         after: crate::invest::PlanValues,
     },
+    InvestMonthCurrency {
+        month: String,
+        value: i64,
+        currency: String,
+    },
 }
 
 impl Action {
     fn replay(&self, conn: &Connection, invert: bool) -> Result<()> {
         match self {
+            Self::InvestMonthCurrency {
+                month,
+                value,
+                currency,
+            } => {
+                let code = Some(currency.as_str());
+                let (from, to) = if invert { (code, None) } else { (None, code) };
+                crate::invest::replace_month_currency(conn, month, *value, from, to)
+            }
             Self::InvestPlan { before, after } => {
                 let (from, to) = if invert {
                     (after, before)
@@ -200,11 +214,39 @@ impl Journal {
         Ok(out)
     }
 
-    pub fn set_invest_plan(&mut self, conn: &Connection, mode: &str, value: i64) -> Result<()> {
-        let (before, after) = crate::invest::change_plan(conn, mode, value)?;
+    pub fn set_invest_plan(
+        &mut self,
+        conn: &Connection,
+        mode: &str,
+        value: i64,
+        currency_code: Option<&str>,
+    ) -> Result<()> {
+        let (before, after) = crate::invest::change_plan(conn, mode, value, currency_code)?;
         if before != after {
             self.push("План инвестиций", Action::InvestPlan { before, after });
         }
+        Ok(())
+    }
+
+    pub fn confirm_invest_plan_currency(
+        &mut self,
+        conn: &Connection,
+        month: Option<&str>,
+        expected: i64,
+        currency: &str,
+    ) -> Result<()> {
+        let action = if let Some(month) = month {
+            crate::invest::replace_month_currency(conn, month, expected, None, Some(currency))?;
+            Action::InvestMonthCurrency {
+                month: month.to_owned(),
+                value: expected,
+                currency: currency.to_owned(),
+            }
+        } else {
+            let (before, after) = crate::invest::confirm_global_currency(conn, expected, currency)?;
+            Action::InvestPlan { before, after }
+        };
+        self.push("Валюта плана инвестиций", action);
         Ok(())
     }
 
@@ -444,7 +486,9 @@ mod tests {
              WHEN NEW.key = 'invest_plan_value' BEGIN SELECT RAISE(ABORT, 'test'); END;",
         )
         .unwrap();
-        assert!(journal.set_invest_plan(c, "amount", 1_234_567).is_err());
+        assert!(journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .is_err());
         assert_eq!(
             crate::settings::get(c, "invest_plan_mode")
                 .unwrap()
@@ -460,9 +504,13 @@ mod tests {
         assert_eq!(journal.state().undo.unwrap().label, "Покупка");
         c.execute_batch("DROP TRIGGER reject_amount").unwrap();
 
-        journal.set_invest_plan(c, "amount", 1_234_567).unwrap();
+        journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .unwrap();
         let step = journal.state().undo.unwrap();
-        journal.set_invest_plan(c, "amount", 1_234_567).unwrap();
+        journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .unwrap();
         assert_eq!(journal.state().undo, Some(step));
         assert_eq!(journal.undo(c).unwrap().as_deref(), Some("План инвестиций"));
         assert_eq!(crate::invest::plan(c).unwrap().mode, "");
@@ -482,13 +530,13 @@ mod tests {
         let c = db.conn();
         crate::invest::set_plan(c, "amount", 10).unwrap();
         let mut journal = Journal::default();
-        journal.set_invest_plan(c, "amount", 20).unwrap();
+        journal.set_invest_plan(c, "amount", 20, None).unwrap();
         crate::settings::set(c, "invest_plan_mode", "percent").unwrap();
         assert!(journal.undo(c).is_err());
         let plan = crate::invest::plan(c).unwrap();
         assert_eq!((plan.mode.as_str(), plan.value), ("percent", 20));
 
-        journal.set_invest_plan(c, "amount", 20).unwrap();
+        journal.set_invest_plan(c, "amount", 20, None).unwrap();
         journal.undo(c).unwrap();
         crate::settings::set(c, "invest_plan_value", "30").unwrap();
         assert!(journal.redo(c).is_err());

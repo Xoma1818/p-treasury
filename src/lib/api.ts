@@ -1062,12 +1062,15 @@ export interface InvestMonth {
   start: string;
   end: string;
   /** onlyMonth — свой план только на этот месяц. */
-  plan: { mode: InvestPlanMode; value: number; onlyMonth: boolean };
-  /** План в основной валюте; для процента — от доходов месяца. */
+  plan: { mode: InvestPlanMode; value: number; onlyMonth: boolean; currencyCode: string | null };
+  /** План и отложенное выражены в currency. У старого плана без валюты planned отсутствует. */
   planned: number | null;
   income: number;
+  incomeCurrency: Currency;
+  incomeComplete: boolean;
   /** Отложено: переводы на брокерские счета минус выводы. */
   saved: number;
+  savedComplete: boolean;
   percent: number | null;
   missingRates: string[];
 }
@@ -2043,6 +2046,7 @@ export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listCurrencies: () => invoke<Currency[]>("list_currencies"),
+  listAllCurrencies: () => invoke<Currency[]>("list_currencies", { all: true }),
   listRates: () => invoke<ExchangeRate[]>("list_rates"),
   ratesOverview: (date: string) => invoke<RatesOverview>("rates_overview", { date }),
   setRate: (date: string, from: string, to: string, rate: string) => invoke<void>("set_rate", { date, from, to, rate }),
@@ -2179,7 +2183,8 @@ export const api = {
   setInvestValue: (accountId: string, date: string, value: number) => invoke<void>("set_invest_value", { accountId, date, value }),
   deleteInvestValue: (accountId: string, date: string) => invoke<void>("delete_invest_value", { accountId, date }),
   /** С `month` — план только на этот месяц, без — общий на каждый месяц. */
-  setInvestPlan: (mode: InvestPlanMode, value: number, month: string | null = null) => invoke<void>("set_invest_plan", { mode, value, month }),
+  setInvestPlan: (mode: InvestPlanMode, value: number, month: string | null = null, currencyCode: string | null = null) => invoke<void>("set_invest_plan", { mode, value, month, currencyCode }),
+  confirmInvestPlanCurrency: (month: string | null, expectedValue: number, currencyCode: string) => invoke<void>("confirm_invest_plan_currency", { month, expectedValue, currencyCode }),
   clearInvestMonthPlan: (month: string) => invoke<void>("clear_invest_month_plan", { month }),
   reportFx: (from: string, to: string) => invoke<FxReport>("report_fx", { from, to }),
   listViews: (kind: ViewKind | null = null) => invoke<SavedView[]>("list_views", { kind }),

@@ -114,6 +114,8 @@ pub fn wanted_currencies(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT currency_code FROM accounts
          UNION SELECT currency_code FROM debts
+         UNION SELECT currency_code FROM invest_month_plans WHERE currency_code IS NOT NULL
+         UNION SELECT value FROM settings WHERE key='invest_plan_currency'
          UNION SELECT from_code FROM exchange_rates
          UNION SELECT to_code FROM exchange_rates",
     )?;

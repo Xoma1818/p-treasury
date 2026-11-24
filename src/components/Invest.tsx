@@ -2,25 +2,28 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, INVEST_KINDS, type Currency, type InvestAccount, type InvestMonth, type InvestOverview, type InvestPlanMode } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
-import { leftToSave, projectGrowth, tenthsText } from "../lib/invest";
+import { contributionPrefill, needsPlanCurrency, progressIssue, projectGrowth, rubleContribution, tenthsText } from "../lib/invest";
 import { parseAmount } from "../lib/money";
 import { useAccounts, useInvestOverview } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { useFormWrite } from "../lib/useFormWrite";
 import { AmountInput, amountText, Field } from "./Fields";
 import { FormAmountsToggle, useFormAmounts, useFormMoney } from "./FormAmounts";
 import { ErrorText, Modal } from "./Modal";
 import { BaseMoney, Money } from "./Money";
 import { Hint } from "./Hint";
+import { ConfirmPlanCurrency, PlanCurrencySelect } from "./InvestPlanCurrency";
 
 /** «Отложено 15 000 из 20 000 ₽» с полоской; без плана — только сумма. */
 function MonthLine({ m, onPlan }: { m: InvestMonth; onPlan: () => void }) {
-  const percent = m.percent ?? 0;
+  const percent = m.percent;
+  const issue = progressIssue(m);
   const unit = { symbol: m.currency.symbol, currencyCode: m.currency.code, minorUnits: m.currency.minorUnits };
   return (
     <div className="invest-month" data-testid="invest-month">
       <div>
-        Отложено <b data-testid="invest-saved"><Money amount={m.saved} {...unit} /></b>
+        {m.savedComplete ? "Отложено" : "Отложено по известным курсам"} <b data-testid="invest-saved"><Money amount={m.saved} {...unit} /></b>
         {m.planned != null ? (
           <>
             {" "}из <Money amount={m.planned} {...unit} />
@@ -28,10 +31,11 @@ function MonthLine({ m, onPlan }: { m: InvestMonth; onPlan: () => void }) {
           </>
         ) : null}{" "}
         <button className="link" onClick={onPlan} data-testid="invest-plan-edit">
-          {m.planned != null ? "Изменить план" : "Задать план на месяц"}
+          {needsPlanCurrency(m.plan) ? "Указать валюту плана" : m.plan.mode ? "Изменить план" : "Задать план на месяц"}
         </button>
       </div>
-      {m.planned != null && (
+      {issue && <p className="hint">{issue}</p>}
+      {!issue && percent != null && (
         <div className="invest-bar">
           <div className={percent >= 100 ? "bar goal reached" : "bar goal"} title={`${percent} % плана`}>
             <span style={{ width: `${Math.min(percent, 100)}%` }} />
@@ -107,7 +111,7 @@ export function InvestCard() {
     openTxnForm({
       mode: "new",
       type: "transfer",
-      prefill: { accountId: from?.id ?? null, toAccountId: o.accounts[0]?.id ?? null, amount: leftToSave(o.month.planned, o.month.saved) || null },
+      prefill: { accountId: from?.id ?? null, toAccountId: o.accounts[0]?.id ?? null, ...contributionPrefill(o.month) },
     });
   return (
     <div className="card invest-card" data-testid="home-invest">
@@ -120,7 +124,7 @@ export function InvestCard() {
           Калькулятор
         </button>
       </div>
-      {!has && o.month.planned == null ? (
+      {!has && !o.month.plan.mode ? (
         <p className="muted">
           Откладываете на инвестиции? Заведите брокерский счёт или ИИС в «Счетах», задайте план на месяц, и здесь будет видно, сколько отложено и сколько это стоит.{" "}
           <button className="link" onClick={() => go("accounts")}>
@@ -173,7 +177,7 @@ export function InvestBudgetCard({ month }: { month: string }) {
       <h2>Инвестиции</h2>
       <p className="hint">Переводы на брокерский счёт или ИИС — не траты: они не уменьшают «Можно тратить», но видно, выполнен ли план.</p>
       <MonthLine m={m} onPlan={() => setPlanning(true)} />
-      {planning && <PlanForm m={m} onClose={() => setPlanning(false)} />}
+      {planning && <PlanForm m={m} month={month} onClose={() => setPlanning(false)} />}
     </div>
   );
 }
@@ -181,32 +185,48 @@ export function InvestBudgetCard({ month }: { month: string }) {
 /** План на инвестиции; с `month` можно задать план только на этот месяц. */
 type PlanProps = { m: InvestMonth; month?: string; onClose: () => void };
 export function PlanForm(props: PlanProps) {
-  return <PlanEditor key={props.m.currency.code + props.m.start} {...props} currency={props.m.currency} />;
+  // Подтверждаем именно запись, открытую пользователем, даже если запрос обновился.
+  const [source] = useState(props.m);
+  if (needsPlanCurrency(source.plan)) {
+    return <ConfirmPlanCurrency month={source.plan.onlyMonth ? source.month : null} rawValue={source.plan.value} onClose={props.onClose} />;
+  }
+  return <PlanEditor {...props} m={source} />;
 }
 
-function PlanEditor({ m, month, onClose, currency }: PlanProps & { currency: Currency }) {
+function PlanEditor({ m, month, onClose }: PlanProps) {
   const privacy = useFormAmounts(m.start);
-  const money = useFormMoney(privacy, currency.code, currency.symbol, currency.minorUnits);
+  const money = useFormMoney(privacy, m.incomeCurrency.code, m.incomeCurrency.symbol, m.incomeCurrency.minorUnits);
+  const [currency, setCurrency] = useState(m.currency);
   const [mode, setMode] = useState<InvestPlanMode>(m.plan.mode || "amount");
   const [amount, setAmount] = useState(m.plan.mode === "amount" ? amountText(m.plan.value, currency.minorUnits) : "");
   const [percent, setPercent] = useState(m.plan.mode === "percent" ? String(m.plan.value) : "10");
-  const [onlyMonth, setOnlyMonth] = useState(!!month && m.plan.onlyMonth);
-  const save = useAction(api.setInvestPlan, onClose, { singleSubmit: true });
+  const [onlyMonth, setOnlyMonth] = useState(m.plan.onlyMonth);
+  const write = useFormWrite();
+  const save = useAction(api.setInvestPlan, onClose);
   const reset = useAction(api.clearInvestMonthPlan, onClose);
   const target = onlyMonth ? m.month : null;
+  const cancel = () => { if (!write.locked.current) onClose(); };
+  const selectCurrency = (next: Currency | null) => {
+    if (!next || next.code === currency.code) return;
+    privacy.conceal();
+    setAmount("");
+    setCurrency(next);
+  };
+  const canPickCurrency = m.plan.mode !== "amount" || (onlyMonth && !m.plan.onlyMonth);
   const submit = () => {
     if (mode === "amount") {
       const v = parseAmount(amount, currency.minorUnits);
       if (v === null || v <= 0) return save.setError("Введите сумму, например 20 000");
-      return save.run("amount", v, target);
+      return write.run("save", () => save.runAsync("amount", v, target, currency.code));
     }
     const p = Number(percent.replace(",", "."));
     if (!Number.isInteger(p) || p < 1 || p > 100) return save.setError("Процент — целое число от 1 до 100");
-    save.run("percent", p, target);
+    write.run("save", () => save.runAsync("percent", p, target));
   };
   return (
-    <Modal title="План на инвестиции" onClose={onClose}>
-      <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
+    <Modal title="План на инвестиции" onClose={cancel} dismissDisabled={write.busy}>
+      <form className="form" ref={write.form} onClickCapture={write.blockClick} onSubmit={(e) => (e.preventDefault(), submit())}>
+        <fieldset disabled={write.busy} style={{ display: "contents" }}>
         <p className="muted">Сколько откладывать каждый месяц. Отложенным считаются переводы на брокерские счета, ИИС и ПДС.</p>
         <FormAmountsToggle privacy={privacy} />
         <div className="tabs small" role="tablist">
@@ -218,39 +238,47 @@ function PlanEditor({ m, month, onClose, currency }: PlanProps & { currency: Cur
           </button>
         </div>
         {mode === "amount" ? (
-          <Field label={`Каждый месяц, ${currency.symbol}`}>{(id) => <AmountInput id={id} name="investPlanAmount" value={amount} onChange={setAmount} minorUnits={currency.minorUnits} concealed={privacy.concealed} autoFocus />}</Field>
+          <>
+            {canPickCurrency && <PlanCurrencySelect currency={currency} onChange={selectCurrency} />}
+            <Field label={`Сумма плана, ${currency.code}`}>{(id) => <AmountInput id={id} name="investPlanAmount" value={amount} onChange={setAmount} minorUnits={currency.minorUnits} concealed={privacy.concealed} autoFocus />}</Field>
+          </>
         ) : (
-          <Field label="Процент от доходов месяца" hint={m.income > 0 ? <>В этом месяце доходы <span className="money">{money(m.income)}</span></> : undefined}>
+          <Field label="Процент от доходов месяца" hint={!m.incomeComplete ? "Для расчёта доходов нужен курс валюты." : m.income > 0 ? <>В этом месяце доходы <span className="money">{money(m.income)}</span></> : undefined}>
             {(id) => <input id={id} name="investPlanPercent" inputMode="numeric" value={percent} onChange={(e) => setPercent(e.target.value)} />}
           </Field>
         )}
-        {month && (
+        {m.plan.onlyMonth && <p className="hint">План на {monthTitle(m.month).toLowerCase()}.</p>}
+        {month && !m.plan.onlyMonth && (
           <label className="check">
-            <input type="checkbox" name="investOnlyMonth" checked={onlyMonth} onChange={(e) => setOnlyMonth(e.target.checked)} />
+            <input type="checkbox" name="investOnlyMonth" checked={onlyMonth} onChange={e => {
+              setOnlyMonth(e.target.checked);
+              if (!e.target.checked && m.plan.mode === "amount") selectCurrency(m.currency);
+            }} />
             Только на {monthTitle(m.month).toLowerCase()} (например, премия — отложить больше), остальные месяцы по общему плану
           </label>
         )}
         <ErrorText error={save.error ?? reset.error} />
         <div className="actions">
           {m.plan.onlyMonth ? (
-            <button type="button" className="btn" onClick={() => reset.run(m.month)}>
+            <button type="button" className="btn" onClick={() => write.run("delete", () => reset.runAsync(m.month))}>
               Вернуть общий план
             </button>
           ) : (
             m.plan.mode && (
-              <button type="button" className="btn" onClick={() => save.run("", 0, target)}>
+              <button type="button" className="btn" onClick={() => write.run("delete", () => save.runAsync("", 0, target))}>
                 {onlyMonth ? "Не откладывать в этом месяце" : "Убрать план"}
               </button>
             )
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={cancel}>
             Отмена
           </button>
-          <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy}>
+          <button type="submit" className="btn primary" aria-busy={write.operation === "save"} data-done={save.done || undefined} disabled={write.busy}>
             Сохранить
           </button>
         </div>
+        </fieldset>
       </form>
     </Modal>
   );
@@ -342,7 +370,7 @@ function Calculator({ o, onClose }: { o: InvestOverview; onClose: () => void }) 
   const money = useFormMoney(privacy, "RUB", "₽", 2);
   const inRubles = o.baseCurrency === "RUB";
   const [start, setStart] = useState(inRubles ? amountText(Math.max(o.value, 0) || null) : "");
-  const [monthly, setMonthly] = useState(inRubles ? amountText(o.month.planned ?? 1_000_000) : "");
+  const [monthly, setMonthly] = useState(amountText(rubleContribution(o.month)));
   const [rate, setRate] = useState("12");
   const [years, setYears] = useState("10");
   const [iis, setIis] = useState(o.tax != null);

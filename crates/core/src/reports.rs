@@ -22,6 +22,8 @@ pub struct PeriodSummary {
     pub savings_rate: Option<i64>,
     /// Валюты операций, для которых не нашёлся курс (такие операции не вошли).
     pub missing_rates: Vec<String>,
+    #[serde(skip)]
+    pub(crate) missing_income_rate: bool,
 }
 
 pub fn period_summary(conn: &Connection, from: &str, to: &str) -> Result<PeriodSummary> {
@@ -47,6 +49,7 @@ pub fn period_summary(conn: &Connection, from: &str, to: &str) -> Result<PeriodS
     for row in rows {
         let (kind, date, amount, currency) = row?;
         let Some(v) = currencies::convert(conn, amount, &currency, &base, &date)? else {
+            out.missing_income_rate |= kind == "income";
             if !out.missing_rates.contains(&currency) {
                 out.missing_rates.push(currency);
             }

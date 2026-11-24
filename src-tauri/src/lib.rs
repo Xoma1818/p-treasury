@@ -306,6 +306,7 @@ pub fn run() {
             commands::set_invest_value,
             commands::delete_invest_value,
             commands::set_invest_plan,
+            commands::confirm_invest_plan_currency,
             commands::clear_invest_month_plan,
             commands::list_events,
             commands::create_event,
