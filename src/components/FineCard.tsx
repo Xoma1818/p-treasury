@@ -19,7 +19,7 @@ export function FineCard() {
   return (
     <details className="card fine-card" data-testid="fine-card" open={custom || undefined}>
       <summary>
-        <h2>Тонкие настройки</h2>
+        <h2>Формат и правила</h2>
         <span className="muted">Экран при запуске, неделя, копейки, пороги подсказок</span>
       </summary>
       <div className="settings-list">

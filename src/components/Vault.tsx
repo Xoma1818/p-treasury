@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type VaultFound } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { baseName, DB, pickFolder, pickOpen, pickSave, TRANSFER } from "../lib/files";
@@ -178,7 +178,7 @@ function PlaceDialog({ current, onClose }: { current: string; onClose: () => voi
 }
 
 /** «Сохранность данных»: папка сохранности, ручная копия и восстановление. */
-export function VaultCard() {
+export function VaultCard({ active }: { active: boolean }) {
   const status = useQuery({ queryKey: ["vaultStatus"], queryFn: api.vaultStatus });
   const backup = useQuery({ queryKey: ["backupStatus"], queryFn: api.backupStatus }).data;
   const setSetting = useAction(api.setSetting);
@@ -209,7 +209,7 @@ export function VaultCard() {
   return (
     <div className="card vault-card" data-testid="backup-card">
       <h2>
-        Сохранность данных
+        Резервные копии
         <Hint of="backups" />
       </h2>
       <label className="check">
@@ -297,7 +297,7 @@ export function VaultCard() {
         <button className="btn" onClick={() => copy.run()} title="Сохранить копию в любой файл, например на флешку">
           Сделать копию
         </button>
-        <RestoreButton onDone={setMsg} />
+        <RestoreButton active={active} onDone={setMsg} />
         <button className="btn" onClick={() => verifyFile()} title="Проверить, что из выбранного файла копии можно восстановиться">
           Проверить файл копии…
         </button>
@@ -311,15 +311,20 @@ export function VaultCard() {
         </p>
       )}
       <ErrorText error={copy.error ?? open.error ?? setSetting.error ?? sync.error ?? verify.error} />
-      {dialog === "place" && <PlaceDialog current={s?.dir ?? ""} onClose={() => setDialog(null)} />}
-      {dialog === "transfer" && <TransferDialog onClose={() => setDialog(null)} onDone={setMsg} />}
+      {active && dialog === "place" && <PlaceDialog current={s?.dir ?? ""} onClose={() => setDialog(null)} />}
+      {active && dialog === "transfer" && <TransferDialog onClose={() => setDialog(null)} onDone={setMsg} />}
     </div>
   );
 }
 
 /** «Восстановить из копии»: файл копии, проверка, подтверждение. */
-function RestoreButton({ onDone }: { onDone: (msg: string) => void }) {
+function RestoreButton({ active, onDone }: { active: boolean; onDone: (msg: string) => void }) {
   const [found, setFound] = useState<VaultFound | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dismiss = () => {
+    setFound(null);
+    trigger.current?.focus();
+  };
   const choose = useAction(async () => {
     const path = await pickOpen([DB]);
     if (path) setFound(await api.vaultInspect(path));
@@ -327,18 +332,19 @@ function RestoreButton({ onDone }: { onDone: (msg: string) => void }) {
   const restore = useAction(
     () => afterUiPrefsSaved(() => api.restoreBackup(found!.path)),
     () => {
-      setFound(null);
+      dismiss();
       onDone("Данные восстановлены из копии. Прежние данные сохранены в папке программы (backups).");
     },
+    { singleSubmit: true },
   );
   return (
     <>
-      <button className="btn" onClick={() => choose.run()}>
+      <button ref={trigger} className="btn" onClick={() => choose.run()} disabled={choose.busy}>
         Восстановить из копии
       </button>
       <ErrorText error={choose.error} />
-      {found && (
-        <Modal title="Восстановить из копии?" onClose={() => setFound(null)}>
+      {active && found && (
+        <Modal title="Восстановить из копии?" onClose={dismiss} dismissDisabled={restore.busy} focusClose>
           <p>
             В копии: счетов {found.accounts}, операций {found.transactions}
             {found.lastDate && `, последняя операция ${formatDate(found.lastDate)}`}.
@@ -347,11 +353,11 @@ function RestoreButton({ onDone }: { onDone: (msg: string) => void }) {
           <ErrorText error={restore.error} />
           <div className="actions">
             <span className="spacer" />
-            <button className="btn" onClick={() => setFound(null)}>
+            <button className="btn" onClick={dismiss} disabled={restore.busy}>
               Отмена
             </button>
-            <button className="btn primary" onClick={() => restore.run()} disabled={restore.busy}>
-              Восстановить
+            <button className="btn primary" onClick={() => restore.run()} disabled={restore.busy} aria-busy={restore.busy}>
+              {restore.busy ? "Восстанавливаем…" : "Восстановить"}
             </button>
           </div>
         </Modal>

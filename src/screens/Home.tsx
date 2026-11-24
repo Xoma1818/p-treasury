@@ -60,7 +60,7 @@ export function Home() {
   const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }), staleTime: AGGREGATE_STALE_MS });
   const accounts = useAccounts().data ?? [];
-  const { showTransactions, go } = useUi();
+  const { showTransactions, go, openSettings } = useUi();
   const [editing, setEditing] = useState(false);
   const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
@@ -402,8 +402,8 @@ export function Home() {
               Сохранить сейчас
             </button>
           )}
-          <button className="btn" onClick={() => go("settings")}>
-            Открыть настройки
+          <button className="btn" onClick={() => openSettings({ section: "vault" })}>
+            Открыть резервные копии
           </button>
         </div>
       )}
@@ -420,8 +420,8 @@ export function Home() {
               Сделать новую копию
             </button>
           )}
-          <button className="btn" onClick={() => go("settings")}>
-            Открыть настройки
+          <button className="btn" onClick={() => openSettings({ section: "vault" })}>
+            Открыть резервные копии
           </button>
         </div>
       )}

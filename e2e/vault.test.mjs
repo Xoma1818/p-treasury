@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, click, waitText, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, click, waitText, money } from "./app.mjs";
 
 let browser, dataDir, vault;
 after(async () => {
@@ -21,7 +21,7 @@ test("старый компьютер: «Сохранить сейчас» кл�
     { name: "Наличные", balance: "5000" },
     { name: "Карта", balance: "123456,78" },
   ]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   vault = join(dataDir, "Kazna");
   await waitText(browser, '[data-testid="vault-dir"]', new RegExp(vault.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   await click(browser, "Сохранить сейчас");
@@ -50,7 +50,7 @@ test("новый компьютер: папку скопировали в Док
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   await openSection(browser, "Счета");
   await waitText(browser, card("Карта"), money("123 456,78 ₽"));
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="vault-synced"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);
   await stop(browser);
   browser = null;
@@ -73,7 +73,7 @@ test("копии нет, остался только Excel: данные вос�
   await waitText(browser, card("Наличные"), money("5 000 ₽"));
   await waitText(browser, card("Карта"), money("123 456,78 ₽"));
   // После переноса в папке снова есть полная копия.
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="vault-synced"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);
   assert.ok(existsSync(join(fresh, "Kazna", "Мой бюджет.ptreasury")));
 });

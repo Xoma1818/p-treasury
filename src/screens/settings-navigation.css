@@ -1,0 +1,150 @@
+.settings-screen {
+  max-inline-size: 76rem;
+}
+
+.settings-screen .settings-heading {
+  margin: 0 0 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.settings-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  margin-block-end: 1.35rem;
+  padding-block-end: .6rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.settings-topics > button {
+  min-height: 2.5rem;
+  padding: .45rem .85rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 76%, var(--text));
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease);
+}
+
+.settings-topics > button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-topics > button[aria-selected="true"] {
+  color: color-mix(in srgb, var(--accent) 76%, var(--text));
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.settings-topics > button:focus-visible,
+.settings-section:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-panel[hidden] {
+  display: none;
+}
+
+.settings-section {
+  scroll-margin-top: 16px;
+}
+
+.rates-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.rates-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-panel .settings-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-panel .settings-list > .field {
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 34%);
+  grid-template-areas: "label control" "hint control";
+  column-gap: clamp(1rem, 3cqw, 2.5rem);
+}
+
+.settings-panel .settings-list > .field > :not(label, .hint) {
+  grid-area: control;
+  min-width: 0;
+  justify-self: start;
+}
+
+.settings-panel .settings-list > .field > :is(select, input) {
+  max-width: 100%;
+}
+
+.settings-panel .settings-list > .field:last-child {
+  border-block-end: 0;
+}
+
+.settings-panel .settings-list .hint {
+  max-width: 56ch;
+}
+
+.settings-panel .facts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 48rem) {
+  .settings-topics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 36rem) {
+  .rates-table-scroll .rates-table :is(th, td) {
+    padding-inline: .3rem;
+  }
+
+  .settings-panel .settings-list > .field {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "label" "hint" "control";
+    row-gap: .3rem;
+  }
+
+  .settings-panel .settings-list > .field:not(:has(.hint)) > label {
+    grid-row: 1;
+  }
+
+  .settings-panel .settings-list > .field > :not(label, .hint) {
+    margin-block-start: .25rem;
+  }
+
+  .settings-topics > button {
+    padding-inline: .4rem;
+  }
+}
+
+@container (max-width: 26rem) {
+  .settings-topics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-topics > button {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .settings-topics > button[aria-selected="true"] {
+    outline: 1px solid Highlight;
+    outline-offset: -2px;
+  }
+}

@@ -182,6 +182,7 @@ try {
 
       // Настройки: выключатель «Предупреждать о бюджете».
       await section("Настройки");
+      await browser.$('[data-testid="settings-tab-notifications"]').click();
       await scrollTo('[data-testid="budget-alerts"]', "center");
       await (await browser.$('[data-testid="budget-alerts"]')).moveTo();
       await pause();

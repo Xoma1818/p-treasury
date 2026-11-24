@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, click, choose, waitText, waitContent } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, click, choose, waitText, waitContent } from "./app.mjs";
 // Получатель в таблице обрезается многоточием, а WebKit не отдаёт такой текст через getText.
 const previewHas = (re) => waitContent(browser, '[data-testid="import-preview"]', re);
 
@@ -31,7 +31,7 @@ after(async () => {
 });
 
 test("выписка Т-Банка: счёт выбирается и запоминается, повторная загрузка ничего не дублирует", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   await pick(join(fixtures, "tbank.csv"));
   await click(browser, "Выбрать файл", dialog);
@@ -85,11 +85,11 @@ test("регулярный платёж: накануне списания — �
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="home-subs"] [data-key="литрес"] [data-testid="sub-soon"]', /спишется завтра/);
 
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "notifications");
   assert.equal(await (await browser.$('select[name="subsRemind"]')).getValue(), "1");
   await choose(browser, "subsRemind", "не напоминать");
   await openSection(browser, "Главная");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "notifications");
   assert.equal(await (await browser.$('select[name="subsRemind"]')).getValue(), "0");
   await choose(browser, "subsRemind", "за день");
 });

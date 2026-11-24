@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, click, choose, fill, save, waitText, waitContent, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, click, choose, fill, save, waitText, waitContent, money } from "./app.mjs";
 // Названия в списке поиска обрезаются многоточием, а WebKit не отдаёт такой текст через getText.
 const paletteHas = (re) => waitContent(browser, '[data-testid="palette"]', re);
 
@@ -29,7 +29,7 @@ after(async () => {
 });
 
 test("импорт из папки: новый CSV по шаблону загружается один раз, чужие файлы не трогаются", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await browser.execute((p) => (window.__ptPick = p), [inbox]);
   await click(browser, "Выбрать папку");
   await waitText(browser, '[data-testid="auto-import-dir"]', new RegExp(inbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -161,13 +161,13 @@ test("значок «?»: под мышкой подсказка, в Настр�
   await tip.waitForExist({ reverse: true });
   // Знак «?» не попадает в текст карточки.
   assert.doesNotMatch(await browser.$('[data-testid="total-balance"] .tile-label').getText(), /\?/);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   const select = await browser.$('select[name="hints"]');
   await select.selectByVisibleText("Скрыть");
   await openSection(browser, "Главная");
   await browser.$('[data-testid="total-balance"]').waitForDisplayed();
   assert.equal(await browser.$('[data-testid="hint"]').isExisting(), false);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await (await browser.$('select[name="hints"]')).selectByVisibleText("Показывать");
 });
 

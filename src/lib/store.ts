@@ -139,7 +139,11 @@ export const useUi = create<UiState>((set) => ({
   help: false,
   setHelp: (help) => set({ help }),
   settingsJump: null,
-  openSettings: (settingsJump) => set((s) => ({ settingsJump, section: "settings", visit: s.visit + 1 })),
+  openSettings: (settingsJump) => set((s) => ({
+    settingsJump,
+    section: "settings",
+    visit: s.section === "settings" ? s.visit : s.visit + 1,
+  })),
 }));
 
 // Г12: «Экран при запуске — где закончили» помнит последний раздел, как бы в него ни пришли.

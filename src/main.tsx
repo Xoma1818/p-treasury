@@ -16,6 +16,7 @@ import "./invest.css";
 import "./loans.css";
 import "./forecast.css";
 import "./graphite.css";
+import "./components/sidebar-navigation.css";
 
 applyTheme(savedTheme());
 showLook(savedLook());

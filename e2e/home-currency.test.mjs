@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, choose, click, fill, money, save, waitText } from "./app.mjs";
+import { start, stop, openSection, openSettings, choose, click, fill, money, save, waitText } from "./app.mjs";
 
 test("Баланс и сценарий покупки в иенах используют целые единицы валюты", async (t) => {
   // Настройка «Кодом» хранится также в профиле окна, отдельно от учебной базы.
@@ -27,7 +27,7 @@ test("Баланс и сценарий покупки в иенах исполь
   assert.equal(error, null);
   await browser.refresh();
   await waitText(browser, "main h1", /Главная/);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   const fine = await browser.$('[data-testid="fine-card"]');
   await fine.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fine))) await fine.$("summary").click();

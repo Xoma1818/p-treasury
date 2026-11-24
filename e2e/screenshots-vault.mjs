@@ -1,5 +1,5 @@
 // Скриншоты папки сохранности 0.13: node e2e/screenshots-vault.mjs <папка> (под xvfb-run).
-import { start, stop, resizeAppWindow, openSection, click } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSettings, click } from "./app.mjs";
 import { cpSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,7 +15,7 @@ try {
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await click(browser, "Посмотреть на примере");
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Сохранить сейчас");
   await browser.pause(1500);
   await browser.$('[data-testid="backup-card"]').scrollIntoView();

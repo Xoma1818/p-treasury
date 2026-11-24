@@ -2,7 +2,7 @@
 // отдельное окно быстрого ввода. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, fill, choose, chooseLike, click, waitText, setDate } from "./app.mjs";
+import { start, stop, openSection, openSettings, fill, choose, chooseLike, click, waitText, setDate } from "./app.mjs";
 
 let browser;
 before(async () => {
@@ -104,7 +104,7 @@ test("окно быстрого ввода: открывается поверх,
 });
 
 test("сочетание клавиш меняется в Настройках", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await choose(browser, "quickHotkey", "Ctrl+Shift+Space");
   await browser.waitUntil(async () => (await browser.$('[name="quickHotkey"]').getValue()) === "Ctrl+Shift+Space", { timeout: 5000 });
   await choose(browser, "quickHotkey", "Выключен");

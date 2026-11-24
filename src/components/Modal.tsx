@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { DecorativeIcon } from "./DecorativeIcon";
 
 /** Окно уходит так же мягко, как появилось (0.25): Esc, «×» и щелчок мимо окна
@@ -8,6 +8,12 @@ import { DecorativeIcon } from "./DecorativeIcon";
  *  спрашивают «Закрыть без сохранения?». Кнопка «Отмена» формы закрывает сразу. */
 const CLOSE_MS = 160; // --motion-feedback в styles.css
 const FOCUSABLE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex]';
+
+function tabStops(dialog: HTMLElement) {
+  return [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (el) => !el.matches(":disabled") && el.tabIndex >= 0 && el.getClientRects().length > 0,
+  );
+}
 
 /** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
 export function Modal({
@@ -18,6 +24,7 @@ export function Modal({
   side,
   guardUnsaved,
   dismissDisabled = false,
+  focusClose = false,
 }: {
   title: string;
   onClose: () => void;
@@ -26,6 +33,7 @@ export function Modal({
   side?: boolean;
   guardUnsaved?: boolean;
   dismissDisabled?: boolean;
+  focusClose?: boolean;
 }) {
   const [closing, setClosing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -57,6 +65,14 @@ export function Modal({
     }, CLOSE_MS);
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Если последняя кнопка отключилась во время записи, браузер может вернуть
+  // фокус на body. До следующего Tab переносим его на само верхнее окно.
+  useLayoutEffect(() => {
+    const dialog = box.current;
+    if (!dismissDisabled || !dialog || tabStops(dialog).length > 0) return;
+    const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+    if (dialogs[dialogs.length - 1] === dialog) dialog.focus({ preventScroll: true });
+  }, [dismissDisabled]);
   useEffect(() => {
     // Esc при вопросе возвращает к вводу: так случайное второе нажатие ничего не теряет.
     const onKey = (e: KeyboardEvent) => {
@@ -75,14 +91,16 @@ export function Modal({
   const trapTab = (e: ReactKeyboardEvent) => {
     if (e.key !== "Tab" || !box.current) return;
     if (e.target instanceof Element && e.target.closest('[role="dialog"]') !== box.current) return;
-    const items = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-      (el) => !el.hasAttribute("disabled") && el.tabIndex >= 0 && el.getClientRects().length > 0,
-    );
-    if (items.length === 0) return;
+    const items = tabStops(box.current);
+    if (items.length === 0) {
+      e.preventDefault();
+      box.current.focus({ preventScroll: true });
+      return;
+    }
     const first = items[0];
     const last = items[items.length - 1];
     const at = document.activeElement;
-    const inside = at instanceof Node && box.current.contains(at);
+    const inside = at !== box.current && at instanceof Node && box.current.contains(at);
     if (e.shiftKey && (at === first || !inside)) {
       e.preventDefault();
       last.focus();
@@ -94,13 +112,18 @@ export function Modal({
   return (
     <div
       className={["overlay", side && "side", closing && "closing"].filter(Boolean).join(" ")}
-      onMouseDown={(e) => e.target === e.currentTarget && dismiss()}
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (dismissDisabled) e.preventDefault();
+        else dismiss();
+      }}
     >
       <div
         className={["modal", wide && "wide", side && "side"].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         ref={box}
         onKeyDown={trapTab}
         data-side={side || undefined}
@@ -113,6 +136,7 @@ export function Modal({
             className="icon-btn"
             onClick={() => dismiss()}
             aria-label="Закрыть"
+            autoFocus={focusClose}
             disabled={dismissDisabled}
           >
             <DecorativeIcon icon={X} size="control" />

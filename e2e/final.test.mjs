@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt, rateHistory } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt, rateHistory } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -120,6 +120,7 @@ test("месяц жизни: от первого запуска до сводк�
   await waitText(browser, '[data-testid="rates"]', /1 USD = 90 ₽/);
 
   // 2. Месяц операций: из таблицы (CSV) и вручную.
+  await openSettings(browser, "data");
   const path = join(files, "месяц.csv");
   writeFileSync(path, csv);
   await click(browser, "Импорт выписки или CSV");
@@ -195,7 +196,7 @@ test("месяц жизни: от первого запуска до сводк�
 
   // 7. Сводка в Excel: доходы и расходы на листе «Сводка» — числами.
   const xlsx = join(files, "сводка.xlsx");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Сводка в Excel");
   await pick(xlsx);
   await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
@@ -217,7 +218,7 @@ test("месяц жизни: от первого запуска до сводк�
 
 test("резервная копия → восстановление в новую папку: все цифры совпадают", async () => {
   const flash = join(files, "flash.db");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await pick(flash);
   await click(browser, "Сделать копию");
   await waitText(browser, '[data-testid="backup-msg"]', /Копия сохранена/);
@@ -225,7 +226,7 @@ test("резервная копия → восстановление в нову
 
   ({ browser, dataDir } = await start());
   await onboard(browser, [{ name: "Временный", balance: "1" }]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await pick(flash);
   await click(browser, "Восстановить из копии");
   await waitText(browser, '[role="dialog"]', /В копии: счетов 3, операций \d+/);

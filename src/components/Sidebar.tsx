@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import { useModules } from "../lib/modules";
 import { Keyboard, Monitor, Moon, Search, Star, Sun } from "lucide-react";
-import { useEffect, Fragment, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
@@ -10,6 +10,7 @@ import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 import { DecorativeIcon } from "./DecorativeIcon";
 import { Brand } from "./Brand";
+import type { Section } from "../lib/sections";
 
 /** Ручные темы и режим, который следует оформлению системы. */
 function ThemeSwitch() {
@@ -61,7 +62,7 @@ function NavViews() {
           <li key={v.id}>
             <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
               <DecorativeIcon icon={Star} className="nav-view-mark" />
-              {v.name}
+              <span className="nav-view-name">{v.name}</span>
             </button>
           </li>
         ))}
@@ -73,12 +74,23 @@ function NavViews() {
 export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
   const { sectionOn } = useModules();
-  // Г4: своё меню — порядок, скрытые разделы, «Мои виды» вверху. Подписи групп — только у меню как было.
   const { nav } = useNavPrefs();
   const shown = navSections(nav, sectionOn);
   const groups = isDefaultNav(nav);
+  const settings = shown.find((item) => item.id === "settings");
+  const sectionButton = (item: Section, index: number) => (
+    <button
+      className={item.id === section ? "nav-item active" : "nav-item"}
+      aria-current={item.id === section ? "page" : undefined}
+      onClick={() => go(item.id)}
+      title={index < 9 ? `${item.hint} · Ctrl+${index + 1}` : item.hint}
+    >
+      <SectionIcon id={item.id} />
+      {item.title}
+    </button>
+  );
   return (
-    <nav className="sidebar" aria-label="Разделы">
+    <nav className="sidebar app-nav" aria-label="Разделы">
       <Brand />
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
         <DecorativeIcon icon={Search} size="inline" />
@@ -87,25 +99,14 @@ export function Sidebar() {
       </button>
       <ul data-testid="nav-list">
         {nav.viewsTop && <NavViews />}
-        {shown.map((s, i) => (
-          <Fragment key={s.id}>
-            {s.id === "settings" && !nav.viewsTop && <NavViews />}
-            <li className={s.id === "settings" ? "nav-settings" : undefined}>
-              {groups && s.group && shown[i - 1]?.group !== s.group && <div className="nav-group">{s.group}</div>}
-              <button
-                className={s.id === section ? "nav-item active" : "nav-item"}
-                aria-current={s.id === section ? "page" : undefined}
-                onClick={() => go(s.id)}
-                title={i < 9 ? `${s.hint} · Ctrl+${i + 1}` : s.hint}
-              >
-                <SectionIcon id={s.id} />
-                {s.title}
-                {/* Номер для Ctrl+цифра рисует CSS, чтобы он не попадал в текст кнопки. */}
-              </button>
-            </li>
-          </Fragment>
+        {shown.filter((item) => item.id !== "settings").map((item, i) => (
+          <li key={item.id} className={groups && i > 0 && shown[i - 1].group !== item.group ? "nav-break" : undefined}>
+            {sectionButton(item, i)}
+          </li>
         ))}
+        {!nav.viewsTop && <NavViews />}
       </ul>
+      {settings && <div className="nav-settings">{sectionButton(settings, shown.indexOf(settings))}</div>}
       {/* Нижний ряд (0.28): тема, скрыть суммы и горячие клавиши — одной строкой, чтобы меню помещалось в окно высотой 800 px. */}
       <div className="sidebar-foot">
         <ThemeSwitch />

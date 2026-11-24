@@ -1,0 +1,129 @@
+/* Only the list scrolls. The two permanent destinations beside it keep their place. */
+.layout > .app-nav {
+  --nav-secondary: color-mix(in srgb, var(--muted) 76%, var(--text));
+  width: clamp(200px, 18vw, 232px);
+  padding: 18px 12px 10px;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app-nav > .brand {
+  flex: none;
+  gap: 10px;
+  padding: 3px 10px 17px;
+}
+.app-nav .brand-logo { width: 30px; height: 30px; }
+.app-nav .brand-wordmark { width: 67px; }
+
+.app-nav > .nav-search {
+  flex: none;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 7px 10px;
+  color: var(--nav-secondary);
+}
+.app-nav .nav-search kbd {
+  border: 0;
+  padding: 0;
+  color: var(--nav-secondary);
+  font-weight: 500;
+}
+
+.app-nav > ul {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  margin-inline: -4px;
+  padding: 4px;
+  scroll-padding-block: 4px;
+}
+.app-nav > ul > .nav-break { margin-block-start: 12px; }
+.app-nav .nav-item {
+  min-height: 35px;
+  padding-inline: 10px;
+  gap: 10px;
+  border-radius: 8px;
+}
+.app-nav .nav-item[aria-current="page"] {
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 76%, var(--text));
+  font-weight: 650;
+}
+.app-nav .nav-item[aria-current="page"]::before {
+  display: block;
+  inset-inline-start: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+}
+.app-nav .nav-view-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-nav > .nav-settings {
+  flex: none;
+  margin: 6px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.app-nav > .sidebar-foot {
+  flex: none;
+  margin: 0;
+  padding: 5px 0 0;
+  gap: 2px;
+}
+.app-nav .sidebar-foot .theme-switch button { width: 30px; }
+.app-nav .sidebar-foot .foot-btn { width: 32px; flex: none; }
+:root[data-density="compact"] .app-nav .nav-item { min-height: 30px; }
+:root[data-density="roomy"] .app-nav .nav-item { min-height: 41px; }
+
+/* At high Windows zoom the full section names remain usable without a second side rail. */
+@media (max-width: 700px) {
+  .layout:has(> .app-nav) { flex-direction: column; }
+  .layout > .app-nav {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 10px;
+    width: 100%;
+    height: auto;
+    padding: 8px 12px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-nav > .brand { padding: 0 6px; }
+  .app-nav .brand-logo { width: 24px; height: 24px; }
+  .app-nav .brand-wordmark { width: 56px; }
+  .app-nav > .nav-search { width: auto; min-height: 30px; margin: 0; }
+  .app-nav > ul {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 4px;
+  }
+  .app-nav > ul > li,
+  .app-nav .nav-views li { flex: none; margin: 0; }
+  .app-nav > ul > .nav-break { margin: 0 0 0 6px; }
+  .app-nav .nav-views, .app-nav .nav-views ul { display: flex; align-items: center; }
+  .app-nav .nav-views > .nav-group { padding: 0 6px; white-space: nowrap; }
+  .app-nav .nav-view-name { max-width: 15em; }
+  .app-nav > .nav-settings { justify-self: start; border: 0; margin: 0; padding: 0; }
+  .app-nav > .sidebar-foot { gap: 4px; padding: 0; }
+}
+
+@media (forced-colors: active) {
+  .app-nav .nav-item[aria-current="page"] {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+}

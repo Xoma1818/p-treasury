@@ -552,10 +552,10 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
 }
 
 /** Окно «Доступна версия …». */
-function UpdateModal({ info, onClose }: { info: UpdateInfo; onClose: () => void }) {
+function UpdateModal({ info, onClose, focusClose = false }: { info: UpdateInfo; onClose: () => void; focusClose?: boolean }) {
   const install = useAction(() => api.installUpdate());
   return (
-    <Modal title="Доступно обновление" onClose={onClose}>
+    <Modal title="Доступно обновление" onClose={onClose} focusClose={focusClose}>
       <p data-testid="update-version">
         Доступна версия {info.version} (у вас {info.current}).
       </p>
@@ -591,12 +591,14 @@ export function UpdatePrompt() {
 }
 
 /** Блок «Обновления» в настройках. */
-export function UpdatesCard() {
+export function UpdatesCard({ active }: { active: boolean }) {
   const settings = useSettings().data;
   const setSetting = useAction(api.setSetting);
   const [result, setResult] = useState<string | null>(null);
   const [found, setFound] = useState<UpdateInfo | null>(null);
   const [news, setNews] = useState<string | null>(null);
+  const checkButton = useRef<HTMLButtonElement>(null);
+  const newsButton = useRef<HTMLButtonElement>(null);
   const check = useAction(async () => {
     setResult(null);
     const i = await api.checkUpdate();
@@ -611,10 +613,10 @@ export function UpdatesCard() {
         <Hint of="updates" />
       </h2>
       <div className="btn-group">
-        <button className="btn" onClick={() => check.run()} disabled={check.busy}>
+        <button ref={checkButton} className="btn" onClick={() => check.run()} disabled={check.busy}>
           Проверить обновления
         </button>
-        <button className="link" onClick={() => api.changelog().then(setNews, (e) => setResult(String(e)))}>
+        <button ref={newsButton} className="link" onClick={() => api.changelog().then(setNews, (e) => setResult(String(e)))}>
           Что нового
         </button>
         <select name="updateCheck" aria-label="Проверять при запуске" value={settings?.update_check ?? "1"} onChange={(e) => setSetting.run("update_check", e.target.value)}>
@@ -628,9 +630,11 @@ export function UpdatesCard() {
         </p>
       )}
       <ErrorText error={check.error ?? setSetting.error} />
-      {found && <UpdateModal info={found} onClose={() => setFound(null)} />}
-      {news && (
-        <Modal title="Что нового" onClose={() => setNews(null)} wide>
+      {active && found && (
+        <UpdateModal info={found} focusClose onClose={() => { setFound(null); checkButton.current?.focus(); }} />
+      )}
+      {active && !found && news && (
+        <Modal title="Что нового" focusClose onClose={() => { setNews(null); newsButton.current?.focus(); }} wide>
           <div className="update-notes">{news.replace(/^# .*\n+/, "")}</div>
         </Modal>
       )}

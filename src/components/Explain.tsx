@@ -101,7 +101,7 @@ function PeriodParts({ kind, from, to, onClose }: { kind: "income" | "expense"; 
     onClose();
   };
   const notes: string[] = [];
-  if (startDay !== "1") notes.push(`Месяц считается с ${startDay}-го числа (Настройки → «Первый день месяца»).`);
+  if (startDay !== "1") notes.push(`Месяц считается с ${startDay}-го числа (Настройки → «Бюджет и валюта» → «Начало бюджетного месяца»).`);
   if (outside.length > 0) notes.push(`Счета вне общего баланса (${outside.join(", ")}) здесь учтены: их ${kind === "income" ? "доходы" : "расходы"} тоже ваши.`);
   if (data.spreadParts > 0) notes.push(`В итог вошли части трат «по месяцам» (${data.spreadParts}). В «Операциях» видны исходные суммы и даты, поэтому список может отличаться.`);
   if (data.splitParts > 0) notes.push(`Разбитые чеки: каждая часть (${data.splitParts}) — в своей категории.`);

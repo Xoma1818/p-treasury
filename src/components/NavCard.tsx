@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { useRef } from "react";
 import { useModules } from "../lib/modules";
 import { isDefaultNav, NAV_FIXED, resetNavPrefs, saveAddMain, saveNav, useNavPrefs, type AddMain, type NavLayout } from "../lib/navLayout";
 import { section } from "../lib/sections";
@@ -8,6 +9,7 @@ import { ADD_LABEL, ADD_TYPES } from "./AddMenu";
  *  в меню, «Мои виды» можно поднять наверх. «Как было» возвращает меню и кнопку по умолчанию. */
 export function NavCard() {
   const { nav, addMain } = useNavPrefs();
+  const mainAction = useRef<HTMLSelectElement>(null);
   const { sectionOn } = useModules();
   const set = (next: Partial<NavLayout>) => saveNav({ ...nav, ...next });
   const move = (i: number, d: -1 | 1) => {
@@ -59,7 +61,7 @@ export function NavCard() {
       </label>
       <div className="field">
         <label htmlFor="addMain">Главная кнопка на Главной</label>
-        <select id="addMain" name="addMain" value={addMain} onChange={(e) => saveAddMain(e.target.value as AddMain)}>
+        <select id="addMain" name="addMain" ref={mainAction} value={addMain} onChange={(e) => saveAddMain(e.target.value as AddMain)}>
           {ADD_TYPES.map((t) => (
             <option key={t} value={t}>
               {ADD_LABEL[t].replace("+ ", "")}
@@ -72,7 +74,10 @@ export function NavCard() {
         <button
           className="btn"
           data-testid="nav-reset"
-          onClick={resetNavPrefs}
+          onClick={() => {
+            mainAction.current?.focus({ preventScroll: true });
+            resetNavPrefs();
+          }}
         >
           Как было
         </button>
