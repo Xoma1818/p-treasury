@@ -45,6 +45,15 @@ describe("своя Главная", () => {
     expect(toggleBlock(l, "cushion").hidden).toEqual(["spend"]);
   });
 
+  it("стрелки и перенос считают видимые позиции и сохраняют слот отключённого модуля", () => {
+    const layout = { ...DEFAULT_LAYOUT, order: ["quick", "invest", "main", "spend"] as typeof DEFAULT_LAYOUT.order };
+    const visible = layout.order.filter((b) => b !== "invest");
+    expect(placeBefore(layout, "quick", "main", visible)).toBe(layout);
+    expect(moveBlock(layout, "main", -1, visible).order).toEqual(["main", "invest", "quick", "spend"]);
+    expect(moveBlock(layout, "quick", 1, visible).order).toEqual(["main", "invest", "quick", "spend"]);
+    expect(placeBefore(layout, "spend", "quick", visible).order).toEqual(["spend", "invest", "quick", "main"]);
+  });
+
   it("карточки 0.16 «Проверьте» и «Необычно» встают сразу за плитками баланса", () => {
     const old = ["quick", "summary", "tiles", "trend", "cushion", "invest", "goals", "subs", "days", "templates", "spend", "main", "plans", "reminders"];
     const l = parseLayout(JSON.stringify({ order: old, hidden: ["trend"] }));

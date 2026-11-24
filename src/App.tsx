@@ -1,5 +1,6 @@
 import { CrashGuard, Opening } from "./components/Crash";
 import { useEffect } from "react";
+import { watchDragThreshold } from "./lib/dragThreshold";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
 import { notifyTable, TABLE_KEY } from "./lib/txnTable";
@@ -66,6 +67,7 @@ function focusSearch(go: (s: SectionId) => void) {
 }
 
 export function App() {
+  useEffect(watchDragThreshold, []);
   const info = useAppInfo();
   const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
   const settingsSnapshot = useSettingsSnapshot().data;

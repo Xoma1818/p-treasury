@@ -14,9 +14,7 @@ import { lookOf } from "../lib/categoryLook";
 import { ErrorText } from "./Modal";
 import { FindSimilar } from "./FindSimilar";
 import { canPlanRepeat, RepeatPlanDialog, useRepeatPlan } from "./TxnRepeatPlan";
-
-/** Тип данных перетаскивания операции (на другой день календаря). */
-export const TXN_DRAG = "application/x-p-treasury-txn";
+import { calendarTxn } from "../lib/directDrag";
 
 /** Выделение строк (Г1): что выделено и что делать при щелчке с клавишей. */
 export interface TableSelection {
@@ -141,16 +139,12 @@ export function TxnTable({
           contextRow.current = e.currentTarget;
           openContextMenu(e, menuFor(t, e.currentTarget, r.kind === "receipt"));
         }}
-        tabIndex={-1}
+        tabIndex={movable ? 0 : -1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
         data-receipt={r.kind === "receipt" ? r.parts.length : undefined}
         aria-selected={selection ? selected : undefined}
-        draggable={movable}
-        onDragStart={(e) => {
-          e.dataTransfer.setData(TXN_DRAG, t.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
+        {...(movable ? calendarTxn.source({ id: t.id, date: t.date }) : {})}
         title={movable ? "Перетащите на другой день, чтобы перенести" : undefined}
       >
         {selection && (

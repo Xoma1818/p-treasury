@@ -428,6 +428,77 @@ pub fn set_group(conn: &Connection, id: &str, group_id: Option<&str>) -> Result<
     Ok(())
 }
 
+/// Перемещение открытого счёта одной записью в журнале отмены.
+pub fn move_account(
+    conn: &mut Connection,
+    id: &str,
+    group_id: Option<&str>,
+    before_id: Option<&str>,
+) -> Result<()> {
+    let tx = conn.transaction()?;
+    if let Some(group) = group_id {
+        crate::account_groups::get(&tx, group)?;
+    }
+    let mut accounts = {
+        let mut stmt = tx.prepare(
+            "SELECT id, group_id FROM accounts WHERE archived_at IS NULL AND type <> 'debt'
+             ORDER BY sort_order, name, id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let source = accounts
+        .iter()
+        .position(|(key, _)| key == id)
+        .ok_or(crate::Error::NotFound("открытый счёт"))?;
+    if let Some(target) = before_id {
+        if !accounts
+            .iter()
+            .any(|(key, group)| key == target && group.as_deref() == group_id)
+        {
+            return invalid("счёт назначения перемещён или закрыт");
+        }
+    }
+    let same_group = accounts[source].1.as_deref() == group_id;
+    let next_sibling = accounts
+        .iter()
+        .skip(source + 1)
+        .find(|(_, group)| group.as_deref() == group_id)
+        .map(|(key, _)| key.as_str());
+    if same_group && (before_id == Some(id) || before_id == next_sibling) {
+        return Ok(());
+    }
+    let moved = accounts.remove(source);
+    let destination = match before_id {
+        Some(target) => accounts
+            .iter()
+            .position(|(key, _)| key == target)
+            .ok_or(crate::Error::NotFound("счёт назначения"))?,
+        None => accounts
+            .iter()
+            .rposition(|(_, group)| group.as_deref() == group_id)
+            .map_or(source, |i| i + 1),
+    };
+    accounts.insert(destination, moved);
+    if !same_group {
+        tx.execute(
+            "UPDATE accounts SET group_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, group_id, time::now_utc()],
+        )?;
+    }
+    if source != destination {
+        let mut update =
+            tx.prepare("UPDATE accounts SET sort_order = ?2 WHERE id = ?1 AND sort_order <> ?2")?;
+        for (position, (key, _)) in accounts.iter().enumerate() {
+            update.execute(params![key, position as i64])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 /// Р19: новый порядок счетов (перетаскиванием). Счета не из списка остаются после.
 pub fn reorder(conn: &Connection, ids: &[String]) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
@@ -620,6 +691,78 @@ pub(crate) mod tests {
             include_in_total: true,
             invest_kind: None,
         }
+    }
+
+    #[test]
+    fn moving_an_account_updates_group_and_order_in_one_undo() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let group = crate::account_groups::create(c, "Резерв").unwrap();
+        let first = create(c, &input("А", "cash", "RUB", 0)).unwrap();
+        let second = create(c, &input("Б", "cash", "RUB", 300)).unwrap();
+        let moved = create(c, &input("В", "cash", "RUB", 1200)).unwrap();
+        set_group(c, &first, Some(&group)).unwrap();
+        set_group(c, &second, Some(&group)).unwrap();
+        let order = |c: &Connection| {
+            list(c, false)
+                .unwrap()
+                .into_iter()
+                .map(|a| a.id)
+                .collect::<Vec<_>>()
+        };
+        let original_order = order(c);
+        let mut history = crate::undo::Journal::default();
+        history
+            .record(c, "Перемещение", |c| {
+                move_account(c, &moved, Some(&group), Some(&second))
+            })
+            .unwrap();
+        assert_eq!(order(c), [&first, &moved, &second].map(String::clone));
+        assert_eq!(get(c, &moved).unwrap().group_id, Some(group.clone()));
+        assert_eq!(get(c, &moved).unwrap().balance, 1200);
+        history
+            .record(c, "Повтор", |c| {
+                move_account(c, &moved, Some(&group), Some(&second))
+            })
+            .unwrap();
+        history.undo(c).unwrap();
+        assert!(history.state().undo.is_none());
+        assert_eq!(order(c), original_order);
+        assert_eq!(get(c, &moved).unwrap().group_id, None);
+        history.redo(c).unwrap();
+        move_account(c, &moved, Some(&group), None).unwrap();
+        assert_eq!(order(c), [&first, &second, &moved].map(String::clone));
+    }
+
+    #[test]
+    fn failed_account_move_leaves_group_and_order_untouched() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let group = crate::account_groups::create(c, "Резерв").unwrap();
+        let first = create(c, &input("А", "cash", "RUB", 300)).unwrap();
+        let second = create(c, &input("Б", "cash", "RUB", 1200)).unwrap();
+        set_group(c, &first, Some(&group)).unwrap();
+        let snapshot = |c: &Connection| {
+            list(c, false)
+                .unwrap()
+                .into_iter()
+                .map(|a| (a.id, a.group_id, a.sort_order, a.balance))
+                .collect::<Vec<_>>()
+        };
+        let old = snapshot(c);
+        assert!(move_account(c, &second, None, Some(&first)).is_err());
+        assert!(move_account(c, &second, Some("missing"), None).is_err());
+        c.execute_batch(
+            "CREATE TEMP TRIGGER fail_reorder BEFORE UPDATE OF sort_order ON accounts
+                         BEGIN SELECT RAISE(ABORT,'test'); END;",
+        )
+        .unwrap();
+        assert!(move_account(c, &second, Some(&group), Some(&first)).is_err());
+        assert_eq!(snapshot(c), old);
+        set_archived(c, &first, true).unwrap();
+        assert!(move_account(c, &second, Some(&group), Some(&first)).is_err());
+        assert!(move_account(c, &first, None, None).is_err());
+        assert_eq!(get(c, &second).unwrap().group_id, None);
     }
 
     #[test]
