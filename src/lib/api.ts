@@ -2038,6 +2038,7 @@ export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
+  dragThreshold: () => invoke<[number, number] | null>("drag_threshold"),
   getSettings: () => invoke<Settings>("get_settings"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listCurrencies: () => invoke<Currency[]>("list_currencies"),
@@ -2060,6 +2061,8 @@ export const api = {
     invoke<void>("set_account_includes", { id, inTotal, inBudget, inForecast }),
   setAccountLook: (id: string, icon: string | null, color: string | null) => invoke<void>("set_account_look", { id, icon, color }),
   setAccountGroup: (id: string, groupId: string | null) => invoke<void>("set_account_group", { id, groupId }),
+  moveAccount: (id: string, groupId: string | null, beforeId: string | null) =>
+    invoke<void>("move_account", { id, groupId, beforeId }),
   reorderAccounts: (ids: string[]) => invoke<void>("reorder_accounts", { ids }),
   listAccountGroups: (today: string) => invoke<AccountGroup[]>("list_account_groups", { today }),
   createAccountGroup: (name: string) => invoke<string>("create_account_group", { name }),

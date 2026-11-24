@@ -13,6 +13,8 @@ import { TagsCard } from "../components/Tags";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
 import { CATEGORY_ICONS, isColor, lookOf, type CategoryColor } from "../lib/categoryLook";
 import { LookPicker } from "../components/LookPicker";
+import { categoryGroup } from "../lib/directDrag";
+import { useMoveNotice } from "../components/MoveNotice";
 
 type Edit = { mode: "new"; kind: CategoryKind; parentId: string | null } | { mode: "edit"; category: Category };
 
@@ -22,12 +24,9 @@ export function Categories() {
   const [edit, setEdit] = useState<Edit | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
   const [merging, setMerging] = useState<Category | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
   // Р23: подкатегорию можно перетащить под другую верхнюю категорию того же типа.
-  const moveUnder = useAction((c: Category, parentId: string) => api.updateCategory(c.id, c.name, parentId, { icon: c.icon ?? null, color: c.color ?? null }));
-  const dragged = dragId ? all.find((c) => c.id === dragId) : undefined;
-  const canDrop = (target: Category) => !!dragged && !target.parentId && target.kind === dragged.kind && dragged.parentId !== target.id && !target.archived;
+  const moveUnder = useAction((c: Category, parentId: string) => api.updateCategory(c.id, c.name, parentId, { icon: c.icon ?? null, color: c.color ?? null }), undefined, { singleSubmit: true });
+  const notice = useMoveNotice();
   const archive = useAction(api.archiveCategory);
   const showTransactions = useUi((s) => s.showTransactions);
   const visible = all.filter((c) => showArchived || !c.archived);
@@ -47,29 +46,18 @@ export function Categories() {
           .map((c) => (
             <li
               key={c.id}
-              className={(c.parentId ? "child" : "parent") + (c.archived ? " archived" : "") + (overId === c.id ? " drop-target" : "")}
+              className={(c.parentId ? "child" : "parent") + (c.archived ? " archived" : "")}
               data-testid="category-item"
               data-name={c.name}
-              draggable={!!c.parentId && !c.archived}
-              onDragStart={(e) => {
-                setDragId(c.id);
-                e.dataTransfer.setData("text/plain", c.id);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-              onDragEnd={() => (setDragId(null), setOverId(null))}
-              onDragOver={(e) => {
-                if (canDrop(c)) {
-                  e.preventDefault();
-                  setOverId(c.id);
-                }
-              }}
-              onDragLeave={() => overId === c.id && setOverId(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragged && canDrop(c)) moveUnder.run(dragged, c.id);
-                setDragId(null);
-                setOverId(null);
-              }}
+              tabIndex={-1}
+              {...(c.parentId && !c.archived && !moveUnder.busy ? categoryGroup.source(c.id) : {})}
+              {...(!c.parentId && !c.archived ? categoryGroup.target((id) => {
+                const source = byId.get(id);
+                return !moveUnder.busy && !!source?.parentId && !source.archived && source.kind === c.kind && source.parentId !== c.id;
+              }, (id) => {
+                const source = byId.get(id)!;
+                return notice.confirm(moveUnder.runAsync(source, c.id), `«${source.name}» теперь в категории «${c.name}».`);
+              }) : {})}
             >
               <span className="name">
                 <LookMark look={lookOf(c.id, byId)} />
@@ -115,6 +103,7 @@ export function Categories() {
         </label>
       </div>
       <ErrorText error={archive.error ?? moveUnder.error} />
+      {notice.status}
       <RenameOffer />
       <div className="columns">
         {column("expense", "Расходы")}

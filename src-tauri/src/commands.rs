@@ -154,6 +154,34 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
     })
 }
 
+/// Физические пиксели допуска перемещения мыши для текущего монитора.
+#[tauri::command]
+pub fn drag_threshold(window: tauri::WebviewWindow) -> Option<[i32; 2]> {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetricsForDpi(index: i32, dpi: u32) -> i32;
+        }
+        const SM_CXDRAG: i32 = 68;
+        const SM_CYDRAG: i32 = 69;
+        let dpi = (96.0 * window.scale_factor().ok()?).round() as u32;
+        // SAFETY: обе метрики принимают только целые числа, указателей нет.
+        let metrics = unsafe {
+            [
+                GetSystemMetricsForDpi(SM_CXDRAG, dpi).abs(),
+                GetSystemMetricsForDpi(SM_CYDRAG, dpi).abs(),
+            ]
+        };
+        metrics.into_iter().all(|n| n > 0).then_some(metrics)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        None
+    }
+}
+
 // --- Настройки и валюты ---
 
 #[tauri::command(async)]
@@ -376,6 +404,18 @@ pub fn set_account_group(
 ) -> CmdResult<()> {
     with_undo(&state, "Группа счёта", |c| {
         accounts::set_group(c, &id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn move_account(
+    state: State<AppState>,
+    id: String,
+    group_id: Option<String>,
+    before_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Перемещение счёта", |c| {
+        accounts::move_account(c, &id, group_id.as_deref(), before_id.as_deref())
     })
 }
 

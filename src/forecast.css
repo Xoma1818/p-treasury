@@ -23,6 +23,16 @@
 .fc-scenario-line { fill: none; stroke: var(--over); stroke-width: 2.5; stroke-dasharray: 7 5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .fc-dot { fill: var(--card); stroke: var(--over); stroke-width: 2; pointer-events: none; }
 .fc-dot.neg { fill: var(--over); }
+.fc-chart svg { touch-action: pan-y; }
+.fc-cursor { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fc-period { display: grid; grid-template-columns: 11rem minmax(80px, 1fr); align-items: center; gap: 4px 12px; }
+.fc-period, .fc-period-balances { font-size: 13px; font-variant-numeric: tabular-nums; }
+.fc-period input[type="range"] { width: 100%; min-width: 0; height: 28px; margin: 0; }
+.fc-period-balances { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); }
+.fc-period-balances b { color: var(--text); white-space: nowrap; }
+@media (max-width: 600px) {
+  .fc-period { grid-template-columns: minmax(0, 1fr); }
+}
 .nw-tip-row.scenario { color: var(--over); }
 
 .fc-table td, .fc-table th { padding: 6px 8px; }

@@ -205,6 +205,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::drag_threshold,
             commands::get_settings,
             commands::set_setting,
             commands::list_currencies,
@@ -225,6 +226,7 @@ pub fn run() {
             commands::set_account_includes,
             commands::set_account_look,
             commands::set_account_group,
+            commands::move_account,
             commands::reorder_accounts,
             commands::list_account_groups,
             commands::create_account_group,

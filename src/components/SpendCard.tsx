@@ -1,10 +1,7 @@
-import { useState } from "react";
-import { useCategories } from "../lib/queries";
+import { useAccounts, useCategories } from "../lib/queries";
+import { spendAccount } from "../lib/directDrag";
 import { useUi } from "../lib/store";
 import { Hint } from "./Hint";
-
-/** Тип данных перетаскивания счёта на категорию. */
-export const ACCOUNT_DRAG = "application/x-p-treasury-account";
 
 /**
  * «Куда тратите»: частые категории расходов. Нажатие открывает расход в категории,
@@ -13,7 +10,7 @@ export const ACCOUNT_DRAG = "application/x-p-treasury-account";
 export function SpendCard() {
   const categories = useCategories().data ?? [];
   const openTxnForm = useUi((s) => s.openTxnForm);
-  const [over, setOver] = useState<string | null>(null);
+  const accounts = useAccounts().data;
   const top = categories
     .filter((c) => c.kind === "expense" && !c.archived)
     .sort((a, b) => b.transactionCount - a.transactionCount || a.name.localeCompare(b.name))
@@ -30,21 +27,11 @@ export function SpendCard() {
         {top.map((c) => (
           <button
             key={c.id}
-            className={over === c.id ? "spend-chip drop-over" : "spend-chip"}
+            className="spend-chip"
             data-testid="spend-chip"
             data-category={c.name}
             onClick={() => open(c.id)}
-            onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes(ACCOUNT_DRAG)) return;
-              e.preventDefault();
-              setOver(c.id);
-            }}
-            onDragLeave={() => setOver((cur) => (cur === c.id ? null : cur))}
-            onDrop={(e) => {
-              const account = e.dataTransfer.getData(ACCOUNT_DRAG);
-              setOver(null);
-              if (account) open(c.id, account);
-            }}
+            {...spendAccount.target((id) => !!accounts?.some((a) => a.id === id && !a.archived), (id) => open(c.id, id))}
           >
             {c.name}
           </button>

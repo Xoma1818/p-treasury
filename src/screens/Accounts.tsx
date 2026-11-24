@@ -17,6 +17,8 @@ import { parseAmount } from "../lib/money";
 import { useAccounts, useCurrencies, useInvestOverview } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { accountOrder } from "../lib/directDrag";
+import { useMoveNotice } from "../components/MoveNotice";
 import { ScreenTitle } from "../components/SectionIcon";
 import { AssetsCard } from "../components/Assets";
 import { investKindLabel, ValueForm } from "../components/Invest";
@@ -43,53 +45,44 @@ export function Accounts() {
   const reconciliations = useQuery({ queryKey: ["reconciliations"], queryFn: api.listReconciliations });
   const showTransactions = useUi((s) => s.showTransactions);
   const archive = useAction(api.archiveAccount);
-  const move = useAction(async (id: string, groupId: string | null, beforeId: string | null) => {
-    const a = accounts.find((x) => x.id === id);
-    if (!a) return;
-    if ((a.groupId ?? null) !== groupId) await api.setAccountGroup(id, groupId);
-    const rest = accounts.filter((x) => x.id !== id).map((x) => x.id);
-    let at = beforeId ? rest.indexOf(beforeId) : -1;
-    if (at < 0) {
-      // В конец группы: после последнего счёта этой группы.
-      const lastInGroup = accounts.filter((x) => x.id !== id && (x.groupId ?? null) === groupId).at(-1);
-      at = lastInGroup ? rest.indexOf(lastInGroup.id) + 1 : rest.length;
-    }
-    rest.splice(at, 0, id);
-    await api.reorderAccounts(rest);
-  });
-  const [dragId, setDragId] = useState<string | null>(null);
+  const move = useAction(api.moveAccount, undefined, { singleSubmit: true });
+  const notice = useMoveNotice();
   const visible = accounts.filter((a) => showArchived || !a.archived);
   const known = new Set(groups.map((g) => g.id));
   const sections: { group: AccountGroup | null; items: Account[] }[] = [
     ...groups.map((g) => ({ group: g, items: visible.filter((a) => a.groupId === g.id) })),
     { group: null, items: visible.filter((a) => !a.groupId || !known.has(a.groupId)) },
-  ].filter((s) => s.group || s.items.length > 0);
+  ].filter((s) => s.group || s.items.length > 0 || groups.length > 0);
 
-  const drop = (groupId: string | null, beforeId: string | null) => (e: React.DragEvent) => {
-    e.preventDefault();
-    const id = dragId ?? e.dataTransfer.getData("text/plain");
-    setDragId(null);
-    if (id && id !== beforeId) move.run(id, groupId, beforeId);
+  const moveTo = (id: string, groupId: string | null, beforeId: string | null) => {
+    const source = accounts.find((a) => a.id === id)!;
+    const before = accounts.find((a) => a.id === beforeId);
+    const group = groups.find((g) => g.id === groupId)?.name ?? "Без группы";
+    const position = before ? `перед счётом «${before.name}»` : "в конце группы";
+    return notice.confirm(move.runAsync(id, groupId, beforeId), `«${source.name}» в группе «${group}», ${position}.`);
   };
+  const drop = (groupId: string | null, beforeId: string | null) => accountOrder.target((id) => {
+    const account = accounts.find((a) => a.id === id);
+    if (move.busy || !account || account.archived || id === beforeId) return false;
+    if ((account.groupId ?? null) !== groupId) return true;
+    const group = accounts.filter((a) => !a.archived && (a.groupId ?? null) === groupId);
+    return (group[group.indexOf(account) + 1]?.id ?? null) !== beforeId;
+  }, (id) => moveTo(id, groupId, beforeId));
 
   const row = (a: Account, list: Account[]) => {
-    const i = list.indexOf(a);
+    const active = list.filter((item) => !item.archived);
+    const i = active.indexOf(a);
     const reconciled = reconciliations.data?.find((entry) => entry.accountId === a.id);
     return (
       <tr
         key={a.id}
-        className={[a.archived ? "archived" : "", dragId === a.id ? "dragging" : ""].filter(Boolean).join(" ") || undefined}
+        className={a.archived ? "archived" : undefined}
         data-testid="account-row"
         data-name={a.name}
-        draggable={!a.archived}
-        onDragStart={(e) => {
-          setDragId(a.id);
-          e.dataTransfer.setData("text/plain", a.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => setDragId(null)}
-        onDragOver={(e) => dragId && e.preventDefault()}
-        onDrop={drop(a.groupId && known.has(a.groupId) ? a.groupId : null, a.id)}
+        tabIndex={-1}
+        data-insert-before=""
+        {...(!a.archived && !move.busy ? accountOrder.source(a.id) : {})}
+        {...(!a.archived ? drop(a.groupId && known.has(a.groupId) ? a.groupId : null, a.id) : {})}
         onContextMenu={(e) =>
           openContextMenu(e, [
             { text: "Операции счёта", onClick: () => showTransactions({ accountId: a.id }) },
@@ -152,8 +145,8 @@ export function Accounts() {
             label={`Ещё: ${a.name}`}
             items={[
               { text: "Изменить", onClick: () => setEditing(a) },
-              ...(i > 0 ? [{ text: "Выше", onClick: () => move.run(a.id, a.groupId && known.has(a.groupId) ? a.groupId : null, list[i - 1].id) }] : []),
-              ...(i < list.length - 1 ? [{ text: "Ниже", onClick: () => move.run(a.id, a.groupId && known.has(a.groupId) ? a.groupId : null, list[i + 2]?.id ?? null) }] : []),
+              ...(!move.busy && i > 0 ? [{ text: "Выше", onClick: () => { void moveTo(a.id, a.groupId ?? null, active[i - 1].id).catch(() => {}); } }] : []),
+              ...(!move.busy && i >= 0 && i < active.length - 1 ? [{ text: "Ниже", onClick: () => { void moveTo(a.id, a.groupId ?? null, active[i + 2]?.id ?? null).catch(() => {}); } }] : []),
               { text: a.archived ? "Вернуть из закрытых" : "Закрыть счёт", onClick: () => archive.run(a.id, !a.archived), danger: !a.archived },
             ]}
           />
@@ -181,7 +174,7 @@ export function Accounts() {
           {sections.map(({ group, items }) => (
             <tbody key={group?.id ?? "none"} data-testid="account-section" data-group={group?.name ?? ""}>
               {(group || groups.length > 0) && (
-                <tr className="group-head" data-testid="account-group" onDragOver={(e) => dragId && e.preventDefault()} onDrop={drop(group?.id ?? null, null)}>
+                <tr className="group-head" data-testid="account-group" tabIndex={-1} {...drop(group?.id ?? null, null)}>
                   <td>{group ? group.name : "Без группы"}</td>
                   <td className="num" data-testid="account-group-total">
                     {group && (
@@ -199,6 +192,7 @@ export function Accounts() {
           ))}
         </table>
         <ErrorText error={archive.error ?? move.error ?? (reconciliations.error ? String(reconciliations.error) : null)} />
+        {notice.status}
         <p className="hint">Порядок и группу счёта можно поменять перетаскиванием строки.</p>
         <label className="check small">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />

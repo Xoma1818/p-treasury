@@ -59,7 +59,7 @@
 .loan-chart-head { display: flex; align-items: center; font-size: 12px; color: var(--muted); margin-top: 4px; }
 
 .loan-chart { margin: 4px 0 12px; }
-.loan-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.loan-chart svg { width: 100%; height: auto; display: block; overflow: visible; touch-action: pan-y; }
 .loan-chart .grid { stroke: var(--border); stroke-width: 1; }
 .loan-chart .axis-line { stroke: var(--border-strong); stroke-width: 1; }
 .loan-chart .axis { font-size: 11px; fill: var(--muted); }
