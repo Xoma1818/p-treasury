@@ -17,6 +17,7 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
   const m = useQuery({ queryKey: ["investMonth", b.period.month], queryFn: () => api.investMonth(b.period.month) }).data;
   const [planning, setPlanning] = useState(false);
   if (!m) return null;
+  const comparable = b.currencyCode === m.currency.code;
   const pf = planFact({
     incomePlan: b.plannedIncome,
     incomeFact: b.actualIncome,
@@ -27,6 +28,9 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
   });
   const sym = b.currencySymbol;
   const money = (v: number, signed = false) => <Money amount={v} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} signed={signed} />;
+  const rowMoney = (kind: PlanFactKind, value: number, signed = false) => kind === "invest"
+    ? <Money amount={value} currencyCode={m.currency.code} symbol={m.currency.symbol} minorUnits={m.currency.minorUnits} signed={signed} />
+    : money(value, signed);
   return (
     <div className="card plan-fact" data-testid="plan-fact">
       <div className="notes-head">
@@ -34,7 +38,7 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
           План и факт
           <Hint of="planfact" />
         </h2>
-        {pf.match != null && (
+        {comparable && pf.match != null && (
           <span className={pf.match >= 90 ? "plan-fact-match good" : "plan-fact-match"} data-testid="plan-fact-match" title="100 % — всё ровно по плану">
             Совпадение с планом {pf.match} %
           </span>
@@ -61,9 +65,9 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
                   </button>
                 )}
               </td>
-              <td className="num">{r.plan > 0 ? money(r.plan) : <span className="muted">—</span>}</td>
-              <td className="num">{money(r.fact)}</td>
-              <td className={`num ${r.plan > 0 && r.diff !== 0 ? (r.good ? "plus" : "over") : ""}`}>{r.plan > 0 ? money(r.diff, true) : ""}</td>
+              <td className="num">{r.plan > 0 ? rowMoney(r.kind, r.plan) : <span className="muted">—</span>}</td>
+              <td className="num">{rowMoney(r.kind, r.fact)}</td>
+              <td className={`num ${r.plan > 0 && r.diff !== 0 ? (r.good ? "plus" : "over") : ""}`}>{r.plan > 0 ? rowMoney(r.kind, r.diff, true) : ""}</td>
               <td className="bar-col">
                 {r.percent != null && (
                   <>
@@ -76,7 +80,7 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
               </td>
             </tr>
           ))}
-          <tr className="plan-fact-total" data-testid="plan-fact-left">
+          {comparable && <tr className="plan-fact-total" data-testid="plan-fact-left">
             <td>
               <div className="main">Остаётся</div>
               <div className="sub">доходы − расходы − инвестиции</div>
@@ -85,11 +89,11 @@ export function PlanFactCard({ b, minor }: { b: Budget; minor: number }) {
             <td className="num">{money(pf.leftFact, true)}</td>
             <td className="num">{money(pf.leftFact - pf.leftPlan, true)}</td>
             <td />
-          </tr>
+          </tr>}
         </tbody>
       </table>
       <p className="hint" data-testid="plan-fact-verdict">
-        {b.plannedIncome === 0
+        {!comparable ? `Бюджет ведётся в ${b.currencyCode}, инвестиции — в ${m.currency.code}. Общий остаток доступен при совпадении валют.` : b.plannedIncome === 0
           ? "Добавьте план доходов ниже, чтобы увидеть, сходится ли план."
           : pf.leftPlan < 0
             ? <>План не сходится: лимиты расходов и инвестиции больше доходов на {money(-pf.leftPlan)}.</>

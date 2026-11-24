@@ -238,9 +238,72 @@ fn check_plan(mode: &str, value: i64) -> Result<i64> {
 
 /// Задать общий план на каждый месяц; `mode = ""` убирает план.
 pub fn set_plan(conn: &Connection, mode: &str, value: i64) -> Result<()> {
-    let value = check_plan(mode, value)?;
-    settings::set(conn, "invest_plan_mode", mode)?;
-    settings::set(conn, "invest_plan_value", &value.to_string())
+    change_plan(conn, mode, value).map(|_| ())
+}
+
+pub(crate) type PlanValues = [Option<String>; 2];
+
+fn plan_values(conn: &Connection) -> Result<PlanValues> {
+    Ok(conn.query_row(
+        "SELECT (SELECT value FROM settings WHERE key='invest_plan_mode'),
+                (SELECT value FROM settings WHERE key='invest_plan_value')",
+        [],
+        |r| Ok([r.get(0)?, r.get(1)?]),
+    )?)
+}
+
+pub(crate) fn change_plan(
+    conn: &Connection,
+    mode: &str,
+    value: i64,
+) -> Result<(PlanValues, PlanValues)> {
+    let after = [
+        Some(mode.to_owned()),
+        Some(check_plan(mode, value)?.to_string()),
+    ];
+    let before = plan_values(conn)?;
+    write_plan(conn, &before, &after)?;
+    Ok((before, after))
+}
+
+/// Обе строки составляют один план. При поздней правке любой из них не трогаем ни одну.
+pub(crate) fn write_plan(conn: &Connection, from: &PlanValues, to: &PlanValues) -> Result<()> {
+    // Демо и восстановление могут уже работать внутри внешней транзакции.
+    conn.execute_batch("SAVEPOINT kazna_invest_plan")?;
+    let result = (|| {
+        if &plan_values(conn)? != from {
+            return invalid("план инвестиций изменился позже");
+        }
+        for ((key, old), new) in ["invest_plan_mode", "invest_plan_value"]
+            .into_iter()
+            .zip(from)
+            .zip(to)
+        {
+            if old == new {
+                continue;
+            }
+            let rows = match new {
+                Some(value) => conn.execute(
+                    "INSERT INTO settings (key,value) VALUES (?1,?2)
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    params![key, value],
+                )?,
+                None => conn.execute("DELETE FROM settings WHERE key=?1", [key])?,
+            };
+            if rows != 1 {
+                return invalid("не удалось изменить план инвестиций");
+            }
+        }
+        if &plan_values(conn)? != to {
+            return invalid("не удалось изменить план инвестиций");
+        }
+        conn.execute_batch("RELEASE kazna_invest_plan")?;
+        Ok(())
+    })();
+    if result.is_err() && !conn.is_autocommit() {
+        conn.execute_batch("ROLLBACK TO kazna_invest_plan; RELEASE kazna_invest_plan")?;
+    }
+    result
 }
 
 /// Свой план на один месяц (`2026-12`); `mode = ""` — в этом месяце не откладывать.
@@ -264,6 +327,7 @@ pub fn clear_month_plan(conn: &Connection, month: &str) -> Result<()> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonthProgress {
+    pub currency: currencies::Currency,
     pub month: String,
     pub start: String,
     pub end: String,
@@ -283,6 +347,7 @@ pub struct MonthProgress {
 pub fn month_progress(conn: &Connection, month: &str) -> Result<MonthProgress> {
     let p = budgets::period(month, budgets::start_day(conn)?)?;
     let base = currencies::base_currency(conn)?;
+    let currency = currencies::get(conn, &base)?;
     let mut missing = Vec::new();
     let saved = contributions(
         conn,
@@ -302,9 +367,9 @@ pub fn month_progress(conn: &Connection, month: &str) -> Result<MonthProgress> {
     }
     let planned = match plan.mode.as_str() {
         "amount" => Some(plan.value),
-        // Процент от доходов, округлённый до рубля.
+        // Процент от доходов, округлённый до целой единицы основной валюты.
         "percent" => {
-            let unit = 10i64.pow(currencies::minor_units(conn, &base)?);
+            let unit = 10i64.pow(currency.minor_units);
             Some((summary.income.max(0) * plan.value / 100 + unit / 2) / unit * unit)
         }
         _ => None,
@@ -313,6 +378,7 @@ pub fn month_progress(conn: &Connection, month: &str) -> Result<MonthProgress> {
         .filter(|&v| v > 0)
         .map(|v| reports::percent(saved.max(0), v));
     Ok(MonthProgress {
+        currency,
         month: p.month,
         start: p.start,
         end: p.end,
@@ -582,6 +648,54 @@ mod tests {
         assert_eq!(value_on(c, &iis, "2026-10-20").unwrap().0, 12_500_000);
         assert!(set_value(c, &card, "2026-10-10", 1).is_err());
         assert!(set_value(c, &iis, "2026-10-10", -1).is_err());
+    }
+
+    #[test]
+    fn undo_restores_each_missing_plan_key_inside_an_outer_transaction() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let initial = plan_values(db.conn()).unwrap();
+        for keys in [
+            vec!["invest_plan_mode"],
+            vec!["invest_plan_value"],
+            vec!["invest_plan_mode", "invest_plan_value"],
+        ] {
+            let tx = db.conn_mut().transaction().unwrap();
+            for key in &keys {
+                tx.execute("DELETE FROM settings WHERE key=?1", [key])
+                    .unwrap();
+            }
+            let legacy = plan_values(&tx).unwrap();
+            let mut journal = crate::undo::Journal::default();
+            // При FAIL SQLite может оставить уже изменённую первую строку.
+            tx.execute_batch(
+                "CREATE TEMP TRIGGER reject_plan_value BEFORE INSERT ON settings
+                 WHEN NEW.key='invest_plan_value' BEGIN SELECT RAISE(FAIL, 'test'); END;",
+            )
+            .unwrap();
+            assert!(journal.set_invest_plan(&tx, "percent", 15).is_err());
+            assert!(journal.state().undo.is_none());
+            assert_eq!(plan_values(&tx).unwrap(), legacy);
+            tx.execute_batch("DROP TRIGGER reject_plan_value").unwrap();
+            journal.set_invest_plan(&tx, "percent", 15).unwrap();
+            let saved = [Some("percent".to_owned()), Some("15".to_owned())];
+            assert_eq!(plan_values(&tx).unwrap(), saved);
+            journal.undo(&tx).unwrap();
+            assert_eq!(plan_values(&tx).unwrap(), legacy);
+            journal.redo(&tx).unwrap();
+            assert_eq!(plan_values(&tx).unwrap(), saved);
+
+            journal.undo(&tx).unwrap();
+            tx.execute(
+                "INSERT INTO settings (key,value) VALUES (?1,'later')",
+                [keys[0]],
+            )
+            .unwrap();
+            let external = plan_values(&tx).unwrap();
+            assert!(journal.redo(&tx).is_err());
+            assert_eq!(plan_values(&tx).unwrap(), external);
+            tx.rollback().unwrap();
+            assert_eq!(plan_values(db.conn()).unwrap(), initial);
+        }
     }
 
     #[test]

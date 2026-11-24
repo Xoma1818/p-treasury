@@ -1057,6 +1057,7 @@ export interface Valuation {
 export type InvestPlanMode = "" | "amount" | "percent";
 
 export interface InvestMonth {
+  currency: Currency;
   month: string;
   start: string;
   end: string;

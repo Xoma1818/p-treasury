@@ -4,7 +4,8 @@ import { ChevronLeft } from "lucide-react";
 import { AccountSelect, AmountInput, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
-import { Money } from "../../components/Money";
+import { FormAmountsToggle } from "../../components/FormAmounts";
+import { useLoanFormAmounts, type RenderDebtMoney } from "./loanFormAmounts";
 import { api, REPAYMENTS, type CalcInput, type CalcResult, type DebtInput, type Direction, type InterestMethod, type PayEvery, type RatePeriod, type Repayment, type SimView } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
 import { useFine } from "../../lib/fine";
@@ -55,6 +56,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
   const c = currencies.find((x) => x.code === cur);
   const mu = c?.minorUnits ?? 2;
   const sym = useFine().code ? cur : c?.symbol ?? "₽";
+  const privacy = useLoanFormAmounts(cur, cur, sym, mu);
   const [f, setF] = useState<LoanForm>(() => initialForm(example));
   const set = (patch: Partial<LoanForm>) => setF((x) => ({ ...x, ...patch }));
   const [showRates, setShowRates] = useState(false);
@@ -92,6 +94,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
       </div>
       <div className="loan-planner">
         <div className="card loan-form" data-testid="loan-form">
+          <FormAmountsToggle privacy={privacy} where="в этом расчёте" />
           {!bullet && (
             <div className="loan-solve">
               <span className="loan-solve-label">
@@ -110,13 +113,13 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
           <div className="row">
             {solve !== "principal" ? (
               <Field label="Сумма" help="loan.amount">
-                {(id) => <AmountInput id={id} name="principal" value={f.amount} onChange={(v) => set({ amount: v })} minorUnits={mu} autoFocus={!example} />}
+                {(id) => <AmountInput id={id} name="principal" value={f.amount} onChange={(v) => set({ amount: v })} minorUnits={mu} concealed={privacy.concealed} autoFocus={!example} />}
               </Field>
             ) : (
               <Field label="Сумма" help="loan.amount">
                 {() => (
                   <div className="loan-solved" data-testid="solved-principal">
-                    {r ? <Money amount={r.principal} symbol={sym} minorUnits={mu} /> : "—"}
+                    {r ? privacy.money(r.principal) : "—"}
                   </div>
                 )}
               </Field>
@@ -135,7 +138,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
           </div>
           {solve !== "payment" && (
             <Field label={solve === "rate" ? "Платёж по договору" : f.payEvery === "month" ? "Желаемый платёж в месяц" : "Желаемый платёж"} help="loan.payment">
-              {(id) => <AmountInput id={id} name="desiredPayment" value={f.payment} onChange={(v) => set({ payment: v })} minorUnits={mu} />}
+              {(id) => <AmountInput id={id} name="desiredPayment" value={f.payment} onChange={(v) => set({ payment: v })} minorUnits={mu} concealed={privacy.concealed} />}
             </Field>
           )}
           <div className="row">
@@ -257,7 +260,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
               Досрочные погашения
               <Hint of="loan.early" />
             </div>
-            <EarlyEditor lines={f.early} onChange={(early) => set({ early })} minorUnits={mu} symbol={sym} defaultDate={f.firstPayment || addMonths(f.issueDate, 1)} bullet={bullet} />
+            <EarlyEditor lines={f.early} onChange={(early) => set({ early })} minorUnits={mu} symbol={sym} defaultDate={f.firstPayment || addMonths(f.issueDate, 1)} bullet={bullet} concealed={privacy.concealed} />
           </div>
         </div>
 
@@ -271,22 +274,22 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
             {input && !r && !(current && plan.isError) && <p className="hint" role="status">Пересчитываем…</p>}
             {current && plan.error && (
               <p className="hint warn" role="status">
-                {String(plan.error)}
+                {privacy.error(String(plan.error))}
               </p>
             )}
-            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} period={f.ratePeriod} every={f.payEvery} sym={sym} mu={mu} />}
+            {r && !plan.error && <Totals r={r} solve={solve} bullet={bullet} falling={f.repayment === "differentiated"} period={f.ratePeriod} every={f.payEvery} money={privacy.money} />}
             {r && input && (
               <>
                 <div className="loan-chart-head">
                   Остаток долга
                   <Hint of="loan.chart" />
                 </div>
-                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={input.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} />
+                <BalanceChart base={r.base} withEarly={r.withEarly} issueDate={input.issueDate} principal={r.principal} symbol={sym} minorUnits={mu} hidden={privacy.concealed} />
               </>
             )}
             <div className="loan-actions">
               <span className="btn-with-hint">
-                <button type="button" className="btn primary" disabled={!r || !!plan.error} onClick={() => setRecord(true)}>
+                <button type="button" className="btn primary" disabled={!r || !!plan.error} onClick={() => { privacy.conceal(); setRecord(true); }}>
                   Записать заём
                 </button>
                 <Hint of="loan.record" />
@@ -296,7 +299,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
                 <Hint of="loan.excel" />
               </span>
               <span className="btn-with-hint">
-                <button type="button" className="btn" disabled={!r || !!plan.error} onClick={() => (setStatus(null), setPdf(true))}>
+                <button type="button" className="btn" disabled={!r || !!plan.error} onClick={() => { privacy.conceal(); setStatus(null); setPdf(true); }}>
                   PDF для подписи
                 </button>
                 <Hint of="loan.pdf" />
@@ -318,7 +321,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
             График платежей{r.withEarly ? " с досрочками" : ""}
             <Hint of="debts.schedule" />
           </h2>
-          <PlanTable view={r.withEarly ?? r.base} sym={sym} mu={mu} />
+          <PlanTable view={r.withEarly ?? r.base} money={privacy.money} />
         </div>
       )}
 
@@ -329,8 +332,7 @@ export function LoanPlanner({ back, example, onCreated }: { back: () => void; ex
 }
 
 /** У дифференцированного платёж убывает: «первый → последний». */
-function Totals({ r, solve, bullet, falling, period, every, sym, mu }: { r: CalcResult; solve: Solve; bullet: boolean; falling: boolean; period: RatePeriod; every: PayEvery; sym: string; mu: number }) {
-  const m = (v: number) => <Money amount={v} symbol={sym} minorUnits={mu} />;
+function Totals({ r, solve, bullet, falling, period, every, money: m }: { r: CalcResult; solve: Solve; bullet: boolean; falling: boolean; period: RatePeriod; every: PayEvery; money: RenderDebtMoney }) {
   const v = r.withEarly ?? r.base;
   const last = r.base.rows[r.base.rows.length - 1]?.payment ?? r.payment;
   return (
@@ -389,8 +391,7 @@ function Totals({ r, solve, bullet, falling, period, every, sym, mu }: { r: Calc
 }
 
 /** Строки графика вместе с досрочками (досрочка — строка без номера). */
-export function PlanTable({ view, sym, mu }: { view: Pick<SimView, "rows" | "early">; sym: string; mu: number }) {
-  const m = (v: number) => <Money amount={v} symbol={sym} minorUnits={mu} />;
+function PlanTable({ view, money: m }: { view: Pick<SimView, "rows" | "early">; money: RenderDebtMoney }) {
   type Line = { key: string; seq: number | null; date: string; payment: number; principal: number; interest: number; balance: number; note: string };
   const lines: Line[] = [
     ...view.rows.map((r) => ({
@@ -440,11 +441,12 @@ export function PlanTable({ view, sym, mu }: { view: Pick<SimView, "rows" | "ear
 /** «Записать заём»: кто, направление, счёт и комментарий — остальное из расчёта. */
 function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: { input: CalcInput; result: CalcResult; currency: string; sym: string; mu: number; onClose: () => void; onCreated: (id: string) => void }) {
   const accounts = (useAccounts().data ?? []).filter((a) => a.currencyCode === currency);
+  const privacy = useLoanFormAmounts(currency, currency, sym, mu);
   const [direction, setDirection] = useState<Direction>("borrowed");
   const [counterparty, setCounterparty] = useState("");
   const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
-  const save = useAction(async (d: DebtInput) => onCreated(await api.createDebt(d)));
+  const save = useAction((d: DebtInput) => api.createDebt(d), onCreated, { singleSubmit: true });
   const submit = () => {
     if (!counterparty.trim()) return save.setError(direction === "lent" ? "Укажите, кому вы дали в долг" : "Укажите, у кого взяли в долг");
     save.run({
@@ -468,8 +470,9 @@ function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: 
     });
   };
   return (
-    <Modal title="Записать заём" onClose={onClose} wide>
+    <Modal title="Записать заём" onClose={onClose} dismissDisabled={save.busy} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
+        <FormAmountsToggle privacy={privacy} />
         <div className="tabs" role="tablist">
           {(
             [
@@ -492,19 +495,19 @@ function RecordDialog({ input, result, currency, sym, mu, onClose, onCreated }: 
         </div>
         <Field label="Комментарий">{(id) => <input id={id} name="debtNote" value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
         <div className="card preview" data-testid="debt-preview">
-          <Money amount={result.principal} symbol={sym} minorUnits={mu} />
+          {privacy.money(result.principal)}
           {result.rateBp ? ` под ${rateLabel(result.rateBp, input.ratePeriod)}` : " без процентов"}
           {result.termMonths && input.repayment !== "bullet" ? `, ${paymentsText(result.termMonths, input.payEvery)}` : ""}, {input.repayment === "bullet" ? "к возврату" : "платёж"}{" "}
           <b>
-            <Money amount={result.payment} symbol={sym} minorUnits={mu} />
+            {privacy.money(result.payment)}
           </b>
           , проценты {METHODS[input.interestMethod ?? "daily"]}
           {(input.plannedEarly?.length ?? 0) > 0 && ", плановые досрочки сохранятся для прогноза"}
         </div>
-        <ErrorText error={save.error} />
+        <ErrorText error={privacy.error(save.error)} />
         <div className="actions">
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose} disabled={save.busy}>
             Отмена
           </button>
           <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>
