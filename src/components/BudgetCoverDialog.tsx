@@ -1,17 +1,24 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Budget, type BudgetLine } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { ErrorText, Modal } from "./Modal";
-import { Money } from "./Money";
+import { FormAmountsToggle, useFormAmounts, useFormMoney } from "./FormAmounts";
 import { coverSources } from "../lib/budgetCover";
 import { useBudget } from "../lib/queries";
+import { PendingStatus } from "./PendingStatus";
 
 export function BudgetCoverDialog({ budget, target, minor, onClose }: {
   budget: Budget; target: BudgetLine; minor: number; onClose: (outcome: "saved" | "cancelled") => void;
 }) {
   const amount = -target.remaining;
-  const latest = useBudget(budget.period.month).data ?? budget;
+  const privacy = useFormAmounts(JSON.stringify([budget.id, budget.period.start, budget.period.end, target.categoryId]));
+  const format = useFormMoney(privacy, budget.currencyCode, budget.currencySymbol, minor);
+  const currentBudget = useBudget(budget.period.month).data ?? budget;
+  const submitted = useRef<Budget | null>(null);
+  const save = useAction(api.coverBudgetOverspend, () => onClose("saved"), { singleSubmit: true });
+  // Обновление запроса после записи не должно объявлять собственный перенос устаревшим.
+  const latest = save.busy && submitted.current ? submitted.current : currentBudget;
   const currentTarget = latest.lines.find((line) => line.categoryId === target.categoryId);
   const available = latest.id === budget.id && latest.currencyCode === budget.currencyCode &&
     latest.period.start === budget.period.start && latest.period.end === budget.period.end &&
@@ -21,19 +28,22 @@ export function BudgetCoverDialog({ budget, target, minor, onClose }: {
   const [selected, select] = useState(() => sources[0]?.categoryId ?? "");
   const from = sources.find((l) => l.categoryId === selected);
   const queries = useQueryClient();
-  const save = useAction(api.coverBudgetOverspend, () => onClose("saved"), { singleSubmit: true });
-  const money = (value: number) => <Money amount={value} symbol={budget.currencySymbol} currencyCode={budget.currencyCode} minorUnits={minor} />;
+  const money = (value: number) => <span className="money">{format(value)}</span>;
   const close = () => {
     if (save.error) void queries.invalidateQueries({ queryKey: ["budget"] });
     onClose("cancelled");
   };
   return (
     <Modal title="Покрыть перерасход" onClose={close} dismissDisabled={save.busy}>
+      <FormAmountsToggle privacy={privacy} />
       {available ? <p>В категории «{target.categoryName}» потрачено сверх лимита {money(amount)}.</p> :
         <p role="status">План или расходы категории изменились. Откройте актуальный план ещё раз.</p>}
       {sources.length > 0 && <>
         <label className="field">Из категории
-          <select autoFocus aria-label="Из категории" data-testid="cover-source" value={from ? selected : ""} onChange={(e) => select(e.target.value)} disabled={save.busy}>
+          <select autoFocus aria-label="Из категории" data-testid="cover-source" value={from ? selected : ""} onChange={(e) => {
+            privacy.conceal();
+            select(e.target.value);
+          }} disabled={save.busy}>
             {!from && <option value="" disabled>Выберите другую категорию</option>}
             {sources.map((l) => <option key={l.categoryId} value={l.categoryId}>{l.categoryName}</option>)}
           </select>
@@ -51,11 +61,15 @@ export function BudgetCoverDialog({ budget, target, minor, onClose }: {
       </> : available && <p className="hint" role="status">{sources.length > 0 ? "Свободный лимит изменился. Выберите категорию для переноса." :
         <>Для покрытия нужна другая категория со свободным месячным лимитом не меньше {money(amount)}.</>}</p>}
       <ErrorText error={save.error} />
+      <PendingStatus busy={save.busy}>Переносим лимит…</PendingStatus>
       <div className="actions">
         <button className="btn" autoFocus={!sources.length} onClick={close} disabled={save.busy}>{sources.length ? "Отмена" : "Закрыть"}</button>
         {from && <button type="button" className="btn primary" data-testid="cover-confirm" disabled={save.busy || !!save.error} aria-busy={save.busy}
-          onClick={() => save.run({ month: budget.period.month, budgetId: budget.id!, from: from.categoryId, to: target.categoryId,
-            amount, fromLimit: from.baseLimit, toLimit: target.baseLimit, fromRemaining: from.remaining })}>
+          onClick={() => {
+            submitted.current = latest;
+            save.run({ month: budget.period.month, budgetId: budget.id!, from: from.categoryId, to: target.categoryId,
+              amount, fromLimit: from.baseLimit, toLimit: target.baseLimit, fromRemaining: from.remaining });
+          }}>
           Перенести {money(amount)}
         </button>}
       </div>

@@ -225,12 +225,12 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .year-head { display: flex; align-items: center; gap: 10px; }
 
 /* 0.12: поиск Ctrl+K. */
-.palette { position: fixed; inset: 0; z-index: 900; background: var(--overlay); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; animation: fade-in 120ms var(--ease); }
-.palette-box { width: min(620px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden; animation: palette-in 160ms var(--ease); }
-@keyframes palette-in { from { transform: translateY(-8px) scale(0.98); opacity: 0; } }
+.palette { position: fixed; inset: 0; z-index: 900; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.palette-box { width: min(620px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden; }
 @keyframes fade-in { from { opacity: 0; } }
 .palette-box input { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 16px 18px; font-size: 16px; background: transparent; box-shadow: none; }
 .palette-box input:focus { outline: none; box-shadow: none; }
+.palette-box input:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .palette-list { list-style: none; margin: 0; padding: 6px; max-height: 56vh; overflow: auto; }
 .palette-group { padding: 8px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .palette-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 9px; cursor: pointer; }

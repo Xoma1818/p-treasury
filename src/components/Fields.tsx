@@ -2,7 +2,7 @@ import { useId, type ReactNode } from "react";
 import type { Account, Category, CategoryKind } from "../lib/api";
 import type { HintKey } from "../lib/hints";
 import { Hint } from "./Hint";
-import { amountToInput, formatAmount, isExpression, parseAmount } from "../lib/money";
+import { amountToInput, formatAmount, HIDDEN_AMOUNT, isExpression, parseAmount } from "../lib/money";
 
 /** Поле с подписью; `help` — значок «?» с подсказкой из hints.ts у подписи. */
 export function Field({ label, children, hint, help }: { label: string; children: (id: string) => ReactNode; hint?: ReactNode; help?: HintKey }) {
@@ -28,6 +28,7 @@ export function AmountInput({
   minorUnits = 2,
   allowNegative = false,
   autoFocus,
+  concealed = false,
 }: {
   id?: string;
   name: string;
@@ -36,10 +37,11 @@ export function AmountInput({
   minorUnits?: number;
   allowNegative?: boolean;
   autoFocus?: boolean;
+  concealed?: boolean;
 }) {
   const parsed = parseAmount(value, minorUnits);
-  const bad = value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
-  const calc = !bad && parsed !== null && isExpression(value);
+  const bad = !concealed && value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
+  const calc = !concealed && !bad && parsed !== null && isExpression(value);
   return (
     <span className="amount-field">
       <input
@@ -48,7 +50,8 @@ export function AmountInput({
         className={bad ? "amount invalid" : "amount"}
         inputMode="decimal"
         autoComplete="off"
-        value={value}
+        value={concealed ? HIDDEN_AMOUNT : value}
+        readOnly={concealed}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
         // Уход с поля заменяет выражение результатом: «1890+455» → «2345».

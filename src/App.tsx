@@ -20,9 +20,10 @@ import { HotkeysHelp, UndoBar } from "./components/Convenience";
 import { UpdatePrompt } from "./components/DataTools";
 import { Sidebar } from "./components/Sidebar";
 import { TxnForm } from "./components/TxnForm";
-import { api, isTauri } from "./lib/api";
-import { useAppInfo, useSettingsSnapshot } from "./lib/queries";
-import { useAction } from "./lib/useAction";
+import { isTauri } from "./lib/api";
+import { useAmountPrivacyToggle, useAppInfo, useSettingsSnapshot } from "./lib/queries";
+import { useStore } from "zustand";
+import { amountPrivacy } from "./lib/amountPrivacy";
 import { type SectionId } from "./lib/sections";
 import { useUi } from "./lib/store";
 import { Accounts } from "./screens/Accounts";
@@ -68,8 +69,8 @@ export function App() {
   const info = useAppInfo();
   const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
   const settingsSnapshot = useSettingsSnapshot().data;
-  const hidden = settingsSnapshot?.settings.hide_amounts === "1";
-  const setSetting = useAction(api.setSetting);
+  const togglePrivacy = useAmountPrivacyToggle();
+  const privacyFailed = useStore(amountPrivacy.state, s => s.failed);
   // Г13: настройки вида — копия в базе; после восстановления копии берём их оттуда.
   // Копия вида в базе: при запуске и после восстановления копии в открытой программе.
   useEffect(() => {
@@ -100,14 +101,14 @@ export function App() {
   const keyMap = useKeyMap();
   useEffect(() => {
     // У формы импорта, восстановления или обновления свой фокус и несохранённый ввод.
-    const settingsDialogOpen = () => document.querySelector('.settings-screen [aria-modal="true"]') !== null;
+    const navigationLocked = () => document.querySelector('.settings-screen [aria-modal="true"], form[data-write-pending]') !== null;
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.altKey && !e.shiftKey) {
         const n = Number(e.key);
         const menu = navSections(savedNav(), sectionOn);
         if (n >= 1 && n <= 9 && menu[n - 1]) {
           e.preventDefault();
-          if (!settingsDialogOpen()) go(menu[n - 1].id);
+          if (!navigationLocked() && useUi.getState().section !== menu[n - 1].id) go(menu[n - 1].id);
           return;
         }
       }
@@ -115,18 +116,18 @@ export function App() {
       const action = combo && usable(combo) ? actionFor(keyMap, combo) : null;
       if (!action) return;
       e.preventDefault();
-      if (action !== "hideAmounts" && settingsDialogOpen()) return;
+      if (action !== "hideAmounts" && navigationLocked()) return;
       if (action === "help") setHelp(true);
       else if (action === "newExpense") openTxnForm({ mode: "new", type: "expense" });
       else if (action === "newIncome") openTxnForm({ mode: "new", type: "income" });
       else if (action === "newTransfer") openTxnForm({ mode: "new", type: "transfer" });
-      else if (action === "hideAmounts") setSetting.run("hide_amounts", hidden ? "0" : "1");
+      else if (action === "hideAmounts" && !e.repeat) togglePrivacy();
       else if (action === "palette") setPalette(true);
       else if (action === "search") focusSearch(go);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, openTxnForm, setHelp, setPalette, hidden, setSetting.run, keyMap]);
+  }, [go, openTxnForm, setHelp, setPalette, togglePrivacy, keyMap]);
 
   if (!isTauri()) {
     return <div className="wizard"><div className="card wizard-card">Kazna работает как приложение для ПК. Откройте его через установленную программу.</div></div>;
@@ -149,6 +150,7 @@ export function App() {
     <div className="layout">
       <Sidebar />
       <main className="content">
+        {privacyFailed && <p className="error" role="alert">Не удалось сохранить настройку видимости. Суммы скрыты.</p>}
         <DemoBanner />
         <CrashGuard key={`${section}-${visit}`} inline>
           {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}

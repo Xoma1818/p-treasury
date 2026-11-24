@@ -2342,8 +2342,8 @@ export const api = {
     invoke<string>("create_transaction_full", { input, eventId, extra, reminder: reminder ?? null }),
   saveQuickTransaction: (input: TxnInput, extra: TxnExtra, merchant: string | null) =>
     invoke<string>("save_quick_transaction", { input, extra, merchant }),
-  updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra) =>
-    invoke<void>("update_transaction_full", { id, input, extra }),
+  updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra, eventChange?: { eventId: string | null }) =>
+    invoke<void>("update_transaction_full", { id, input, extra, eventChange }),
   setTransactionSpread: (id: string, months: number | null) => invoke<void>("set_transaction_spread", { id, months }),
   sumSelected: (ids: string[]) => invoke<Sums>("sum_selected", { ids }),
   sumFiltered: (filter: TxnFilter) => invoke<Sums>("sum_filtered", { filter }),

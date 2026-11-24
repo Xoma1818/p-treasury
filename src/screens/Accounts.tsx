@@ -4,6 +4,7 @@ import { openContextMenu } from "../components/ContextMenu";
 import { useEffect, useState } from "react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, amountText, Field } from "../components/Fields";
+import { FormAmountsToggle, useFormAmounts } from "../components/FormAmounts";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
 import { ReconcileAccount } from "../components/ReconcileAccount";
@@ -288,6 +289,7 @@ function InvestSub({ account: a, invested }: { account: Account; invested?: { in
 }
 
 function AccountForm({ account, groups, onClose }: { account: Account | null; groups: AccountGroup[]; onClose: () => void }) {
+  const privacy = useFormAmounts(account?.id ?? "new-account");
   const currencies = useCurrencies().data ?? [];
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState<AccountType>(account?.type ?? "debit");
@@ -345,9 +347,10 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
             )}
           </Field>
         </div>
+        <FormAmountsToggle privacy={privacy} />
         <div className="row">
           <Field label="Начальный остаток">
-            {(id) => <AmountInput id={id} name="openingBalance" value={opening} onChange={setOpening} minorUnits={minor} allowNegative={type === "credit"} />}
+            {(id) => <AmountInput id={id} name="openingBalance" value={opening} onChange={setOpening} minorUnits={minor} allowNegative={type === "credit"} concealed={privacy.concealed} />}
           </Field>
           <Field label="Дата начала учёта">
             {(id) => <input id={id} name="openingDate" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />}
@@ -368,7 +371,7 @@ function AccountForm({ account, groups, onClose }: { account: Account | null; gr
         )}
         {type === "credit" && (
           <Field label="Кредитный лимит" hint="Долг банку вводите отрицательным остатком: −15 000">
-            {(id) => <AmountInput id={id} name="creditLimit" value={limit} onChange={setLimit} minorUnits={minor} />}
+            {(id) => <AmountInput id={id} name="creditLimit" value={limit} onChange={setLimit} minorUnits={minor} concealed={privacy.concealed} />}
           </Field>
         )}
         {groups.length > 0 && (

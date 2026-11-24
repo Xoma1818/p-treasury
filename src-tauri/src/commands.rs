@@ -296,11 +296,13 @@ pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
 /// Удалить пример и вернуться к мастеру первого запуска. Отменить нельзя:
 /// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
 #[tauri::command(async)]
-pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
-    let mut guard = state.lock_db();
-    state.replace_data(&mut guard, |slot| {
-        let db = slot.as_mut().map_err(|e| e.clone())?;
-        demo::clear(db.conn_mut()).map_err(|e| e.to_string())
+pub fn clear_demo(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    crate::quick_window::during_replacement(&app, &state, || {
+        let mut guard = state.lock_db();
+        state.replace_data(&mut guard, |slot| {
+            let db = slot.as_mut().map_err(|e| e.clone())?;
+            demo::clear(db.conn_mut()).map_err(|e| e.to_string())
+        })
     })
 }
 
@@ -969,8 +971,13 @@ pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
 }
 
 #[tauri::command(async)]
-pub fn quick_parse(state: State<AppState>, text: String) -> CmdResult<Draft> {
+pub fn quick_parse(
+    window: tauri::Window,
+    state: State<AppState>,
+    text: String,
+) -> CmdResult<Draft> {
     with_db(&state, |db| {
+        crate::quick_window::check_budget(&state, window.label())?;
         quick::parse(db.conn(), &text, &time::today_local())
     })
 }
@@ -989,12 +996,14 @@ pub fn remember_rule(
 
 #[tauri::command(async)]
 pub fn save_quick_transaction(
+    window: tauri::Window,
     state: State<AppState>,
     input: TxnInput,
     extra: TxnExtra,
     merchant: Option<String>,
 ) -> CmdResult<String> {
     with_undo(&state, "Новая операция", |c| {
+        crate::quick_window::check_budget(&state, window.label())?;
         quick::save(c, &input, &extra, merchant.as_deref())
     })
 }
@@ -1047,8 +1056,8 @@ pub fn open_quick(app: AppHandle) -> CmdResult<()> {
 
 /// Операция записана в окне быстрого ввода: окно прячется, главное обновляет данные.
 #[tauri::command]
-pub fn hide_quick(app: AppHandle, saved: bool) {
-    crate::quick_window::hide(&app);
+pub fn hide_quick(app: AppHandle, window: tauri::Window, saved: bool) {
+    crate::quick_window::hide(&app, window.label());
     if saved {
         let _ = app.emit("data-changed", ());
     }
@@ -1221,21 +1230,25 @@ pub fn list_files(state: State<AppState>) -> CmdResult<Vec<crate::files::FileRow
 }
 
 #[tauri::command(async)]
-pub fn create_file(state: State<AppState>, name: String) -> CmdResult<String> {
-    crate::files::create(&state, &name)
+pub fn create_file(app: AppHandle, state: State<AppState>, name: String) -> CmdResult<String> {
+    crate::quick_window::during_replacement(&app, &state, || crate::files::create(&state, &name))
 }
 
 #[tauri::command(async)]
-pub fn open_file(state: State<AppState>, path: String) -> CmdResult<()> {
-    crate::files::open_existing(&state, Path::new(&path))
+pub fn open_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::quick_window::during_replacement(&app, &state, || {
+        crate::files::open_existing(&state, Path::new(&path))
+    })
 }
 
 #[tauri::command(async)]
-pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
+pub fn switch_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<()> {
     if !Path::new(&path).exists() {
         return Err("файла нет на месте: проверьте флешку или папку".into());
     }
-    crate::files::switch(&state, Path::new(&path))
+    crate::quick_window::during_replacement(&app, &state, || {
+        crate::files::switch(&state, Path::new(&path))
+    })
 }
 
 #[tauri::command(async)]
@@ -2165,15 +2178,17 @@ pub fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
 
 /// Восстановить из копии; возвращает путь к копии прежних данных.
 #[tauri::command(async)]
-pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String> {
+pub fn restore_backup(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<String> {
     let opts = state.open_options();
-    let mut guard = state.lock_db();
-    state.replace_data(&mut guard, |slot| {
-        let db = slot.as_mut().map_err(|e| e.clone())?;
-        let safety = db
-            .restore_from(Path::new(&path), &opts)
-            .map_err(|e| e.to_string())?;
-        Ok(safety.display().to_string())
+    crate::quick_window::during_replacement(&app, &state, || {
+        let mut guard = state.lock_db();
+        state.replace_data(&mut guard, |slot| {
+            let db = slot.as_mut().map_err(|e| e.clone())?;
+            let safety = db
+                .restore_from(Path::new(&path), &opts)
+                .map_err(|e| e.to_string())?;
+            Ok(safety.display().to_string())
+        })
     })
 }
 
@@ -2675,9 +2690,10 @@ pub fn update_transaction_full(
     id: String,
     input: TxnInput,
     extra: TxnExtra,
+    event_change: Option<transactions::EventChange>,
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение операции", |c| {
-        transactions::update_with(c, &id, &input, &extra)
+        transactions::update_with_event(c, &id, &input, &extra, event_change.as_ref())
     })
 }
 

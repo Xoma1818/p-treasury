@@ -62,7 +62,7 @@
   color: var(--rail-ink);
   box-shadow: var(--shadow-xs);
   cursor: pointer;
-  transition: background-color 140ms var(--ease), border-color 140ms var(--ease);
+  transition: background-color var(--motion-feedback) var(--ease), border-color var(--motion-feedback) var(--ease);
 }
 /* The icon moves inside a fixed hit area, so adjacent targets never shift. */
 .app-nav :is(.nav-item, .nav-search, .foot-btn) svg {
@@ -71,7 +71,7 @@
   width: 24px;
   height: 24px;
   stroke-width: 1.85;
-  transition: transform 130ms var(--ease-selection);
+  transition: transform var(--motion-feedback) var(--ease-selection);
 }
 .app-nav .nav-item .icon-tile {
   width: auto;
@@ -101,7 +101,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translateX(-50%) scaleX(.35);
-  transition: transform 160ms var(--ease-selection), opacity 140ms ease;
+  transition: transform var(--motion-layer) var(--ease-selection), opacity var(--motion-feedback) var(--ease);
 }
 .app-nav .nav-item[aria-current="page"]::before {
   opacity: 1;
@@ -119,7 +119,7 @@
     background: color-mix(in srgb, var(--rail-ink) 9%, var(--rail-surface));
     border-color: color-mix(in srgb, var(--rail-ink) 40%, var(--border));
   }
-  .app-nav :is(.nav-item, .nav-search, .foot-btn):hover svg { transform: scale(1.07); }
+  .app-nav :is(.nav-item, .nav-search, .foot-btn):hover svg { transform: scale(1.04); }
 }
 .app-nav :is(.nav-item, .nav-search, .foot-btn):active:not(:disabled):not([aria-disabled="true"]) {
   transform: none;
@@ -127,8 +127,8 @@
   background: color-mix(in srgb, var(--rail-ink) 15%, var(--rail-surface));
 }
 .app-nav :is(.nav-item, .nav-search, .foot-btn):active:not(:disabled) svg {
-  transform: scale(.92);
-  transition-duration: 85ms;
+  transform: scale(.96);
+  transition-duration: var(--motion-press);
 }
 .app-nav button:focus-visible,
 .rail-popover-item:focus-visible {
@@ -221,7 +221,7 @@
 .rail-choice-check { margin-inline-start: auto; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .rail-tip, .rail-popover:popover-open { animation: fade-in 100ms ease-out; }
+  .rail-tip[data-hover] { animation: fade-in var(--motion-feedback) var(--ease); }
 }
 
 @media (max-width: 700px) {

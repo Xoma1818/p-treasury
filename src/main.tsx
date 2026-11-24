@@ -7,6 +7,8 @@ import { QuickWindow } from "./components/QuickWindow";
 import { CrashGuard } from "./components/Crash";
 import { isTauri } from "./lib/api";
 import { installSeenSections } from "./lib/motion";
+import { budgetQueryDefaults } from "./lib/queryPolicy";
+import { listenForAmountPrivacy } from "./lib/queries";
 import { installScale } from "./lib/scale";
 import { applyTheme, savedTheme } from "./lib/theme";
 import { savedLook, showLook } from "./lib/look";
@@ -22,13 +24,14 @@ applyTheme(savedTheme());
 showLook(savedLook());
 
 // Одна и та же страница служит главному окну и окну быстрого ввода.
-const quick = isTauri() && getCurrentWindow().label === "quick";
+const quick = isTauri() && /^quick(?:-\d+)?$/.test(getCurrentWindow().label);
 if (!quick) {
   installScale();
   installSeenSections();
 }
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
+const queryClient = new QueryClient({ defaultOptions: budgetQueryDefaults });
+listenForAmountPrivacy(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

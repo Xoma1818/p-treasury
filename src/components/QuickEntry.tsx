@@ -2,20 +2,24 @@ import { useEffect, useRef, useState } from "react";
 import { api, TXN_TYPES, type QuickDraft } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { amountToInput, parseAmount } from "../lib/money";
-import { useAccounts, useCategories } from "../lib/queries";
+import { useAccounts, useCategories, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AccountSelect, AmountInput, CategorySelect } from "./Fields";
 import { ErrorText } from "./Modal";
+import { PendingStatus } from "./PendingStatus";
 
 /**
  * Ввод одной строкой: «пятёрочка 1250 карта» или вставленный текст SMS банка.
  * Черновик разбирается на лету и показывается рядом; Enter записывает операцию.
  * Используется на Главной и в маленьком окне быстрого ввода (Ctrl+Alt+P).
  */
-export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boolean; inWindow?: boolean; onSaved?: () => void }) {
+export function QuickEntry({ autoFocus, inWindow, onSaveStart, onSaved }: {
+  autoFocus?: boolean; inWindow?: boolean; onSaveStart?: () => void; onSaved?: () => void;
+}) {
   const accounts = useAccounts().data ?? [];
   const categories = useCategories().data ?? [];
+  const settings = useSettings().data;
   const openTxnForm = useUi((s) => s.openTxnForm);
   const [text, setText] = useState("");
   const [draft, setDraft] = useState<QuickDraft | null>(null);
@@ -95,6 +99,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
   const submit = async () => {
     if (!ready || submitting.current) return;
     submitting.current = true;
+    onSaveStart?.();
     try {
       await save.runAsync();
     } catch {
@@ -146,8 +151,8 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
         }}
       />
       {saved && !draft && (
-        <p className="ok" data-testid="quick-saved">
-          {saved}.{!inWindow && " Ctrl+Z отменит."}
+        <p className="ok" role="status" data-testid="quick-saved">
+          {settings && settings.hide_amounts !== "1" ? saved : "Операция записана"}.{!inWindow && " Ctrl+Z отменит."}
         </p>
       )}
       {draft && (
@@ -202,6 +207,7 @@ export function QuickEntry({ autoFocus, inWindow, onSaved }: { autoFocus?: boole
           {draft.ruleId && <span className="hint">категория по правилу</span>}
         </div>
       )}
+      <PendingStatus busy={save.busy}>Сохраняем операцию…</PendingStatus>
       <ErrorText error={parseError ?? save.error} />
     </div>
   );

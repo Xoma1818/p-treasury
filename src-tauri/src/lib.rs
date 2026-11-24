@@ -5,6 +5,7 @@ mod quick_window;
 mod vault;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use budget_core::storage::{OpenOptions, Storage};
@@ -14,6 +15,8 @@ use tauri::{Manager, WindowEvent};
 /// Если база не открылась, UI получает текст ошибки и показывает экран с ней.
 pub struct AppState {
     pub db: Mutex<Result<Storage, String>>,
+    /// Растёт при успешной замене, включая восстановление по тому же пути.
+    budget_generation: AtomicU64,
     /// Папка данных: там же копии перед миграцией и восстановлением.
     pub data_dir: PathBuf,
     /// Журнал отмены и повтора (в памяти, очищается при закрытии).
@@ -44,6 +47,7 @@ impl AppState {
         action: impl FnOnce(&mut Result<Storage, String>) -> Result<T, String>,
     ) -> Result<T, String> {
         let result = action(guard)?;
+        self.budget_generation.fetch_add(1, Ordering::SeqCst);
         self.lock_undo().clear();
         Ok(result)
     }
@@ -117,6 +121,7 @@ pub fn run() {
             };
             let state = AppState {
                 db: Mutex::new(Err(String::new())),
+                budget_generation: AtomicU64::default(),
                 data_dir: data_dir.clone(),
                 undo: Mutex::default(),
                 portable: portable.is_some(),
@@ -174,7 +179,7 @@ pub fn run() {
                     return;
                 };
                 // Окно быстрого ввода не закрывается, а прячется до следующего раза.
-                if w.label() == quick_window::LABEL {
+                if quick_window::is_quick(w.label()) {
                     api.prevent_close();
                     let _ = w.hide();
                     return;
@@ -519,6 +524,7 @@ mod replacement_tests {
         assert!(journal.state().undo.is_some());
         AppState {
             db: Mutex::new(Ok(db)),
+            budget_generation: AtomicU64::default(),
             undo: Mutex::new(journal),
             data_dir: PathBuf::new(),
             portable: false,
@@ -551,6 +557,8 @@ mod replacement_tests {
         worker.join().unwrap();
         let guard = state.lock_db();
         let db = guard.as_ref().unwrap();
+        assert!(quick_window::check_budget(&state, "quick").is_err());
+        assert!(quick_window::check_budget(&state, "quick-1").is_ok());
         assert!(state.lock_undo().undo(db.conn()).unwrap().is_none());
         let name: String = db
             .conn()
@@ -568,10 +576,51 @@ mod replacement_tests {
         let result: Result<(), String> =
             state.replace_data(&mut guard, |_| Err("invalid backup".into()));
         assert!(result.is_err());
+        assert!(quick_window::check_budget(&state, "quick").is_ok());
         assert!(state
             .lock_undo()
             .undo(guard.as_ref().unwrap().conn())
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn quick_context_changes_on_file_switch_and_on_restore_to_the_same_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = AppState {
+            data_dir: temp.path().into(),
+            ..state_with_history()
+        };
+        files::create(&state, "Первый").unwrap();
+        let backup = temp.path().join("первый.ptreasury");
+        {
+            let guard = state.lock_db();
+            let db = guard.as_ref().unwrap();
+            budget_core::settings::set(db.conn(), "hide_amounts", "1").unwrap();
+            budget_core::backups::backup(db.conn(), &backup).unwrap();
+        }
+        let second = files::create(&state, "Второй").unwrap();
+        let mut guard = state.lock_db();
+        assert!(quick_window::check_budget(&state, "quick-1").is_err());
+        assert!(quick_window::check_budget(&state, "quick-2").is_ok());
+        let opts = state.open_options();
+        state
+            .replace_data(&mut guard, |slot| {
+                slot.as_mut()
+                    .unwrap()
+                    .restore_from(&backup, &opts)
+                    .map_err(|err| err.to_string())
+            })
+            .unwrap();
+        let db = guard.as_ref().unwrap();
+        assert_eq!(db.path(), std::path::Path::new(&second));
+        assert_eq!(
+            budget_core::settings::get(db.conn(), "hide_amounts")
+                .unwrap()
+                .as_deref(),
+            Some("1")
+        );
+        assert!(quick_window::check_budget(&state, "quick-2").is_err());
+        assert!(quick_window::check_budget(&state, "quick-3").is_ok());
     }
 }

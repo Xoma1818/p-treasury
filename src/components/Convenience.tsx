@@ -5,8 +5,7 @@ import { X } from "lucide-react";
 import { api } from "../lib/api";
 import { hotkeyList, isTyping } from "../lib/hotkeys";
 import { useKeyMap } from "../lib/keymap";
-import { useSettings } from "../lib/queries";
-import { useAction } from "../lib/useAction";
+import { useAmountPrivacyToggle, useSettings } from "../lib/queries";
 import { Modal } from "./Modal";
 
 type Msg = { text: string; next?: "undo" | "redo"; error?: boolean };
@@ -37,6 +36,7 @@ export function UndoBar() {
   }, [msg]);
 
   const run = async (kind: "undo" | "redo") => {
+    if (document.querySelector("form[data-write-pending]")) return;
     try {
       const label = await (kind === "undo" ? api.undo() : api.redo());
       if (!label) setMsg({ text: kind === "undo" ? "Отменять нечего" : "Повторять нечего" });
@@ -87,11 +87,12 @@ export function UndoBar() {
 
 /** Значок «Скрыть суммы» в нижнем ряду меню (Ctrl+H): глаз открыт — суммы видны, перечёркнут — скрыты. */
 export function HideAmountsSwitch() {
-  const hidden = useSettings().data?.hide_amounts === "1";
-  const toggle = useAction(api.setSetting);
+  const settings = useSettings().data;
+  const hidden = !settings || settings.hide_amounts === "1";
+  const toggle = useAmountPrivacyToggle();
   const label = hidden ? "Показать суммы" : "Скрыть суммы";
   return (
-    <button className="foot-btn" role="switch" aria-checked={hidden} aria-label="Скрыть суммы" data-rail-tip={label} data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")}>
+    <button className="foot-btn" role="switch" disabled={!settings} aria-checked={hidden} aria-label="Скрыть суммы" data-rail-tip={label} data-testid="hide-amounts" onClick={toggle}>
       {hidden ? <EyeOff className="foot-icon" strokeWidth={1.75} aria-hidden="true" /> : <Eye className="foot-icon" strokeWidth={1.75} aria-hidden="true" />}
     </button>
   );
