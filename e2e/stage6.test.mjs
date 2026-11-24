@@ -269,12 +269,24 @@ test("закрытие окна: по умолчанию в трей, с нас�
 });
 
 test("обновление: при запуске приложение сообщает о новой версии, «Позже» закрывает окно", async () => {
-  const server = createServer((req, res) => {
+  if (browser) {
+    await stop(browser);
+    browser = null;
+  }
+  let available = true;
+  let offerReady;
+  const waitForSearch = new Promise((resolve) => { offerReady = resolve; });
+  const server = createServer(async (req, res) => {
+    await waitForSearch;
+    if (!available) {
+      res.writeHead(503).end();
+      return;
+    }
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         version: "9.9.9",
-        notes: "Новые отчёты",
+        notes: "- Новые отчёты",
         pub_date: new Date().toISOString(),
         platforms: {
           "linux-x86_64": { signature: "test", url: "http://127.0.0.1/p-treasury.AppImage.tar.gz" },
@@ -287,15 +299,35 @@ test("обновление: при запуске приложение сооб�
   try {
     ({ browser, dataDir } = await start(undefined, { env: { PTREASURY_UPDATE_URL: `http://127.0.0.1:${server.address().port}/latest.json` } }));
     await onboard(browser, [{ name: "Карта", balance: "0" }]);
+    await (await browser.$('[data-testid="open-palette"]')).click();
+    const search = await browser.$('[data-testid="palette"] input');
+    await search.waitForDisplayed();
+    offerReady();
+    await search.setValue("Счета");
+    assert.equal(await search.isFocused(), true);
+    assert.equal(await browser.$('[data-testid="update-version"]').isExisting(), false);
+    await browser.keys("Escape");
     await waitText(browser, '[data-testid="update-version"]', /Доступна версия 9\.9\.9 \(у вас \d+\.\d+\.\d+\)/, 15000);
-    await waitText(browser, '[role="dialog"]', /Новые отчёты/);
+    await waitText(browser, '[role="dialog"] li', /Новые отчёты/);
     await click(browser, "Позже", '//*[@role="dialog"]');
     await openSettings(browser, "about");
-    await choose(browser, "updateCheck", "Только по кнопке");
+    const preference = await browser.$('input[name="updateCheck"]');
+    assert.equal(await preference.isSelected(), true);
+    await (await preference.parentElement()).click();
+    await browser.waitUntil(async () => !(await preference.isSelected()));
     await click(browser, "Проверить обновления");
     await waitText(browser, '[data-testid="update-version"]', /9\.9\.9/);
-    await click(browser, "Позже", '//*[@role="dialog"]');
+    available = false;
+    await browser.execute(() => window.dispatchEvent(new Event("offline")));
+    try {
+      await click(browser, "Обновить", '//*[@role="dialog"]');
+      await waitText(browser, '[role="dialog"] [role="alert"]', /\S/u);
+      await click(browser, "Позже", '//*[@role="dialog"]');
+    } finally {
+      await browser.execute(() => window.dispatchEvent(new Event("online")));
+    }
   } finally {
+    offerReady();
     server.close();
   }
 });
@@ -306,5 +338,5 @@ test("без адреса обновлений кнопка честно гов�
   await onboard(browser, [{ name: "Карта", balance: "0" }]);
   await openSettings(browser, "about");
   await click(browser, "Проверить обновления");
-  await waitText(browser, '[data-testid="update-result"]', /Адрес обновлений появится/);
+  await waitText(browser, '[data-testid="update-result"]', /Для этой сборки проверка обновлений недоступна/);
 });

@@ -1,0 +1,43 @@
+.release-notes {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.release-notes h3 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.release-notes-body > :first-child { margin-top: 0; }
+.release-notes-body > :last-child { margin-bottom: 0; }
+.release-notes-body p, .release-notes-body ul { margin: 0 0 12px; }
+.release-notes-body h4 { margin: 16px 0 6px; font-size: 1em; }
+.release-notes-body ul { padding-inline-start: 1.3em; }
+.release-notes-body li + li { margin-top: 0.55em; }
+.release-notes-body li::marker { color: var(--muted); }
+.release-notes-body code { font-size: 0.93em; }
+
+.release-notes-archive {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.release-notes-archive > summary {
+  width: fit-content;
+  padding: 10px 0;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.release-notes-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block: 0 12px;
+  color: var(--muted);
+}
+
+.release-notes-picker select { width: auto; max-width: 100%; }

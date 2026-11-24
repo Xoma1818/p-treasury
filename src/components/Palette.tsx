@@ -50,7 +50,9 @@ const SETTINGS: { key: string; title: string; words: string; section: string; fi
   { key: "appearance", title: "Оформление", words: "интерфейс внешний вид", section: "appearance" },
   { key: "fine", title: "Формат и правила", words: "тонкие настройки копейки неделя пороги", section: "fine" },
   { key: "updates", title: "Обновления", words: "обновить версия", section: "updates" },
-  { key: "about", title: "О программе", words: "версия файл данных", section: "about" },
+  { key: "releaseNotes", title: "Что нового", words: "история версий изменения выпуска", section: "updates", field: "releaseNotes" },
+  { key: "technical", title: "Технические сведения", words: "файл данных путь к базе версия данных копия перед обновлением", section: "technical" },
+  { key: "about", title: "О программе", words: "установленная версия", section: "about" },
 ];
 
 const HIT_GROUP: Record<SearchHit["kind"], [string, SectionId]> = {

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type NetworkMode } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 /** Сколько кнопка показывает галочку «Готово» после успешного действия. */
@@ -14,7 +14,7 @@ const DONE_MS = 1100;
 export function useAction<A extends unknown[], P extends Promise<unknown>>(
   fn: (...args: A) => P,
   onDone?: (result: Awaited<P>) => void,
-  opts?: { singleSubmit?: boolean },
+  opts?: { singleSubmit?: boolean; networkMode?: NetworkMode },
 ) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +23,7 @@ export function useAction<A extends unknown[], P extends Promise<unknown>>(
   const inFlight = useRef<Promise<Awaited<P>> | null>(null);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const m = useMutation({
+    networkMode: opts?.networkMode,
     mutationFn: (args: A) => fn(...args) as Promise<Awaited<P>>,
     onMutate: () => { setError(null); setDone(false); },
     onSuccess: async (result) => {

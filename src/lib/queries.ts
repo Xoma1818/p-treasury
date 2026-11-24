@@ -5,9 +5,10 @@ import { setDateFormat, today } from "./dates";
 import { AGGREGATE_STALE_MS } from "./queryPolicy";
 import { uiPrefsReadRevision } from "./uiPrefs";
 
-export const useAppInfo = () => useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo });
+export const useAppInfo = () => useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo, networkMode: "always" });
 const settingsQuery = queryOptions({
   queryKey: ["settings"],
+  networkMode: "always",
   queryFn: async () => {
     const prefsRevision = uiPrefsReadRevision();
     const settings = await api.getSettings();

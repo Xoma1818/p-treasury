@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type BankImportDecision, type CsvMapping, type ImportPreview, type ImportRow, type ImportSaved, type UpdateInfo } from "../lib/api";
+import { api, type BankImportDecision, type CsvMapping, type ImportPreview, type ImportRow, type ImportSaved } from "../lib/api";
 import { CsvProfileEditor } from "./CsvProfileEditor";
 import { importRowExplanation } from "../lib/importRowExplanation";
 import { ImportHistoryDialog, MatchesDialog, StatementMatchSide } from "./ImportHistory";
@@ -13,7 +13,6 @@ import { useAction } from "../lib/useAction";
 import { AccountSelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { DecorativeIcon } from "./DecorativeIcon";
-import { Hint } from "./Hint";
 import { ImportSaveGuard } from "../lib/importSaveGuard";
 import { HIDDEN_AMOUNT } from "../lib/money";
 import { plural } from "../lib/receipt";
@@ -551,96 +550,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   );
 }
 
-/** Окно «Доступна версия …». */
-function UpdateModal({ info, onClose, focusClose = false }: { info: UpdateInfo; onClose: () => void; focusClose?: boolean }) {
-  const install = useAction(() => api.installUpdate());
-  return (
-    <Modal title="Доступно обновление" onClose={onClose} focusClose={focusClose}>
-      <p data-testid="update-version">
-        Доступна версия {info.version} (у вас {info.current}).
-      </p>
-      {info.notes && <div className="update-notes">{info.notes}</div>}
-      <p className="hint">Перед обновлением приложение сделает копию данных. После установки оно перезапустится, все данные останутся на месте.</p>
-      <ErrorText error={install.error} />
-      <div className="actions">
-        <span className="spacer" />
-        <button className="btn" onClick={onClose}>
-          Позже
-        </button>
-        <button className="btn primary" onClick={() => install.run()} disabled={install.busy}>
-          {install.busy ? "Обновляю…" : "Обновить"}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-/** Проверка обновлений при запуске (если включена в настройках). */
-export function UpdatePrompt() {
-  const settings = useSettings().data;
-  const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const portable = useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo }).data?.portable;
-  const enabled = settings?.update_check !== "0" && portable === false;
-  useEffect(() => {
-    if (!settings || !enabled) return;
-    // Без интернета проверка просто не удаётся — приложение работает дальше.
-    api.checkUpdate().then((i) => i.version && setInfo(i), () => {});
-    // Проверяем один раз при запуске.
-  }, [!!settings, enabled]);
-  return info ? <UpdateModal info={info} onClose={() => setInfo(null)} /> : null;
-}
-
-/** Блок «Обновления» в настройках. */
-export function UpdatesCard({ active }: { active: boolean }) {
-  const settings = useSettings().data;
-  const setSetting = useAction(api.setSetting);
-  const [result, setResult] = useState<string | null>(null);
-  const [found, setFound] = useState<UpdateInfo | null>(null);
-  const [news, setNews] = useState<string | null>(null);
-  const checkButton = useRef<HTMLButtonElement>(null);
-  const newsButton = useRef<HTMLButtonElement>(null);
-  const check = useAction(async () => {
-    setResult(null);
-    const i = await api.checkUpdate();
-    if (!i.configured) setResult("Адрес обновлений появится с первой опубликованной версией.");
-    else if (i.version) setFound(i);
-    else setResult(`У вас последняя версия (${i.current}).`);
-  });
-  return (
-    <div className="card" data-testid="updates-card">
-      <h2>
-        Обновления
-        <Hint of="updates" />
-      </h2>
-      <div className="btn-group">
-        <button ref={checkButton} className="btn" onClick={() => check.run()} disabled={check.busy}>
-          Проверить обновления
-        </button>
-        <button ref={newsButton} className="link" onClick={() => api.changelog().then(setNews, (e) => setResult(String(e)))}>
-          Что нового
-        </button>
-        <select name="updateCheck" aria-label="Проверять при запуске" value={settings?.update_check ?? "1"} onChange={(e) => setSetting.run("update_check", e.target.value)}>
-          <option value="1">Проверять при запуске</option>
-          <option value="0">Только по кнопке</option>
-        </select>
-      </div>
-      {result && (
-        <p className="muted" data-testid="update-result">
-          {result}
-        </p>
-      )}
-      <ErrorText error={check.error ?? setSetting.error} />
-      {active && found && (
-        <UpdateModal info={found} focusClose onClose={() => { setFound(null); checkButton.current?.focus(); }} />
-      )}
-      {active && !found && news && (
-        <Modal title="Что нового" focusClose onClose={() => { setNews(null); newsButton.current?.focus(); }} wide>
-          <div className="update-notes">{news.replace(/^# .*\n+/, "")}</div>
-        </Modal>
-      )}
-    </div>
-  );
-}
+export { UpdatePrompt, UpdatesCard } from "./Updates";
 
 export type ExportFormat = "csv" | "xlsx" | "ofx";
 export const FORMATS: Record<ExportFormat, { label: string; filter: typeof XLSX }> = {
