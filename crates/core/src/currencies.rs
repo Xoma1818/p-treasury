@@ -7,6 +7,9 @@ use crate::error::invalid;
 use crate::money::Rate;
 use crate::{settings, time, Error, Result};
 
+mod plan;
+pub(crate) use plan::PlanRates;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Currency {
@@ -21,6 +24,11 @@ pub const OFFERED: &[&str] = &["RUB", "USD", "EUR", "CNY", "GBP", "KZT"];
 
 /// Основная валюта, предлагаемые и уже используемые валюты. Рубль первым.
 pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
+    list_for_picker(conn, false)
+}
+
+/// Для восстановления старого плана нужна также валюта уже удалённого счёта.
+pub fn list_for_picker(conn: &Connection, all: bool) -> Result<Vec<Currency>> {
     let offered = OFFERED
         .iter()
         .map(|c| format!("'{c}'"))
@@ -28,7 +36,9 @@ pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
         .join(", ");
     let mut stmt = conn.prepare(&format!(
         "SELECT code, name, symbol, minor_units FROM currencies
-         WHERE code IN ({offered})
+         WHERE ?1 OR code IN ({offered})
+            OR code = (SELECT value FROM settings WHERE key = 'invest_plan_currency')
+            OR code IN (SELECT currency_code FROM invest_month_plans)
             OR code = (SELECT value FROM settings WHERE key = 'base_currency')
             OR code IN (SELECT currency_code FROM accounts
                         UNION SELECT currency_code FROM debts
@@ -37,7 +47,7 @@ pub fn list(conn: &Connection) -> Result<Vec<Currency>> {
                         UNION SELECT currency_code FROM goals)
          ORDER BY code = 'RUB' DESC, code"
     ))?;
-    let rows = stmt.query_map([], |r| {
+    let rows = stmt.query_map([all], |r| {
         Ok(Currency {
             code: r.get(0)?,
             name: r.get(1)?,

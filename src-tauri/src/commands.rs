@@ -195,8 +195,10 @@ pub fn set_setting(state: State<AppState>, key: String, value: String) -> CmdRes
 }
 
 #[tauri::command(async)]
-pub fn list_currencies(state: State<AppState>) -> CmdResult<Vec<Currency>> {
-    with_db(&state, |db| currencies::list(db.conn()))
+pub fn list_currencies(state: State<AppState>, all: Option<bool>) -> CmdResult<Vec<Currency>> {
+    with_db(&state, |db| {
+        currencies::list_for_picker(db.conn(), all.unwrap_or(false))
+    })
 }
 
 #[tauri::command(async)]
@@ -1187,15 +1189,35 @@ pub fn set_invest_plan(
     mode: String,
     value: i64,
     month: Option<String>,
+    currency_code: Option<String>,
 ) -> CmdResult<()> {
     match month {
         Some(m) => with_undo(&state, "План инвестиций", |c| {
-            invest::set_month_plan(c, &m, &mode, value)
+            invest::set_month_plan(c, &m, &mode, value, currency_code.as_deref())
         }),
         None => with_db(&state, |db| {
-            state.lock_undo().set_invest_plan(db.conn(), &mode, value)
+            state
+                .lock_undo()
+                .set_invest_plan(db.conn(), &mode, value, currency_code.as_deref())
         }),
     }
+}
+
+#[tauri::command(async)]
+pub fn confirm_invest_plan_currency(
+    state: State<AppState>,
+    month: Option<String>,
+    expected_value: i64,
+    currency_code: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        state.lock_undo().confirm_invest_plan_currency(
+            db.conn(),
+            month.as_deref(),
+            expected_value,
+            &currency_code,
+        )
+    })
 }
 
 #[tauri::command(async)]

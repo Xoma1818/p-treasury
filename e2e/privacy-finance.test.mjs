@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, test } from "node:test";
-import { choose, click, clickControl, fill, money, onboard, openSection, save, start, stop, waitText } from "./app.mjs";
+import { choose, click, clickControl, fill, money, onboard, openSection, openSettings, save, start, stop, waitText } from "./app.mjs";
 import { holdCommands } from "./hold-commands.mjs";
 
 const modal = '[role="dialog"]';
@@ -265,7 +265,52 @@ test("отказ во время смены экрана остаётся вид
   await browser.waitUntil(async () => !/в шаблоне не хватает/i.test(await browser.$("main").getText()));
 });
 
-test("инвестиционный план 1 200 ¥ хранится в целых иенах и не подставляется в рублёвый калькулятор", async () => {
+test("после смены валюты RUB → JPY рублёвый план и взнос остаются рублёвыми", async () => {
+  // В настройках предлагаются валюты, которыми человек уже пользуется.
+  await invoke("create_account", { input: { name: "Иены для поездки", type: "cash", currencyCode: "JPY",
+    openingDate: today, openingBalance: 0, includeInTotal: true } });
+  const accounts = await invoke("list_accounts", { includeArchived: false });
+  const portfolio = accounts.find(a => a.name === "Портфель А");
+  await invoke("create_transaction", { eventId: null, input: { type: "transfer", date: today,
+    accountId: cardId, toAccountId: portfolio.id, amount: 30000, toAmount: 30000 } });
+  const balances = async () => (await invoke("list_accounts", { includeArchived: false }))
+    .filter(a => a.id === cardId || a.id === portfolio.id).map(a => [a.id, a.balance]).sort();
+  const beforeBalances = await balances();
+  const beforeCount = (await invoke("list_transactions", { filter: { types: ["transfer"] } })).total;
+  await browser.refresh();
+  await openSettings(browser, "general");
+  try {
+    await browser.$('[name="baseCurrency"] option[value="JPY"]').waitForExist();
+    await browser.$('[name="baseCurrency"]').selectByAttribute("value", "JPY");
+    await browser.waitUntil(async () => (await invoke("get_settings")).base_currency === "JPY");
+    await openSection(browser, "Главная");
+    const overview = await invoke("invest_overview");
+    assert.equal(overview.baseCurrency, "JPY");
+    assert.equal(overview.month.currency.code, "RUB");
+    assert.equal(overview.month.plan.currencyCode, "RUB");
+    assert.equal(overview.month.planned, 1234567);
+    assert.equal(overview.month.saved, 30000);
+    await privateMode(false);
+    await waitText(browser, '[data-testid="invest-saved"]', money("300 ₽"));
+    await waitText(browser, '[data-testid="invest-month"]', money("из 12 345,67 ₽"));
+    await push('[data-testid="invest-calc-open"]');
+    await valueIs("calcStart", "");
+    await valueIs("calcMonthly", "12345,67");
+    await dismiss();
+    await push('[data-testid="invest-save"]');
+    await valueIs("amount", "12045,67");
+    await dismiss();
+    assert.deepEqual(await balances(), beforeBalances);
+    assert.equal((await invoke("list_transactions", { filter: { types: ["transfer"] } })).total, beforeCount);
+  } finally {
+    if (await browser.$(modal).isExisting()) await dismiss();
+    await privateMode(true);
+    await invoke("set_setting", { key: "base_currency", value: "RUB" });
+    await browser.refresh();
+  }
+});
+
+test("новый инвестиционный план 1 200 ¥ хранится в целых иенах и не подставляется в поля в рублях", async () => {
   const month = today.slice(0, 7);
   if (!(await invoke("get_budget", { month })).id) await invoke("create_budget", { month, copyPrevious: false });
   assert.equal((await invoke("get_budget", { month })).currencyCode, "RUB");
@@ -273,6 +318,11 @@ test("инвестиционный план 1 200 ¥ хранится в цел�
     openingDate: today, openingBalance: 0, includeInTotal: true, investKind: "broker" } });
   try {
     await invoke("set_invest_value", { accountId: yen, date: today, value: 61234 });
+    await invoke("set_rate", { date: today, from: "RUB", to: "JPY", rate: "2" });
+    // Пользователь снимает прежний общий план в рублях, а новый заводит уже в иенах.
+    await openSection(browser, "Главная");
+    await push('[data-testid="invest-plan-edit"]');
+    await save(browser, "Убрать план");
     await invoke("set_setting", { key: "base_currency", value: "JPY" });
     await browser.refresh();
     await openSection(browser, "Бюджет");
@@ -286,6 +336,7 @@ test("инвестиционный план 1 200 ¥ хранится в цел�
     await save(browser);
     const overview = await invoke("invest_overview");
     assert.equal(overview.baseCurrency, "JPY");
+    assert.equal(overview.month.plan.currencyCode, "JPY");
     assert.equal(overview.month.plan.value, 1200);
     assert.equal(overview.month.planned, 1200);
     assert.ok(overview.value >= 61234, "в исходных данных есть реальная оценка в иенах");
@@ -310,11 +361,83 @@ test("инвестиционный план 1 200 ¥ хранится в цел�
     await reveal();
     await valueIs("calcStart", "");
     await valueIs("calcMonthly", "");
+    await dismiss();
+    await push('[data-testid="invest-save"]');
+    await reveal();
+    await valueIs("amount", "");
   } finally {
     if (await browser.$(modal).isExisting()) await dismiss();
     await invoke("set_setting", { key: "base_currency", value: "RUB" });
-    await invoke("set_invest_plan", { mode: "amount", value: 1234567, month: null });
+    await invoke("set_invest_plan", { mode: "", value: 0, month: null });
+    await invoke("set_invest_plan", { mode: "amount", value: 1234567, month: null, currencyCode: "RUB" });
     await invoke("archive_account", { id: yen, archived: true });
+    await browser.refresh();
+  }
+});
+
+test("бюджет RUB с расходом без курса показывает план, отдельный частичный факт и пропуски в общем остатке", async () => {
+  const month = today.slice(0, 7);
+  if (!(await invoke("get_budget", { month })).id) await invoke("create_budget", { month, copyPrevious: false });
+  const wallet = await invoke("create_account", { input: { name: "Доллары для оплаты", type: "cash", currencyCode: "USD",
+    openingDate: today, openingBalance: 2000, includeInTotal: true } });
+  const expense = (await invoke("list_categories", { includeArchived: false })).find(c => c.kind === "expense" && !c.parentId);
+  await invoke("create_transaction", { eventId: null, input: { type: "expense", date: today, accountId: wallet, categoryId: expense.id,
+    amount: 1000, payee: "Без курса" } });
+  await browser.refresh();
+  await openSettings(browser, "general");
+  try {
+    await browser.$('[name="baseCurrency"]').selectByAttribute("value", "EUR");
+    await browser.waitUntil(async () => (await invoke("get_settings")).base_currency === "EUR");
+    await privateMode(false);
+    await openSection(browser, "Бюджет");
+    const total = '[data-testid="plan-fact-left"]';
+    await waitText(browser, total + " td:nth-child(2)", money("12 345,67 ₽"));
+    assert.equal(await browser.$(total + " td:nth-child(3)").getText(), "—");
+    assert.equal(await browser.$(total + " td:nth-child(4)").getText(), "—");
+    assert.equal(await browser.$('[data-testid="plan-fact-match"]').isExisting(), false);
+    await waitText(browser, '[data-testid="plan-fact-expense"]', /по известным курсам/i);
+    assert.equal((await invoke("list_accounts", { includeArchived: false })).find(a => a.id === wallet).balance, 1000);
+  } finally {
+    await privateMode(true);
+    await invoke("set_setting", { key: "base_currency", value: "RUB" });
+    await browser.refresh();
+  }
+});
+
+test("план в RUB после выбора EUR: взнос 10 USD считается по более свежим курсам даты перевода", async () => {
+  const month = today.slice(0, 7);
+  const dayBefore = new Date(today + "T12:00:00Z");
+  dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+  const previousDay = dayBefore.toISOString().slice(0, 10);
+  const account = (name, type, balance) => invoke("create_account", { input: { name, type, currencyCode: "USD",
+    openingDate: previousDay, openingBalance: balance, includeInTotal: true, investKind: type === "investment" ? "broker" : null } });
+  const from = await account("Учебные доллары", "cash", 1000);
+  const to = await account("Долларовый портфель", "investment", 0);
+  await invoke("set_rate", { date: previousDay, from: "USD", to: "RUB", rate: "80" });
+  await invoke("set_rate", { date: today, from: "USD", to: "EUR", rate: "0.9" });
+  await invoke("set_rate", { date: today, from: "EUR", to: "RUB", rate: "100" });
+  const before = (await invoke("invest_month", { month })).saved;
+  await invoke("create_transaction", { eventId: null, input: { type: "transfer", date: today, accountId: from, toAccountId: to,
+    amount: 1000, toAmount: 1000 } });
+  await browser.refresh();
+  await openSettings(browser, "general");
+  try {
+    await browser.$('[name="baseCurrency"]').selectByAttribute("value", "EUR");
+    await browser.waitUntil(async () => (await invoke("get_settings")).base_currency === "EUR");
+    await openSection(browser, "Главная");
+    const m = await invoke("invest_month", { month });
+    assert.equal(m.currency.code, "RUB");
+    assert.equal(m.saved - before, 90000);
+    assert.equal(m.savedComplete, true);
+    await privateMode(false);
+    const amount = (m.saved / 100).toLocaleString("ru-RU").replace(/\s/g, " ");
+    await waitText(browser, '[data-testid="invest-saved"]', money(amount + " ₽"));
+    const accounts = await invoke("list_accounts", { includeArchived: false });
+    assert.equal(accounts.find(a => a.id === from).balance, 0);
+    assert.equal(accounts.find(a => a.id === to).balance, 1000);
+  } finally {
+    await privateMode(true);
+    await invoke("set_setting", { key: "base_currency", value: "RUB" });
     await browser.refresh();
   }
 });
