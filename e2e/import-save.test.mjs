@@ -2,7 +2,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { start, stop, onboard, openSection, click, choose, waitText } from "./app.mjs";
+import { start, stop, onboard, openSettings, click, choose, waitText } from "./app.mjs";
 let browser, dataDir;
 before(async () => {
   ({ browser, dataDir } = await start());
@@ -12,7 +12,7 @@ after(async () => { if (browser) await stop(browser); });
 
 test("сохранение выписки: повторный клик и смена файла не создают второй запрос", async () => {
   const dialog = '//*[@role="dialog"]';
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   await browser.execute((path) => { window.__ptPick = [path]; }, join(import.meta.dirname, "..", "crates/core/testdata/tbank.csv"));
   await click(browser, "Выбрать файл", dialog);
@@ -84,7 +84,7 @@ test("выписка сохраняет только предложенную с
     await click(browser, "Выбрать файл", dialog);
   };
 
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   await pick(first);
   await choose(browser, "importAccount", "Карта (₽)");

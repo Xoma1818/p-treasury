@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Key } from "webdriverio";
-import { choose, click, money, openSection, setDate, start, stop, waitText } from "./app.mjs";
+import { choose, click, money, openSection, openSettings, setDate, start, stop, waitText } from "./app.mjs";
 
 const dialog = '(//*[@role="dialog"])[last()]';
 const byTest = name => `[data-testid="${name}"]`;
@@ -138,7 +138,7 @@ test("Повтор аренды: выписка и план связываютс
     '"Дата операции";"Номер карты";"Статус";"Сумма операции";"Валюта операции";"Сумма платежа";"Валюта платежа";"Категория";"Описание"',
     `"${date} 10:00:00";"*1140";"OK";"-10000,00";"RUB";"-10000,00";"RUB";"Жильё";"${title}"`, "",
   ].join("\n"));
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   await browser.execute(p => { window.__ptPick = [p]; }, path);
   await click(browser, "Выбрать файл", dialog);

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { copyFileSync, existsSync, linkSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, click, waitText, APP_BIN, APP_FILE } from "./app.mjs";
+import { start, stop, openSettings, onboard, fill, click, waitText, APP_BIN, APP_FILE } from "./app.mjs";
 
 let browser;
 const dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-"));
@@ -21,7 +21,7 @@ test("второй файл «Дача»: свой мастер первого �
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await click(browser, "Посмотреть на примере");
   await home();
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, row("Основной"), /Основной\s*открыт/);
   await click(browser, "+ Новый файл");
   await fill(browser, "fileName", "Дача");
@@ -33,12 +33,12 @@ test("второй файл «Дача»: свой мастер первого �
 });
 
 test("переключение файлов одной кнопкой и переименование", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, row("Дача"), /открыт/);
   await browser.$(`${row("Основной")}//button[normalize-space()="Открыть"]`).click();
   await home();
   await waitText(browser, '[data-testid="demo-banner"]', /Это пример/);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await browser.$(`${row("Дача")}//button[normalize-space()="Переименовать"]`).click();
   await fill(browser, "fileRename", "Дача 2027");
   await click(browser, "Сохранить", row("Дача"));
@@ -53,7 +53,7 @@ test("после перезапуска открывается последни�
   ({ browser } = await start(dataDir));
   await home();
   await waitText(browser, "main", /Кошелёк дачи/);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   const foreign = join(dataDir, "not-ours.db");
   writeFileSync(foreign, "это не база");
   await browser.execute((p) => (window.__ptPick = [p]), foreign);
@@ -62,7 +62,7 @@ test("после перезапуска открывается последни�
   // Открытый файл убрать из списка нельзя, другой — можно (сам файл остаётся).
   await browser.$(`${row("Основной")}//button[normalize-space()="Открыть"]`).click();
   await home();
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await browser.$(`${row("Дача 2027")}//button[normalize-space()="Убрать из списка"]`).click();
   await browser.$(row("Дача 2027")).waitForExist({ timeout: 5000, reverse: true });
   assert.ok(existsSync(join(dataDir, "files", "Дача.db")), "файл на диске остался");
@@ -89,7 +89,7 @@ test("переносная версия: файл portable рядом с про�
   ({ browser } = await start(dir, { bin, args: [] }));
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await onboard(browser, [{ name: "Флешка", balance: "100" }]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="portable-note"]', new RegExp(`Переносная версия: все данные лежат в папке ${join(dir, "data").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.ok(existsSync(join(dir, "data", "budget.db")));
 });

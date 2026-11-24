@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, resizeAppWindow, openSection, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, openSettings, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -197,7 +197,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
   await tap('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // В Настройках можно вернуть окно.
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await choose(browser, "txnOpen", "окном");
   await openSection(browser, "Операции");
   await tap('[data-testid="txn-row"] td.date');
@@ -205,7 +205,7 @@ test("Главная: «+ Расход ▾» и операция панелью 
   assert.equal(await browser.$('[role="dialog"]').getAttribute("data-side"), null, "окно посередине");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await choose(browser, "txnOpen", "панелью справа");
 });
 
@@ -225,16 +225,15 @@ test("Отчёты «Ещё ▾», «⋯» у счёта и разделы На�
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
-  // Настройки: раздел слева прокручивает к своей карточке.
+  // Переключение темы настроек с клавиатуры открывает нужную панель.
   await openSection(browser, "Настройки");
-  await tap('//aside[@aria-label="Разделы настроек"]//button[normalize-space()="О программе"]');
-  await browser.waitUntil(
-    async () => browser.execute(() => {
-      const r = document.getElementById("set-about").getBoundingClientRect();
-      return r.top < innerHeight && r.bottom > 0;
-    }),
-    { timeout: 5000, timeoutMsg: "«О программе» не видно" },
-  );
+  await tap('[data-testid="settings-tab-general"]');
+  await browser.keys("End");
+  const aboutTab = await browser.$('[data-testid="settings-tab-about"]');
+  assert.ok(await aboutTab.isFocused());
+  assert.equal(await aboutTab.getAttribute("aria-selected"), "true");
+  assert.equal(await browser.$("#set-general").isDisplayed(), false);
+  assert.ok(await browser.$("#set-about").isDisplayed());
 });
 
 test("Ctrl+K находит настройку и действие, правая кнопка, «Возможности» (0.30)", async () => {
@@ -247,6 +246,14 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.keys("Enter");
   await browser.$('//main//h1[normalize-space()="Настройки"]').waitForDisplayed({ timeout: 5000 });
   await browser.waitUntil(async () => (await browser.execute(() => document.activeElement?.getAttribute("name"))) === "dateFormat", { timeout: 5000, timeoutMsg: "курсор не в поле формата даты" });
+  await fill(browser, "rate", "97,25");
+  await browser.keys(["Control", "k"]);
+  await fill(browser, "paletteQuery", "масштаб интерфейса");
+  await waitContent(browser, '[data-testid="palette"]', /Масштаб интерфейса/);
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => (await browser.$('[name="uiScale"]')).isFocused());
+  await tap('[data-testid="settings-tab-general"]');
+  assert.equal(await browser.$('[name="rate"]').getValue(), "97,25", "поиск не сбросил несохранённый курс");
   const before = await browser.execute(() => document.documentElement.dataset.theme);
   await browser.keys(["Control", "k"]);
   await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
@@ -270,7 +277,7 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   // «Возможности»: выключенные «Заметки» пропадают из меню и возвращаются.
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await tap('[name="module-notes"]');
   await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ reverse: true, timeout: 5000 });
   await tap('[data-testid="modules-all"]');
@@ -278,7 +285,7 @@ test("Ctrl+K находит настройку и действие, правая
 });
 
 test("своё меню и главная кнопка «+»: скрыть, переставить, вернуть как было (0.31)", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await browser.$('[data-testid="nav-card"]').waitForExist({ timeout: 5000 });
   try {
     // Скрыть «Календарь»: пропадает из меню.
@@ -303,7 +310,7 @@ test("своё меню и главная кнопка «+»: скрыть, пе
     await browser.keys("Escape");
   } finally {
     // «Как было» возвращает всё, даже если проверка выше упала: остальные тесты ждут «+ Расход».
-    await openSection(browser, "Настройки");
+    await openSettings(browser, "controls");
     await tap('[data-testid="nav-reset"]');
     await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ timeout: 5000 });
     await openSection(browser, "Главная");
@@ -314,7 +321,7 @@ test("своё меню и главная кнопка «+»: скрыть, пе
 });
 
 test("форма операции: комментарий без «Ещё», свой счёт по умолчанию (0.31)", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await browser.$('[data-testid="txn-form-card"]').waitForExist({ timeout: 5000 });
   try {
     await tap('[name="pinNote"]');
@@ -334,7 +341,7 @@ test("форма операции: комментарий без «Ещё», с�
     await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
   } finally {
     if (await browser.$('[role="dialog"]').isExisting()) await browser.keys("Escape");
-    await openSection(browser, "Настройки");
+    await openSettings(browser, "controls");
     const reset = await browser.$('[data-testid="txn-form-reset"]');
     if (await reset.isExisting()) await tap('[data-testid="txn-form-reset"]');
   }
@@ -373,7 +380,7 @@ test("своя шапка «Операций»: выписку в «⋯», ша�
 });
 
 test("вид: компактно и синий акцент сразу видны, возвращаются обратно (0.32)", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await browser.$('[data-testid="accent-pick"]').waitForExist({ timeout: 5000 });
   const attr = (name) => browser.execute((n) => document.documentElement.dataset[n] ?? "", name);
   try {
@@ -408,7 +415,7 @@ test("Главная: карточка в половину ширины и об�
 });
 
 test("свои клавиши: доход на Ctrl+I, занятое не принимается, как было (0.32)", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await browser.$('[data-testid="keys-card"]').waitForExist({ timeout: 5000 });
   try {
     await tap('[data-testid="key-newIncome"]');
@@ -462,11 +469,11 @@ test("своя Главная: скрыть карточку, перестави
   await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "по умолчанию не пять карточек" });
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false);
   // Остальные включаются в Настройках.
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await browser.$('[name="homeCard-templates"]').click();
   await openSection(browser, "Главная");
   await browser.$('//main//h2[normalize-space()="Шаблоны"]').waitForDisplayed({ timeout: 5000 });
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await browser.$('[data-testid="home-cards-all"]').click();
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
@@ -527,7 +534,7 @@ test("таблица операций: столбец «Получатель», 
 });
 
 test("тонкие настройки: суммы кодом валюты, неделя с воскресенья, как было (0.32)", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   const card = await browser.$('[data-testid="fine-card"]');
   await card.waitForExist({ timeout: 5000 });
   try {
@@ -539,7 +546,7 @@ test("тонкие настройки: суммы кодом валюты, не�
     await openSection(browser, "Календарь");
     await waitContent(browser, '[data-testid="calendar"] .cal-weekday', /^Вс$/);
   } finally {
-    await openSection(browser, "Настройки");
+    await openSettings(browser, "appearance");
     if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
     const reset = await browser.$('[data-testid="fine-reset"]');
     if (await reset.isExisting()) await reset.click();

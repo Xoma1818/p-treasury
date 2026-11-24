@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, waitContent, money, setDate, waitCount } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, click, save, waitText, waitContent, money, setDate, waitCount } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -294,13 +294,13 @@ test("остаток на день обычного и досрочного пл
 });
 
 test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async (t) => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   const fineCard = await browser.$('[data-testid="fine-card"]');
   await fineCard.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fineCard))) await (await fineCard.$("summary")).click();
   const previousCodeMode = await (await browser.$('[name="fineCode"]')).getValue();
   t.after(async () => {
-    await openSection(browser, "Настройки");
+    await openSettings(browser, "appearance");
     const card = await browser.$('[data-testid="fine-card"]');
     await card.waitForExist({ timeout: 5000 });
     if (!(await browser.execute((el) => el.open, card))) await (await card.$("summary")).click();

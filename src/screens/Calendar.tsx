@@ -370,7 +370,7 @@ function YearView({ selected, select }: { selected: string | null; select: Selec
             </span>
           </div>
           {h.missingRates.length > 0 && <p className="hint warn">Нет курса для {h.missingRates.join(", ")}: такие траты не вошли.</p>}
-          <p className="hint">Неделя начинается с {fineView.week === "sun" ? "воскресенья" : "понедельника"}: поменять можно в Настройках, «Тонкие настройки» → «Неделя начинается».</p>
+          <p className="hint">Неделя начинается с {fineView.week === "sun" ? "воскресенья" : "понедельника"}. Изменить можно в «Настройки» → «Оформление» → «Формат и правила».</p>
         </div>
       )}
     </>

@@ -34,12 +34,12 @@ export function parseLead(s: string | null | undefined): number[] {
 }
 
 /** Сроки «заранее»: готовые кнопки и своё число дней. */
-export function LeadDaysPicker({ value, onChange, name = "leadDays" }: { value: number[]; onChange: (v: number[]) => void; name?: string }) {
+export function LeadDaysPicker({ value, onChange, name = "leadDays", inputId }: { value: number[]; onChange: (v: number[]) => void; name?: string; inputId?: string }) {
   const [own, setOwn] = useState("");
   const toggle = (d: number) => onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d].sort((a, b) => b - a));
   const custom = value.filter((d) => !LEAD_PRESETS.some(([v]) => v === d));
   return (
-    <div className="lead-days" data-testid={name}>
+    <div className="lead-days" role="group" aria-label="За сколько дней напомнить" data-testid={name}>
       {LEAD_PRESETS.map(([d, label]) => (
         <button key={d} type="button" className={value.includes(d) ? "chip-btn active" : "chip-btn"} aria-pressed={value.includes(d)} onClick={() => toggle(d)}>
           {label}
@@ -51,6 +51,8 @@ export function LeadDaysPicker({ value, onChange, name = "leadDays" }: { value: 
         </button>
       ))}
       <input
+        id={inputId}
+        aria-label="Свой срок напоминания в днях"
         name={`${name}Own`}
         className="lead-own"
         inputMode="numeric"

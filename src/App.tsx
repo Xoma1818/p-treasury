@@ -99,13 +99,15 @@ export function App() {
   // по умолчанию Ctrl+N расход, Ctrl+T перевод, Ctrl+K поиск по всему, Ctrl+F поиск, Ctrl+H суммы, F1 справка.
   const keyMap = useKeyMap();
   useEffect(() => {
+    // У формы импорта, восстановления или обновления свой фокус и несохранённый ввод.
+    const settingsDialogOpen = () => document.querySelector('.settings-screen [aria-modal="true"]') !== null;
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.altKey && !e.shiftKey) {
         const n = Number(e.key);
         const menu = navSections(savedNav(), sectionOn);
         if (n >= 1 && n <= 9 && menu[n - 1]) {
           e.preventDefault();
-          go(menu[n - 1].id);
+          if (!settingsDialogOpen()) go(menu[n - 1].id);
           return;
         }
       }
@@ -113,6 +115,7 @@ export function App() {
       const action = combo && usable(combo) ? actionFor(keyMap, combo) : null;
       if (!action) return;
       e.preventDefault();
+      if (action !== "hideAmounts" && settingsDialogOpen()) return;
       if (action === "help") setHelp(true);
       else if (action === "newExpense") openTxnForm({ mode: "new", type: "expense" });
       else if (action === "newIncome") openTxnForm({ mode: "new", type: "income" });

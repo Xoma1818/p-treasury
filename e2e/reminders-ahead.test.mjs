@@ -2,7 +2,7 @@
 // проверка денег на счёте, правка одного платежа, напоминание у заметки и сроки «заранее» в Настройках.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, openMore } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -159,7 +159,7 @@ test("заметка «Продлить страховку»: напоминан
 });
 
 test("Настройки: сроки «заранее» по умолчанию и проверка денег", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "notifications");
   const picker = '//*[@data-testid="defaultLeadDays"]';
   await (await browser.$(picker)).waitForDisplayed({ timeout: 5000 });
   await click(browser, "за неделю", picker);

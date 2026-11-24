@@ -288,6 +288,15 @@ export async function openSection(browser, title) {
   await browser.$(`//main//h1[normalize-space()="${title}"]`).waitForDisplayed({ timeout: 5000 });
 }
 
+/** Открыть рабочую тему настроек тем же путём, что и пользователь. */
+export async function openSettings(browser, topic) {
+  await openSection(browser, "Настройки");
+  const tab = await browser.$(`[data-testid="settings-tab-${topic}"]`);
+  await tab.waitForDisplayed({ timeout: 5000 });
+  await tab.click();
+  await browser.waitUntil(async () => (await tab.getAttribute("aria-selected")) === "true");
+}
+
 /** Поле по атрибуту name (в открытом диалоге, если он есть). */
 export async function field(browser, name) {
   // Вложенная форма может содержать одноимённое поле. Ищем в верхнем диалоге

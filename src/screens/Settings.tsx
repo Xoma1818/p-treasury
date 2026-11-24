@@ -4,7 +4,7 @@ import { LeadDaysPicker, parseLead } from "../components/Reminders";
 import { TxnFormCard } from "../components/TxnFormCard";
 import { NavCard } from "../components/NavCard";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { ImportDialog, SummaryDialog, UpdatesCard } from "../components/DataTools";
 import { ImportHistoryDialog } from "../components/ImportHistory";
@@ -25,8 +25,8 @@ import { formatDate, formatDateTime, today } from "../lib/dates";
 import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
 import { formatRate, rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
-import { ScreenTitle } from "../components/SectionIcon";
 import "./secondaryScreens.css";
+import "./settings-navigation.css";
 
 export function Settings() {
   const info = useAppInfo();
@@ -40,372 +40,423 @@ export function Settings() {
   const [look, setLook] = useState<Look>(savedLook);
   const setLookNow = (l: Look) => (setLook(l), applyLook(l));
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
-  // Г1: из Ctrl+K — прокрутить к разделу, поставить курсор в поле, открыть окно «Данных».
+  const [topic, setTopic] = useState<TopicId>("general");
   const jump = useUi((s) => s.settingsJump);
-  useEffect(() => {
+  const selectTopic = (next: TopicId) => {
+    if (next === topic) return;
+    setTopic(next);
+    const heading = document.getElementById("settings-heading");
+    if (heading && heading.getBoundingClientRect().top < 0) heading.scrollIntoView({ block: "start" });
+  };
+
+  // Старые ссылки из поиска могут указывать на «general» даже для перенесённого поля.
+  // Определяем тему по самому контролу, чтобы адреса не зависели от компоновки.
+  useLayoutEffect(() => {
     if (!jump) return;
+    const section = document.getElementById(`set-${jump.section}`);
+    const field = jump.field ? document.querySelector<HTMLElement>(`.settings-screen [name="${CSS.escape(jump.field)}"]`) : null;
+    const target = field ?? section;
+    const panelId = target?.closest('[role="tabpanel"]')?.id;
+    const destination = TOPICS.find(([id]) => panelId === `settings-panel-${id}`)?.[0];
+    if (destination && topic !== destination) {
+      setTopic(destination);
+      return;
+    }
     useUi.setState({ settingsJump: null });
-    if (jump.dialog) setDialog(jump.dialog);
-    requestAnimationFrame(() => {
-      document.getElementById(`set-${jump.section}`)?.scrollIntoView({ block: "start" });
-      const f = jump.field ? document.querySelector<HTMLElement>(`[name="${jump.field}"]`) : null;
-      f?.focus({ preventScroll: true });
-    });
-  }, [jump]);
+    if (jump.dialog) {
+      setDialog(jump.dialog);
+    } else if (target) {
+      target.scrollIntoView({ block: "nearest" });
+      target.focus({ preventScroll: true });
+    }
+  }, [jump, topic]);
+
+  // Импорт и сводку можно открыть и из Ctrl+K. При закрытии у обоих путей
+  // есть видимая кнопка, с которой пользователь может продолжить работу.
+  const closeDialog = () => {
+    setDialog(null);
+    document.querySelector<HTMLElement>(`[data-settings-dialog="${dialog}"]`)?.focus();
+  };
+  useEffect(() => {
+    if (!dialog) return;
+    const modal = document.querySelector<HTMLElement>('.settings-screen [role="dialog"]');
+    if (modal && !modal.contains(document.activeElement)) modal.querySelector<HTMLElement>("button")?.focus();
+  }, [dialog]);
 
   return (
     <section className="screen secondary-screen settings-screen">
-      <ScreenTitle id="settings" />
+      <h1 id="settings-heading" className="settings-heading">Настройки <Hint of="section.settings" /></h1>
+      <SettingsNav current={topic} onSelect={selectTopic} />
+      <ErrorText error={setSetting.error ?? setHotkey.error} />
+      <SettingsPanel topic="general" selected={topic}>
+        <div id="set-general" className="settings-section card" tabIndex={-1}>
+          <h2>Параметры бюджета</h2>
+          <div className="settings-list">
+            <Field label="Основная валюта" hint="В ней считаются общий баланс, бюджеты и отчёты.">
+              {(id) => (
+                <select id={id} name="baseCurrency" value={base} onChange={(e) => setSetting.run("base_currency", e.target.value)}>
+                  {currencies.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.symbol})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Начало бюджетного месяца" hint="Можно считать месяц со дня зарплаты.">
+              {(id) => (
+                <select id={id} name="monthStartDay" value={settings?.month_start_day ?? "1"} onChange={(e) => setSetting.run("month_start_day", e.target.value)}>
+                  {Array.from({ length: 28 }, (_, i) => String(i + 1)).map((d) => (
+                    <option key={d} value={d}>
+                      {d === "1" ? "1-го числа" : `${d}-го числа`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Формат даты">
+              {(id) => (
+                <select id={id} name="dateFormat" value={settings?.date_format ?? "DD.MM.YYYY"} onChange={(e) => setSetting.run("date_format", e.target.value)}>
+                  <option value="DD.MM.YYYY">ДД.ММ.ГГГГ</option>
+                  <option value="YYYY-MM-DD">ГГГГ-ММ-ДД</option>
+                </select>
+              )}
+            </Field>
+          </div>
+        </div>
+        <div id="set-rates" className="settings-section" tabIndex={-1}>
+          <Rates base={base} />
+        </div>
+      </SettingsPanel>
 
-      <div className="settings-layout">
-      <SettingsNav />
-      <div className="settings-body">
-      <div className="settings-section" id="set-general">
-      <div className="card">
-        <h2>Общие</h2>
-        <div className="settings-list">
-          <Field label="Основная валюта" hint="В ней считаются общий баланс, бюджеты и отчёты.">
-            {(id) => (
-              <select id={id} name="baseCurrency" value={base} onChange={(e) => setSetting.run("base_currency", e.target.value)}>
-                {currencies.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name} ({c.symbol})
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Месяц начинается" hint="Для бюджета и итогов месяца, например с дня зарплаты.">
-            {(id) => (
-              <select id={id} name="monthStartDay" value={settings?.month_start_day ?? "1"} onChange={(e) => setSetting.run("month_start_day", e.target.value)}>
-                {Array.from({ length: 28 }, (_, i) => String(i + 1)).map((d) => (
-                  <option key={d} value={d}>
-                    {d === "1" ? "1-го числа" : `${d}-го числа`}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Подсказки «?»" hint="Маленькие значки рядом с названиями: под мышкой — что делает функция.">
-            {(id) => (
-              <select id={id} name="hints" value={settings?.hints ?? "1"} onChange={(e) => setSetting.run("hints", e.target.value)}>
-                <option value="1">Показывать</option>
-                <option value="0">Скрыть</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Напоминать о платежах по долгам" hint="Уведомление приходит в 9:00.">
-            {(id) => (
-              <select
-                id={id}
-                name="debtReminderDays"
-                value={settings?.debt_reminder_days_before ?? "3"}
-                onChange={(e) => setSetting.run("debt_reminder_days_before", e.target.value)}
-              >
-                {[0, 1, 2, 3, 5, 7, 10].map((d) => (
-                  <option key={d} value={String(d)}>
-                    {d === 0 ? "в день платежа" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Своё напоминание о платеже — заранее" hint="Для новых и старых напоминаний без своих сроков; в сам день оно приходит всегда.">
-            {() => (
-              <LeadDaysPicker
-                name="defaultLeadDays"
-                value={parseLead(settings?.reminder_lead_days ?? "3,1")}
-                onChange={(v) => setSetting.run("reminder_lead_days", v.join(","))}
-              />
-            )}
-          </Field>
-          <Field label="Проверять деньги на счёте перед платежом" hint="Если к расходу с выбранного счёта денег не хватит с учётом других платежей, придёт предупреждение.">
-            {(id) => (
-              <select
-                id={id}
-                name="fundsDays"
-                value={settings?.reminder_funds_days ?? "3"}
-                onChange={(e) => setSetting.run("reminder_funds_days", e.target.value)}
-              >
-                {[0, 1, 2, 3, 5, 7].map((d) => (
-                  <option key={d} value={String(d)}>
-                    {d === 0 ? "не проверять" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field
-            label="Предупреждать о бюджете"
-            hint={
-              <>
-                Уведомление, когда категория дошла до 80 % лимита и когда лимит превышен. <Hint of="budgetAlerts" />
-              </>
-            }
-          >
-            {(id) => (
-              <button
-                id={id}
-                type="button"
-                className="toggle-row"
-                role="switch"
-                aria-checked={(settings?.budget_alerts ?? "1") !== "0"}
-                data-testid="budget-alerts"
-                onClick={() => setSetting.run("budget_alerts", (settings?.budget_alerts ?? "1") !== "0" ? "0" : "1")}
-              >
-                <span className="switch" aria-hidden="true" />
-                {(settings?.budget_alerts ?? "1") !== "0" ? "Включено" : "Выключено"}
+      <SettingsPanel topic="notifications" selected={topic}>
+        <div id="set-notifications" className="settings-section card" tabIndex={-1}>
+          <h2>Платежи и лимиты</h2>
+          <div className="settings-list">
+            <Field label="Платежи по долгам" hint="Уведомление приходит в 9:00.">
+              {(id) => (
+                <select
+                  id={id}
+                  name="debtReminderDays"
+                  value={settings?.debt_reminder_days_before ?? "3"}
+                  onChange={(e) => setSetting.run("debt_reminder_days_before", e.target.value)}
+                >
+                  {[0, 1, 2, 3, 5, 7, 10].map((d) => (
+                    <option key={d} value={String(d)}>
+                      {d === 0 ? "в день платежа" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Сроки напоминаний" hint="Если у платежа нет своих сроков. В день платежа напоминание придёт всегда.">
+              {(id) => (
+                <LeadDaysPicker
+                  inputId={id}
+                  name="defaultLeadDays"
+                  value={parseLead(settings?.reminder_lead_days ?? "3,1")}
+                  onChange={(v) => setSetting.run("reminder_lead_days", v.join(","))}
+                />
+              )}
+            </Field>
+            <Field label="Проверка остатка до платежа" hint="Предупредить, если на счёте не хватит денег с учётом других платежей.">
+              {(id) => (
+                <select
+                  id={id}
+                  name="fundsDays"
+                  value={settings?.reminder_funds_days ?? "3"}
+                  onChange={(e) => setSetting.run("reminder_funds_days", e.target.value)}
+                >
+                  {[0, 1, 2, 3, 5, 7].map((d) => (
+                    <option key={d} value={String(d)}>
+                      {d === 0 ? "не проверять" : `за ${d} ${d === 1 ? "день" : d < 5 ? "дня" : "дней"}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              label="Предупреждать о бюджете"
+              hint={
+                <>
+                  Уведомление, когда категория дошла до 80 % лимита и когда лимит превышен. <Hint of="budgetAlerts" />
+                </>
+              }
+            >
+              {(id) => (
+                <button
+                  id={id}
+                  type="button"
+                  className="toggle-row"
+                  role="switch"
+                  aria-checked={(settings?.budget_alerts ?? "1") !== "0"}
+                  data-testid="budget-alerts"
+                  onClick={() => setSetting.run("budget_alerts", (settings?.budget_alerts ?? "1") !== "0" ? "0" : "1")}
+                >
+                  <span className="switch" aria-hidden="true" />
+                  {(settings?.budget_alerts ?? "1") !== "0" ? "Включено" : "Выключено"}
+                </button>
+              )}
+            </Field>
+            <Field label="Регулярные платежи" hint="Напоминание о подписках и других регулярных списаниях.">
+              {(id) => (
+                <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>
+                  <option value="1">за день</option>
+                  <option value="0">не напоминать</option>
+                </select>
+              )}
+            </Field>
+          </div>
+        </div>
+      </SettingsPanel>
+
+      <SettingsPanel topic="appearance" selected={topic}>
+        <div id="set-appearance" className="settings-section card" tabIndex={-1}>
+          <h2>Вид интерфейса</h2>
+          <div className="settings-list">
+            <Field label="Масштаб интерфейса" hint="«Авто» подбирает размер текста и кнопок по ширине окна.">
+              {(id) => (
+                <select
+                  id={id}
+                  name="uiScale"
+                  value={scale}
+                  onChange={(e) => {
+                    const next = e.target.value as Scale;
+                    setScale(next);
+                    applyScale(next);
+                  }}
+                >
+                  {SCALES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Плотность">
+              {(id) => (
+                <select id={id} name="uiDensity" value={look.density} onChange={(e) => setLookNow({ ...look, density: e.target.value as Density })}>
+                  {DENSITIES.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Цвет акцента" hint="Цвет выделения, ссылок и основных кнопок.">
+              {() => (
+                <div className="accent-pick" role="group" aria-label="Цвет акцента" data-testid="accent-pick">
+                  {ACCENTS.map((a) => (
+                    <button
+                      key={a.value}
+                      type="button"
+                      className="accent-dot"
+                      style={{ background: a.color }}
+                      aria-label={a.label}
+                      title={a.label}
+                      aria-pressed={look.accent === a.value}
+                      data-accent={a.value}
+                      onClick={() => setLookNow({ ...look, accent: a.value })}
+                    />
+                  ))}
+                </div>
+              )}
+            </Field>
+            <Field label="Подсказки «?»" hint="Пояснения рядом с названиями и полями.">
+              {(id) => (
+                <select id={id} name="hints" value={settings?.hints ?? "1"} onChange={(e) => setSetting.run("hints", e.target.value)}>
+                  <option value="1">Показывать</option>
+                  <option value="0">Скрыть</option>
+                </select>
+              )}
+            </Field>
+          </div>
+        </div>
+        <div id="set-fine" className="settings-section" tabIndex={-1}>
+          <FineCard />
+        </div>
+        <div id="set-home" className="settings-section" tabIndex={-1}>
+          <HomeCardsCard />
+        </div>
+      </SettingsPanel>
+
+      <SettingsPanel topic="controls" selected={topic}>
+        <div id="set-controls" className="settings-section card" tabIndex={-1}>
+          <h2>Окно и ввод операций</h2>
+          <div className="settings-list">
+            <Field label="Открывать операцию" hint="В боковой панели видны список и похожие операции.">
+              {(id) => (
+                <select
+                  id={id}
+                  name="txnOpen"
+                  value={txnOpen}
+                  onChange={(e) => {
+                    const next = e.target.value as TxnOpen;
+                    setTxnOpen(next);
+                    saveTxnOpen(next);
+                  }}
+                >
+                  <option value="panel">панелью справа</option>
+                  <option value="dialog">окном</option>
+                </select>
+              )}
+            </Field>
+            <Field label="При закрытии окна" hint="В трее приложение продолжает присылать напоминания.">
+              {(id) => (
+                <select id={id} name="closeToTray" value={settings?.close_to_tray ?? "1"} onChange={(e) => setSetting.run("close_to_tray", e.target.value)}>
+                  <option value="1">Сворачивать в трей</option>
+                  <option value="0">Закрывать приложение</option>
+                </select>
+              )}
+            </Field>
+            <Field label="Быстрый ввод из любой программы" hint="Открывает ввод операции поверх других программ.">
+              {(id) => (
+                <select id={id} name="quickHotkey" value={settings?.quick_hotkey ?? "Ctrl+Alt+P"} onChange={(e) => setHotkey.run(e.target.value)}>
+                  {["Ctrl+Alt+P", "Ctrl+Shift+Space", "Ctrl+Alt+N"].map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                  <option value="">Выключен</option>
+                </select>
+              )}
+            </Field>
+          </div>
+        </div>
+        <div id="set-menu" className="settings-section" tabIndex={-1}>
+          <NavCard />
+          <TxnFormCard />
+        </div>
+        <div id="set-modules" className="settings-section" tabIndex={-1}>
+          <ModulesCard />
+        </div>
+        <div id="set-keys" className="settings-section" tabIndex={-1}>
+          {topic === "controls" && <KeysCard />}
+        </div>
+      </SettingsPanel>
+
+      <SettingsPanel topic="data" selected={topic}>
+        <div id="set-data" className="settings-section" tabIndex={-1}>
+          <div className="card" data-testid="data-card">
+            <h2>
+              Импорт и экспорт
+              <Hint of="data" />
+            </h2>
+            <p className="muted">Загрузите выписку или сохраните сводку за период.</p>
+            <div className="btn-group">
+              <button className="btn primary" data-settings-dialog="summary" onClick={() => setDialog("summary")}>
+                Сводка в Excel
               </button>
-            )}
-          </Field>
-          <Field label="Напоминать о регулярных платежах" hint="Накануне списания подписки или связи приходит уведомление с суммой.">
-            {(id) => (
-              <select id={id} name="subsRemind" value={settings?.subs_remind ?? "1"} onChange={(e) => setSetting.run("subs_remind", e.target.value)}>
-                <option value="1">за день</option>
-                <option value="0">не напоминать</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Открывать операцию" hint="Панель справа показывает операцию рядом со списком и похожие операции; окно — как раньше, посередине.">
-            {(id) => (
-              <select
-                id={id}
-                name="txnOpen"
-                value={txnOpen}
-                onChange={(e) => {
-                  const next = e.target.value as TxnOpen;
-                  setTxnOpen(next);
-                  saveTxnOpen(next);
-                }}
-              >
-                <option value="panel">панелью справа</option>
-                <option value="dialog">окном</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Формат даты">
-            {(id) => (
-              <select id={id} name="dateFormat" value={settings?.date_format ?? "DD.MM.YYYY"} onChange={(e) => setSetting.run("date_format", e.target.value)}>
-                <option value="DD.MM.YYYY">ДД.ММ.ГГГГ</option>
-                <option value="YYYY-MM-DD">ГГГГ-ММ-ДД</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Масштаб интерфейса" hint="«Авто» делает текст и кнопки крупнее, когда окно большое или развёрнуто на весь экран.">
-            {(id) => (
-              <select
-                id={id}
-                name="uiScale"
-                value={scale}
-                onChange={(e) => {
-                  const next = e.target.value as Scale;
-                  setScale(next);
-                  applyScale(next);
-                }}
-              >
-                {SCALES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Плотность" hint="Компактно — больше строк на экране, просторно — крупнее отступы.">
-            {(id) => (
-              <select id={id} name="uiDensity" value={look.density} onChange={(e) => setLookNow({ ...look, density: e.target.value as Density })}>
-                {DENSITIES.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Цвет акцента" hint="Цвет главных кнопок, ссылок и выделения. Мятный — фирменный.">
-            {() => (
-              <div className="accent-pick" role="group" aria-label="Цвет акцента" data-testid="accent-pick">
-                {ACCENTS.map((a) => (
-                  <button
-                    key={a.value}
-                    type="button"
-                    className="accent-dot"
-                    style={{ background: a.color }}
-                    aria-label={a.label}
-                    title={a.label}
-                    aria-pressed={look.accent === a.value}
-                    data-accent={a.value}
-                    onClick={() => setLookNow({ ...look, accent: a.value })}
-                  />
-                ))}
-              </div>
-            )}
-          </Field>
-          <Field label="При закрытии окна" hint="В трее приложение продолжает присылать напоминания.">
-            {(id) => (
-              <select id={id} name="closeToTray" value={settings?.close_to_tray ?? "1"} onChange={(e) => setSetting.run("close_to_tray", e.target.value)}>
-                <option value="1">Сворачивать в трей</option>
-                <option value="0">Закрывать приложение</option>
-              </select>
-            )}
-          </Field>
-          <Field label="Быстрый ввод из любой программы" hint="Маленькое окно: «пятёрочка 1250» или текст SMS банка, Enter — записано.">
-            {(id) => (
-              <select id={id} name="quickHotkey" value={settings?.quick_hotkey ?? "Ctrl+Alt+P"} onChange={(e) => setHotkey.run(e.target.value)}>
-                {["Ctrl+Alt+P", "Ctrl+Shift+Space", "Ctrl+Alt+N"].map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-                <option value="">Выключен</option>
-              </select>
-            )}
-          </Field>
+              <button className="btn" data-settings-dialog="import" onClick={() => setDialog("import")}>
+                Импорт выписки или CSV
+              </button>
+              <button className="btn" data-testid="settings-import-history" data-settings-dialog="history" onClick={() => setDialog("history")}>
+                История импорта
+              </button>
+            </div>
+          </div>
+          <AutoImportCard />
         </div>
-        <ErrorText error={setSetting.error ?? setHotkey.error} />
-      </div>
-      </div>
-
-      <div className="settings-section" id="set-home">
-      <HomeCardsCard />
-      </div>
-
-      <div className="settings-section" id="set-modules">
-      <ModulesCard />
-      </div>
-
-      <div className="settings-section" id="set-menu">
-      <NavCard />
-      <TxnFormCard />
-      </div>
-
-      <div className="settings-section" id="set-keys">
-      <KeysCard />
-      </div>
-
-      <div className="settings-section" id="set-fine">
-      <FineCard />
-      </div>
-
-      <div className="settings-section" id="set-rates">
-      <Rates base={base} />
-      </div>
-
-      <div className="settings-section" id="set-data">
-      <div className="card" data-testid="data-card">
-        <h2>
-          Данные
-          <Hint of="data" />
-        </h2>
-        <p className="muted">Сводка за период в Excel или CSV, загрузка операций из выписки, CSV или Excel. Список операций и отчёты выгружаются кнопкой «Выгрузить» на своих экранах.</p>
-        <div className="btn-group">
-          <button className="btn primary" onClick={() => setDialog("summary")}>
-            Сводка в Excel
-          </button>
-          <button className="btn" onClick={() => setDialog("import")}>
-            Импорт выписки или CSV
-          </button>
-          <button className="btn" data-testid="settings-import-history" onClick={() => setDialog("history")}>
-            История импорта
-          </button>
+        <div id="set-vault" className="settings-section" tabIndex={-1}>
+          <VaultCard active={topic === "data"} />
+          <BudgetFilesCard />
         </div>
-      </div>
-      <AutoImportCard />
-      </div>
-      {dialog === "summary" && <SummaryDialog onClose={() => setDialog(null)} />}
-      {dialog === "import" && <ImportDialog onClose={() => setDialog(null)} />}
-      {dialog === "history" && <ImportHistoryDialog onClose={() => setDialog(null)} />}
+      </SettingsPanel>
 
-      <div className="settings-section" id="set-vault">
-      <VaultCard />
-      <BudgetFilesCard />
-      </div>
-      <div className="settings-section" id="set-updates">
-      <UpdatesCard />
-      </div>
-
-      <div className="settings-section" id="set-about">
-      <div className="card">
-        <h2>О программе</h2>
-        {info.error && <p className="error">{String(info.error)}</p>}
-        {info.data && (
-          <dl className="facts">
-            <dt>Версия</dt>
-            <dd>{info.data.version}</dd>
-            <dt>Версия данных</dt>
-            <dd>
-              {info.data.schemaVersion} из {info.data.supportedSchemaVersion}
-            </dd>
-            <dt>Файл данных</dt>
-            <dd className="mono">{info.data.dbPath}</dd>
-            {info.data.preMigrationBackup && (
-              <>
-                <dt>Копия перед обновлением</dt>
-                <dd className="mono">{info.data.preMigrationBackup}</dd>
-              </>
+      <SettingsPanel topic="about" selected={topic}>
+        <div id="set-about" className="settings-section" tabIndex={-1}>
+          <div className="card">
+            <h2>О программе</h2>
+            {info.error && <p className="error">{String(info.error)}</p>}
+            {info.data && (
+              <dl className="facts">
+                <dt>Версия</dt>
+                <dd>{info.data.version}</dd>
+                <dt>Версия данных</dt>
+                <dd>
+                  {info.data.schemaVersion} из {info.data.supportedSchemaVersion}
+                </dd>
+                <dt>Файл данных</dt>
+                <dd className="mono">{info.data.dbPath}</dd>
+                {info.data.preMigrationBackup && (
+                  <>
+                    <dt>Копия перед обновлением</dt>
+                    <dd className="mono">{info.data.preMigrationBackup}</dd>
+                  </>
+                )}
+              </dl>
             )}
-          </dl>
-        )}
-      </div>
-      </div>
-      </div>
-      </div>
+          </div>
+        </div>
+        <div id="set-updates" className="settings-section" tabIndex={-1}>
+          <UpdatesCard active={topic === "about"} />
+        </div>
+      </SettingsPanel>
+
+      {dialog === "summary" && <SummaryDialog onClose={closeDialog} />}
+      {dialog === "import" && <ImportDialog onClose={closeDialog} />}
+      {dialog === "history" && <ImportHistoryDialog onClose={closeDialog} />}
     </section>
   );
 }
 
-/** П. 14: разделы Настроек слева. Все карточки остаются на одной странице,
- *  нажатие прокручивает к разделу, при прокрутке подсвечивается текущий. */
-const SETTINGS_SECTIONS: [string, string][] = [
-  ["general", "Общие"],
-  ["home", "Главная"],
-  ["modules", "Возможности"],
-  ["menu", "Меню и форма"],
-  ["keys", "Клавиши"],
-  ["fine", "Тонкие"],
-  ["rates", "Курсы"],
-  ["data", "Данные"],
-  ["vault", "Сохранность"],
-  ["updates", "Обновления"],
+const TOPICS = [
+  ["general", "Бюджет и валюта"],
+  ["notifications", "Уведомления"],
+  ["appearance", "Оформление"],
+  ["controls", "Меню и ввод"],
+  ["data", "Данные и копии"],
   ["about", "О программе"],
-];
+] as const;
 
-function SettingsNav() {
-  const [current, setCurrent] = useState("general");
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const seen = new Map<string, boolean>();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) seen.set(e.target.id.slice(4), e.isIntersecting);
-        const first = SETTINGS_SECTIONS.find(([id]) => seen.get(id));
-        if (first) setCurrent(first[0]);
-      },
-      { rootMargin: "-10% 0px -60% 0px" },
-    );
-    for (const [id] of SETTINGS_SECTIONS) {
-      const el = document.getElementById(`set-${id}`);
-      if (el) io.observe(el);
+type TopicId = (typeof TOPICS)[number][0];
+
+function SettingsNav({ current, onSelect }: { current: TopicId; onSelect: (id: TopicId) => void }) {
+  const move = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const last = TOPICS.length - 1;
+    let next: number;
+    switch (event.key) {
+      case "ArrowLeft": next = index === 0 ? last : index - 1; break;
+      case "ArrowRight": next = index === last ? 0 : index + 1; break;
+      case "Home": next = 0; break;
+      case "End": next = last; break;
+      default: return;
     }
-    return () => io.disconnect();
-  }, []);
+    event.preventDefault();
+    const [id] = TOPICS[next];
+    onSelect(id);
+    document.getElementById(`settings-tab-${id}`)?.focus();
+  };
   return (
-    <aside className="settings-nav" aria-label="Разделы настроек" role="navigation">
-      {SETTINGS_SECTIONS.map(([id, label]) => (
+    <div className="settings-topics" role="tablist" aria-label="Разделы настроек">
+      {TOPICS.map(([id, title], index) => (
         <button
           key={id}
+          id={`settings-tab-${id}`}
+          data-testid={`settings-tab-${id}`}
           type="button"
-          className={current === id ? "settings-nav-item active" : "settings-nav-item"}
-          aria-current={current === id ? "true" : undefined}
-          onClick={() => {
-            setCurrent(id);
-            document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-          }}
+          role="tab"
+          aria-controls={`settings-panel-${id}`}
+          aria-selected={current === id}
+          tabIndex={current === id ? 0 : -1}
+          onClick={() => onSelect(id)}
+          onKeyDown={(event) => move(event, index)}
         >
-          {label}
+          {title}
         </button>
       ))}
-    </aside>
+    </div>
+  );
+}
+
+function SettingsPanel({ topic, selected, children }: { topic: TopicId; selected: TopicId; children: ReactNode }) {
+  return (
+    <div id={`settings-panel-${topic}`} className="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${topic}`} hidden={selected !== topic}>
+      {children}
+    </div>
   );
 }
 
@@ -456,29 +507,31 @@ function Rates({ base }: { base: string }) {
         <Hint of="rates" />
       </h2>
       <p className="muted">
-        Курс к основной валюте. Для пересчёта операции берётся последний известный курс на её день, поэтому прежние курсы хранятся в истории.
+        Курсы к основной валюте. Для операции берётся последний известный курс на её дату.
       </p>
       {current.length > 0 && (
-        <table className="table compact rates-table rates-now" data-testid="rates-now">
-          <thead>
-            <tr>
-              <th>Валюта</th>
-              <th>Действующий курс</th>
-              <th>Действует с</th>
-              <th>Источник</th>
-            </tr>
-          </thead>
-          <tbody>
-            {current.map((r) => (
-              <tr key={r.code} data-code={r.code} data-source={r.source ?? undefined}>
-                <td>{r.code}</td>
-                <td className="num">{r.rate ? `1 ${r.code} = ${formatRate(r.rate)} ${symbol(fresh?.base ?? base)}` : <span className="muted">нет курса</span>}</td>
-                <td className="date">{r.date ? formatDate(r.date) : "—"}</td>
-                <td>{r.source ? <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span> : "—"}</td>
+        <div className="rates-table-scroll" role="region" aria-label="Действующие курсы валют" tabIndex={0}>
+          <table className="table compact rates-table rates-now" data-testid="rates-now">
+            <thead>
+              <tr>
+                <th scope="col">Валюта</th>
+                <th scope="col" className="num">Действующий курс</th>
+                <th scope="col">Действует с</th>
+                <th scope="col">Источник</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {current.map((r) => (
+                <tr key={r.code} data-code={r.code} data-source={r.source ?? undefined}>
+                  <td>{r.code}</td>
+                  <td className="num">{r.rate ? `1 ${r.code} = ${formatRate(r.rate)} ${symbol(fresh?.base ?? base)}` : <span className="muted">нет курса</span>}</td>
+                  <td className="date">{r.date ? formatDate(r.date) : "—"}</td>
+                  <td>{r.source ? <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="hint" data-testid="rates-checked">
         {checkedAt ? `Последняя проверка ЦБ РФ: ${formatDateTime(checkedAt)}` : "Курсы ЦБ РФ ещё не загружались."}
@@ -524,26 +577,28 @@ function Rates({ base }: { base: string }) {
           </button>
           {history && (
             <>
-              <table className="table compact rates-table" data-testid="rates">
-                <tbody>
-                  {shown.map((r) => (
-                    <tr key={`${r.date}-${r.fromCode}-${r.toCode}`} data-source={r.source}>
-                      <td className="date">{formatDate(r.date)}</td>
-                      <td>
-                        1 {r.fromCode} = {formatRate(r.rate)} {symbol(r.toCode)}
-                      </td>
-                      <td>
-                        <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span>
-                      </td>
-                      <td className="row-actions">
-                        <button className="link danger" onClick={() => remove.run(r.date, r.fromCode, r.toCode)}>
-                          Удалить
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="rates-table-scroll" role="region" aria-label="История курсов" tabIndex={0}>
+                <table className="table compact rates-table" data-testid="rates">
+                  <tbody>
+                    {shown.map((r) => (
+                      <tr key={`${r.date}-${r.fromCode}-${r.toCode}`} data-source={r.source}>
+                        <td className="date">{formatDate(r.date)}</td>
+                        <td>
+                          1 {r.fromCode} = {formatRate(r.rate)} {symbol(r.toCode)}
+                        </td>
+                        <td>
+                          <span className={r.source === "cbr" ? "badge good" : "badge"}>{rateSource(r.source)}</span>
+                        </td>
+                        <td className="row-actions">
+                          <button className="link danger" onClick={() => remove.run(r.date, r.fromCode, r.toCode)}>
+                            Удалить
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {list.length > RATES_SHOWN && (
                 <button className="link table-foot" onClick={() => setAll(!all)}>
                   {all ? "Свернуть" : `Показать все (${list.length})`}

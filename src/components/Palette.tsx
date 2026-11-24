@@ -6,6 +6,7 @@ import { formatDate } from "../lib/dates";
 import { formatAmount } from "../lib/money";
 import { useAccounts, useCategories } from "../lib/queries";
 import { SECTIONS, type SectionId } from "../lib/sections";
+import { navSections, useNavPrefs } from "../lib/navLayout";
 import { useUi, type SettingsJump } from "../lib/store";
 import { applyTheme, savedTheme } from "../lib/theme";
 import { useAction } from "../lib/useAction";
@@ -26,7 +27,7 @@ interface Item {
 /** Г1: любая настройка в двух нажатиях — раздел Настроек и поле в нём. */
 const SETTINGS: { key: string; title: string; words: string; section: string; field?: string; dialog?: SettingsJump["dialog"] }[] = [
   { key: "base", title: "Основная валюта", words: "рубль валюта base", section: "general", field: "baseCurrency" },
-  { key: "month", title: "Первый день месяца", words: "начало месяца зарплата", section: "general", field: "monthStartDay" },
+  { key: "month", title: "Начало бюджетного месяца", words: "первый день месяца начало месяца зарплата", section: "general", field: "monthStartDay" },
   { key: "hints", title: "Подсказки «?»", words: "подсказки помощь", section: "general", field: "hints" },
   { key: "debtdays", title: "Напоминать о платеже по долгу", words: "долг займ напоминание", section: "general", field: "debtReminderDays" },
   { key: "subs", title: "Напоминать о регулярных платежах", words: "подписки напоминание", section: "general", field: "subsRemind" },
@@ -44,7 +45,10 @@ const SETTINGS: { key: string; title: string; words: string; section: string; fi
   { key: "summary", title: "Сводка в Excel", words: "выгрузить excel эксель отчёт", section: "data", dialog: "summary" },
   { key: "import", title: "Импорт выписки или CSV", words: "импорт загрузить выписка банк csv", section: "data", dialog: "import" },
   { key: "history", title: "История импорта", words: "импорт история загрузки", section: "data", dialog: "history" },
-  { key: "vault", title: "Резервная копия и папка сохранности", words: "копия бэкап backup сохранность восстановить", section: "vault" },
+  { key: "vault", title: "Резервные копии", words: "копия бэкап backup сохранность восстановить данные и копии", section: "vault" },
+  { key: "notify", title: "Уведомления", words: "напоминания сроки предупреждения", section: "notifications" },
+  { key: "appearance", title: "Оформление", words: "интерфейс внешний вид", section: "appearance" },
+  { key: "fine", title: "Формат и правила", words: "тонкие настройки копейки неделя пороги", section: "fine" },
   { key: "updates", title: "Обновления", words: "обновить версия", section: "updates" },
   { key: "about", title: "О программе", words: "версия файл данных", section: "about" },
 ];
@@ -67,6 +71,7 @@ export function Palette() {
   const hidden = useSettings().data?.hide_amounts === "1";
   const setSetting = useAction(api.setSetting);
   const { sectionOn } = useModules();
+  const { nav } = useNavPrefs();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const [deb, setDeb] = useState("");
@@ -118,7 +123,12 @@ export function Palette() {
       );
     }
     out.push(...actions.filter((a) => has(a.title, a.words)));
-    SECTIONS.forEach((s, i) => sectionOn(s.id) && has(s.title, s.hint) && out.push({ key: `s-${s.id}`, group: "Разделы", title: s.title, detail: i < 9 ? `Ctrl+${i + 1}` : s.hint, section: s.id, run: () => go(s.id) }));
+    const menu = navSections(nav, sectionOn);
+    for (const s of SECTIONS) {
+      if (!sectionOn(s.id) || !has(s.title, s.hint)) continue;
+      const index = menu.findIndex((item) => item.id === s.id);
+      out.push({ key: `s-${s.id}`, group: "Разделы", title: s.title, detail: index >= 0 && index < 9 ? `Ctrl+${index + 1}` : s.hint, section: s.id, run: () => go(s.id) });
+    }
     if (n)
       SETTINGS.filter((x) => has(x.title, x.words)).forEach((x) =>
         out.push({ key: `set-${x.key}`, group: "Настройки", title: x.title, section: "settings", run: () => openSettings({ section: x.section, field: x.field, dialog: x.dialog }) }),
@@ -146,7 +156,7 @@ export function Palette() {
       out.push({ key: "all", group: "Операции", title: `Все операции с «${q.trim()}»`, section: "transactions", run: () => showTransactions({ search: q.trim() }) });
     }
     return out;
-  }, [q, accounts, categories, views, hits, txns, go, showTransactions, openTxnForm, openDebt, openView, openReport, openSettings, setHelp, hidden, setSetting, sectionOn]);
+  }, [q, accounts, categories, views, hits, txns, go, showTransactions, openTxnForm, openDebt, openView, openReport, openSettings, setHelp, hidden, setSetting, sectionOn, nav]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {

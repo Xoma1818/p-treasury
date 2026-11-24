@@ -42,10 +42,12 @@ test("по умолчанию тёмная тема, переключатель 
   assert.equal(await theme(browser), "dark");
 });
 
-test("меню разбито на группы, у пункта меню значок, у раздела подсказка", async () => {
+test("основные разделы видны в меню, Настройки закреплены рядом с быстрыми действиями", async () => {
   const { browser } = app;
-  const groups = await browser.execute(() => [...document.querySelectorAll(".nav-group")].map((g) => g.textContent));
-  assert.deepEqual(groups, ["Каждый день", "Планы", "Деньги", "Справочники"]);
+  const nav = await browser.$('[data-testid="nav-list"]');
+  assert.equal((await nav.$$(".nav-item:not(.nav-view)")).length, 10);
+  assert.equal(await nav.$(".nav-settings").isExisting(), false);
+  await browser.$(".app-nav > .nav-settings button").waitForDisplayed();
   await openSection(browser, "Бюджет");
   const hint = await browser.$("main .screen-hint").getText();
   assert.equal(hint, "Сколько можно тратить в этом месяце");

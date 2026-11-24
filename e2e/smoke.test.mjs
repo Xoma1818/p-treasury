@@ -3,7 +3,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, waitText, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, waitText, money } from "./app.mjs";
 
 let app;
 before(async () => {
@@ -36,7 +36,7 @@ test("все разделы меню открываются", async () => {
 
 test("Настройки показывают версию данных", async () => {
   const { browser } = app;
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "about");
   const about = '//h2[normalize-space()="О программе"]/..';
   await waitText(browser, about, /(\d+) из \1/);
   assert.doesNotMatch(await (await browser.$(about)).getText(), /Пример суммы/);

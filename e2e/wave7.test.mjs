@@ -4,7 +4,7 @@
 // выключатель «Предупреждать о бюджете». Постановка: docs/product/0.16-quick-wins.md.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
+import { start, stop, openSection, openSettings, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -453,7 +453,7 @@ test("Отчёты «Чистые активы»: 12 точек, разбивк�
 });
 
 test("Настройки: «Предупреждать о бюджете» включён по умолчанию и запоминается", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "notifications");
   const sw = () => browser.$('[data-testid="budget-alerts"]');
   await (await sw()).waitForDisplayed({ timeout: 5000 });
   assert.equal(await (await sw()).getAttribute("aria-checked"), "true");
@@ -461,7 +461,7 @@ test("Настройки: «Предупреждать о бюджете» вк�
   await (await sw()).click();
   await browser.waitUntil(async () => (await (await sw()).getAttribute("aria-checked")) === "false", { timeout: 5000 });
   await openSection(browser, "Главная");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "notifications");
   assert.equal(await (await sw()).getAttribute("aria-checked"), "false");
   assert.match(await (await sw()).getText(), /Выключено/);
   await (await sw()).click();

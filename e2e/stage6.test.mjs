@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, choose, click, waitText, money, appPid, closeLikeUser, openFilters } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, choose, click, waitText, money, appPid, closeLikeUser, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -43,7 +43,7 @@ test("импорт CSV: три строки с ошибкой в дате вид
   const path = join(files, "выписка.csv");
   const broken = [...good, ["31.09.2026", "Расход", "Карта", "Коммунальные платежи", "", "", "6230", ""], ["2026/10/07", "Расход", "Карта", "Такси", "", "", "350", ""], ["08.10.26", "Расход", "Карта", "Такси", "", "", "350", ""]];
   writeFileSync(path, csv(broken));
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   // «Скачать шаблон CSV» сохраняет файл и говорит об этом (раньше молчал).
   const tpl = join(files, "шаблон.csv");
@@ -105,7 +105,7 @@ test("напоминание о копии: операции старше мес
 
 test("ручная копия на «флешку», после неё напоминание пропадает", async () => {
   const flash = join(files, "flash.db");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await pick(flash);
   await click(browser, "Сделать копию");
   await waitText(browser, '[data-testid="backup-msg"]', /Копия сохранена и проверена: flash\.db/);
@@ -118,7 +118,7 @@ test("ручная копия на «флешку», после неё напо�
 
 test("сводка в Excel: файл .xlsx с шестью листами", async () => {
   const path = join(files, "сводка.xlsx");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Сводка в Excel");
   await click(browser, "Год", '//*[@role="dialog"]');
   await pick(path);
@@ -166,7 +166,7 @@ test("выгрузка операций в OFX и сводки в CSV", async ()
   assert.match(text, /<TRNAMT>-450\.00<\/TRNAMT>/);
 
   const csv = join(files, "сводка.csv");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Сводка в Excel");
   await pick(csv);
   await click(browser, "Скачать в CSV", '//*[@role="dialog"]');
@@ -196,8 +196,11 @@ test("выгрузка отчёта «По месяцам» в Excel", async () 
 test("формат даты ГГГГ-ММ-ДД меняет даты на экранах", async () => {
   await openSection(browser, "Настройки");
   await choose(browser, "dateFormat", "ГГГГ-ММ-ДД");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="last-backup"]', /^\d{4}-\d\d-\d\d \d\d:\d\d$/);
+  await openSettings(browser, "general");
   await choose(browser, "dateFormat", "ДД.ММ.ГГГГ");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="last-backup"]', /^\d\d\.\d\d\.\d{4} \d\d:\d\d$/);
 });
 
@@ -206,7 +209,7 @@ test("новый компьютер: восстановление из копи�
   await stop(browser);
   ({ browser, dataDir } = await start());
   await onboard(browser, [{ name: "Временный", balance: "1" }]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await pick(flash);
   await click(browser, "Восстановить из копии");
   await waitText(browser, '[role="dialog"]', /В копии: счетов 2, операций 7/);
@@ -223,7 +226,7 @@ test("новый компьютер: восстановление из копи�
 test("закрытие окна: по умолчанию в трей, с настройкой — выход с обновлением папки сохранности в облаке", async () => {
   const cloud = mkdtempSync(join(tmpdir(), "p-treasury-cloud-"));
   const vault = join(cloud, "Kazna");
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Сменить папку");
   await pick(cloud);
   await click(browser, "Другая папка или флешка…", '//*[@role="dialog"]');
@@ -243,7 +246,7 @@ test("закрытие окна: по умолчанию в трей, с нас�
 
   // «Закрывать приложение»: выход и обновление папки.
   ({ browser } = await start(dataDir));
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "controls");
   await choose(browser, "closeToTray", "Закрывать приложение");
   await new Promise((r) => setTimeout(r, 1100));
   // Скрытое окно быстрого ввода не должно удерживать процесс после закрытия главного.
@@ -287,7 +290,7 @@ test("обновление: при запуске приложение сооб�
     await waitText(browser, '[data-testid="update-version"]', /Доступна версия 9\.9\.9 \(у вас \d+\.\d+\.\d+\)/, 15000);
     await waitText(browser, '[role="dialog"]', /Новые отчёты/);
     await click(browser, "Позже", '//*[@role="dialog"]');
-    await openSection(browser, "Настройки");
+    await openSettings(browser, "about");
     await choose(browser, "updateCheck", "Только по кнопке");
     await click(browser, "Проверить обновления");
     await waitText(browser, '[data-testid="update-version"]', /9\.9\.9/);
@@ -301,7 +304,7 @@ test("без адреса обновлений кнопка честно гов�
   await stop(browser);
   ({ browser, dataDir } = await start());
   await onboard(browser, [{ name: "Карта", balance: "0" }]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "about");
   await click(browser, "Проверить обновления");
   await waitText(browser, '[data-testid="update-result"]', /Адрес обновлений появится/);
 });

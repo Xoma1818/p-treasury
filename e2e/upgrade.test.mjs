@@ -7,7 +7,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
 
 const OLD = process.env.PTREASURY_OLD_BIN;
 // Последняя версия схемы данных: по числу миграций ядра.
@@ -102,7 +102,7 @@ test("данные старой версии открываются новой �
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 15000 });
   const now = await figures("Показать все операции");
   assert.deepEqual(now, old);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "about");
   const about = '//h2[normalize-space()="О программе"]/..';
   await waitText(browser, about, new RegExp(`${LATEST} из ${LATEST}`));
   await waitText(browser, about, /Копия перед обновлением/);

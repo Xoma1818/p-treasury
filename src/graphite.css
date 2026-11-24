@@ -47,7 +47,7 @@
 }
 
 :is(.btn, .tab, .nav-item, .nav-search, .icon-btn, .foot-btn, .chip-btn, .menu-item,
-  .settings-nav-item, .theme-switch > button):active:not(:disabled):not([aria-disabled="true"]) {
+  .settings-topics > button, .theme-switch > button):active:not(:disabled):not([aria-disabled="true"]) {
   filter: brightness(.9);
   transition-duration: var(--motion-press);
 }

@@ -2,7 +2,7 @@
 // причиной и действием, «было → станет» у займов, проверка восстановления копии.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, click, choose, save, waitText } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, click, choose, save, waitText } from "./app.mjs";
 
 let browser;
 const today = new Date().toISOString().slice(0, 10);
@@ -32,11 +32,11 @@ test("Главная по умолчанию: пять основных карт
   await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "не пять карточек" });
   const blocks = await browser.execute(() => [...document.querySelectorAll("main .home-block")].map((b) => b.dataset.block));
   assert.deepEqual(blocks, ["quick", "tiles", "checks", "main", "plans"]);
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await browser.$('[name="homeCard-ahead"]').click();
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-ahead"]').waitForDisplayed({ timeout: 5000 });
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "appearance");
   await browser.$('[data-testid="home-cards-default"]').click();
   await openSection(browser, "Главная");
   await browser.waitUntil(async () => !(await browser.$('[data-testid="home-ahead"]').isExisting()), { timeout: 5000, timeoutMsg: "карточка не скрылась" });
@@ -89,7 +89,7 @@ test("займ: «было → станет» перед сохранением 
 });
 
 test("копия: «Проверить восстановление» запоминает дату проверенной копии", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await waitText(browser, '[data-testid="backup-verified"]', /ещё не проверялась|восстановление проходит/);
   await click(browser, "Сохранить сейчас");
   await waitText(browser, '[data-testid="vault-synced"]', /\d\d\.\d\d\.\d{4} \d\d:\d\d/);

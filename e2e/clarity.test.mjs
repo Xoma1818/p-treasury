@@ -5,7 +5,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { start, stop, openSection, onboard, click, choose, waitText, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, click, choose, waitText, waitCount, money } from "./app.mjs";
 
 const fixtures = join(import.meta.dirname, "..", "crates/core/testdata");
 const dialog = '//*[@role="dialog"]';
@@ -43,8 +43,14 @@ after(async () => {
 });
 
 test("строка выписки узнаёт ручную запись, сомнительная — ждёт подтверждения", async () => {
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
+  await browser.$('[role="dialog"][aria-modal="true"]').waitForDisplayed();
+  await browser.keys(["Control", "k"]);
+  assert.equal(await browser.$('[data-testid="palette"]').isExisting(), false);
+  await browser.keys(["Control", "1"]);
+  assert.ok(await browser.$('[role="dialog"][aria-modal="true"]').isDisplayed());
+  assert.ok(await browser.execute(() => Boolean(document.activeElement?.closest('[role="dialog"]'))));
   await pick(join(fixtures, "tbank.csv"));
   await click(browser, "Выбрать файл", dialog);
   await choose(browser, "importAccount", "Карта (₽)");

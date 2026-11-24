@@ -152,6 +152,7 @@ try {
   await browser.saveScreenshot(out("screen-categories"));
   await openSection(browser, "Настройки");
   await browser.saveScreenshot(out("screen-settings"));
+  await browser.$('[data-testid="settings-tab-data"]').click();
   await browser.execute(() => document.querySelector('[data-testid="data-card"]').scrollIntoView());
   await browser.pause(200);
   await browser.saveScreenshot(out("screen-data"));

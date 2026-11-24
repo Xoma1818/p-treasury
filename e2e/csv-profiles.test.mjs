@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, onboard, openSection, click, choose, fill, waitText } from "./app.mjs";
+import { start, stop, onboard, openSettings, click, choose, fill, waitText } from "./app.mjs";
 
 const dialog = '//*[@role="dialog"]';
 let browser;
@@ -23,7 +23,7 @@ test("профиль CSV сохраняется, повтор не дублир�
   writeFileSync(overlap, "День;Сумма;Магазин\n" + rows);
   writeFileSync(changed, "День;Сумма;Описание\n" + rows);
 
-  await openSection(browser, "Настройки");
+  await openSettings(browser, "data");
   await click(browser, "Импорт выписки или CSV");
   const openCsv = async (path) => {
     await browser.execute((p) => (window.__ptPick = [p]), path);
