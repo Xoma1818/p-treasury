@@ -3,7 +3,6 @@ import { chartScrub } from "../../lib/chartScrub";
 import { formatDate } from "../../lib/dates";
 import { addDays, balanceOnDate, balancePoints, dayNumber, type Point } from "../../lib/loan";
 import type { EarlyRow, LoanRow } from "../../lib/api";
-import { useSettings } from "../../lib/queries";
 import { formatMoney, HIDDEN_AMOUNT } from "../../lib/money";
 
 const W = 640;
@@ -14,9 +13,7 @@ type View = { rows: LoanRow[]; early: EarlyRow[] };
 
 /** Диаграмма остатка долга: пунктир — по графику без досрочек, сплошная — с досрочками.
  *  Цвета из токенов темы; линия «рисуется» один раз (выключается системным «меньше движения»). */
-export function BalanceChart({ base, withEarly, issueDate, principal, symbol, minorUnits }: { base: View; withEarly?: View | null; issueDate: string; principal: number; symbol: string; minorUnits: number }) {
-  const settings = useSettings().data;
-  const hidden = !settings || settings.hide_amounts === "1";
+export function BalanceChart({ base, withEarly, issueDate, principal, symbol, minorUnits, hidden }: { base: View; withEarly?: View | null; issueDate: string; principal: number; symbol: string; minorUnits: number; hidden: boolean }) {
   const gid = useId().replace(/:/g, "");
   const [selectedDate, setSelectedDate] = useState(issueDate);
   const { a, b, x0, x1, days, endDate, years, x, y, mainLine, baseLine, area } = useMemo(() => {

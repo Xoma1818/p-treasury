@@ -1188,10 +1188,14 @@ pub fn set_invest_plan(
     value: i64,
     month: Option<String>,
 ) -> CmdResult<()> {
-    with_undo(&state, "План инвестиций", |c| match &month {
-        Some(m) => invest::set_month_plan(c, m, &mode, value),
-        None => invest::set_plan(c, &mode, value),
-    })
+    match month {
+        Some(m) => with_undo(&state, "План инвестиций", |c| {
+            invest::set_month_plan(c, &m, &mode, value)
+        }),
+        None => with_db(&state, |db| {
+            state.lock_undo().set_invest_plan(db.conn(), &mode, value)
+        }),
+    }
 }
 
 #[tauri::command(async)]
@@ -1664,11 +1668,9 @@ pub fn delete_template(state: State<AppState>, id: String) -> CmdResult<()> {
 
 #[tauri::command(async)]
 pub fn apply_template(state: State<AppState>, id: String, date: String) -> CmdResult<String> {
-    let txn = with_undo(&state, "Операция по шаблону", |c| {
-        templates::apply(c, &id, &date)
-    })?;
-    with_db(&state, |db| templates::used(db.conn(), &id))?;
-    Ok(txn)
+    with_db(&state, |db| {
+        templates::apply_with_undo(db.conn_mut(), &mut state.lock_undo(), &id, &date)
+    })
 }
 
 #[tauri::command(async)]

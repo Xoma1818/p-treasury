@@ -4,16 +4,17 @@ import type { EarlyFrequency, RecalcMode } from "../../lib/api";
 import { emptyEarly, FREQUENCIES, MODES, type EarlyLine, type RateLine } from "../../lib/loan";
 
 /** Строки «Досрочные погашения»: сумма · как часто (с даты) · что уменьшать, кнопки «×» и «+». */
-export function EarlyEditor({ lines, onChange, minorUnits, symbol, defaultDate, bullet }: { lines: EarlyLine[]; onChange: (l: EarlyLine[]) => void; minorUnits: number; symbol: string; defaultDate: string; bullet?: boolean }) {
+export function EarlyEditor({ lines, onChange, minorUnits, symbol, defaultDate, bullet, concealed }: { lines: EarlyLine[]; onChange: (l: EarlyLine[]) => void; minorUnits: number; symbol: string; defaultDate: string; bullet?: boolean; concealed: boolean }) {
   const set = (i: number, patch: Partial<EarlyLine>) => onChange(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   return (
     <div className="loan-lines" data-testid="early-lines">
       {lines.map((l, i) => (
         <div key={i} className="loan-line early-line" data-testid="early-line">
-          <span className="amount-with-sym">
-            <AmountInput name={`early-amount-${i}`} value={l.amount} onChange={(v) => set(i, { amount: v })} minorUnits={minorUnits} />
+          <label className="amount-with-sym">
+            <span className="sr-only">Сумма досрочки №{i + 1}</span>
+            <AmountInput name={`early-amount-${i}`} value={l.amount} onChange={(v) => set(i, { amount: v })} minorUnits={minorUnits} concealed={concealed} />
             <span className="sym">{symbol}</span>
-          </span>
+          </label>
           <select name={`early-freq-${i}`} aria-label="Как часто" value={l.frequency} onChange={(e) => set(i, { frequency: e.target.value as EarlyFrequency })}>
             {(Object.keys(FREQUENCIES) as EarlyFrequency[]).map((f) => (
               <option key={f} value={f}>

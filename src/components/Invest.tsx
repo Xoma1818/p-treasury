@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, INVEST_KINDS, type InvestAccount, type InvestMonth, type InvestOverview, type InvestPlanMode } from "../lib/api";
+import { api, INVEST_KINDS, type Currency, type InvestAccount, type InvestMonth, type InvestOverview, type InvestPlanMode } from "../lib/api";
 import { formatDate, monthTitle, today } from "../lib/dates";
 import { leftToSave, projectGrowth, tenthsText } from "../lib/invest";
 import { parseAmount } from "../lib/money";
@@ -8,20 +8,22 @@ import { useAccounts, useInvestOverview } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
 import { AmountInput, amountText, Field } from "./Fields";
+import { FormAmountsToggle, useFormAmounts, useFormMoney } from "./FormAmounts";
 import { ErrorText, Modal } from "./Modal";
-import { Money } from "./Money";
+import { BaseMoney, Money } from "./Money";
 import { Hint } from "./Hint";
 
 /** «Отложено 15 000 из 20 000 ₽» с полоской; без плана — только сумма. */
-function MonthLine({ m, symbol, onPlan }: { m: InvestMonth; symbol: string; onPlan: () => void }) {
+function MonthLine({ m, onPlan }: { m: InvestMonth; onPlan: () => void }) {
   const percent = m.percent ?? 0;
+  const unit = { symbol: m.currency.symbol, currencyCode: m.currency.code, minorUnits: m.currency.minorUnits };
   return (
     <div className="invest-month" data-testid="invest-month">
       <div>
-        Отложено <b data-testid="invest-saved"><Money amount={m.saved} symbol={symbol} /></b>
+        Отложено <b data-testid="invest-saved"><Money amount={m.saved} {...unit} /></b>
         {m.planned != null ? (
           <>
-            {" "}из <Money amount={m.planned} symbol={symbol} />
+            {" "}из <Money amount={m.planned} {...unit} />
             {m.plan.mode === "percent" && <span className="hint"> ({m.plan.value} % доходов)</span>}
           </>
         ) : null}{" "}
@@ -45,23 +47,22 @@ function MonthLine({ m, symbol, onPlan }: { m: InvestMonth; symbol: string; onPl
 
 /** Вложено · стоит · результат. */
 function Totals({ o }: { o: InvestOverview }) {
-  const s = o.baseSymbol;
   return (
     <div className="invest-totals" data-testid="invest-totals">
       <div>
         <div className="tile-label">Вложено</div>
-        <Money amount={o.invested} symbol={s} />
+        <BaseMoney amount={o.invested} currencyCode={o.baseCurrency} />
       </div>
       <div>
         <div className="tile-label">Стоит сейчас</div>
         <b data-testid="invest-value">
-          <Money amount={o.value} symbol={s} />
+          <BaseMoney amount={o.value} currencyCode={o.baseCurrency} />
         </b>
       </div>
       <div>
         <div className="tile-label">Результат</div>
         <span className={o.result >= 0 ? "plus" : "minus"} data-testid="invest-result">
-          <Money amount={o.result} symbol={s} signed />
+          <BaseMoney amount={o.result} currencyCode={o.baseCurrency} signed />
           {o.resultTenths != null && <> ({tenthsText(o.resultTenths, true)} %)</>}
         </span>
       </div>
@@ -128,12 +129,12 @@ export function InvestCard() {
         </p>
       ) : (
         <>
-          <MonthLine m={o.month} symbol={o.baseSymbol} onPlan={() => setDialog("plan")} />
+          <MonthLine m={o.month} onPlan={() => setDialog("plan")} />
           {has && <Totals o={o} />}
           <TaxLine o={o} />
           {o.passiveIncome > 0 && (
             <div className="hint" data-testid="invest-passive">
-              Дивиденды и купоны за год: <Money amount={o.passiveIncome} symbol={o.baseSymbol} />
+              Дивиденды и купоны за год: <BaseMoney amount={o.passiveIncome} currencyCode={o.baseCurrency} />
             </div>
           )}
           {o.missingRates.length > 0 && <div className="hint warn">Нет курса для {o.missingRates.join(", ")}: такие суммы не вошли.</div>}
@@ -165,23 +166,29 @@ export function InvestCard() {
 /** Бюджет → строка «Инвестиции» за выбранный месяц. */
 export function InvestBudgetCard({ month }: { month: string }) {
   const m = useQuery({ queryKey: ["investMonth", month], queryFn: () => api.investMonth(month) }).data;
-  const symbol = useInvestOverview().data?.baseSymbol ?? "₽";
   const [planning, setPlanning] = useState(false);
   if (!m) return null;
   return (
     <div className="card" data-testid="budget-invest">
       <h2>Инвестиции</h2>
       <p className="hint">Переводы на брокерский счёт или ИИС — не траты: они не уменьшают «Можно тратить», но видно, выполнен ли план.</p>
-      <MonthLine m={m} symbol={symbol} onPlan={() => setPlanning(true)} />
+      <MonthLine m={m} onPlan={() => setPlanning(true)} />
       {planning && <PlanForm m={m} onClose={() => setPlanning(false)} />}
     </div>
   );
 }
 
 /** План на инвестиции; с `month` можно задать план только на этот месяц. */
-export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string; onClose: () => void }) {
+type PlanProps = { m: InvestMonth; month?: string; onClose: () => void };
+export function PlanForm(props: PlanProps) {
+  return <PlanEditor key={props.m.currency.code + props.m.start} {...props} currency={props.m.currency} />;
+}
+
+function PlanEditor({ m, month, onClose, currency }: PlanProps & { currency: Currency }) {
+  const privacy = useFormAmounts(m.start);
+  const money = useFormMoney(privacy, currency.code, currency.symbol, currency.minorUnits);
   const [mode, setMode] = useState<InvestPlanMode>(m.plan.mode || "amount");
-  const [amount, setAmount] = useState(m.plan.mode === "amount" ? amountText(m.plan.value) : "");
+  const [amount, setAmount] = useState(m.plan.mode === "amount" ? amountText(m.plan.value, currency.minorUnits) : "");
   const [percent, setPercent] = useState(m.plan.mode === "percent" ? String(m.plan.value) : "10");
   const [onlyMonth, setOnlyMonth] = useState(!!month && m.plan.onlyMonth);
   const save = useAction(api.setInvestPlan, onClose, { singleSubmit: true });
@@ -189,7 +196,7 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
   const target = onlyMonth ? m.month : null;
   const submit = () => {
     if (mode === "amount") {
-      const v = parseAmount(amount, 2);
+      const v = parseAmount(amount, currency.minorUnits);
       if (v === null || v <= 0) return save.setError("Введите сумму, например 20 000");
       return save.run("amount", v, target);
     }
@@ -201,6 +208,7 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
     <Modal title="План на инвестиции" onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <p className="muted">Сколько откладывать каждый месяц. Отложенным считаются переводы на брокерские счета, ИИС и ПДС.</p>
+        <FormAmountsToggle privacy={privacy} />
         <div className="tabs small" role="tablist">
           <button type="button" role="tab" className={mode === "amount" ? "tab active" : "tab"} onClick={() => setMode("amount")}>
             Сумма
@@ -210,9 +218,9 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
           </button>
         </div>
         {mode === "amount" ? (
-          <Field label="Каждый месяц">{(id) => <AmountInput id={id} name="investPlanAmount" value={amount} onChange={setAmount} autoFocus />}</Field>
+          <Field label={`Каждый месяц, ${currency.symbol}`}>{(id) => <AmountInput id={id} name="investPlanAmount" value={amount} onChange={setAmount} minorUnits={currency.minorUnits} concealed={privacy.concealed} autoFocus />}</Field>
         ) : (
-          <Field label="Процент от доходов месяца" hint={m.income > 0 ? <>В этом месяце доходы <Money amount={m.income} /></> : undefined}>
+          <Field label="Процент от доходов месяца" hint={m.income > 0 ? <>В этом месяце доходы <span className="money">{money(m.income)}</span></> : undefined}>
             {(id) => <input id={id} name="investPlanPercent" inputMode="numeric" value={percent} onChange={(e) => setPercent(e.target.value)} />}
           </Field>
         )}
@@ -252,6 +260,8 @@ export function PlanForm({ m, month, onClose }: { m: InvestMonth; month?: string
 export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAccount[]; accountId?: string; onClose: () => void }) {
   const [id, setId] = useState(accountId ?? accounts[0]?.id ?? "");
   const a = accounts.find((x) => x.id === id);
+  const privacy = useFormAmounts(id);
+  const money = useFormMoney(privacy, a?.currencyCode ?? "", a?.currencySymbol ?? "", a?.minorUnits ?? 2);
   const [value, setValue] = useState(a ? amountText(a.value, a.minorUnits) : "");
   const [date, setDate] = useState(today());
   const save = useAction(api.setInvestValue, onClose, { singleSubmit: true });
@@ -266,8 +276,9 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
   return (
     <Modal title={`Стоимость: ${a.name}`} onClose={onClose}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), parsed !== null && save.run(a.id, date, parsed))}>
+        <FormAmountsToggle privacy={privacy} />
         <p className="muted">
-          Введите, сколько сейчас стоит портфель, из приложения брокера. Вложено <Money amount={a.invested} symbol={a.currencySymbol} minorUnits={a.minorUnits} />; разница — результат инвестиций, он не попадает в доходы и расходы.
+          Введите, сколько сейчас стоит портфель, из приложения брокера. Вложено <span className="money">{money(a.invested)}</span>; разница — результат инвестиций, он не попадает в доходы и расходы.
         </p>
         {accounts.length > 1 && (
           <Field label="Счёт">
@@ -283,12 +294,12 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
           </Field>
         )}
         <div className="row">
-          <Field label="Стоит">{(fid) => <AmountInput id={fid} name="investValue" value={value} onChange={setValue} minorUnits={a.minorUnits} autoFocus />}</Field>
+          <Field label="Стоит">{(fid) => <AmountInput id={fid} name="investValue" value={value} onChange={setValue} minorUnits={a.minorUnits} concealed={privacy.concealed} autoFocus />}</Field>
           <Field label="На дату">{(fid) => <input id={fid} name="investDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         </div>
         {parsed !== null && (
           <p data-testid="invest-value-preview">
-            Результат: <Money amount={parsed - a.invested} symbol={a.currencySymbol} minorUnits={a.minorUnits} signed />
+            Результат: <span className="money">{money(parsed - a.invested, true)}</span>
           </p>
         )}
         {a.history.length > 0 && (
@@ -298,7 +309,7 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
                 <tr key={h.date}>
                   <td>{formatDate(h.date)}</td>
                   <td className="num">
-                    <Money amount={h.value} symbol={a.currencySymbol} minorUnits={a.minorUnits} />
+                    <span className="money">{money(h.value)}</span>
                   </td>
                   <td className="row-actions">
                     <button type="button" className="link" onClick={() => remove.run(a.id, h.date)}>
@@ -327,8 +338,11 @@ export function ValueForm({ accounts, accountId, onClose }: { accounts: InvestAc
 
 /** «Что будет через N лет»: взнос в месяц, доходность, срок, вычет ИИС. */
 function Calculator({ o, onClose }: { o: InvestOverview; onClose: () => void }) {
-  const [start, setStart] = useState(amountText(Math.max(o.value, 0) || null));
-  const [monthly, setMonthly] = useState(amountText(o.month.planned ?? 1_000_000));
+  const privacy = useFormAmounts("invest-calculator");
+  const money = useFormMoney(privacy, "RUB", "₽", 2);
+  const inRubles = o.baseCurrency === "RUB";
+  const [start, setStart] = useState(inRubles ? amountText(Math.max(o.value, 0) || null) : "");
+  const [monthly, setMonthly] = useState(inRubles ? amountText(o.month.planned ?? 1_000_000) : "");
   const [rate, setRate] = useState("12");
   const [years, setYears] = useState("10");
   const [iis, setIis] = useState(o.tax != null);
@@ -344,9 +358,10 @@ function Calculator({ o, onClose }: { o: InvestOverview; onClose: () => void }) 
   return (
     <Modal title="Калькулятор инвестиций" onClose={onClose} wide>
       <div className="form">
+        <FormAmountsToggle privacy={privacy} />
         <div className="row">
-          <Field label="Уже вложено">{(id) => <AmountInput id={id} name="calcStart" value={start} onChange={setStart} />}</Field>
-          <Field label="Взнос в месяц">{(id) => <AmountInput id={id} name="calcMonthly" value={monthly} onChange={setMonthly} />}</Field>
+          <Field label="Уже вложено, ₽">{(id) => <AmountInput id={id} name="calcStart" value={start} onChange={setStart} concealed={privacy.concealed} />}</Field>
+          <Field label="Взнос в месяц, ₽">{(id) => <AmountInput id={id} name="calcMonthly" value={monthly} onChange={setMonthly} concealed={privacy.concealed} />}</Field>
         </div>
         <div className="row">
           <Field label="Доходность в год, %" hint="Ваше допущение: приложение ничего не советует">
@@ -356,12 +371,12 @@ function Calculator({ o, onClose }: { o: InvestOverview; onClose: () => void }) 
         </div>
         <label className="check">
           <input type="checkbox" name="calcIis" checked={iis} onChange={(e) => setIis(e.target.checked)} />
-          ИИС: вычет 13 % (до 52 000 ₽ в год) докладывать на счёт
+          ИИС: вычет 13 %{!privacy.concealed && " (до 52 000 ₽ в год)"} докладывать на счёт
         </label>
         {last && (
           <p className="invest-calc-result" data-testid="invest-calc-result">
-            Через {last.year} {yearsWord(last.year)}: <b><Money amount={last.value} /></b>, из них вложено <Money amount={last.invested} />
-            {last.deductions > 0 && <>, вычеты <Money amount={last.deductions} /></>}, доход <Money amount={last.value - last.invested - last.deductions} signed />
+            Через {last.year} {yearsWord(last.year)}: <b className="money">{money(last.value)}</b>, из них вложено <span className="money">{money(last.invested)}</span>
+            {last.deductions > 0 && <>, вычеты <span className="money">{money(last.deductions)}</span></>}, доход <span className="money">{money(last.value - last.invested - last.deductions, true)}</span>
           </p>
         )}
         <div className="invest-chart" aria-label="Рост по годам">

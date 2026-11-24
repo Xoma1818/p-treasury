@@ -34,5 +34,6 @@ export function FormAmountsToggle({ privacy, where = "в этой форме" }:
 /** Тот же формат, что у Money. Вывод и подсказки разделяют разрешение конкретной формы. */
 export function useFormMoney(privacy: ReturnType<typeof useFormAmounts>, code: string, symbol: string, minorUnits: number) {
   const label = useFine().code ? code : symbol;
-  return (amount: number) => privacy.concealed ? HIDDEN_AMOUNT : formatMoney(amount, label, minorUnits);
+  return (amount: number, signed = false) => privacy.concealed ? HIDDEN_AMOUNT
+    : (signed && amount > 0 ? "+" : "") + formatMoney(amount, label, minorUnits);
 }

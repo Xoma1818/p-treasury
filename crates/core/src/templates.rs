@@ -182,6 +182,21 @@ pub fn used(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Записать операцию и шаг отмены в текущей базе. Счётчик влияет только
+/// на сортировку шаблонов: его сбой не отменяет подтверждённое списание.
+pub fn apply_with_undo(
+    conn: &mut Connection,
+    journal: &mut crate::undo::Journal,
+    id: &str,
+    date: &str,
+) -> Result<String> {
+    let txn = journal.record(conn, "Операция по шаблону", |c| {
+        apply(c, id, date)
+    })?;
+    let _ = used(conn, id);
+    Ok(txn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +251,48 @@ mod tests {
         assert_eq!(got.category_id.as_deref(), Some(cafe.as_str()));
         assert_eq!(accounts::balance(c, &card, None).unwrap(), 75_000);
         assert_eq!(list(c).unwrap()[0].use_count, 1);
+    }
+
+    #[test]
+    fn counter_failure_keeps_the_created_id_and_one_undo_step() {
+        let (mut db, card, cafe) = setup();
+        let c = db.conn_mut();
+        let mut journal = crate::undo::Journal::default();
+        let id = create(c, &coffee(&card, &cafe)).unwrap();
+        c.execute_batch(
+            "CREATE TEMP TRIGGER fail_usage BEFORE UPDATE OF use_count ON transaction_templates
+             BEGIN SELECT RAISE(ABORT, 'test'); END;",
+        )
+        .unwrap();
+
+        let txn = apply_with_undo(c, &mut journal, &id, "2026-10-20").unwrap();
+        assert_eq!(transactions::get(c, &txn).unwrap().amount, 25_000);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 75_000);
+        assert_eq!(list(c).unwrap()[0].use_count, 0);
+        journal.undo(c).unwrap();
+        assert!(journal.state().undo.is_none());
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 100_000);
+        journal.redo(c).unwrap();
+        assert_eq!(transactions::get(c, &txn).unwrap().amount, 25_000);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 75_000);
+    }
+
+    #[test]
+    fn usage_stays_outside_undo_and_only_follows_successful_writes() {
+        let (mut db, card, cafe) = setup();
+        let c = db.conn_mut();
+        let mut journal = crate::undo::Journal::default();
+        let id = create(c, &coffee(&card, &cafe)).unwrap();
+        assert!(apply_with_undo(c, &mut journal, &id, "invalid").is_err());
+        assert!(journal.state().undo.is_none());
+        assert_eq!(list(c).unwrap()[0].use_count, 0);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 100_000);
+
+        apply_with_undo(c, &mut journal, &id, "2026-10-20").unwrap();
+        used(c, &id).unwrap();
+        journal.undo(c).unwrap();
+        assert_eq!(list(c).unwrap()[0].use_count, 2);
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), 100_000);
     }
 
     #[test]
