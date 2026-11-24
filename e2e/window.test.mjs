@@ -147,18 +147,12 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
     else if (inner[0] > 1100)
       return t.skip(`окно не уменьшилось: ${inner.join("×")}`);
     const titles = await browser.execute(() =>
-      [...document.querySelectorAll("nav button.nav-item:not(.nav-view)")]
-        .map((b) => b.textContent.trim())
-        .filter(Boolean),
+      [...document.querySelectorAll("nav button[data-section]")].map((b) => b.getAttribute("aria-label")),
     );
+    assert.equal(new Set(titles).size, 11, "ожидались все разделы со своими названиями");
     const wide = [];
     for (const title of titles) {
-      const h1 = await browser.$(`//main//h1[normalize-space()="${title}"]`);
-      await (
-        await browser.$(`//nav//button[normalize-space()="${title}"]`)
-      ).click();
-      if (!(await h1.waitForDisplayed({ timeout: 5000 }).catch(() => false)))
-        continue; // кнопка меню без раздела
+      await openSection(browser, title);
       await browser.pause(150);
       const over = await browser.execute(() => {
         const doc = document.documentElement;

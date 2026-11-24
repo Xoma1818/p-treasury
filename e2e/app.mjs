@@ -286,9 +286,33 @@ export async function openSection(browser, title) {
     const ask = await browser.$('//*[@data-testid="unsaved-ask"]//button[normalize-space()="Закрыть"]');
     if (await ask.isExisting()) await ask.click();
   }
-  const item = await browser.$(`//nav//button[normalize-space()="${title}"]`);
+  // Старые версии для проверки обновления содержат текст, а новые — доступное имя значка.
+  const item = await browser.$(`//nav//button[@aria-label="${title}" or normalize-space()="${title}"]`);
   await item.click();
   await browser.$(`//main//h1[normalize-space()="${title}"]`).waitForDisplayed({ timeout: 5000 });
+}
+
+/** Выбрать оформление в меню панели; прежние версии показывали три отдельных кнопки. */
+export async function selectTheme(browser, mode) {
+  const trigger = await browser.$('button[data-testid="theme-switch"]');
+  if (await trigger.isExisting() && (await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  const option = await browser.$(`[data-testid="theme-${mode}"]`);
+  await option.waitForDisplayed();
+  await option.click();
+}
+
+/** Открыть пользовательский вид по его имени в списке панели. */
+export async function openSavedView(browser, name) {
+  const views = await browser.$('[data-testid="nav-views"]');
+  const trigger = await views.$('button[aria-haspopup="menu"]');
+  await trigger.waitForDisplayed();
+  await trigger.click();
+  const menu = await views.$('[role="menu"]');
+  await menu.waitForDisplayed();
+  const item = await menu.$(`button=${name}`);
+  await item.click();
 }
 
 /** Открыть рабочую тему настроек тем же путём, что и пользователь. */

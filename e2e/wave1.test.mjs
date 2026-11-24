@@ -2,7 +2,7 @@
 // курсовая разница, сохранённые виды. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, waitText, setDate, openFilters } from "./app.mjs";
+import { start, stop, openSection, openSavedView, onboard, fill, choose, click, waitText, setDate, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -62,7 +62,7 @@ test("сохранённый вид отчёта открывает ту же в
   await browser.$('[data-testid="fx-report"]').waitForExist({ timeout: 5000 });
   // Тот же вид открывается из бокового меню («Мои виды») из любого раздела.
   await openSection(browser, "Главная");
-  await (await browser.$('//*[@data-testid="nav-views"]//button[contains(., "Валюта")]')).click();
+  await openSavedView(browser, "Валюта");
   await browser.$('//main//h1[normalize-space()="Отчёты"]').waitForDisplayed({ timeout: 5000 });
   await browser.$('[data-testid="fx-report"]').waitForExist({ timeout: 5000 });
 });
@@ -82,7 +82,7 @@ test("сохранённый вид операций: «Кафе» возвра�
   await waitText(browser, '[data-testid="txn-count"]', new RegExp(filtered.replace(/[()]/g, ".")));
   // Из бокового меню: с Главной сразу в операции с этим фильтром.
   await openSection(browser, "Главная");
-  await (await browser.$('//*[@data-testid="nav-views"]//button[contains(., "Кафе")]')).click();
+  await openSavedView(browser, "Кафе");
   await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
   await waitText(browser, '[data-testid="txn-count"]', new RegExp(filtered.replace(/[()]/g, ".")));
   // Удаление вида.

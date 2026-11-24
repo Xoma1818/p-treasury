@@ -1,7 +1,7 @@
 // Оформление 0.9: тёмная тема по умолчанию, светлая по кнопке; меню по группам.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, onboard, openSection } from "./app.mjs";
+import { start, stop, onboard, openSection, selectTheme } from "./app.mjs";
 
 let app;
 before(async () => {
@@ -29,23 +29,32 @@ test("по умолчанию тёмная тема, переключатель 
   await browser.refresh();
   await onboard(browser, [{ name: "Карта", balance: "1000" }]);
   assert.equal(await theme(browser), "dark");
-  assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-pressed"), "true");
-  await (await browser.$('[data-testid="theme-light"]')).click();
+  const trigger = await browser.$('button[data-testid="theme-switch"]');
+  await trigger.click();
+  assert.equal(await (await browser.$('[data-testid="theme-dark"]')).getAttribute("aria-checked"), "true");
+  await browser.keys("Escape");
+  await browser.waitUntil(async () => (await trigger.getAttribute("aria-expanded")) === "false" && await trigger.isFocused());
+  await browser.keys("Enter");
+  const light = await browser.$('[data-testid="theme-light"]');
+  await light.waitForDisplayed();
+  await browser.keys("Home");
+  assert.equal(await light.isFocused(), true);
+  await browser.keys("Enter");
   assert.equal(await theme(browser), "light");
-  assert.equal(await (await browser.$('[data-testid="theme-light"]')).getAttribute("aria-pressed"), "true");
+  assert.equal(await trigger.isFocused(), true);
   assert.equal(await browser.execute(() => localStorage.getItem("p-treasury-theme")), "light");
   // Выбор переживает перезагрузку окна.
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await theme(browser), "light");
-  await (await browser.$('[data-testid="theme-dark"]')).click();
+  await selectTheme(browser, "dark");
   assert.equal(await theme(browser), "dark");
 });
 
 test("основные разделы видны в меню, Настройки закреплены рядом с быстрыми действиями", async () => {
   const { browser } = app;
   const nav = await browser.$('[data-testid="nav-list"]');
-  assert.equal((await nav.$$(".nav-item:not(.nav-view)")).length, 10);
+  assert.equal((await nav.$$("button[data-section]")).length, 10);
   assert.equal(await nav.$(".nav-settings").isExisting(), false);
   await browser.$(".app-nav > .nav-settings button").waitForDisplayed();
   await openSection(browser, "Бюджет");
@@ -54,8 +63,13 @@ test("основные разделы видны в меню, Настройки
   // 0.25 «Лаконичный»: крупный заголовок без значка, значок Lucide остаётся в меню.
   assert.ok(!(await browser.$("main .screen-title .icon-tile").isExisting()));
   assert.ok(await browser.$("nav .nav-item.active .icon-tile svg.lucide").isExisting());
-  const title = await browser.$('//nav//button[normalize-space()="Бюджет"]').getAttribute("title");
-  assert.equal(title, "Сколько можно тратить в этом месяце · Ctrl+4");
+  const selected = await browser.$('nav button[aria-current="page"]');
+  assert.equal(await selected.getAttribute("aria-label"), "Бюджет");
+  await (await browser.$("main h1")).moveTo();
+  await selected.moveTo();
+  const tip = await browser.$('.rail-tip[role="tooltip"]');
+  await tip.waitForDisplayed();
+  assert.match(await tip.getText(), /Бюджет\s*Ctrl\+4/u);
 });
 
 test("текст основной кнопки читается в светлой и тёмной темах", async () => {
@@ -64,7 +78,7 @@ test("текст основной кнопки читается в светло�
   const primary = await browser.$("main .btn.primary");
   await primary.waitForDisplayed();
   for (const mode of ["light", "dark"]) {
-    await (await browser.$(`[data-testid="theme-${mode}"]`)).click();
+    await selectTheme(browser, mode);
     await browser.waitUntil(() => browser.execute((mode) =>
       document.documentElement.dataset.theme === mode && !document.documentElement.classList.contains("theme-fade"), mode));
     const colors = await browser.execute((button) => {

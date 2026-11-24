@@ -16,8 +16,7 @@ import { section, type SectionId } from "../lib/sections";
 import { Hint } from "./Hint";
 import { DecorativeIcon } from "./DecorativeIcon";
 
-// Значки разделов (0.25): набор Lucide, линия 1.75, без цветных плашек.
-// Серые; у открытого раздела — цвет акцента (styles.css, «Лаконичный»).
+// Общие пиктограммы разделов. Размер и цвет задаёт место их использования.
 const ICONS: Record<SectionId, LucideIcon> = {
   home: House,
   transactions: ArrowLeftRight,

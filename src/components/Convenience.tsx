@@ -86,12 +86,12 @@ export function UndoBar() {
 }
 
 /** Значок «Скрыть суммы» в нижнем ряду меню (Ctrl+H): глаз открыт — суммы видны, перечёркнут — скрыты. */
-export function HideAmountsSwitch() {
+export function HideAmountsSwitch({ shortcut }: { shortcut: string }) {
   const hidden = useSettings().data?.hide_amounts === "1";
   const toggle = useAction(api.setSetting);
   const label = hidden ? "Показать суммы" : "Скрыть суммы";
   return (
-    <button className="foot-btn" role="switch" aria-checked={hidden} aria-label="Скрыть суммы" data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")} title={`${label} · Ctrl+H`}>
+    <button className="foot-btn" role="switch" aria-checked={hidden} aria-label="Скрыть суммы" data-rail-tip={label} data-rail-key={shortcut} data-testid="hide-amounts" onClick={() => toggle.run("hide_amounts", hidden ? "0" : "1")}>
       {hidden ? <EyeOff className="foot-icon" strokeWidth={1.75} aria-hidden="true" /> : <Eye className="foot-icon" strokeWidth={1.75} aria-hidden="true" />}
     </button>
   );

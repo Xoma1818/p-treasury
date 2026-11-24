@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, resizeAppWindow, openSection, openSettings, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, openSettings, selectTheme, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -261,7 +261,7 @@ test("Ctrl+K находит настройку и действие, правая
   await waitContent(browser, '[data-testid="palette"]', /Действия[\s\S]*тема/i);
   await browser.keys("Enter");
   await browser.waitUntil(async () => (await browser.execute(() => document.documentElement.dataset.theme)) !== before, { timeout: 3000, timeoutMsg: "тема не сменилась" });
-  await tap(before === "dark" ? '[data-testid="theme-dark"]' : '[data-testid="theme-light"]');
+  await selectTheme(browser, before);
   // Правая кнопка по операции: меню с действиями, «Открыть» открывает её.
   await openSection(browser, "Операции");
   await browser.$('[data-testid="txn-row"]').waitForExist({ timeout: 5000 });
