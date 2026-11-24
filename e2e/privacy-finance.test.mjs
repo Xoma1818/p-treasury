@@ -42,9 +42,13 @@ async function assertMasked(scope, ...amounts) {
     const root = document.querySelector(selector);
     if (!root) throw Error(selector);
     const surfaces = [root.textContent];
-    for (const node of root.querySelectorAll("input,textarea,[value],[title],[placeholder],[aria-label],[aria-valuetext]")) {
-      if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) surfaces.push(node.value);
-      for (const attr of ["value","title","placeholder","aria-label","aria-valuetext"]) surfaces.push(node.getAttribute(attr));
+    for (const node of root.querySelectorAll("input,textarea,[title],[placeholder],[aria-label],[aria-valuetext]")) {
+      const valueField = node instanceof HTMLTextAreaElement ||
+        (node instanceof HTMLInputElement && !["hidden", "checkbox", "radio"].includes(node.type));
+      if (valueField && node.getClientRects().length && getComputedStyle(node).visibility === "visible") {
+        surfaces.push(node.value, node.getAttribute("value"));
+      }
+      for (const attr of ["title", "placeholder", "aria-label", "aria-valuetext"]) surfaces.push(node.getAttribute(attr));
     }
     return amounts.find(amount => surfaces.some(s => s?.replace(/\s/gu, "").replaceAll(".", ",").includes(amount))) ?? null;
   }, scope, amounts);
