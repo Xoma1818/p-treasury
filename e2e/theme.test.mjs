@@ -69,7 +69,7 @@ test("основные разделы видны в меню, Настройки
   await selected.moveTo();
   const tip = await browser.$('.rail-tip[role="tooltip"]');
   await tip.waitForDisplayed();
-  assert.match(await tip.getText(), /Бюджет\s*Ctrl\+4/u);
+  assert.equal(await tip.getText(), "Бюджет");
 });
 
 test("текст основной кнопки читается в светлой и тёмной темах", async () => {

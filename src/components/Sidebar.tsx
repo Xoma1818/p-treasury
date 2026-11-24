@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { ChartColumn, Keyboard, ListFilter, Monitor, Moon, Search, Star, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api } from "../lib/api";
-import { comboFor, useKeyMap } from "../lib/keymap";
 import { useModules } from "../lib/modules";
 import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import type { Section } from "../lib/sections";
@@ -65,15 +64,14 @@ export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
   const { sectionOn } = useModules();
   const { nav } = useNavPrefs();
-  const keys = useKeyMap();
   const rail = useRef<HTMLElement>(null);
   const shown = navSections(nav, sectionOn);
   const groups = isDefaultNav(nav);
   const settings = shown.find(item => item.id === "settings");
-  const sectionButton = (item: Section, index: number) => (
+  const sectionButton = (item: Section) => (
     <button type="button" className={item.id === section ? "nav-item active" : "nav-item"}
       aria-current={item.id === section ? "page" : undefined} aria-label={item.title}
-      data-section={item.id} data-rail-tip={item.title} data-rail-key={index < 9 ? `Ctrl+${index + 1}` : undefined}
+      data-section={item.id} data-rail-tip={item.title}
       style={{ "--rail-color": item.color } as CSSProperties} onClick={() => go(item.id)}>
       <SectionIcon id={item.id} />
       <span className="sr-only">{item.title}</span>
@@ -82,7 +80,7 @@ export function Sidebar() {
   return (
     <nav ref={rail} className="sidebar app-nav" aria-label="Разделы">
       <Brand iconOnly />
-      <button type="button" className="nav-search" aria-label="Поиск" data-rail-tip="Поиск" data-rail-key={comboFor(keys, "palette")}
+      <button type="button" className="nav-search" aria-label="Поиск" data-rail-tip="Поиск"
         onClick={() => setPalette(true)} data-testid="open-palette">
         <DecorativeIcon icon={Search} />
       </button>
@@ -90,17 +88,17 @@ export function Sidebar() {
         {nav.viewsTop && <NavViews />}
         {shown.filter(item => item.id !== "settings").map((item, i) => (
           <li key={item.id} className={groups && i > 0 && shown[i - 1].group !== item.group ? "nav-break" : undefined}>
-            {sectionButton(item, i)}
+            {sectionButton(item)}
           </li>
         ))}
         {!nav.viewsTop && <NavViews />}
       </ul>
-      {settings && <div className="nav-settings">{sectionButton(settings, shown.indexOf(settings))}</div>}
+      {settings && <div className="nav-settings">{sectionButton(settings)}</div>}
       <div className="sidebar-foot">
         <ThemeSwitch />
-        <HideAmountsSwitch shortcut={comboFor(keys, "hideAmounts")} />
+        <HideAmountsSwitch />
         <button type="button" className="foot-btn" onClick={() => setHelp(true)} aria-label="Горячие клавиши"
-          data-rail-tip="Горячие клавиши" data-rail-key={comboFor(keys, "help")} data-testid="hotkeys-open">
+          data-rail-tip="Горячие клавиши" data-testid="hotkeys-open">
           <DecorativeIcon icon={Keyboard} className="foot-icon" size="control" />
         </button>
       </div>

@@ -93,7 +93,6 @@ export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
   return anchor && createPortal(
     <div className="rail-tip" ref={tip} role="tooltip">
       {anchor.dataset.railTip}
-      {anchor.dataset.railKey && <kbd>{anchor.dataset.railKey}</kbd>}
     </div>, document.body,
   );
 }
