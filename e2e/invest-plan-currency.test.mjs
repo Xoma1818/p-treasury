@@ -50,6 +50,13 @@ async function push(selector) {
   await el.waitForDisplayed();
   await clickControl(browser, el, selector);
 }
+async function waitForDialogClosed() {
+  await browser.waitUntil(() => browser.execute(selector => document.querySelector(selector) === null, dialog), {
+    timeout: 5000,
+    timeoutMsg: "Диалог подтверждения валюты остался открытым",
+  });
+}
+
 async function pick(code) {
   await browser.$(dialog + ' [name="investPlanCurrency"] option[value="' + code + '"]').waitForExist();
   await (await select()).selectByAttribute("value", code);
@@ -92,7 +99,7 @@ test("обновление схемы 31 сохраняет оба значен�
   await reveal();
   await waitText(browser, preview, money("345,67 ₽"));
   await browser.keys("Escape");
-  await browser.$(dialog).waitForExist({ reverse: true });
+  await waitForDialogClosed();
   await checkPlan(month, 34567, null, true);
   await checkPlan(nextMonth, 1234567, null, false);
 });
@@ -117,7 +124,7 @@ test("подтверждение только месяца обратимо и �
     assert.equal(await browser.$(dialog).isDisplayed(), true);
     await checkPlan(month, 34567, null, true);
     await browser.execute(() => window.heldCommands.release());
-    await browser.$(dialog).waitForExist({ reverse: true });
+    await waitForDialogClosed();
     assert.deepEqual(await browser.execute(() => window.heldCommands.calls), ["confirm_invest_plan_currency"]);
   } finally {
     await browser.execute(() => window.heldCommands?.restore());
