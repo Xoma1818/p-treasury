@@ -7,8 +7,8 @@
 | Сейчас | Где посмотреть |
 |---|---|
 | Стабильный выпуск | [Установщик и переносная версия](https://github.com/Xoma1818/p-treasury-releases/releases/latest) |
-| Развитие и приёмка | [План качества](https://github.com/Xoma1818/p-treasury/issues/68) |
-| Команда и порядок работы | [Команда](docs/team.md), [рабочий план](docs/work-plan.md), [текущее состояние](docs/project-state.md) |
+| Состояние проекта и ближайший шаг | [Актуальная сводка](docs/project-state.md) |
+| Команда и порядок работы | [Семь ролей](docs/team.md), [порядок работы](docs/work-plan.md) |
 
 ## Что умеет приложение
 
@@ -35,7 +35,7 @@
 | Выпустить версию | [Порядок выпуска](docs/releasing.md), [Actions](https://github.com/Xoma1818/p-treasury/actions) |
 | Продолжить после передачи от Claude | [Акт передачи](docs/handover/2026-10-25.md) |
 
-Исторические планы могут содержать уже выполненные пункты. Актуальные задачи ведутся в Issues и кратком состоянии проекта.
+Требования отдельных задач и результаты по ним хранятся в Issues и PR. Точку продолжения и ссылки на них ведём в [состоянии проекта](docs/project-state.md).
 
 ## Разработка
 
@@ -48,6 +48,6 @@ npm ci
 npm run tauri dev
 ```
 
-Полная проверка в Git Bash/Linux: `npm run check`. Для PowerShell последовательность нативных команд приведена в [руководстве разработки](docs/development.md).
+В Git Bash и Linux команда `npm run check` проверяет ядро, типы и тесты интерфейса и собирает интерфейс. В Linux `npm run check:e2e` дополнительно открывает приложение через WebKitGTK. Для Windows предусмотрен [отдельный прогон с WebView2](https://github.com/Xoma1818/p-treasury/actions/workflows/windows-e2e.yml). [Команды PowerShell](docs/development.md) · [Условия и границы проверок](docs/testing/README.md).
 
 Версии, изменения схемы и выпуск проходят PR и проверку команды. Слияние в `main` разрешает владелец проекта.
