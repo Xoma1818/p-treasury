@@ -119,7 +119,12 @@ test("вид месяца: платёж по кредиту, подарок 20-�
 
 test("день календаря: операция на дату и заметка, неделя показывает расходы", async () => {
   await openSection(browser, "Календарь");
-  await (await browser.$(`[data-testid="cal-day"][data-date="${today}"] .cal-num`)).click();
+  // Повторный выбор оставляет месяц подарка; «Сегодня» возвращает текущий.
+  await waitContent(browser, `[data-testid="cal-day"][data-date="${futureMonth}-20"]`, /Подарок маме/);
+  await click(browser, "Сегодня");
+  const todayButton = await browser.$(`[data-testid="cal-day"][data-date="${today}"] .cal-num`);
+  await todayButton.waitForDisplayed({ timeout: 5000 });
+  await todayButton.click();
   await browser.$('[data-testid="day-panel"]').waitForDisplayed({ timeout: 5000 });
   await click(browser, "+ Операция", '//*[@data-testid="day-panel"]');
   await fill(browser, "amount", "45000");

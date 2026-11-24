@@ -2,7 +2,8 @@
 // счёт, категория, заметка, курс. Каждый тест проверяет результат на экране, а не только нажатие.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, selectTheme, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose, newDebt, rateHistory } from "./app.mjs";
+import { join } from "node:path";
+import { start, stop, openSection, openSettings, selectTheme, onboard, fill, click, save, waitText, waitContent, money, mainText, setDate, choose, newDebt, rateHistory } from "./app.mjs";
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const today = iso(new Date());
@@ -392,17 +393,29 @@ test("тема хранится в базе: после восстановлен
 
 test("тема из восстановленной копии применяется в открытой программе, без перезапуска", async () => {
   const theme = () => browser.execute(() => document.documentElement.dataset.theme);
-  const prefs = () => browser.executeAsync((done) => window.__TAURI_INTERNALS__.invoke("get_settings").then((s) => done(JSON.parse(s.ui_prefs || "{}"))));
+  const savedTheme = () => browser.executeAsync(done => window.__TAURI_INTERNALS__.invoke("get_settings")
+    .then(s => done(JSON.parse(s.ui_prefs || "{}")["p-treasury-theme"])));
+  const backup = join(app.dataDir, "theme-backup.db");
+  const pickBackup = () => browser.execute(path => { window.__ptPick = [path]; }, backup);
+  await openSettings(browser, "data");
+  await selectTheme(browser, "dark");
+  await browser.waitUntil(async () => (await savedTheme()) === "dark", { timeoutMsg: "тёмная тема не сохранилась до копирования" });
+  await pickBackup();
+  await click(browser, "Сделать копию");
+  await waitText(browser, '[data-testid="backup-msg"]', /Копия сохранена и проверена: theme-backup\.db/);
+
   await selectTheme(browser, "light");
-  await browser.waitUntil(async () => (await prefs())["p-treasury-theme"] === "light", { timeout: 5000, timeoutMsg: "выбор темы не записан в базу" });
-  // Копию восстановили: в базе другая тема, и программа перечитывает все данные — как после
-  // кнопки «Восстановить» (любое действие через useAction; здесь Ctrl+H дважды).
-  const dark = JSON.stringify({ ...(await prefs()), "p-treasury-theme": "dark" });
-  await browser.executeAsync((v, done) => window.__TAURI_INTERNALS__.invoke("set_setting", { key: "ui_prefs", value: v }).then(done), dark);
-  await browser.keys(["Control", "h"]);
-  await browser.pause(300);
-  await browser.keys(["Control", "h"]);
+  await browser.waitUntil(async () => (await savedTheme()) === "light", { timeoutMsg: "светлая тема не записана в рабочую базу" });
+  assert.equal(await theme(), "light");
+  const pageStart = await browser.execute(() => performance.timeOrigin);
+  await pickBackup();
+  await click(browser, "Восстановить из копии");
+  await waitText(browser, '[role="dialog"]', /В копии: счетов/);
+  await click(browser, "Восстановить", '//*[@role="dialog"]');
+  await waitText(browser, '[data-testid="backup-msg"]', /Данные восстановлены из копии/);
+  assert.equal(await savedTheme(), "dark");
   await browser.waitUntil(async () => (await theme()) === "dark", { timeout: 10000, timeoutMsg: "тема из копии не применилась без перезапуска" });
+  assert.equal(await browser.execute(() => performance.timeOrigin), pageStart, "окно перезагружено при восстановлении");
 });
 
 test("сценарий «что если»: правка сохраняется", async () => {
