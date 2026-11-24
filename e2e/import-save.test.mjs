@@ -19,7 +19,7 @@ test("сохранение выписки: повторный клик и сме
   await choose(browser, "importAccount", "Карта (₽)");
   await waitText(browser, '[data-testid="import-summary"]', /строк 4, без ошибок 4$/);
   // Delay transport, not business outcome: release calls the real Rust command.
-  await browser.execute(() => {
+  const announcedImmediately = await browser.execute(() => {
     if (!navigator.webdriver) throw new Error("Import delay requires WebDriver mode");
     window.__saveCalls = 0;
     window.__restoreImportInvoke = () => { window.__releaseImport?.(); delete window.__ptBeforeImport; delete window.__releaseImport; };
@@ -29,9 +29,14 @@ test("сохранение выписки: повторный клик и сме
     };
     const button = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === "Загрузить 4");
     button.click(); button.click();
+    return [...document.querySelectorAll('[role="status"]')].some(el => el.textContent === "Сохраняем операции…");
   });
   try {
+    assert.equal(announcedImmediately, false);
     await browser.waitUntil(() => browser.execute(() => window.__saveCalls === 1), { timeout: 5000 });
+    await browser.$('//*[@role="dialog"]//*[@role="status" and normalize-space()="Сохраняем операции…"]').waitForDisplayed();
+    assert.equal(await browser.$('[data-testid="statement-save"]').getAttribute("aria-busy"), "true");
+    assert.equal(await browser.$('[data-testid="import-done"]').isExisting(), false);
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Выбрать файл"]`).isEnabled(), false);
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Проверить снова"]`).isEnabled(), false);
     assert.equal(await browser.$('[data-testid="open-import-history"]').isEnabled(), false);
@@ -39,7 +44,8 @@ test("сохранение выписки: повторный клик и сме
     assert.equal(await browser.$('select[name="importAccount"]').isEnabled(), false);
     assert.equal(await browser.$(`${dialog}//button[normalize-space()="Загрузить 4"]`).isEnabled(), false);
     await browser.execute(() => { window.__releaseImport(); });
-    await waitText(browser, '[data-testid="import-done"]', /Загружено операций: 4/);
+    await waitText(browser, '[data-testid="import-done"] [role="status"]', /Загружено операций: 4/);
+    assert.equal(await browser.$('//*[@role="status" and normalize-space()="Сохраняем операции…"]').isExisting(), false);
     assert.equal(await browser.execute(() => window.__saveCalls), 1);
     await browser.$(`${dialog}//button[normalize-space()="Выбрать файл"]`).waitForEnabled({ timeout: 5000 });
     await click(browser, "Проверить снова", dialog);

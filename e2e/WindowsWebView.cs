@@ -1,6 +1,7 @@
 // Windows E2E only. Measure WebView2 and its Tauri parent in the same physical pixels.
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -21,6 +22,9 @@ public static class WindowsWebView {
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X, Y; }
     private delegate bool EnumProc(IntPtr window, IntPtr arg);
+    [DllImport("user32")] private static extern bool EnumThreadWindows(uint thread, EnumProc visit, IntPtr arg);
+    [DllImport("user32", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int length);
+    [DllImport("user32", SetLastError=true)] private static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
     [DllImport("user32")] private static extern bool EnumChildWindows(IntPtr window, EnumProc visit, IntPtr arg);
     [DllImport("user32", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int length);
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
@@ -81,12 +85,33 @@ public static class WindowsWebView {
         throw new InvalidOperationException("Unexpected WebView2 window geometry: " + detail);
     }
 
+    private static IntPtr MainWindow(Process app) {
+        app.Refresh();
+        var matches = new List<IntPtr>();
+        foreach (ProcessThread thread in app.Threads) {
+            EnumThreadWindows((uint)thread.Id, delegate(IntPtr h, IntPtr unused) {
+                uint pid;
+                GetWindowThreadProcessId(h, out pid);
+                if (pid != app.Id || !IsWindowVisible(h)) return true;
+                var text = new StringBuilder(128);
+                GetWindowText(h, text, text.Capacity);
+                if (text.ToString() == "Kazna" || text.ToString() == "P-Treasury") matches.Add(h);
+                return true;
+            }, IntPtr.Zero);
+        }
+        if (matches.Count != 1) throw new InvalidOperationException("Expected one visible main window of this test process, found " + matches.Count + ".");
+        CheckOwner(app, matches[0]);
+        return matches[0];
+    }
+
+    public static void CloseMain(Process app) {
+        if (!PostMessage(MainWindow(app), 0x10 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero))
+            throw new Win32Exception();
+    }
+
     // A zero size only reads and verifies the current client. Width and height are DIPs.
     public static int[] MeasureOrResize(Process app, int width, int height) {
-        app.Refresh();
-        IntPtr window = app.MainWindowHandle;
-        if (app.MainWindowTitle != "Kazna" && app.MainWindowTitle != "P-Treasury")
-            throw new InvalidOperationException("The test process has no Kazna/P-Treasury main window.");
+        IntPtr window = MainWindow(app);
         IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4)); // PER_MONITOR_AWARE_V2
         if (previous == IntPtr.Zero) throw new Win32Exception();
         try {

@@ -195,14 +195,14 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   return { browser, dataDir };
 }
 
-function nativeWindowSize(browser, dimensions = []) {
+function nativeWindowCommand(browser, args = []) {
   const owner = windowsSessions.get(browser);
   if (!owner?.driver.pid || owner.driver.exitCode !== null || owner.driver.signalCode !== null) {
     throw new Error("Нет работающего драйвера, который запустил это окно Kazna.");
   }
   const result = spawnSync("powershell.exe", [
     "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", join(ROOT, "e2e/windows-window.ps1"),
-    "-DriverId", String(owner.driver.pid), "-AppPath", owner.bin, ...dimensions,
+    "-DriverId", String(owner.driver.pid), "-AppPath", owner.bin, ...args,
   ], { encoding: "utf8", timeout: 20000, windowsHide: true });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error((result.stderr || result.stdout).trim());
@@ -210,12 +210,12 @@ function nativeWindowSize(browser, dimensions = []) {
 }
 
 export async function getAppWindowSize(browser) {
-  return WIN ? nativeWindowSize(browser) : browser.getWindowSize();
+  return WIN ? nativeWindowCommand(browser) : browser.getWindowSize();
 }
 
 export async function resizeAppWindow(browser, width, height) {
   if (!WIN) return browser.setWindowSize(width, height);
-  return nativeWindowSize(browser, ["-Width", String(width), "-Height", String(height)]);
+  return nativeWindowCommand(browser, ["-Width", String(width), "-Height", String(height)]);
 }
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
@@ -259,19 +259,10 @@ export function appPid(dataDir = currentDir) {
 }
 
 /** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
-export function closeLikeUser(dataDir = currentDir) {
-  const pid = appPid(dataDir);
-  if (!pid && WIN) {
-    const all = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${APP_FILE}'" | ForEach-Object { $_.CommandLine }`], { encoding: "utf8" }).stdout.trim();
-    throw new Error(`приложение не запущено: нет процесса с --data-dir=${dataDir}; запущены: ${all || "нет"}`);
-  }
+export function closeLikeUser(browser) {
+  if (WIN) return nativeWindowCommand(browser, ["-CloseMain"]);
+  const pid = appPid();
   if (!pid) throw new Error("приложение не запущено");
-  if (WIN) {
-    // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
-    const r = spawnSync("taskkill", ["/PID", pid], { encoding: "utf8" });
-    if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr || r.stdout}`);
-    return;
-  }
   const wins = spawnSync("xdotool", ["search", "--pid", pid], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
   const r = spawnSync("python3", [join(ROOT, "e2e/wm_close.py"), ...wins], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr}`);
@@ -372,7 +363,7 @@ async function why(browser, el) {
     .catch((e) => `диагностика не удалась: ${e.message}`);
 }
 
-/** Выбрать пункт списка, текст которого содержит `text` (подкатегории идут с отступом). */
+/** Выбрать пункт по полной подписи без краевых отступов (они бывают у подкатегорий). */
 export async function chooseLike(browser, name, text) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });

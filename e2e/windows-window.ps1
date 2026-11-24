@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][int]$DriverId,
     [Parameter(Mandatory)][string]$AppPath,
     [int]$Width,
-    [int]$Height
+    [int]$Height,
+    [switch]$CloseMain
 )
 $ErrorActionPreference = 'Stop'
 
@@ -33,6 +34,11 @@ try {
     $null = $app.Handle
     if ($app.HasExited -or $app.Path -ne $AppPath -or [Math]::Abs(($app.StartTime - $owner[0].CreationDate).TotalMilliseconds) -gt 1) {
         throw 'The test application process changed before measuring its window.'
+    }
+    if ($CloseMain) {
+        [WindowsWebView]::CloseMain($app)
+        'true'
+        return
     }
     $size = [WindowsWebView]::MeasureOrResize($app, $Width, $Height)
     @{width=$size[0]; height=$size[1]} | ConvertTo-Json -Compress

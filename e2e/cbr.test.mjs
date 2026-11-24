@@ -34,7 +34,12 @@ before(async () => {
     // На воскресенье 18.10 ЦБ отдаёт курс, установленный на субботу 17.10.
     const date = q === "18/10/2026" ? "17.10.2026" : `${d}.${m}.${y}`;
     const usd = q === "18/10/2026" ? "91,5000" : mode === "fresh" ? "93,0000" : "92,1500";
-    res.writeHead(200, { "Content-Type": "application/xml; charset=windows-1251" }).end(xml(date, usd));
+    const response = xml(date, usd);
+    // Отсутствует USD, для которого в тестовом бюджете есть счёт; EUR получен.
+    const body = mode === "partial"
+      ? Buffer.from(response.toString("latin1").replace(/<Valute ID="R01235">.*?<\/Valute>/, ""), "latin1")
+      : response;
+    res.writeHead(200, { "Content-Type": "application/xml; charset=windows-1251" }).end(body);
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${server.address().port}/scripts/XML_daily.asp`;
@@ -116,13 +121,22 @@ test("курсы обновляются сами раз в день; выклю�
 
 test("ошибки: сайт ЦБ отвечает ошибкой или недоступен", async () => {
   const { browser } = app;
+  mode = "partial";
+  await loadCbr(browser);
+  await waitText(browser, '[data-testid="cbr-result"]', /ЦБ РФ не публикует курс: USD/);
+  assert.equal(await (await browser.$('[data-testid="cbr-load"]')).getAttribute("data-done"), null);
+  assert.ok(await (await browser.$('[data-testid="cbr-result"].warn')).isDisplayed());
   mode = "down";
   await loadCbr(browser);
   await waitText(browser, '[data-testid="cbr-error"]', /Сайт ЦБ РФ ответил ошибкой 503/);
   await new Promise((r) => server.close(r));
   server = null;
-  await loadCbr(browser);
-  await waitText(browser, '[data-testid="cbr-error"]', /Нет связи с сайтом ЦБ РФ/, 30000);
-  // Кнопка снова доступна, приложение работает.
-  await (await browser.$('[data-testid="cbr-load"]')).waitForClickable({ timeout: 5000 });
+  await browser.execute(() => window.dispatchEvent(new Event("offline")));
+  try {
+    await loadCbr(browser);
+    await waitText(browser, '[data-testid="cbr-error"]', /Нет связи с сайтом ЦБ РФ/, 30000);
+    await (await browser.$('[data-testid="cbr-load"]')).waitForClickable({ timeout: 5000 });
+  } finally {
+    await browser.execute(() => window.dispatchEvent(new Event("online")));
+  }
 });
