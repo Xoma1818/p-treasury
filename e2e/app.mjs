@@ -218,6 +218,14 @@ export async function resizeAppWindow(browser, width, height) {
   return nativeWindowCommand(browser, ["-Width", String(width), "-Height", String(height)]);
 }
 
+export function minimizeTestWindow(browser, minimized) {
+  return nativeWindowCommand(browser, ["-WindowState", minimized ? "Minimize" : "Restore"]);
+}
+
+export function testWindowMemory(browser) {
+  return nativeWindowCommand(browser, ["-MeasureMemory"]);
+}
+
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
 export async function showAllHomeCards(browser) {
   await browser.waitUntil(() => browser.execute(() => document.readyState === "complete" && typeof window.__TAURI_INTERNALS__?.invoke === "function"), { timeout: 15000 });

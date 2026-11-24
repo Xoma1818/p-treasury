@@ -4,7 +4,9 @@ param(
     [Parameter(Mandatory)][string]$AppPath,
     [int]$Width,
     [int]$Height,
-    [switch]$CloseMain
+    [switch]$CloseMain,
+    [switch]$MeasureMemory,
+    [ValidateSet('Minimize','Restore')][string]$WindowState
 )
 $ErrorActionPreference = 'Stop'
 
@@ -37,6 +39,30 @@ try {
     }
     if ($CloseMain) {
         [WindowsWebView]::CloseMain($app)
+        'true'
+        return
+    }
+    if ($MeasureMemory) {
+        $byParent=@{}
+        $all=Get-CimInstance Win32_Process -Property Name,ProcessId,ParentProcessId,CreationDate,WorkingSetSize,PrivatePageCount
+        foreach ($child in $all) { $byParent[[int]$child.ParentProcessId] += @($child) }
+        $queue=[Collections.Generic.Queue[object]]::new()
+        $queue.Enqueue(($all | Where-Object ProcessId -eq $app.Id))
+        $count=0; [long]$working=0; [long]$privateBytes=0
+        while ($queue.Count) {
+            $current=$queue.Dequeue()
+            if ($current.ProcessId -eq $app.Id -or $current.Name -ieq 'msedgewebview2.exe') {
+                $count++; $working += [long]$current.WorkingSetSize; $privateBytes += [long]$current.PrivatePageCount
+            }
+            foreach ($child in $byParent[[int]$current.ProcessId]) {
+                if ($child.CreationDate -ge $current.CreationDate -and $child.ProcessId -ne $current.ProcessId) { $queue.Enqueue($child) }
+            }
+        }
+        @{processes=$count; workingSetBytes=$working; privateBytes=$privateBytes} | ConvertTo-Json -Compress
+        return
+    }
+    if ($WindowState) {
+        [WindowsWebView]::SetMinimized($app, $WindowState -eq 'Minimize')
         'true'
         return
     }

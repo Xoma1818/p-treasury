@@ -47,11 +47,11 @@ public static class WindowsWebView {
         return rect;
     }
 
-    private static void CheckOwner(Process app, IntPtr window) {
+    private static void CheckOwner(Process app, IntPtr window, bool allowMinimized = false) {
         uint pid;
         if (app.HasExited || GetWindowThreadProcessId(window, out pid) == 0 || pid != app.Id ||
-            !IsWindowVisible(window) || IsIconic(window))
-            throw new InvalidOperationException("The test application no longer owns a visible, restored main window.");
+            !IsWindowVisible(window) || (!allowMinimized && IsIconic(window)))
+            throw new InvalidOperationException("The test application no longer owns the expected main window.");
     }
 
     private static Rect WaitForSurface(Process app, IntPtr window, int width, int height) {
@@ -85,7 +85,7 @@ public static class WindowsWebView {
         throw new InvalidOperationException("Unexpected WebView2 window geometry: " + detail);
     }
 
-    private static IntPtr MainWindow(Process app) {
+    private static IntPtr MainWindow(Process app, bool allowMinimized = false) {
         app.Refresh();
         var matches = new List<IntPtr>();
         foreach (ProcessThread thread in app.Threads) {
@@ -100,13 +100,26 @@ public static class WindowsWebView {
             }, IntPtr.Zero);
         }
         if (matches.Count != 1) throw new InvalidOperationException("Expected one visible main window of this test process, found " + matches.Count + ".");
-        CheckOwner(app, matches[0]);
+        CheckOwner(app, matches[0], allowMinimized);
         return matches[0];
     }
 
     public static void CloseMain(Process app) {
         if (!PostMessage(MainWindow(app), 0x10 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero))
             throw new Win32Exception();
+    }
+
+    public static void SetMinimized(Process app, bool minimize) {
+        IntPtr h = MainWindow(app, true);
+        // WM_SYSCOMMAND with SC_MINIMIZE or SC_RESTORE, like the title-bar buttons.
+        if (!PostMessage(h, 0x0112, new IntPtr(minimize ? 0xF020 : 0xF120), IntPtr.Zero))
+            throw new Win32Exception();
+        for (int i = 0; i < 100; i++) {
+            CheckOwner(app, h, true);
+            if (IsIconic(h) == minimize) return;
+            Thread.Sleep(30);
+        }
+        throw new TimeoutException("The test window did not reach the requested minimize state.");
     }
 
     // A zero size only reads and verifies the current client. Width and height are DIPs.

@@ -1,5 +1,5 @@
 import { CrashGuard, Opening } from "./components/Crash";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { watchDragThreshold } from "./lib/dragThreshold";
 import { FORM_KEY, notifyForm } from "./lib/txnFormPrefs";
 import { HEAD_KEY, notifyHead } from "./lib/headBar";
@@ -18,6 +18,7 @@ import { DemoBanner } from "./components/DemoBanner";
 import { MissedReminders } from "./components/MissedReminders";
 import { Palette } from "./components/Palette";
 import { HotkeysHelp, UndoBar } from "./components/Convenience";
+import { JournalActionsSlot } from "./components/SelectionBar";
 import { UpdatePrompt } from "./components/DataTools";
 import { Sidebar } from "./components/Sidebar";
 import { TxnForm } from "./components/TxnForm";
@@ -68,6 +69,7 @@ function focusSearch(go: (s: SectionId) => void) {
 
 export function App() {
   useEffect(watchDragThreshold, []);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const info = useAppInfo();
   const { section, visit, go, openTxnForm, help, setHelp, palette, setPalette } = useUi();
   const settingsSnapshot = useSettingsSnapshot().data;
@@ -154,14 +156,19 @@ export function App() {
       <main className="content">
         {privacyFailed && <p className="error" role="alert">Не удалось сохранить настройку видимости. Суммы скрыты.</p>}
         <DemoBanner />
-        <CrashGuard key={`${section}-${visit}`} inline>
-          {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
-        </CrashGuard>
+        <JournalActionsSlot.Provider value={actionsSlot}>
+          <CrashGuard key={`${section}-${visit}`} inline>
+            {Screen ? <Screen key={visit} /> : <Placeholder id={section} />}
+          </CrashGuard>
+        </JournalActionsSlot.Provider>
+        <div className="journal-feedback">
+          <div ref={setActionsSlot} />
+          <UndoBar />
+        </div>
       </main>
       <AutoRates />
       <MissedReminders />
       <UpdatePrompt />
-      <UndoBar />
       {help && <HotkeysHelp onClose={() => setHelp(false)} />}
       {palette && <Palette />}
       <TxnForm />

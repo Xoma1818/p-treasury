@@ -1709,18 +1709,18 @@ pub fn undo_state(state: State<AppState>) -> CmdResult<UndoState> {
 
 /// Отменить последнее действие; возвращает его название (или ничего, если отменять нечего).
 #[tauri::command(async)]
-pub fn undo(state: State<AppState>) -> CmdResult<Option<String>> {
+pub fn undo(state: State<AppState>, expected_id: Option<u64>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
         let mut j = state.lock_undo();
-        j.undo(db.conn())
+        j.undo_if_current(db.conn(), expected_id)
     })
 }
 
 #[tauri::command(async)]
-pub fn redo(state: State<AppState>) -> CmdResult<Option<String>> {
+pub fn redo(state: State<AppState>, expected_id: Option<u64>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
         let mut j = state.lock_undo();
-        j.redo(db.conn())
+        j.redo_if_current(db.conn(), expected_id)
     })
 }
 

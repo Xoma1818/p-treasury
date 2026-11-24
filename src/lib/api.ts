@@ -2319,7 +2319,7 @@ export const api = {
   applyTemplate: (id: string, date: string) => invoke<string>("apply_template", { id, date }),
   templateUsed: (id: string) => invoke<void>("template_used", { id }),
   undoState: () => invoke<UndoState>("undo_state"),
-  undo: () => invoke<string | null>("undo"),
+  undo: (expectedId?: number) => invoke<string | null>("undo", { expectedId }),
   listGoals: () => invoke<Goal[]>("list_goals"),
   setGoalPriority: (ids: string[]) => invoke<void>("set_goal_priority", { ids }),
   setGoalShare: (id: string, shareBp: number | null) => invoke<void>("set_goal_share", { id, shareBp }),
@@ -2382,7 +2382,7 @@ export const api = {
   deleteDuplicate: (secondId: string) => invoke<void>("delete_duplicate", { secondId }),
   /** months: 12, 36 или null — всё время. */
   netWorthHistory: (months: number | null) => invoke<NetWorthHistory>("net_worth_history", { months }),
-  redo: () => invoke<string | null>("redo"),
+  redo: (expectedId?: number) => invoke<string | null>("redo", { expectedId }),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {
