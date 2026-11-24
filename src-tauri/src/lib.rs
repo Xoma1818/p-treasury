@@ -81,26 +81,36 @@ pub(crate) fn test_browser_args() -> Option<String> {
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default();
-    // Одна копия программы (должен регистрироваться первым): второй запуск
-    // показывает уже открытое окно, даже если оно свёрнуто в трей.
     #[cfg(windows)]
-    let builder = if data_dir_override().is_none() {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            background::show_main(app)
-        }))
-    } else {
-        builder
+    let reopen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let override_dir = data_dir_override();
+    let portable = files::portable_dir();
+    let context = tauri::generate_context!();
+    let builder = tauri::Builder::default();
+    // Защита регистрируется до открытия базы, окна и трея. У проверок на этом
+    // рабочем столе один свой экземпляр, даже при разных временных папках.
+    #[cfg(windows)]
+    let (builder, context) = {
+        let mut context = context;
+        if override_dir.is_some() || (portable.is_some() && test_browser_args().is_some()) {
+            context.config_mut().identifier.push_str(".qa");
+        }
+        let requested = reopen.clone();
+        let builder = builder.plugin(tauri_plugin_single_instance::init(move |app, _, _| {
+            // Windows может передать повторный запуск ещё во время создания WebView2.
+            requested.store(true, std::sync::atomic::Ordering::SeqCst);
+            show_requested_window(app, &requested);
+        }));
+        (builder, context)
     };
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(quick_window::plugin())
-        .setup(|app| {
-            let portable = files::portable_dir();
-            let test_dir = data_dir_override().is_some();
-            let data_dir = match (data_dir_override(), &portable) {
+        .setup(move |app| {
+            let test_dir = override_dir.is_some();
+            let data_dir = match (override_dir, &portable) {
                 (Some(dir), _) => dir,
                 (None, Some(dir)) => dir.clone(),
                 (None, None) => app.path().app_data_dir()?,
@@ -142,6 +152,8 @@ pub fn run() {
                     main = main.additional_browser_args(&args);
                 }
                 main.build()?;
+                #[cfg(windows)]
+                show_requested_window(app.handle(), &reopen);
             } else {
                 eprintln!("в tauri.conf.json нет окна \"main\": программа запущена без окна");
             }
@@ -468,7 +480,7 @@ pub fn run() {
             commands::delete_duplicate,
             commands::net_worth_history,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("не удалось запустить приложение")
         .run(|app, event| {
             // Папка сохранности при закрытии приложения (из трея «Выход» или закрытием окна).
@@ -476,6 +488,15 @@ pub fn run() {
                 vault::sync_on_exit(app);
             }
         });
+}
+
+#[cfg(windows)]
+fn show_requested_window(app: &tauri::AppHandle, requested: &std::sync::atomic::AtomicBool) {
+    if let Some(window) = app.get_webview_window("main") {
+        if requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            background::show_window(&window);
+        }
+    }
 }
 
 #[cfg(test)]

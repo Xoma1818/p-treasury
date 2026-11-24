@@ -311,16 +311,20 @@ fn scan_folder(app: &AppHandle) {
 
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        if let Err(e) = w.unminimize() {
-            eprintln!("не удалось развернуть главное окно: {e}");
-        }
-        if let Err(e) = w.show() {
-            eprintln!("не удалось показать главное окно: {e}");
-            return;
-        }
-        if let Err(e) = w.set_focus() {
-            eprintln!("не удалось перевести фокус в главное окно: {e}");
-        }
+        show_window(&w);
+    }
+}
+
+pub(crate) fn show_window(w: &WebviewWindow) {
+    if let Err(e) = w.unminimize() {
+        eprintln!("не удалось развернуть главное окно: {e}");
+    }
+    if let Err(e) = w.show() {
+        eprintln!("не удалось показать главное окно: {e}");
+        return;
+    }
+    if let Err(e) = w.set_focus() {
+        eprintln!("не удалось перевести фокус в главное окно: {e}");
     }
 }
 
