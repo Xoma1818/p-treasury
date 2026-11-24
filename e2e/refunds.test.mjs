@@ -101,7 +101,9 @@ test("у чека 640 + 360 ₽ выбирается строка возврат
   const fixture = { date: day(0), accountId: card, payee: "Учебный чек 640+360", note: null, total: 100000,
     parts: [{ categoryId: cats[0].id, amount: 64000 }, { categoryId: cats[1].id, amount: 36000 }] };
   const splitId = await invoke("create_receipt", { input: fixture });
-  await invoke("create_receipt", { input: { ...fixture, payee: "Удаляемый учебный чек" } });
+  const searchKey = "qa-delete-receipt";
+  const deletePayee = `Удаляемый учебный чек ${searchKey}`;
+  await invoke("create_receipt", { input: { ...fixture, payee: deletePayee } });
   const receipt = await invoke("get_receipt", { splitId });
   const part = receipt.parts.find((p) => p.amount === 36000);
   await browser.refresh();
@@ -137,14 +139,17 @@ test("у чека 640 + 360 ₽ выбирается строка возврат
   assert.equal((await invoke("refund_info", { of: receipt.parts.find((p) => p.amount === 64000).id, except: null })).left, 64000);
 
   const search = browser.$('[name="search"]');
-  await fill(browser, "search", "Удаляемый учебный чек");
+  await fill(browser, "search", searchKey);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 2 из 2/);
+  const deleteRow = `//tr[@data-testid="txn-row" and @data-receipt="2" and contains(., "${deletePayee}")]`;
+  assert.equal((await browser.$$('[data-testid="txn-row"]')).length, 1, "две части сгруппированы в один чек");
+  await browser.$(deleteRow).waitForDisplayed();
   await search.click();
   await browser.keys(["Control", "k"]);
   await browser.$('[name="paletteQuery"]').waitForDisplayed();
   await browser.keys("Escape");
   assert.ok(await search.isFocused());
-  await browser.$('[data-testid="txn-row"] td.date').click({ button: "right" });
+  await browser.$(`${deleteRow}//td[@class="date"]`).click({ button: "right" });
   await browser.$('//*[@role="menuitem"][contains(., "Удалить чек")]').click();
   await browser.$('[data-testid="txn-row"]').waitForExist({ reverse: true });
   assert.ok(await browser.$('[data-testid="txn-result-period"]').isFocused());
