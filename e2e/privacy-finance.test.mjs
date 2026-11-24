@@ -62,7 +62,8 @@ before(async () => {
       d.setDate(d.getDate() + offset);
       return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
     };
-    return [day(0), day(-2), day(2)];
+    // Первый платёж за пределами трёхдневного напоминания при открытии приложения.
+    return [day(0), day(-2), day(7)];
   });
   today = dates[0];
   for (const [name, valuation] of [["Портфель А", 8345211], ["Портфель Б", 7234168]]) {
@@ -80,6 +81,7 @@ before(async () => {
   }
   await invoke("create_template", { input: { name: "Проезд", type: "expense", amount: 17500,
     accountId: accounts.find(a => a.name === "Деньги для платежа").id, categoryId: expense.id, toAccountId: null, payee: "Транспорт", note: null } });
+  assert.deepEqual(await invoke("missed_reminders"), [], "Учебный заём не должен открывать окно пропущенных напоминаний");
   await invoke("set_setting", { key: "hide_amounts", value: "1" });
   await browser.refresh();
 });
@@ -137,7 +139,7 @@ test("оценки двух портфелей и калькулятор пол�
 
 test("платёж по займу скрывает тело и нулевые проценты; подтверждение меняет долг один раз", async () => {
   await openSection(browser, "Займы и долги");
-  await push('[data-testid="debt-row"][data-name="Учебный заём"]');
+  await push('[data-testid="debt-row"][data-name="Учебный заём"] .main');
   await click(browser, "Оплачено");
   await valueIs("principal", "•••");
   await valueIs("interest", "•••");
@@ -195,6 +197,9 @@ test("двойное применение шаблона записывает о
     assert.equal(await balance(), 100000);
     assert.equal((await expenses()).total, 0);
     await openSection(browser, "Операции");
+    // Проверяем меню во время длительной записи. Когда появляется статус,
+    // кнопки шапки меняют положение в небольшом окне.
+    await waitText(browser, ".txn-actions [role=status]", /Записываем операцию по шаблону/);
     await push('[data-testid="head-more"]');
     const menuCoffee = await browser.$('//*[@role="menuitem" and normalize-space()="Кофе"]');
     await menuCoffee.waitForExist();
