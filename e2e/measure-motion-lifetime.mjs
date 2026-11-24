@@ -3,20 +3,34 @@
 // Контроль: PTREASURY_MOTION_INPUT=dom и при необходимости PTREASURY_MOTION_INTERVAL_MS
 // в миллисекундах. Обычный вариант использует настоящие команды мыши и клавиатуры WebDriver.
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { APP_BIN, minimizeTestWindow, openFilters, openSection, start, stop, testWindowMemory, WIN } from "./app.mjs";
 
 const source = process.env.PTREASURY_VOLUME_DIR;
 if (!WIN || !source) throw Error("Для замера нужны Windows и PTREASURY_VOLUME_DIR с учебной базой.");
 const fixture = join(source, "budget.db");
 if (existsSync(fixture + "-wal") && statSync(fixture + "-wal").size) throw Error("Закройте запись в учебную базу перед копированием.");
-const inputMode = process.env.PTREASURY_MOTION_INPUT ?? "webdriver";
+const hours = Number(process.env.PTREASURY_MOTION_HOURS ?? 0);
+if (!Number.isFinite(hours) || hours < 0 || !Number.isFinite(hours * 3600000)) throw Error("Длительность замера задаётся в часах.");
+const soak = hours > 0;
+const inputMode = process.env.PTREASURY_MOTION_INPUT ?? (soak ? "dom" : "webdriver");
 if (!["webdriver", "dom"].includes(inputMode)) throw Error("PTREASURY_MOTION_INPUT: webdriver или dom.");
-const minCycleMs = Number(process.env.PTREASURY_MOTION_INTERVAL_MS ?? 0);
-if (!Number.isFinite(minCycleMs) || minCycleMs < 0) throw Error("Интервал цикла должен быть неотрицательным.");
+const minCycleMs = Number(process.env.PTREASURY_MOTION_INTERVAL_MS ?? (soak ? 2000 : 0));
+if (!Number.isSafeInteger(minCycleMs) || minCycleMs < 0 || minCycleMs > 2147483647) throw Error("Недопустимый интервал между циклами в миллисекундах.");
+const checkpointMs = 10 * 60 * 1000;
+class InterruptedCoverage extends Error {}
 const temp = realpathSync(tmpdir());
+let report;
+if (soak) {
+  const parent = resolve(process.env.PTREASURY_MOTION_REPORT_DIR ?? join(import.meta.dirname, "../target/.test-artifacts/memory-soak"));
+  mkdirSync(parent, { recursive: true });
+  report = join(mkdtempSync(join(parent, "run-")), "checkpoints.jsonl");
+  console.log("Журнал длительного замера:", report);
+}
 const run = mkdtempSync(join(temp, "kazna-motion-lifetime-"));
 const originalTemp = { TEMP: process.env.TEMP, TMP: process.env.TMP };
 let browser;
@@ -27,8 +41,13 @@ const invoke = (cmd, args = {}) => browser.executeAsync((cmd, args, done) => {
 const ready = fn => browser.waitUntil(() => browser.execute(fn), { timeout: 15000, interval: 25 });
 const series = { journal: [], form: [], cancel: [], home: [], cycle: [] };
 const samples = [];
-const measurements = {};
 let cdpRoute;
+let completedCycles = 0;
+let interrupted = false;
+const cancel = () => { interrupted = true; };
+function writeRecord(event, fields) {
+  appendFileSync(report, JSON.stringify({ event, utc: new Date().toISOString(), ...fields }) + "\n", { flush: true });
+}
 
 // Метрики только собственного документа WebView2, доступного текущей сессии EdgeDriver.
 async function devtools(cmd) {
@@ -63,8 +82,10 @@ async function snapshot(point, collect = false) {
     hidden: document.hidden, focused: document.hasFocus(),
     longTasks: window.motionLongTasks && { count: window.motionLongTasks.count, totalMs: window.motionLongTasks.totalMs, maxMs: window.motionLongTasks.maxMs },
   }));
-  samples.push({ point, collected, ui, dom: await devtools("Memory.getDOMCounters"), heap: await devtools("Runtime.getHeapUsage"),
-    processTree: testWindowMemory(browser) });
+  const sample = { point, collected, ui, dom: await devtools("Memory.getDOMCounters"), heap: await devtools("Runtime.getHeapUsage"),
+    processTree: testWindowMemory(browser) };
+  if (!soak) samples.push(sample);
+  return sample;
 }
 
 async function cycle(record) {
@@ -97,29 +118,82 @@ async function cycle(record) {
   if (minCycleMs) await pause(Math.max(0, minCycleMs - (times[4] - times[0])));
 }
 
-try {
-  const scratch = join(run, "tmp");
-  mkdirSync(scratch);
-  process.env.TEMP = scratch;
-  process.env.TMP = scratch;
-  copyFileSync(fixture, join(run, "budget.db"));
-  ({browser} = await start(run, { env: { WEBVIEW2_USER_DATA_FOLDER: join(run,"webview"), PTREASURY_VAULT_DIR: join(run,"vault") } }));
-  const { version } = await invoke("app_info");
-  const initial = await state();
+function intervalTimings() {
+  const stats = {};
+  for (const [name, values] of Object.entries(series)) {
+    if (!values.length) continue;
+    values.sort((a, b) => a - b);
+    const at = p => Math.round(values[Math.ceil(values.length * p) - 1]);
+    stats[name] = { p50: at(0.5), p95: at(0.95), max: at(1) };
+    values.length = 0;
+  }
+  return stats;
+}
+
+async function runSoak(version, initial) {
+  const binarySha256 = createHash("sha256").update(readFileSync(APP_BIN)).digest("hex");
+  const maxInactiveMs = Math.min(checkpointMs / 2, Math.max(60000, 3 * minCycleMs));
+  writeRecord("configuration", { version, binarySha256, hours, checkpointMs, inputMode, minCycleMs, maxInactiveMs,
+    transactions: initial.total, accounts: initial.accounts.length, warmups: 1 });
+  const baseline = await snapshot("baseline-after-gc", true);
+  writeRecord("baseline", { elapsedMs: 0, cycles: 0, sample: baseline });
+  assert.equal(baseline.ui.screen, "Главная");
+  assert.ok(!baseline.ui.hidden && baseline.ui.dialogs === 0, "Для замера нужна открытая Главная");
+  const started = performance.now();
+  const deadline = started + hours * 3600000;
+  let nextCheckpoint = started + checkpointMs;
+  let longestCycleWallMs = 0;
+  let lastActive = started;
+  let lastWallClock = Date.now();
+  function checkContinuity() {
+    const now = performance.now();
+    const wall = Date.now();
+    const gap = Math.max(now - lastActive, Math.abs(wall - lastWallClock));
+    if (gap > maxInactiveMs) {
+      throw new InterruptedCoverage(`Перерыв между наблюдениями ${Math.round(gap)} мс превышает ${maxInactiveMs} мс`);
+    }
+    lastActive = now;
+    lastWallClock = wall;
+  }
+
+  async function checkpoint(final) {
+    await pause(400);
+    const sample = await snapshot(final ? "final-after-gc" : "home-after-gc", true);
+    const actual = await state();
+    checkContinuity();
+    const sameHome = sample.ui.screen === baseline.ui.screen && sample.ui.theme === baseline.ui.theme &&
+      sample.ui.dialogs === 0 && !sample.ui.hidden;
+    const financialStatePreserved = isDeepStrictEqual(actual, initial);
+    writeRecord("checkpoint", { final, elapsedMs: Math.round(performance.now() - started), cycles: completedCycles,
+      longestCycleWallMs: Math.round(longestCycleWallMs), sameHome, financialStatePreserved,
+      timingsSincePreviousMs: intervalTimings(), sample });
+    assert.ok(sameHome, "Изменились экран, видимость окна или тема в контрольной точке");
+    assert.ok(financialStatePreserved, "После серии изменились остатки или число операций");
+  }
+
+  while (performance.now() < deadline) {
+    if (interrupted) throw Error("Замер остановлен оператором");
+    const began = performance.now();
+    await cycle(true);
+    completedCycles++;
+    checkContinuity();
+    const now = performance.now();
+    longestCycleWallMs = Math.max(longestCycleWallMs, now - began);
+    if (now >= nextCheckpoint && nextCheckpoint < deadline) {
+      await checkpoint(false);
+      nextCheckpoint += checkpointMs;
+      longestCycleWallMs = 0;
+    }
+  }
+  if (interrupted) throw Error("Замер остановлен оператором");
+  if (nextCheckpoint < deadline) throw new InterruptedCoverage("Пропущена контрольная точка длительного замера");
+  await checkpoint(true);
+  if (interrupted) throw Error("Замер остановлен оператором");
+}
+
+async function runHundred(version, initial) {
   const first = (await invoke("list_transactions", { filter: { limit: 50 } })).items.find(r => r.payee?.trim());
   assert.ok(first?.payee, "Для фильтра нужна учебная операция с получателем");
-  await browser.execute(() => {
-    if (!PerformanceObserver.supportedEntryTypes.includes("longtask")) return;
-    const data = { count: 0, totalMs: 0, maxMs: 0 };
-    const observer = new PerformanceObserver(list => {
-      for (const e of list.getEntries()) {
-        data.count++; data.totalMs += e.duration; data.maxMs = Math.max(data.maxMs, e.duration);
-      }
-    });
-    observer.observe({ type: "longtask" }); window.motionLongTasks = data;
-  });
-  await cycle(false);
-  await pause(400);
   await snapshot("baseline-after-gc", true);
   for (let i = 1; i <= 100; i++) {
     await cycle(true);
@@ -162,20 +236,53 @@ try {
   await snapshot("restored");
   await snapshot("restored-after-gc", true);
   assert.deepEqual(await state(), initial);
-  for (const [name, values] of Object.entries(series)) {
-    values.sort((a,b) => a-b);
-    const at = p => Math.round(values[Math.ceil(values.length*p)-1]);
-    measurements[name] = { p50: at(0.5), p95: at(0.95), max: at(1) };
-  }
   console.log(JSON.stringify({ version, bin: APP_BIN, inputMode, minCycleMs, cycles: 100, warmups: 1, transactions: initial.total, accounts: initial.accounts.length,
     balancesAndCountPreserved: true, sortedBy: "amount", filtered, themeAfterFilter: otherTheme,
-    awayMs, cdpRoute, timesMsIncludingDriver: measurements, samples }));
+    awayMs, cdpRoute, timesMsIncludingDriver: intervalTimings(), samples }));
+}
+
+try {
+  if (soak) {
+    writeRecord("started", { hours, inputMode, minCycleMs });
+    process.on("SIGINT", cancel);
+    process.on("SIGTERM", cancel);
+  }
+  const scratch = join(run, "tmp");
+  mkdirSync(scratch);
+  process.env.TEMP = scratch;
+  process.env.TMP = scratch;
+  copyFileSync(fixture, join(run, "budget.db"));
+  ({browser} = await start(run, { verboseDriver: !soak, env: { WEBVIEW2_USER_DATA_FOLDER: join(run,"webview"), PTREASURY_VAULT_DIR: join(run,"vault") } }));
+  const { version } = await invoke("app_info");
+  const initial = await state();
+  await browser.execute(() => {
+    if (!PerformanceObserver.supportedEntryTypes.includes("longtask")) return;
+    const data = { count: 0, totalMs: 0, maxMs: 0 };
+    const observer = new PerformanceObserver(list => {
+      for (const e of list.getEntries()) {
+        data.count++; data.totalMs += e.duration; data.maxMs = Math.max(data.maxMs, e.duration);
+      }
+    });
+    observer.observe({ type: "longtask" }); window.motionLongTasks = data;
+  });
+  await cycle(false);
+  await pause(400);
+  if (soak) await runSoak(version, initial);
+  else await runHundred(version, initial);
+} catch (error) {
+  if (soak) writeRecord(error instanceof InterruptedCoverage ? "inconclusive" : "failed", { cycles: completedCycles, reason: error.message });
+  throw error;
 } finally {
   try { await stop(browser); }
   finally {
+    if (soak) {
+      process.off("SIGINT", cancel);
+      process.off("SIGTERM", cancel);
+    }
     for (const [key, value] of Object.entries(originalTemp)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
     if (dirname(run) === temp && realpathSync(run) === run) rmSync(run, { recursive: true, force: true, maxRetries: 4, retryDelay: 250 });
   }
 }
+if (soak) writeRecord("completed", { cycles: completedCycles });

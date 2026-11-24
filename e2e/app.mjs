@@ -119,7 +119,7 @@ let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
 let killPattern;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false, verboseDriver = true } = {}) {
   currentDir = dataDir;
   killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
@@ -129,7 +129,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   const wv2 = {};
   // Windows: msedgedriver напрямую (как его вызывает tauri-driver), с подробным журналом —
   // если сессия не создаётся, его хвост объясняет почему.
-  const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
+  const edgeLog = WIN && verboseDriver ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
   const appArgs = args ?? [`--data-dir=${dataDir}`];
   // WebKit хранит личное меню вне SQLite. У каждой учебной базы свой профиль,
   // который сохраняется при перезапуске той же базы.
@@ -138,7 +138,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     if (WIN) await winCleanup();
     const childEnv = { ...process.env, ...cbr, ...wv2, ...webkitProfile, ...env };
     driver = WIN
-      ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
+      ? spawn("msedgedriver", ["--port=4444", ...(edgeLog ? ["--verbose", `--log-path=${edgeLog}`] : [])], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
       : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
     await new Promise((r) => setTimeout(r, 1500));
     return remote({
@@ -154,6 +154,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     });
   };
   const edgeTail = () => {
+    if (!edgeLog) return "подробный журнал отключён для длительного замера";
     try {
       return readFileSync(edgeLog, "utf8").split(/\r?\n/).slice(-80).join("\n");
     } catch (e) {
