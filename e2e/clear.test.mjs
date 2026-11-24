@@ -2,7 +2,7 @@
 // причиной и действием, «было → станет» у займов, проверка восстановления копии.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, openSettings, onboard, fill, click, choose, save, waitText } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, click, clickControl, choose, save, waitText } from "./app.mjs";
 
 let browser;
 const today = new Date().toISOString().slice(0, 10);
@@ -33,11 +33,11 @@ test("Главная по умолчанию: пять основных карт
   const blocks = await browser.execute(() => [...document.querySelectorAll("main .home-block")].map((b) => b.dataset.block));
   assert.deepEqual(blocks, ["quick", "tiles", "checks", "main", "plans"]);
   await openSettings(browser, "appearance");
-  await browser.$('[name="homeCard-ahead"]').click();
+  await clickControl(browser, await browser.$('[name="homeCard-ahead"]'), "Карточка прогноза");
   await openSection(browser, "Главная");
   await browser.$('[data-testid="home-ahead"]').waitForDisplayed({ timeout: 5000 });
   await openSettings(browser, "appearance");
-  await browser.$('[data-testid="home-cards-default"]').click();
+  await click(browser, "Только основные");
   await openSection(browser, "Главная");
   await browser.waitUntil(async () => !(await browser.$('[data-testid="home-ahead"]').isExisting()), { timeout: 5000, timeoutMsg: "карточка не скрылась" });
 });

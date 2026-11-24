@@ -99,23 +99,6 @@
   overflow-wrap: anywhere;
 }
 
-/* На длинной странице тема доступна и внизу. На узком или низком экране
-   оставляем больше места полям — многострочная навигация прокручивается вместе с ними. */
-@media (min-height: 32rem) {
-  @container (min-width: 56rem) {
-    .settings-topics {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      padding-block-start: .35rem;
-      background: var(--bg);
-    }
-    .settings-panel :is(.settings-section, input, select, button, summary) {
-      scroll-margin-block-start: 4rem;
-    }
-  }
-}
-
 @container (max-width: 48rem) {
   .settings-topics {
     display: grid;

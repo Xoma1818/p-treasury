@@ -131,9 +131,12 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // если сессия не создаётся, его хвост объясняет почему.
   const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
   const appArgs = args ?? [`--data-dir=${dataDir}`];
+  // WebKit хранит личное меню вне SQLite. У каждой учебной базы свой профиль,
+  // который сохраняется при перезапуске той же базы.
+  const webkitProfile = WIN ? {} : { XDG_DATA_HOME: join(dataDir, "xdg-data") };
   const open = async () => {
     if (WIN) await winCleanup();
-    const childEnv = { ...process.env, ...cbr, ...wv2, ...env };
+    const childEnv = { ...process.env, ...cbr, ...wv2, ...webkitProfile, ...env };
     driver = WIN
       ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
       : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
@@ -371,11 +374,16 @@ export async function click(browser, text, scope = "") {
     if ((await toggle.isExisting()) && (await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
   }
   const el = await browser.$(`${scope}//button[normalize-space()="${text}"]`);
-  // Кнопку ниже края окна WebKit не считает доступной, а внизу экрана её может закрыть
+  await clickControl(browser, el, text);
+}
+
+/** Прокрутить к контролу и нажать его мышью, сохранив диагностику перекрытий. */
+export async function clickControl(browser, el, label) {
+  // Элемент ниже края окна WebKit не считает доступным, а внизу экрана его может закрыть
   // плашка «Отменить»: сначала ставим её в середину окна, потом ждём доступности.
   await el.waitForExist({ timeout: 5000 });
   await browser.execute((b) => {
-    b.scrollIntoView({ block: "center" });
+    b.scrollIntoView({ block: "center", inline: "nearest" });
     // Внизу короткого экрана прокрутить некуда: плашку «Отменить» над кнопкой закрываем.
     const r = b.getBoundingClientRect();
     const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
@@ -386,7 +394,7 @@ export async function click(browser, text, scope = "") {
   // выше могла увести строку из-под неё.
   await el.moveTo().catch(() => {});
   await el.waitForClickable({ timeout: 5000 }).catch(async (e) => {
-    throw new Error(`Кнопка «${text}» недоступна: ${e.message}; ${await why(browser, el)}`);
+    throw new Error(`«${label}» недоступно: ${e.message}; ${await why(browser, el)}`);
   });
   await el.click().catch(async (e) => {
     // Что оказалось поверх кнопки: так проще понять «click intercepted».
@@ -396,7 +404,7 @@ export async function click(browser, text, scope = "") {
         return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.outerHTML.slice(0, 160);
       }, el)
       .catch(() => "");
-    throw new Error(`Кнопка «${text}»: ${e.message}${top ? `; сверху: ${top}` : ""}`);
+    throw new Error(`«${label}»: ${e.message}${top ? `; сверху: ${top}` : ""}`);
   });
 }
 

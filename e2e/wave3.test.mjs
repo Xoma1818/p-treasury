@@ -280,7 +280,8 @@ test("Ctrl+K находит настройку и действие, правая
   await openSettings(browser, "controls");
   await tap('[name="module-notes"]');
   await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ reverse: true, timeout: 5000 });
-  await tap('[data-testid="modules-all"]');
+  await click(browser, "Включить всё", '//*[@data-testid="modules-card"]');
+  assert.ok(await browser.$('[name="module-notes"]').isFocused(), "фокус у включённого модуля");
   await browser.$('//nav//button[normalize-space()="Заметки"]').waitForExist({ timeout: 5000 });
 });
 
@@ -311,7 +312,8 @@ test("своё меню и главная кнопка «+»: скрыть, пе
   } finally {
     // «Как было» возвращает всё, даже если проверка выше упала: остальные тесты ждут «+ Расход».
     await openSettings(browser, "controls");
-    await tap('[data-testid="nav-reset"]');
+    await click(browser, "Как было", '//*[@data-testid="nav-card"]');
+    assert.ok(await browser.$('[name="addMain"]').isFocused(), "фокус у выбора главной кнопки");
     await browser.$('//nav//button[normalize-space()="Календарь"]').waitForExist({ timeout: 5000 });
     await openSection(browser, "Главная");
   }
