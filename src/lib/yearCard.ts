@@ -6,6 +6,8 @@
 import type { YearReview } from "./api";
 import { formatAmount } from "./money";
 import { monthTitle } from "./dates";
+import brandSvg from "../../src-tauri/icons/icon.svg?raw";
+import wordmarkSvg from "../assets/kazna-wordmark.svg?raw";
 
 const CARD_W = 1080;
 const CARD_H = 1350;
@@ -57,33 +59,17 @@ function fit(g: CanvasRenderingContext2D, text: string, max: number) {
   return t + "…";
 }
 
-/** Логотип «Дверца сейфа» (src-tauri/icons/icon.svg) в квадрате `size`. */
-function logo(g: CanvasRenderingContext2D, x: number, y: number, size: number) {
-  const k = size / 64;
+/** Контуры марки и названия из тех же SVG, что в меню. Рисуем синхронно перед сохранением PNG. */
+function drawBrandAsset(g: CanvasRenderingContext2D, source: string, x: number, y: number, height: number, color?: string) {
+  const svg = new DOMParser().parseFromString(source, "image/svg+xml").querySelector("svg")!;
+  const scale = height / svg.viewBox.baseVal.height;
   g.save();
   g.translate(x, y);
-  g.scale(k, k);
-  g.fillStyle = C.mint;
-  roundRect(g, 2, 2, 60, 60, 14);
-  g.fill();
-  g.strokeStyle = C.bg;
-  g.lineWidth = 4.5;
-  roundRect(g, 14, 12, 40, 40, 7);
-  g.stroke();
-  g.beginPath();
-  g.arc(34, 32, 9, 0, Math.PI * 2);
-  g.stroke();
-  g.lineCap = "round";
-  g.lineWidth = 4;
-  g.beginPath();
-  g.moveTo(34, 32);
-  g.lineTo(34, 25);
-  g.stroke();
-  g.fillStyle = C.bg;
-  roundRect(g, 9, 19, 6, 7, 1.5);
-  g.fill();
-  roundRect(g, 9, 38, 6, 7, 1.5);
-  g.fill();
+  g.scale(scale, scale);
+  for (const path of svg.querySelectorAll("path")) {
+    g.fillStyle = color ?? path.getAttribute("fill")!;
+    g.fill(new Path2D(path.getAttribute("d")!), path.getAttribute("fill-rule") === "evenodd" ? "evenodd" : "nonzero");
+  }
   g.restore();
 }
 
@@ -107,11 +93,9 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   g.fillRect(0, 0, CARD_W, CARD_H);
 
   // Шапка.
-  logo(g, pad, 64, 64);
+  drawBrandAsset(g, brandSvg, pad, 64, 64);
+  drawBrandAsset(g, wordmarkSvg, pad + 84, 82, 28, C.text);
   g.textBaseline = "alphabetic";
-  g.fillStyle = C.muted;
-  g.font = `600 28px ${FONT}`;
-  g.fillText("Kazna", pad + 84, 108);
   g.fillStyle = C.text;
   g.font = `700 76px ${FONT}`;
   g.fillText(`Мой ${r.year} год`, pad, 236);

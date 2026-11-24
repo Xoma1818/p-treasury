@@ -106,9 +106,44 @@ test("итоги года: картинка 1080×1350, «Без сумм» и �
   });
   assert.deepEqual(size, [1080, 1350]);
   const hide = await browser.$('input[name="shareHide"]');
+  // Вырезаем каждую сумму отдельно, без заголовков и соседних карточек.
+  const amountPixels = (png = null) => browser.execute(async (url) => {
+    let source = document.querySelector('[data-testid="year-card"]');
+    if (url) {
+      source = new Image();
+      source.src = url;
+      await source.decode();
+    }
+    const crop = (x) => {
+      const tile = document.createElement("canvas");
+      tile.width = 250;
+      tile.height = 80;
+      tile.getContext("2d").drawImage(source, x, 406, 250, 80, 0, 0, 250, 80);
+      return tile.toDataURL();
+    };
+    return { income: crop(96), expense: crop(416) };
+  }, png);
   assert.equal(await hide.isSelected(), false);
+  const visible = await amountPixels();
   await hide.click();
   assert.equal(await hide.isSelected(), true);
+  const masked = await amountPixels();
+  assert.notEqual(masked.income, visible.income, "личная галочка скрыла доход");
+  assert.notEqual(masked.expense, visible.expense, "личная галочка скрыла расход");
+  await browser.keys(["Control", "h"]);
+  await browser.waitUntil(async () => await hide.getAttribute("aria-disabled") === "true");
+  await browser.keys(["Control", "h"]);
+  await browser.waitUntil(async () => await hide.getAttribute("aria-disabled") !== "true");
+  assert.ok(await hide.isSelected(), "при возврате общего показа сохранился выбор для картинки");
+  await hide.click();
+  assert.deepEqual(await amountPixels(), visible);
+  await browser.execute((el) => el.focus(), hide);
+  await browser.keys(["Control", "h"]);
+  await waitText(browser, "#share-privacy-hint", /скрыты во всём приложении/);
+  assert.ok(await hide.isFocused());
+  await browser.keys(" ");
+  assert.ok(await hide.isSelected(), "клавиша пробела не открывает суммы при общей приватности");
+  assert.deepEqual(await amountPixels(), masked);
   const file = join(out, "итоги.png");
   await pick(file);
   await click(browser, "Сохранить PNG", dialog);
@@ -134,5 +169,11 @@ test("итоги года: картинка 1080×1350, «Без сумм» и �
   assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], "это PNG");
   assert.equal(png.toString("ascii", 12, 16), "IHDR");
   assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1080, 1350]);
+  const saved = await amountPixels(`data:image/png;base64,${png.toString("base64")}`);
+  assert.equal(saved.income, masked.income, "в сохранённом PNG доход скрыт");
+  assert.equal(saved.expense, masked.expense, "в сохранённом PNG расход скрыт");
+  await browser.keys(["Control", "h"]);
+  await browser.waitUntil(async () => await hide.getAttribute("aria-disabled") !== "true");
+  assert.equal(await hide.isSelected(), false);
   await browser.keys("Escape");
 });
