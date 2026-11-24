@@ -9,20 +9,7 @@ import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { HideAmountsSwitch } from "./Convenience";
 import { SectionIcon } from "./SectionIcon";
 import { DecorativeIcon } from "./DecorativeIcon";
-
-/** Логотип «Дверца, тише» (src-tauri/icons/icon.svg): мятный в обеих темах, как значок в Windows. */
-function Logo() {
-  return (
-    <svg className="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
-      <rect className="logo-bg" x="2" y="2" width="60" height="60" rx="16" />
-      <g className="logo-fg" fill="none" strokeWidth="3.5" strokeLinecap="round">
-        <rect x="15" y="15" width="34" height="34" rx="8" />
-        <circle cx="32" cy="32" r="7" />
-        <path d="M32 32v-5.5" />
-      </g>
-    </svg>
-  );
-}
+import { Brand } from "./Brand";
 
 /** Ручные темы и режим, который следует оформлению системы. */
 function ThemeSwitch() {
@@ -92,10 +79,7 @@ export function Sidebar() {
   const groups = isDefaultNav(nav);
   return (
     <nav className="sidebar" aria-label="Разделы">
-      <div className="brand">
-        <Logo />
-        Kazna
-      </div>
+      <Brand />
       <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
         <DecorativeIcon icon={Search} size="inline" />
         <span>Поиск</span>

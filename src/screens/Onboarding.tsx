@@ -3,6 +3,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { AccountSelectType } from "./accountParts";
 import { AmountInput, Field } from "../components/Fields";
+import { Brand } from "../components/Brand";
 import { ErrorText } from "../components/Modal";
 import { TransferDialog } from "../components/Vault";
 import { api, type AccountType } from "../lib/api";
@@ -60,7 +61,7 @@ export function Onboarding() {
     <div className="wizard">
       <div className="card wizard-card">
         <header className="onboarding-header">
-          <div className="brand big">Kazna</div>
+          <Brand large />
           <div className="steps" aria-live="polite">Шаг {step} из 3</div>
           <div className="onboarding-progress" aria-hidden="true"><span style={{ width: `${(step / 3) * 100}%` }} /></div>
         </header>

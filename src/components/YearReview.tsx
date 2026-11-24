@@ -126,7 +126,9 @@ export function YearReviewReport() {
 function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   const settings = useSettings().data;
   const base = useCurrencies().data?.find((c) => c.code === (settings?.base_currency ?? "RUB"));
-  const [hide, setHide] = useState(settings?.hide_amounts === "1");
+  const [hideOnCard, setHideOnCard] = useState(false);
+  const privacyLocked = !settings || settings.hide_amounts === "1";
+  const hide = privacyLocked || hideOnCard;
   const [pending, setPending] = useState<"save" | "copy" | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,14 +174,18 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
               name="shareHide"
               checked={hide}
               disabled={pending !== null}
+              aria-disabled={privacyLocked || undefined}
+              aria-describedby={privacyLocked ? "share-privacy-hint" : undefined}
               onChange={(e) => {
-                setHide(e.target.checked);
+                if (privacyLocked) return;
+                setHideOnCard(e.target.checked);
                 setStatus(null);
                 setError(null);
               }}
             />
             Без сумм: только проценты и доли
           </label>
+          {privacyLocked && <p id="share-privacy-hint" className="hint">{settings ? "Суммы скрыты во всём приложении, в том числе на картинке." : "Проверяем настройки видимости сумм."}</p>}
           <div className="btn-group">
             <button className="btn primary" disabled={pending !== null} onClick={() => void share("save")}>
               Сохранить PNG

@@ -34,7 +34,6 @@
 .sidebar .nav-item { gap: 9px; }
 .sidebar .nav-item.active { background: var(--accent-soft); }
 .sidebar .nav-item.active::before { display: block; left: -5px; width: 2px; border-radius: 2px; }
-.sidebar .brand-logo, .sidebar .brand:hover .brand-logo { transform: none; }
 
 /* Pointer feedback stays on the control. Rows and charts keep their geometry. */
 :where(button, a[href], summary, [role="button"], [role="menuitem"], [role="option"]) {
