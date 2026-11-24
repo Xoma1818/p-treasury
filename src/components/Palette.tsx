@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useModules } from "../lib/modules";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type SearchHit } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { formatAmount } from "../lib/money";
@@ -71,6 +71,13 @@ export function Palette() {
   const [active, setActive] = useState(0);
   const [deb, setDeb] = useState("");
   const list = useRef<HTMLUListElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (active !== input.current) opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
+    input.current?.focus();
+  }, []);
   const accounts = useAccounts().data ?? [];
   const categories = useCategories().data ?? [];
   const views = useQuery({ queryKey: ["views", null], queryFn: () => api.listViews(null) }).data ?? [];
@@ -81,6 +88,11 @@ export function Palette() {
   const hits = useQuery({ queryKey: ["globalSearch", deb], queryFn: () => api.globalSearch(deb), enabled: deb.length >= 2 }).data ?? [];
   const txns = useQuery({ queryKey: ["paletteTxns", deb], queryFn: () => api.listTransactions({ search: deb, limit: 6 }), enabled: deb.length >= 2 }).data?.items ?? [];
   const close = () => setPalette(false);
+  const cancel = () => {
+    close();
+    const target = opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>(".nav-search");
+    target?.focus();
+  };
 
   const items = useMemo<Item[]>(() => {
     const n = norm(q.trim());
@@ -147,7 +159,11 @@ export function Palette() {
     it.run();
   };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") return close();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      return cancel();
+    }
     if (e.key === "ArrowDown") (e.preventDefault(), setActive((a) => Math.min(items.length - 1, a + 1)));
     else if (e.key === "ArrowUp") (e.preventDefault(), setActive((a) => Math.max(0, a - 1)));
     else if (e.key === "Enter") (e.preventDefault(), pick(items[active]));
@@ -155,10 +171,12 @@ export function Palette() {
 
   let lastGroup = "";
   return (
-    <div className="palette" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <div className="palette" onMouseDown={(e) => {
+      if (e.target === e.currentTarget) { e.preventDefault(); cancel(); }
+    }}>
       <div className="palette-box" role="dialog" aria-label="Поиск по всему" data-testid="palette">
         <input
-          autoFocus
+          ref={input}
           name="paletteQuery"
           placeholder="Найти раздел, счёт, заметку, операцию…"
           value={q}

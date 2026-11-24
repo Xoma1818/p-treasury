@@ -1,5 +1,5 @@
 // Скриншоты для сравнения «до/после» оформления: node e2e/screenshots-ui.mjs <папка> (под xvfb-run).
-import { start, stop, onboard, openSection, fill, choose, click, save } from "./app.mjs";
+import { start, stop, resizeAppWindow, onboard, openSection, fill, choose, click, save } from "./app.mjs";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -8,7 +8,7 @@ mkdirSync(dir, { recursive: true });
 const shot = (b, name) => b.saveScreenshot(join(dir, `${name}.png`));
 const { browser } = await start();
 try {
-  await browser.setWindowSize(1280, 800);
+  await resizeAppWindow(browser, 1280, 800);
   await onboard(browser, [
     { name: "Наличные", balance: "8500" },
     { name: "Карта Сбер", balance: "64200" },

@@ -49,6 +49,17 @@ jobs:
           else
             npx tauri build --bundles nsis --config src-tauri/tauri.nokey.conf.json
           fi
+      - name: Окно и содержимое совпадают до и после изменения размера
+        shell: pwsh
+        run: |
+          $binary = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).mainBinaryName
+          ./scripts/windows-webview-layout.ps1 -AppPath "./target/release/$binary.exe" -CaptureDirectory "$env:RUNNER_TEMP/kazna-layout"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: kazna-windows-window
+          path: ${{ runner.temp }}/kazna-layout/*.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v5
         with:
           name: kazna-windows-installer

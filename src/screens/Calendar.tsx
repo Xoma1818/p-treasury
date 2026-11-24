@@ -110,7 +110,10 @@ function DayChips({ day, m, layers, showAmounts, balance }: { day: CalendarDay; 
   return (
     <span className="chips">
       {layers.income && day.income > 0 && <Money className="plus" amount={day.income} symbol={m.currencySymbol} minorUnits={m.minorUnits} signed />}
-      {layers.expense && day.expense > 0 && <Money className="minus" amount={-day.expense} symbol={m.currencySymbol} minorUnits={m.minorUnits} />}
+      {layers.expense && day.expense !== 0 && <span>
+        {day.expense < 0 && "Возвраты "}
+        <Money className={day.expense < 0 ? "plus" : "minus"} amount={-day.expense} symbol={m.currencySymbol} minorUnits={m.minorUnits} />
+      </span>}
       {layers.balance && balance != null && (
         <span className="cal-balance" title="Остаток на конец дня, все счета" data-testid="cal-balance">
           = <Money amount={balance} symbol={m.currencySymbol} minorUnits={m.minorUnits} />
@@ -297,7 +300,8 @@ function YearView({ selected, select }: { selected: string | null; select: Selec
   const showAmounts = settings && settings.hide_amounts !== "1";
   const dayLabel = (date: string, amount: number) => {
     if (!showAmounts || !h) return formatDate(date);
-    return `${formatDate(date)}: ${amount > 0 ? formatMoney(amount, h.currencySymbol, h.minorUnits) : "без трат"}`;
+    if (amount < 0) return `${formatDate(date)}: возвраты превысили расходы на ${formatMoney(-amount, h.currencySymbol, h.minorUnits)}`;
+    return `${formatDate(date)}: расходы за вычетом возвратов ${formatMoney(amount, h.currencySymbol, h.minorUnits)}`;
   };
   return (
     <>
@@ -444,7 +448,7 @@ function DayPanel({ date, heading, onClose, onReminder }: { date: string; headin
           + Заметка
         </button>
       </div>
-      <h3>Операции</h3>
+      <h3 data-txn-focus tabIndex={-1}>Операции</h3>
       {txns && txns.items.length === 0 && <p className="muted small">Операций нет.</p>}
       {txns && txns.items.length > 0 && <TxnTable items={txns.items} compact draggable />}
       {txns && txns.items.length > 0 && <p className="hint">Операцию можно перетащить на другой день календаря.</p>}
@@ -482,6 +486,19 @@ function DayPanel({ date, heading, onClose, onReminder }: { date: string; headin
 function RemindersView() {
   const q = useQuery({ queryKey: ["reminders"], queryFn: api.remindersOverview });
   const [edit, setEdit] = useState<Reminder | null>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusTargets = useRef<HTMLElement[]>([]);
+  const openEditor = (r: Reminder, button: HTMLButtonElement) => {
+    const buttons = Array.from(list.current?.querySelectorAll<HTMLButtonElement>(".reminder-edit") ?? []);
+    const index = buttons.indexOf(button);
+    focusTargets.current = [button, buttons[index + 1], buttons[index - 1]].filter(Boolean);
+    setEdit(r);
+  };
+  const closeEditor = () => {
+    setEdit(null);
+    requestAnimationFrame(() => (focusTargets.current.find((el) => el.isConnected) ?? heading.current)?.focus());
+  };
   const toggle = useAction((r: Reminder) => api.setReminderActive(r.id, !r.active));
   const o = q.data;
   if (!o) return null;
@@ -497,13 +514,13 @@ function RemindersView() {
       {section("Ближайшие 30 дней", o.upcoming, "rem-upcoming", "Ничего не запланировано.")}
       {o.done.length > 0 && section("Выполненные", o.done, "rem-done", "")}
       <div className="card" data-testid="rem-all">
-        <h2>Все напоминания</h2>
+        <h2 ref={heading} tabIndex={-1}>Все напоминания</h2>
         <p className="hint">Платежи по долгам напоминаются сами, за сколько дней — в Настройках.</p>
         {o.reminders.length === 0 && <p className="muted">Своих напоминаний нет.</p>}
-        <ul className="account-list">
+        <ul className="account-list" ref={list}>
           {o.reminders.map((r) => (
             <li key={r.id} className={r.active ? undefined : "muted"} data-testid="reminder-row">
-              <span className="clickable" onClick={() => setEdit(r)}>
+              <button type="button" className="reminder-edit" onClick={(e) => openEditor(r, e.currentTarget)}>
                 <span className="main">{r.title}</span>
                 <span className="sub">
                   {" "}
@@ -512,7 +529,7 @@ function RemindersView() {
                   {r.leadDays != null && `, ${leadText(parseLead(r.leadDays))}`}
                   {(r.noteId || r.eventId) && (r.noteId ? ", из заметки" : ", у события")}
                 </span>
-              </span>
+              </button>
               <span>
                 {r.amount != null && <Money amount={r.amount} symbol={r.currencySymbol} currencyCode={r.amountCurrency} minorUnits={r.minorUnits} />}
                 <button className="link" onClick={() => toggle.run(r)}>
@@ -523,7 +540,7 @@ function RemindersView() {
           ))}
         </ul>
       </div>
-      {edit && <ReminderForm reminder={edit} onClose={() => setEdit(null)} />}
+      {edit && <ReminderForm reminder={edit} onClose={closeEditor} />}
     </>
   );
 }

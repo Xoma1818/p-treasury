@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CategoryKind, QuickFilter, ReminderPaymentCreation, ReportFilter, ReportPeriodKind, SavedView, Subscription, Txn, TxnType } from "./api";
+import type { CategoryKind, CompareBy, ComparePeriods, QuickFilter, ReminderPaymentCreation, ReportFilter, ReportPeriodKind, SavedView, Subscription, Txn, TxnType } from "./api";
 import type { SectionId } from "./sections";
 import { rememberSection, startSection } from "./fine";
 
@@ -17,9 +17,9 @@ export interface TxnPrefill {
 
 export type TxnFormState =
   | { mode: "new"; type: TxnType; date?: string; prefill?: TxnPrefill; reminder?: ReminderPaymentCreation; onCancelReminder?: () => void }
-  | { mode: "edit"; txn: Txn }
+  | { mode: "edit"; txn: Txn; wholeReceipt?: boolean }
   /** 0.29: возврат за покупку `purchase`. */
-  | { mode: "refund"; purchase: Txn }
+  | { mode: "refund"; purchase: Txn; choosePart?: boolean }
   | null;
 
 /** Фильтр перехода в «Операции»; без дат — за всё время. */
@@ -38,6 +38,8 @@ export interface TxnJump {
   importId?: string;
   /** Получатель целиком (из панели операции «Все →»). */
   payee?: string;
+  /** Точный ключ строки сравнения, включая пустое имя. */
+  comparePayee?: string;
   /** Р5: та же сумма в той же валюте счёта. */
   amount?: number;
   currency?: string;
@@ -51,6 +53,7 @@ export interface TxnJump {
 }
 
 export interface ReportContext {
+  comparison?: { periods: ComparePeriods; by: CompareBy; kind: CategoryKind; preset: number };
   showHiddenSubscriptions?: boolean;
   tab: "structure" | "months" | "balances" | "compare" | "fx" | "subs" | "year" | "tag" | "networth";
   kind: ReportPeriodKind | "custom";

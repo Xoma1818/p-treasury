@@ -356,35 +356,64 @@ fn first_n(rule: &Rule, from: NaiveDateTime, n: usize) -> Vec<NaiveDateTime> {
 }
 
 pub fn create(conn: &Connection, input: &ReminderInput) -> Result<String> {
+    insert_reminder(conn, input, false)
+}
+
+fn insert_reminder(
+    conn: &Connection,
+    input: &ReminderInput,
+    continuing_series: bool,
+) -> Result<String> {
     let c = validate(conn, input)?;
     let id = ids::new_id();
-    conn.execute(
-        "INSERT INTO reminders (id, title, start_at, repeat, day_of_month, end_date, amount, txn_type, account_id,
-                                category_id, note, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
-        params![
-            id,
-            c.title,
-            input.start_at,
-            input.repeat,
-            c.day_of_month,
-            c.end_date,
-            input.amount,
-            c.txn_type,
-            clean(&input.account_id),
-            clean(&input.category_id),
-            clean(&input.note),
-            time::now_utc()
-        ],
+    let now = time::now_utc();
+    let account = clean(&input.account_id);
+    let category = clean(&input.category_id);
+    let note = clean(&input.note);
+    let note_id = clean(&input.note_id);
+    let event_id = clean(&input.event_id);
+    let mut args = params![
+        id,
+        c.title,
+        input.start_at,
+        input.repeat,
+        c.day_of_month,
+        c.end_date,
+        input.amount,
+        c.txn_type,
+        account,
+        category,
+        note,
+        now
+    ]
+    .to_vec();
+    // Старые учебные базы при обновлении ещё не содержат дополнительных колонок.
+    let extended =
+        c.lead_days.is_some() || c.last_amount.is_some() || note_id.is_some() || event_id.is_some();
+    let (columns, values) = if extended {
+        args.extend_from_slice(params![c.lead_days, c.last_amount, note_id, event_id]);
+        (
+            ", lead_days, last_amount, note_id, event_id",
+            ", ?13, ?14, ?15, ?16",
+        )
+    } else {
+        ("", "")
+    };
+    let guard = if !continuing_series && (note_id.is_some() || event_id.is_some()) {
+        " WHERE NOT EXISTS (SELECT 1 FROM reminders WHERE note_id = ?15 OR event_id = ?16)"
+    } else {
+        ""
+    };
+    let inserted = conn.execute(
+        &format!(
+            "INSERT INTO reminders (id, title, start_at, repeat, day_of_month, end_date, amount,
+                  txn_type, account_id, category_id, note, created_at, updated_at{columns})
+                  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12{values}{guard}"
+        ),
+        args.as_slice(),
     )?;
-    // Поля 0.23 — отдельно и только заданные: пример данных (demo) создаёт
-    // напоминания и на старой схеме в тестах обновления.
-    let (note_id, event_id) = (clean(&input.note_id), clean(&input.event_id));
-    if c.lead_days.is_some() || c.last_amount.is_some() || note_id.is_some() || event_id.is_some() {
-        conn.execute(
-            "UPDATE reminders SET lead_days = ?2, last_amount = ?3, note_id = ?4, event_id = ?5 WHERE id = ?1",
-            params![id, c.lead_days, c.last_amount, note_id, event_id],
-        )?;
+    if inserted == 0 {
+        return invalid("напоминание уже создано. Откройте его в карточке для редактирования");
     }
     Ok(id)
 }
@@ -898,7 +927,7 @@ fn occurrences_for(
         "SELECT s.id, s.due_date, s.payment, d.id, d.counterparty, d.direction, c.symbol, c.minor_units,
                 d.remind_days, c.code
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
-         WHERE s.status = 'pending' AND d.status = 'active' AND COALESCE(d.remind_days, 0) >= 0",
+         WHERE s.status = 'pending' AND s.payment > 0 AND d.status = 'active' AND COALESCE(d.remind_days, 0) >= 0",
     )?;
     type DebtRow = (
         String,
@@ -1206,10 +1235,11 @@ fn split_in_transaction(conn: &Connection, key: &Key, input: &ReminderInput) -> 
         return Ok(key.ref_id.clone());
     }
     let mut next = input.clone();
-    next.note_id = next.note_id.or(old.1);
-    next.event_id = next.event_id.or(old.2);
+    // Продолжение принадлежит той же карточке, что и исходная серия.
+    next.note_id = old.1;
+    next.event_id = old.2;
     let old_rule = stored_rule(conn, &key.ref_id)?.expect("найдено выше");
-    let id = create(conn, &next)?;
+    let id = insert_reminder(conn, &next, true)?;
     repeat_plan::inherit_segment(conn, &key.ref_id, &id)?;
     let new_rule = stored_rule(conn, &id)?.expect("только что записано");
     remap_states(conn, &key.ref_id, &old_rule, at, &id, &new_rule)?;
@@ -2834,19 +2864,48 @@ mod tests {
             },
         )
         .unwrap();
-        let id = create(
-            c,
-            &ReminderInput {
-                note_id: Some(note.clone()),
-                lead_days: Some("7".into()),
-                ..reminder("Продлить страховку", "2026-12-01T09:00", "once", None)
-            },
-        )
-        .unwrap();
+        let note_reminder = ReminderInput {
+            note_id: Some(note.clone()),
+            lead_days: Some("7".into()),
+            ..reminder("Продлить страховку", "2026-12-01T09:00", "monthly", None)
+        };
+        let id = create(c, &note_reminder).unwrap();
+        assert!(matches!(
+            create(c, &note_reminder),
+            Err(Error::Validation(_))
+        ));
+        assert_eq!(list(c, dt("2026-11-01T00:00")).unwrap().len(), 1);
         assert_eq!(
             crate::notes::get(c, &note).unwrap().reminder_id,
             Some(id.clone())
         );
+        let next = split_from(
+            c,
+            &Key {
+                source: "reminder".into(),
+                ref_id: id.clone(),
+                scheduled_at: "2027-01-01T09:00".into(),
+            },
+            &ReminderInput {
+                start_at: "2027-01-02T09:00".into(),
+                ..note_reminder.clone()
+            },
+        )
+        .unwrap();
+        assert_ne!(id, next);
+        assert_eq!(crate::notes::get(c, &note).unwrap().reminder_id, Some(next));
+        assert!(create(c, &note_reminder).is_err());
+        // Удалённая в другом окне заметка не оставляет бесхозное напоминание.
+        let total = list(c, dt("2026-11-01T00:00")).unwrap().len();
+        assert!(create(
+            c,
+            &ReminderInput {
+                note_id: Some("missing".into()),
+                ..note_reminder
+            }
+        )
+        .is_err());
+        assert_eq!(list(c, dt("2026-11-01T00:00")).unwrap().len(), total);
         let event = crate::events::create(
             c,
             &crate::events::EventInput {

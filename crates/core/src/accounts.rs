@@ -61,6 +61,54 @@ pub struct AccountInput {
     pub invest_kind: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountOptions {
+    pub in_budget: bool,
+    pub in_forecast: bool,
+    pub group_id: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+}
+
+/// Одна форма счёта сохраняется и отменяется целиком. Без options сохраняем
+/// настройки существующего счёта, как в вызовах прежних версий.
+pub fn save_form(
+    conn: &mut Connection,
+    account_id: Option<&str>,
+    input: &AccountInput,
+    options: Option<&AccountOptions>,
+) -> Result<String> {
+    let tx = conn.transaction()?;
+    let id = match account_id {
+        Some(id) => {
+            update(&tx, id, input)?;
+            id.to_owned()
+        }
+        None => create(&tx, input)?,
+    };
+    if let Some(options) = options {
+        let current = get(&tx, &id)?;
+        if current.in_budget != options.in_budget || current.in_forecast != options.in_forecast {
+            set_includes(
+                &tx,
+                &id,
+                input.include_in_total,
+                options.in_budget,
+                options.in_forecast,
+            )?;
+        }
+        if current.group_id != options.group_id {
+            set_group(&tx, &id, options.group_id.as_deref())?;
+        }
+        if current.icon != options.icon || current.color != options.color {
+            set_look(&tx, &id, options.icon.as_deref(), options.color.as_deref())?;
+        }
+    }
+    tx.commit()?;
+    Ok(id)
+}
+
 /// Баланс счёта на дату включительно (`None` — на все даты). Учитываются
 /// только проведённые операции.
 pub fn balance(conn: &Connection, account_id: &str, on: Option<&str>) -> Result<i64> {
@@ -572,6 +620,52 @@ pub(crate) mod tests {
             include_in_total: true,
             invest_kind: None,
         }
+    }
+
+    #[test]
+    fn save_form_is_atomic_and_undoes_all_options_together() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let group = crate::account_groups::create(db.conn(), "Семья").unwrap();
+        let mut history = crate::undo::Journal::default();
+        let deposit = input("Вклад", "savings", "RUB", 7_000);
+        let mut options = AccountOptions {
+            in_budget: false,
+            in_forecast: false,
+            group_id: Some(group.clone()),
+            icon: Some("wallet".into()),
+            color: Some("mint".into()),
+        };
+        let id = history
+            .record(db.conn_mut(), "Вклад", |c| {
+                save_form(c, None, &deposit, Some(&options))
+            })
+            .unwrap();
+        let verify = |c: &Connection| {
+            let a = get(c, &id).unwrap();
+            assert_eq!(
+                (a.name.as_str(), a.balance, a.group_id.as_ref()),
+                ("Вклад", 7_000, Some(&group))
+            );
+            assert_eq!(a.icon.as_deref(), Some("wallet"));
+            assert!(!a.in_budget && !a.in_forecast);
+        };
+        verify(db.conn());
+        history.undo(db.conn()).unwrap();
+        assert!(history.state().undo.is_none());
+        assert!(get(db.conn(), &id).is_err());
+        assert!(crate::settings::get(db.conn(), BUDGET_EXCLUDED_KEY)
+            .unwrap()
+            .is_none());
+        history.redo(db.conn()).unwrap();
+        verify(db.conn());
+        let mut changed = deposit.clone();
+        changed.name = "После правки".into();
+        options.group_id = None;
+        options.color = Some("несуществующий цвет".into());
+        assert!(save_form(db.conn_mut(), Some(&id), &changed, Some(&options)).is_err());
+        assert!(save_form(db.conn_mut(), None, &changed, Some(&options)).is_err());
+        assert_eq!(list(db.conn(), false).unwrap().len(), 1);
+        verify(db.conn());
     }
 
     #[test]

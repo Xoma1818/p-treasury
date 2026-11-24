@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 import {
   start,
   stop,
+  WIN,
+  getAppWindowSize,
+  resizeAppWindow,
   onboard,
   openSection,
   fill,
@@ -130,16 +133,18 @@ test("Tab идёт по полям формы по порядку, фокус в
 test("маленькое окно (как масштаб 150 %): ни в одном разделе нет прокрутки вбок, форма помещается", async (t) => {
   const { browser } = app;
   await openSection(browser, "Главная"); // закрывает окно, оставшееся от прошлого теста
-  const before = await browser.getWindowSize();
+  const before = await getAppWindowSize(browser);
   try {
-    await browser.setWindowSize(1024, 640);
+    await resizeAppWindow(browser, 1024, 640);
   } catch (e) {
+    if (WIN) throw e;
     t.skip(`размер окна не меняется: ${e.message.split("\n")[0]}`);
     return;
   }
   try {
     const inner = await browser.execute(() => [innerWidth, innerHeight]);
-    if (inner[0] > 1100)
+    if (WIN) assert.ok(inner[0] <= 1100, `окно не уменьшилось: ${inner.join("×")}`);
+    else if (inner[0] > 1100)
       return t.skip(`окно не уменьшилось: ${inner.join("×")}`);
     const titles = await browser.execute(() =>
       [...document.querySelectorAll("nav button.nav-item:not(.nav-view)")]
@@ -202,7 +207,9 @@ test("маленькое окно (как масштаб 150 %): ни в одн�
       await browser.$(`//*[@role="dialog"]//button[normalize-space()="Отмена"]`)
     ).click();
   } finally {
-    await browser.setWindowSize(before.width, before.height).catch(() => {});
+    const restore = resizeAppWindow(browser, before.width, before.height);
+    if (WIN) await restore;
+    else await restore.catch(() => {});
   }
 });
 

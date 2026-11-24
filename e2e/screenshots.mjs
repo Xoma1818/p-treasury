@@ -1,5 +1,5 @@
 // Скриншоты экранов для отчёта: node e2e/screenshots.mjs (под xvfb-run на Linux).
-import { start, stop, onboard, openSection, fill, choose, chooseLike, click, save, setDate, newDebt } from "./app.mjs";
+import { start, stop, resizeAppWindow, onboard, openSection, fill, choose, chooseLike, click, save, setDate, newDebt } from "./app.mjs";
 
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 const out = (name) => new URL(`../docs/design/screens/${name}.png`, import.meta.url).pathname;
 const { browser } = await start();
 try {
-  await browser.setWindowSize(1280, 800);
+  await resizeAppWindow(browser, 1280, 800);
   await onboard(browser, [
     { name: "Наличные", balance: "8500" },
     { name: "Карта Сбер", balance: "64200" },

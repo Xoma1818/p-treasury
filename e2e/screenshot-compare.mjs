@@ -1,5 +1,5 @@
 // Скриншот вкладки «Сравнение»: node e2e/screenshot-compare.mjs (под xvfb-run на Linux).
-import { start, stop, onboard, fill, choose, click, save, setDate, openSection } from "./app.mjs";
+import { start, stop, resizeAppWindow, onboard, fill, choose, click, save, setDate, openSection } from "./app.mjs";
 
 const out = (name) => new URL(`../docs/design/screens/${name}.png`, import.meta.url).pathname;
 const pad = (n) => String(n).padStart(2, "0");
@@ -10,7 +10,7 @@ const day = (back, d) => {
 };
 const { browser } = await start();
 try {
-  await browser.setWindowSize(1280, 900);
+  await resizeAppWindow(browser, 1280, 900);
   await onboard(browser, [
     { name: "Наличные", balance: "8500" },
     { name: "Карта Сбер", balance: "164200" },

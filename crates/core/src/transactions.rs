@@ -426,6 +426,8 @@ pub struct Filter {
     pub import_id: Option<String>,
     /// Получатель целиком, без учёта регистра и пробелов по краям (похожие операции).
     pub payee: Option<String>,
+    /// Ключ строки отчёта сравнения. Пустой ключ включает операции без получателя.
+    pub compare_payee: Option<String>,
     /// Р3: готовые фильтры, все вместе: «uncategorized» — в «Прочих расходах» или «Прочих доходах»,
     /// «recurring» — получатель встречался в трёх и больше разных месяцах,
     /// «note» — с комментарием, «foreign» — по счёту не в основной валюте.
@@ -583,6 +585,12 @@ fn where_clause(conn: &Connection, f: &Filter) -> Result<(String, Vec<Value>)> {
         wh.push(format!(
             "kz_lower(trim(t.payee)) = {}",
             arg(p.to_lowercase().into())
+        ));
+    }
+    if let Some(p) = &f.compare_payee {
+        wh.push(format!(
+            "coalesce(trim(t.payee), '') = {}",
+            arg(p.clone().into())
         ));
     }
     if let Some(i) = &f.import_id {

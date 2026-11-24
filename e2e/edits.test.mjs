@@ -153,7 +153,7 @@ test("напоминание: отложить до завтра, выполни
 test("напоминание: переименовать, выключить, включить и удалить", async () => {
   await openSection(browser, "Календарь");
   await click(browser, "Напоминания");
-  await (await browser.$(`${remRow("Вода")}//span[@class="clickable"]`)).click();
+  await (await browser.$(`${remRow("Вода")}//button[contains(@class,"reminder-edit")]`)).click();
   await fill(browser, "reminderTitle", "Вода и свет");
   await save(browser);
   await browser.$(remRow("Вода и свет")).waitForExist({ timeout: 5000, timeoutMsg: "напоминание не переименовалось" });
@@ -164,9 +164,14 @@ test("напоминание: переименовать, выключить, в
   assert.equal(await browser.$(occ("rem-overdue", "Вода и свет")).isExisting(), false, "выключенное не должно висеть в просроченных");
   await click(browser, "Включить", remRow("Вода и свет"));
   await waitText(browser, remRow("Вода и свет"), /следующее/);
-  await (await browser.$(`${remRow("Вода и свет")}//span[@class="clickable"]`)).click();
+  const edit = browser.$(`${remRow("Вода и свет")}//button[contains(@class,"reminder-edit")]`);
+  await edit.click();
+  await browser.keys("Escape");
+  await browser.waitUntil(() => edit.isFocused());
+  await browser.keys("Enter");
   await save(browser, "Удалить");
   await browser.waitUntil(async () => !(await browser.$(remRow("Вода и свет")).isExisting()), { timeout: 5000, timeoutMsg: "напоминание не удалилось" });
+  await browser.waitUntil(() => browser.execute(() => document.activeElement?.matches("[data-testid=rem-all] .reminder-edit, [data-testid=rem-all] h2")));
 });
 
 test("бюджет: заметка к месяцу сохраняется, «Удалить бюджет месяца» удаляет", async () => {

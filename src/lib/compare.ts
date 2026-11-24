@@ -9,9 +9,13 @@ export function splitRows(rows: CompareRow[]) {
   };
 }
 
-/** Изменение в процентах: «+25 %», «−25 %», «0 %»; без первого периода — «новое». */
+/** При покупке с полным возвратом получатель может появиться без изменения суммы. */
+export function hasNewAmount(row: Pick<CompareRow, "presence" | "diff">): boolean {
+  return row.presence === "onlyB" && row.diff !== 0;
+}
+
 export function formatChange(percent: number | null): string {
-  if (percent == null) return "новое";
+  if (percent == null) return "—";
   if (percent > 0) return `+${percent} %`;
   if (percent < 0) return `−${Math.abs(percent)} %`;
   return "0 %";

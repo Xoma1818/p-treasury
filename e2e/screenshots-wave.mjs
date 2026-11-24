@@ -1,5 +1,5 @@
 // Скриншоты новых функций 0.10 на примере данных: node e2e/screenshots-wave.mjs <папка> [light] (под xvfb-run).
-import { start, stop, openSection, click, choose, setDate } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, click, choose, setDate } from "./app.mjs";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -12,7 +12,7 @@ const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
 const { browser } = await start();
 try {
-  await browser.setWindowSize(1280, 900);
+  await resizeAppWindow(browser, 1280, 900);
   if (light) await browser.execute(() => localStorage.setItem("p-treasury-theme", "light"));
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await shot(browser, "onboarding-demo");

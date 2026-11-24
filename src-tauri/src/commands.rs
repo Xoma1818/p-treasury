@@ -312,16 +312,25 @@ pub fn list_accounts(state: State<AppState>, include_archived: bool) -> CmdResul
 }
 
 #[tauri::command(async)]
-pub fn create_account(state: State<AppState>, input: AccountInput) -> CmdResult<String> {
+pub fn create_account(
+    state: State<AppState>,
+    input: AccountInput,
+    options: Option<accounts::AccountOptions>,
+) -> CmdResult<String> {
     with_undo(&state, "Новый счёт", |c| {
-        accounts::create(c, &input)
+        accounts::save_form(c, None, &input, options.as_ref())
     })
 }
 
 #[tauri::command(async)]
-pub fn update_account(state: State<AppState>, id: String, input: AccountInput) -> CmdResult<()> {
+pub fn update_account(
+    state: State<AppState>,
+    id: String,
+    input: AccountInput,
+    options: Option<accounts::AccountOptions>,
+) -> CmdResult<()> {
     with_undo(&state, "Изменение счёта", |c| {
-        accounts::update(c, &id, &input)
+        accounts::save_form(c, Some(&id), &input, options.as_ref()).map(|_| ())
     })
 }
 

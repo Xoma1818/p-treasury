@@ -1,7 +1,7 @@
 // Снимки 0.16 «Быстрые победы» на примере данных, 1280 и 1920, тёмная и светлая темы:
 // node e2e/screenshots-quickwins.mjs <папка> (под xvfb-run -s "-screen 0 1920x1080x24").
 // Имена файлов — русские слова латиницей: 01-glavnaya-proverte-1280-temnaya.png и т. п.
-import { start, stop, setDate } from "./app.mjs";
+import { start, stop, resizeAppWindow, setDate } from "./app.mjs";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -69,7 +69,7 @@ try {
   await button("Посмотреть на примере");
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 15000 });
   for (const [size, w, h] of SIZES) {
-    await browser.setWindowSize(w, h);
+    await resizeAppWindow(browser, w, h);
     for (const [themeName, theme] of THEMES) {
       // Тема — кнопкой в боковом меню, как у пользователя.
       await js((t) => [...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === t)?.click(), theme);

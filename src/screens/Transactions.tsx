@@ -258,6 +258,7 @@ export function Transactions() {
   if (f.tagId) chips.push({ id: tags.some((t) => t.id === f.tagId) ? "chip-tag" : "filter-tag", label: tags.find((t) => t.id === f.tagId) ? `#${tags.find((t) => t.id === f.tagId)!.name}` : "Тег", clear: () => set({ tagId: undefined }) });
   if (f.importId) chips.push({ id: "filter-import", label: "Один импорт", clear: () => set({ importId: undefined }) });
   if (f.payee) chips.push({ id: "filter-payee", label: `Получатель: ${f.payee}`, clear: () => set({ payee: undefined }) });
+  if (f.comparePayee !== undefined) chips.push({ id: "filter-compare-payee", label: f.comparePayee ? `Получатель: ${f.comparePayee}` : "Без получателя", clear: () => set({ comparePayee: undefined }) });
   for (const q of f.quick ?? []) {
     const label = QUICK_FILTERS.find((x) => x.key === q)?.label ?? q;
     chips.push({ id: `chip-quick-${q}`, label, clear: () => toggleQuick(q) });
@@ -440,7 +441,7 @@ export function Transactions() {
       </div>
       <div className="card" role="region" aria-labelledby="txn-results-title">
         <header className="txn-results-header">
-          <h2 ref={resultsTitle} tabIndex={-1} id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
+          <h2 ref={resultsTitle} data-txn-focus tabIndex={-1} id="txn-results-title" data-testid="txn-result-period">{journalPeriod(f.dateFrom, f.dateTo)}</h2>
           <span className="muted txn-results-status" role="status">
             {resultStatus}
           </span>

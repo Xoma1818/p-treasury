@@ -57,7 +57,7 @@ export function FindSimilar({ txn, onClose }: { txn: Txn; onClose: () => void })
       {q.error && <p className="error">{String(q.error)}</p>}
       {q.data && (
         <>
-          <p className="muted" data-testid="similar-count">
+          <p className="muted" data-txn-focus tabIndex={-1} data-testid="similar-count">
             Найдено: {total}
             {total > q.data.items.length ? `, показаны последние ${q.data.items.length}` : ""}
           </p>

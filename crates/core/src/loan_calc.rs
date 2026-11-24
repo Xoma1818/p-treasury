@@ -793,11 +793,17 @@ pub struct Sim {
     pub outstanding: i64,
     pub principal_paid: i64,
     pub interest_paid: i64,
+    #[serde(skip)]
+    closed_on: Option<String>,
 }
 
 impl Sim {
     pub fn totals(&self) -> Totals {
-        let pending = || self.rows.iter().filter(|r| r.status == Status::Pending);
+        let pending = || {
+            self.rows
+                .iter()
+                .filter(|r| r.status == Status::Pending && r.row.payment > 0)
+        };
         let planned = || self.early.iter().filter(|e| e.planned);
         let interest_left = pending().map(|r| r.row.interest_part).sum::<i64>()
             + planned().map(|e| e.interest).sum::<i64>();
@@ -808,9 +814,9 @@ impl Sim {
             total_interest: self.interest_paid + interest_left,
             total_payment: self.principal_paid + self.interest_paid + left_payments,
             maturity_date: self
-                .rows
-                .last()
-                .map(|r| r.row.due_date.clone())
+                .closed_on
+                .clone()
+                .or_else(|| self.rows.last().map(|r| r.row.due_date.clone()))
                 .unwrap_or_default(),
             rows_left: pending().count() as u32,
             interest_left,
@@ -1317,6 +1323,13 @@ fn run<'a>(t: &'a Terms, events: &[Event]) -> Run<'a> {
             .and_then(|s| r.lines.iter().position(|l| l.row.seq == s));
         let (from, acc) = match found {
             Some(i) => {
+                // Нулевые взносы каникул не оплачиваются. После оплаты следующего
+                // взноса они в прошлом, и досрочка не должна перестраивать их снова.
+                for line in &mut r.lines[..i] {
+                    if line.status == Status::Pending && line.row.payment == 0 {
+                        line.status = Status::Paid;
+                    }
+                }
                 let planned = r.lines[i].row.principal_part;
                 let line = &mut r.lines[i];
                 line.row.payment = p.principal + p.interest;
@@ -1405,6 +1418,18 @@ pub fn simulate(t: &Terms, events: &[Event]) -> Sim {
         outstanding: r.left,
         principal_paid: r.principal_paid,
         interest_paid: r.interest_paid,
+        closed_on: if r.left == 0 {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::Payment(p) => Some(p.date),
+                    _ => None,
+                })
+                .max()
+                .map(|day| day.to_string())
+        } else {
+            None
+        },
     }
 }
 

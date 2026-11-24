@@ -63,7 +63,7 @@ export function LoanCompareTable({ card, compare, after = "Станет" }: { ca
       <tbody>
         <Diff label="Ставка" was={rate(b)} now={rate(a)} changed={b.rateBp !== a.rateBp || b.rateFrom !== a.rateFrom} testid="cmp-rate" />
         <Diff label="Число платежей" was={count(b)} now={count(a)} changed={b.payments !== a.payments || b.paymentsLeft !== a.paymentsLeft} testid="cmp-payments" />
-        <Diff label="Ближайший платёж" was={m(b.payment)} now={a.payment ? m(a.payment) : "погашен"} changed={b.payment !== a.payment} testid="cmp-payment" />
+        <Diff label="Ближайший платёж" was={b.paymentsLeft ? m(b.payment) : "погашен"} now={a.paymentsLeft ? m(a.payment) : "погашен"} changed={b.payment !== a.payment} testid="cmp-payment" />
         <Diff label="Переплата" was={m(b.overpayment)} now={m(a.overpayment)} changed={delta !== 0} testid="cmp-overpayment" />
         <Diff label="Дата закрытия" was={formatDate(b.maturityDate)} now={formatDate(a.maturityDate)} changed={b.maturityDate !== a.maturityDate} testid="cmp-maturity" />
         {delta !== 0 && (
@@ -516,7 +516,7 @@ export function WhatIf({ card }: { card: DebtCard }) {
             </tr>
           </thead>
           <tbody>
-            <Diff label="Платёж" was={m(r.before.totals.payment)} now={r.newPayment ? m(r.newPayment) : "погашен"} />
+            <Diff label="Платёж" was={m(r.before.totals.payment)} now={r.after.totals.rowsLeft ? m(r.newPayment) : "погашен"} />
             <Diff label="Последний платёж" was={formatDate(r.before.totals.maturityDate)} now={formatDate(r.after.totals.maturityDate)} />
             <Diff label="Платежей осталось" was={r.before.totals.rowsLeft} now={r.after.totals.rowsLeft} />
             <Diff label="Процентов ещё" was={m(r.before.totals.interestLeft)} now={m(r.after.totals.interestLeft)} />

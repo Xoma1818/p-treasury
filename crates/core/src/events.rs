@@ -142,7 +142,7 @@ pub fn list(conn: &Connection, today: &str) -> Result<Vec<Event>> {
     let bc = currencies::get(conn, &base)?;
     let mut stmt = conn.prepare(
         "SELECT e.id, e.name, e.start_date, e.end_date, e.budget, e.note,
-                (SELECT r.id FROM reminders r WHERE r.event_id = e.id ORDER BY r.created_at LIMIT 1)
+                (SELECT r.id FROM reminders r WHERE r.event_id = e.id ORDER BY r.created_at DESC, r.rowid DESC LIMIT 1)
          FROM events e ORDER BY e.start_date DESC, e.name",
     )?;
     let events: Vec<Event> = stmt

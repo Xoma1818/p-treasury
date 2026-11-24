@@ -566,9 +566,7 @@ fn header(rows: &Rows) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Что лежит в «Всех данных»: как у копии, чтобы показать перед переносом.
-pub fn inspect_excel(path: &Path) -> Result<backups::BackupInfo> {
-    let book = read_book(path)?;
+fn book_version(book: &BTreeMap<String, Rows>) -> Result<i64> {
     let version = book[INFO_SHEET]
         .iter()
         .find(|r| r.first().and_then(cell_text).as_deref() == Some("Версия данных"))
@@ -578,6 +576,13 @@ pub fn inspect_excel(path: &Path) -> Result<backups::BackupInfo> {
     if version > LATEST_VERSION {
         return invalid(format!("файл сделан более новой версией приложения (схема {version}); сначала обновите приложение"));
     }
+    Ok(version)
+}
+
+/// Что лежит в «Всех данных»: как у копии, чтобы показать перед переносом.
+pub fn inspect_excel(path: &Path) -> Result<backups::BackupInfo> {
+    let book = read_book(path)?;
+    let version = book_version(&book)?;
     let column = |sheet: &str, name: &str| -> Vec<String> {
         let Some(rows) = book.get(sheet) else {
             return Vec::new();
@@ -610,6 +615,7 @@ pub fn inspect_excel(path: &Path) -> Result<backups::BackupInfo> {
 /// появиться новые настройки). Столбцы сопоставляются по имени.
 pub fn import_all_data(conn: &mut Connection, path: &Path) -> Result<usize> {
     let book = read_book(path)?;
+    let version = book_version(&book)?;
     let tables = data_tables(conn)?;
     conn.pragma_update(None, "foreign_keys", "OFF")?;
     let result = (|| -> Result<usize> {
@@ -665,6 +671,15 @@ pub fn import_all_data(conn: &mut Connection, path: &Path) -> Result<usize> {
                     })?;
                 total += 1;
             }
+        }
+        // Книга восстанавливается в готовую схему; её старые счётчики требуют
+        // той же разовой поправки, что и при обновлении файла бюджета.
+        if (18..31).contains(&version)
+            && book
+                .get("import_batches")
+                .is_some_and(|rows| header(rows).iter().any(|h| h == "added"))
+        {
+            tx.execute_batch(include_str!("../migrations/0031_import_refund_counts.sql"))?;
         }
         let broken: Option<String> = tx
             .query_row(

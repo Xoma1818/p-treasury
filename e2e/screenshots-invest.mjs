@@ -1,5 +1,5 @@
 // Скриншоты раздела «Инвестиции» 0.11 на примере данных: node e2e/screenshots-invest.mjs <папка> (под xvfb-run).
-import { start, stop, openSection, click, fill } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, click, fill } from "./app.mjs";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -8,7 +8,7 @@ mkdirSync(dir, { recursive: true });
 const shot = (b, name) => b.saveScreenshot(join(dir, `${name}.png`));
 const { browser } = await start();
 try {
-  await browser.setWindowSize(1280, 900);
+  await resizeAppWindow(browser, 1280, 900);
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
   await click(browser, "Посмотреть на примере");
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });

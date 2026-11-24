@@ -82,6 +82,8 @@ pub struct Preview {
     pub account_id: Option<String>,
     /// Строки выписки «Между своими счетами»: для них спрашивается второй счёт.
     pub self_transfers: usize,
+    /// Есть новые собственные переводы без второй стороны и без явного решения пользователя.
+    pub needs_transfer_choice: bool,
     /// Второй свой счёт для таких переводов (выбранный или запомненный).
     pub self_account_id: Option<String>,
     /// Уже загруженные расходом или доходом строки, которые станут переводами.
@@ -241,6 +243,7 @@ pub(crate) type Refunds = Vec<(usize, Option<String>)>;
 pub(crate) struct Extra {
     pub(crate) categories: NewCategories,
     pub(crate) refunds: Refunds,
+    pub(crate) needs_transfer_choice: bool,
 }
 
 /// Категория из файла, которой нет в программе: её создаст загрузка.
@@ -779,6 +782,7 @@ pub(crate) fn parse_full(conn: &Connection, path: &Path) -> Result<(Vec<Parsed>,
         Extra {
             categories: new_cats,
             refunds,
+            needs_transfer_choice: false,
         },
     ))
 }
@@ -940,6 +944,7 @@ fn save_reviewed_rows(
             }),
         },
     )?;
+    let refund_count = back.len();
     for (line, t, budget) in back {
         let of = t
             .category_id
@@ -965,6 +970,12 @@ fn save_reviewed_rows(
             params![id, saved.import_id],
         )?;
         saved.added += 1;
+    }
+    if refund_count > 0 {
+        conn.execute(
+            "UPDATE import_batches SET added = added + ?2 WHERE id = ?1",
+            params![saved.import_id, refund_count as i64],
+        )?;
     }
     // Свежая выписка: записанная расходом или доходом строка — перевод своих денег.
     for (line, (id, absorb), t) in converts {
@@ -1103,6 +1114,7 @@ fn describe_plan(
         bank: bank.as_ref().map(|(b, _)| b.title().to_string()),
         account_id,
         self_transfers,
+        needs_transfer_choice: extra.needs_transfer_choice,
         self_account_id,
         rows,
     };
@@ -1231,6 +1243,9 @@ fn apply_parsed(
     self_id: Option<&str>,
     decisions: &BankImportDecisions,
 ) -> Result<import_log::Saved> {
+    if extra.needs_transfer_choice {
+        return invalid(bank_import::NEED_TRANSFER_CHOICE);
+    }
     let errors = parsed.iter().filter(|p| p.row.error.is_some()).count();
     if errors > 0 && !skip_errors {
         return invalid(format!(
@@ -1611,6 +1626,7 @@ mod tests {
         let p = preview(db2.conn(), &book, None).unwrap();
         assert_eq!(p.errors, 0, "{:?}", p.rows);
         assert_eq!(import(db2.conn_mut(), &book, false, None).unwrap().added, 5);
+        assert_eq!(import_log::history(db2.conn(), 1).unwrap()[0].added, 5);
         assert_eq!(state(db2.conn()), before);
         let linked: i64 = db2
             .conn()
@@ -1621,6 +1637,21 @@ mod tests {
             )
             .unwrap();
         assert_eq!(linked, 2);
+        // Состояние версии 30: три обычные строки уже учтены, два возврата пропущены.
+        db2.conn()
+            .execute("UPDATE import_batches SET added = 3", [])
+            .unwrap();
+        db2.conn().pragma_update(None, "user_version", 30).unwrap();
+        let old_book = dir.path().join("Все данные 30.xlsx");
+        crate::vault::write_all_data(db2.conn(), &old_book).unwrap();
+        let mut restored = setup();
+        crate::vault::import_all_data(restored.conn_mut(), &old_book).unwrap();
+        assert_eq!(import_log::history(restored.conn(), 1).unwrap()[0].added, 5);
+        assert_eq!(state(restored.conn()), before);
+        crate::storage::migrate(db2.conn_mut(), crate::storage::MIGRATIONS).unwrap();
+        crate::storage::migrate(db2.conn_mut(), crate::storage::MIGRATIONS).unwrap();
+        assert_eq!(import_log::history(db2.conn(), 1).unwrap()[0].added, 5);
+        assert_eq!(state(db2.conn()), before);
         let again = transactions_sheet(db2.conn(), &Filter::default()).unwrap();
         assert_eq!(again.rows, sheet.rows);
 

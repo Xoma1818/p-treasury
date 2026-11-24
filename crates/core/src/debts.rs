@@ -92,6 +92,8 @@ pub struct PaymentRow {
     pub date: String,
     pub principal: i64,
     pub interest: i64,
+    /// Фактический остаток основного долга после этой записи.
+    pub balance_after: i64,
     pub schedule_seq: Option<u32>,
     pub recalc_mode: Option<String>,
     pub account_name: Option<String>,
@@ -564,7 +566,7 @@ pub fn pay(conn: &mut Connection, debt_id: &str, input: &PaymentInput) -> Result
     if let Some(sid) = input.schedule_id.as_deref() {
         let next: Option<String> = conn
             .query_row(
-                "SELECT id FROM debt_schedule WHERE debt_id = ?1 AND status = 'pending' ORDER BY seq LIMIT 1",
+                "SELECT id FROM debt_schedule WHERE debt_id = ?1 AND status = 'pending' AND payment > 0 ORDER BY seq LIMIT 1",
                 [debt_id],
                 |r| r.get(0),
             )
@@ -678,7 +680,7 @@ fn events(conn: &Connection, debt_id: &str) -> Result<Vec<Event>> {
     let mut stmt = conn.prepare(
         "SELECT s.seq, p.principal_amount, p.interest_amount, COALESCE(p.recalc_mode, 'reduce_payment'), p.date
          FROM debt_payments p LEFT JOIN debt_schedule s ON s.id = p.schedule_id
-         WHERE p.debt_id = ?1 ORDER BY p.date, p.created_at",
+         WHERE p.debt_id = ?1 ORDER BY p.date, p.created_at, p.rowid",
     )?;
     let rows: Vec<(Option<u32>, i64, i64, String, String)> = stmt
         .query_map([debt_id], |r| {
@@ -781,7 +783,7 @@ fn schedule_rows(conn: &Connection, debt_id: &str, today: &str) -> Result<Vec<Sc
         Ok(ScheduleRow {
             id: r.get(0)?,
             seq: r.get(1)?,
-            overdue: status == "pending" && due.as_str() < today,
+            overdue: status == "pending" && r.get::<_, i64>(3)? > 0 && due.as_str() < today,
             due_date: due,
             payment: r.get(3)?,
             principal_part: r.get(4)?,
@@ -804,7 +806,11 @@ fn card(conn: &Connection, t: &Terms, schedule: &[ScheduleRow]) -> Result<DebtCa
         [&t.id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let pending = || schedule.iter().filter(|r| r.status == "pending");
+    let pending = || {
+        schedule
+            .iter()
+            .filter(|r| r.status == "pending" && r.payment > 0)
+    };
     let default_account_id: Option<String> = conn
         .query_row(
             "SELECT CASE WHEN account_id = ?2 THEN to_account_id ELSE account_id END FROM transactions
@@ -844,12 +850,12 @@ fn card(conn: &Connection, t: &Terms, schedule: &[ScheduleRow]) -> Result<DebtCa
     })
 }
 
-pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
-    let t = terms(conn, id)?;
-    let schedule = schedule_rows(conn, id, today)?;
+fn payment_rows(conn: &Connection, t: &Terms) -> Result<Vec<PaymentRow>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.date, p.principal_amount, p.interest_amount, s.seq, p.recalc_mode,
-                COALESCE(pa.name, ia.name)
+                COALESCE(pa.name, ia.name),
+                ?3 - sum(p.principal_amount) OVER (
+                    ORDER BY p.date, p.created_at, p.rowid ROWS UNBOUNDED PRECEDING)
          FROM debt_payments p
          LEFT JOIN debt_schedule s ON s.id = p.schedule_id
          LEFT JOIN transactions pt ON pt.id = p.principal_transaction_id
@@ -859,7 +865,7 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
          WHERE p.debt_id = ?1 ORDER BY p.date DESC, p.created_at DESC, p.rowid DESC",
     )?;
     let payments = stmt
-        .query_map(params![id, t.account_id], |r| {
+        .query_map(params![t.id, t.account_id, t.principal], |r| {
             Ok(PaymentRow {
                 id: r.get(0)?,
                 date: r.get(1)?,
@@ -868,9 +874,17 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
                 schedule_seq: r.get(4)?,
                 recalc_mode: r.get(5)?,
                 account_name: r.get(6)?,
+                balance_after: r.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
+    Ok(payments)
+}
+
+pub fn get(conn: &Connection, id: &str, today: &str) -> Result<DebtDetail> {
+    let t = terms(conn, id)?;
+    let schedule = schedule_rows(conn, id, today)?;
+    let payments = payment_rows(conn, &t)?;
     Ok(DebtDetail {
         card: card(conn, &t, &schedule)?,
         schedule,
@@ -990,7 +1004,7 @@ pub fn summary(conn: &Connection, today: &str, upcoming_limit: usize) -> Result<
         "SELECT s.debt_id, s.id, d.counterparty, d.direction, s.due_date, s.payment, c.symbol, c.minor_units, c.code
          FROM debt_schedule s JOIN debts d ON d.id = s.debt_id JOIN currencies c ON c.code = d.currency_code
          WHERE s.status = 'pending' AND d.status = 'active'
-           AND s.seq = (SELECT min(seq) FROM debt_schedule x WHERE x.debt_id = s.debt_id AND x.status = 'pending')
+           AND s.seq = (SELECT min(seq) FROM debt_schedule x WHERE x.debt_id = s.debt_id AND x.status = 'pending' AND x.payment > 0)
          ORDER BY s.due_date LIMIT ?1",
     )?;
     let upcoming = stmt
@@ -1244,18 +1258,49 @@ pub struct Versions {
 
 /// Текущий график из базы как снимок.
 fn current_version(conn: &Connection, debt_id: &str) -> Result<Version> {
-    let (maturity, created_at): (String, String) = conn.query_row(
-        "SELECT maturity_date, updated_at FROM debts WHERE id = ?1",
+    let (maturity, created_at, closed): (String, String, bool) = conn.query_row(
+        "SELECT maturity_date, updated_at, status = 'closed' FROM debts WHERE id = ?1",
         [debt_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
+    if closed {
+        let (rows, totals) = settled_schedule(conn, &terms(conn, debt_id)?)?;
+        return Ok(Version {
+            id: None,
+            created_at,
+            reason: "Сейчас".into(),
+            payment: 0,
+            total_interest: totals.overpayment,
+            total_payment: totals.total_payment,
+            maturity_date: totals.maturity_date,
+            rows: rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, r)| VersionRow {
+                    row: Row {
+                        seq: (i + 1) as u32,
+                        due_date: r.date,
+                        payment: r.payment,
+                        principal_part: r.principal,
+                        interest_part: r.interest,
+                        balance_after: r.balance,
+                    },
+                    status: "paid".into(),
+                })
+                .collect(),
+        });
+    }
     let schedule = schedule_rows(conn, debt_id, "")?;
     let (principal_paid, interest_paid): (i64, i64) = conn.query_row(
         "SELECT COALESCE(sum(principal_amount), 0), COALESCE(sum(interest_amount), 0) FROM debt_payments WHERE debt_id = ?1",
         [debt_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let pending = || schedule.iter().filter(|r| r.status == "pending");
+    let pending = || {
+        schedule
+            .iter()
+            .filter(|r| r.status == "pending" && r.payment > 0)
+    };
     let interest_left: i64 = pending().map(|r| r.interest_part).sum();
     let payments_left: i64 = pending().map(|r| r.payment).sum();
     Ok(Version {
@@ -1905,7 +1950,7 @@ pub fn quote_payment(conn: &Connection, debt_id: &str, input: &QuoteInput) -> Re
             let next = before
                 .rows
                 .iter()
-                .find(|r| r.status == loan_calc::Status::Pending)
+                .find(|r| r.status == loan_calc::Status::Pending && r.row.payment > 0)
                 .ok_or_else(|| Error::Validation("в графике нет неоплаченных платежей".into()))?;
             let interest = next.row.interest_part.min(input.amount);
             let principal = (input.amount - interest).min(left);
@@ -2012,6 +2057,38 @@ pub fn forecast(conn: &Connection, debt_id: &str, today: &str) -> Result<Forecas
     })
 }
 
+/// После погашения итоговая история строится по реальным платежам, в том
+/// числе досрочным и зачисленным до договорной даты.
+fn settled_schedule(
+    conn: &Connection,
+    t: &Terms,
+) -> Result<(
+    Vec<crate::loan_export::DocRow>,
+    crate::loan_export::DocTotals,
+)> {
+    let payments = payment_rows(conn, t)?;
+    let totals = crate::loan_export::DocTotals {
+        total_payment: payments.iter().map(|p| p.principal + p.interest).sum(),
+        overpayment: payments.iter().map(|p| p.interest).sum(),
+        maturity_date: payments.first().map(|p| p.date.clone()).unwrap_or_default(),
+    };
+    let rows = payments
+        .into_iter()
+        .rev()
+        .map(|p| crate::loan_export::DocRow {
+            seq: p.schedule_seq,
+            date: p.date,
+            payment: p.principal + p.interest,
+            interest: p.interest,
+            principal: p.principal,
+            balance: p.balance_after,
+            paid: true,
+            note: p.schedule_seq.is_none().then(|| "Досрочно".into()),
+        })
+        .collect();
+    Ok((rows, totals))
+}
+
 /// Документ графика займа для Excel и PDF; с прогнозом — с плановыми досрочками.
 pub fn schedule_doc(
     conn: &Connection,
@@ -2021,10 +2098,15 @@ pub fn schedule_doc(
 ) -> Result<crate::loan_export::ScheduleDoc> {
     use crate::loan_export::{doc_rows, doc_totals, my_name, DocTerms, ScheduleDoc};
     let t = terms(conn, debt_id)?;
-    let sim = if with_forecast {
-        forecast_sim(conn, &t, today, None)?.2
+    let (rows, totals) = if t.status == "closed" {
+        settled_schedule(conn, &t)?
     } else {
-        simulate_debt(conn, &t)?
+        let sim = if with_forecast {
+            forecast_sim(conn, &t, today, None)?.2
+        } else {
+            simulate_debt(conn, &t)?
+        };
+        (doc_rows(&sim), doc_totals(&sim.totals()))
     };
     let cur = currencies::get(conn, &t.currency_code)?;
     let me = my_name(conn)?;
@@ -2059,8 +2141,8 @@ pub fn schedule_doc(
             issue_date: t.issue_date.clone(),
             first_payment_date: t.first_payment_date.clone(),
         },
-        rows: doc_rows(&sim),
-        totals: doc_totals(&sim.totals()),
+        rows,
+        totals,
         with_signatures: true,
         created_on: today.to_string(),
     })
@@ -2329,6 +2411,121 @@ mod tests {
             rate_changes: vec![],
             planned_early: vec![],
         }
+    }
+
+    #[test]
+    fn zero_holiday_skips_to_payable_instalment_and_keeps_paid_rows() {
+        let mut f = Fx::new();
+        let card = f.card.clone();
+        let id = create(
+            f.c(),
+            &loan(
+                "lent",
+                "Каникулы",
+                1_200_000,
+                0,
+                "annuity",
+                Some(3),
+                None,
+                Some(card),
+            ),
+        )
+        .unwrap();
+        f.pay(&id, "2026-11-15", 400_000, 0, true, None).unwrap();
+        add_holiday(
+            f.c(),
+            &id,
+            &HolidayInput {
+                from_seq: 2,
+                months: 1,
+                kind: "interest_only".into(),
+            },
+        )
+        .unwrap();
+        let d = f.detail(&id);
+        assert_eq!((d.schedule[1].payment, d.card.outstanding), (0, 800_000));
+        assert_eq!(d.card.next_payment.unwrap().seq, 3);
+        let q = quote_payment(
+            f.c(),
+            &id,
+            &QuoteInput {
+                date: "2026-11-20".into(),
+                amount: 100_000,
+                kind: "early".into(),
+                mode: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(q.principal, 100_000);
+        assert!(q.new_payment > 0 && q.compare.after.payments_left > 0);
+        f.pay(&id, "2026-11-20", 100_000, 0, false, None).unwrap();
+        assert_eq!(f.detail(&id).card.outstanding, 700_000);
+        let row = f.detail(&id).card.next_payment.unwrap();
+        f.pay(&id, &row.due_date, row.principal_part, 0, true, None)
+            .unwrap();
+        f.pay(&id, &row.due_date, 10_000, 0, false, None).unwrap();
+        let d = f.detail(&id);
+        assert_eq!(d.schedule[2].id, row.id);
+        assert_eq!(d.schedule[2].status, "paid");
+        assert_eq!(d.card.outstanding, 690_000 - row.principal_part);
+    }
+
+    #[test]
+    fn final_early_payment_has_actual_date_and_zero_balance_in_currency() {
+        let mut f = Fx::new();
+        let usd = accounts::create(f.c(), &input("Карта USD", "debit", "USD", 0)).unwrap();
+        f.card = usd.clone();
+        let mut terms = loan(
+            "borrowed",
+            "Доллары",
+            9_000,
+            0,
+            "annuity",
+            Some(6),
+            None,
+            Some(usd),
+        );
+        terms.currency_code = "USD".into();
+        let id = create(f.c(), &terms).unwrap();
+        f.pay(&id, "2026-10-25", 2_000, 0, true, None).unwrap();
+        let q = quote_payment(
+            f.c(),
+            &id,
+            &QuoteInput {
+                date: "2026-10-25".into(),
+                amount: 7_000,
+                kind: "early".into(),
+                mode: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(q.after.totals.maturity_date, "2026-10-25");
+        assert_eq!(q.compare.after.maturity_date, q.after.totals.maturity_date);
+        let last = f.pay(&id, "2026-10-25", 7_000, 0, false, None).unwrap();
+        let d = f.detail(&id);
+        assert_eq!((d.card.status.as_str(), d.card.outstanding), ("closed", 0));
+        assert_eq!(d.payments[0].date, "2026-10-25");
+        assert_eq!(
+            (d.payments[0].balance_after, d.payments[1].balance_after),
+            (0, 7_000)
+        );
+        for forecast in [false, true] {
+            let doc = schedule_doc(f.c(), &id, "2026-11-25", forecast).unwrap();
+            assert_eq!(doc.totals.maturity_date, "2026-10-25");
+            assert_eq!(doc.totals.total_payment, 9_000);
+            assert_eq!(doc.rows.len(), 2);
+            assert!(doc.rows.iter().all(|r| r.date == "2026-10-25" && r.paid));
+            assert_eq!((doc.rows[0].balance, doc.rows[1].balance), (7_000, 0));
+        }
+        let history = versions(f.c(), &id).unwrap();
+        assert_eq!(history.current.maturity_date, "2026-10-25");
+        assert_eq!(history.current.rows.last().unwrap().row.balance_after, 0);
+        assert!(history
+            .versions
+            .iter()
+            .all(|v| v.maturity_date.as_str() > "2026-10-25"));
+        delete_payment(f.c(), &last).unwrap();
+        assert_eq!(f.detail(&id).card.outstanding, 7_000);
     }
 
     #[test]

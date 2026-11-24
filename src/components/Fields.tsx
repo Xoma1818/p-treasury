@@ -73,6 +73,7 @@ export function AccountSelect({
   onChange,
   placeholder = "Выберите счёт",
   exclude,
+  children,
 }: {
   id?: string;
   name: string;
@@ -81,10 +82,12 @@ export function AccountSelect({
   onChange: (id: string) => void;
   placeholder?: string;
   exclude?: string;
+  children?: ReactNode;
 }) {
   return (
     <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{placeholder}</option>
+      {children}
       {accounts
         .filter((a) => a.id !== exclude && (!a.archived || a.id === value))
         .map((a) => (

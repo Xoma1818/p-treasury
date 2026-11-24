@@ -211,11 +211,16 @@ pub struct Budget {
     pub groups: Vec<GroupSummary>,
 }
 
-fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, Option<String>)>> {
+fn budget_row(conn: &Connection, p: &Period) -> Result<Option<(String, String, Option<String>)>> {
+    // Ноябрь при любом дне начала открывается между 2 октября и 1 ноября.
+    // Это верно и для старых баз, где исходный день начала не был записан.
     Ok(conn
         .query_row(
-            "SELECT id, currency_code, note FROM budgets WHERE period_start = ?1 AND period_type = 'month'",
-            [start],
+            "SELECT id, currency_code, note FROM budgets
+             WHERE period_type = 'month' AND period_start > date(?1 || '-01', '-1 month')
+               AND period_start <= ?1 || '-01'
+             ORDER BY (period_start = ?2) DESC, updated_at DESC, id LIMIT 1",
+            params![p.month, p.start],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?)
@@ -223,10 +228,27 @@ fn budget_row(conn: &Connection, start: &str) -> Result<Option<(String, String, 
 
 pub(crate) fn fact_currency(conn: &Connection, month: &str) -> Result<String> {
     let p = period(month, start_day(conn)?)?;
-    match budget_row(conn, &p.start)? {
+    match budget_row(conn, &p)? {
         Some((_, currency, _)) => Ok(currency),
         None => currencies::base_currency(conn),
     }
+}
+
+/// Выбранный месяц бюджета не меняется при редактировании настроек периода.
+fn current_budget_period(conn: &Connection, id: &str) -> Result<Period> {
+    let start: String = conn.query_row(
+        "SELECT period_start FROM budgets WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    let date = time::parse_date(&start)?;
+    let month = date.format("%Y-%m").to_string();
+    let month = if date.day() == 1 {
+        month
+    } else {
+        shift_month(&month, 1)?
+    };
+    period(&month, start_day(conn)?)
 }
 
 /// Общий отбор для факта категории и его расшифровки в журнале.
@@ -353,7 +375,7 @@ fn carries(
     loop {
         let prev_month = shift_month(&m, -1)?;
         let pp = period(&prev_month, sd)?;
-        let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp.start)? else {
+        let Some((prev_id, prev_cur, _)) = budget_row(conn, &pp)? else {
             break;
         };
         if prev_cur != currency {
@@ -507,7 +529,7 @@ fn income_total(conn: &Connection, by_cat: &HashMap<String, i64>) -> Result<i64>
 pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    let row = budget_row(conn, &p.start)?;
+    let row = budget_row(conn, &p)?;
     let currency = match &row {
         Some((_, c, _)) => c.clone(),
         None => currencies::base_currency(conn)?,
@@ -793,10 +815,10 @@ pub fn get(conn: &Connection, month: &str, today: &str) -> Result<Budget> {
 pub fn create(conn: &mut Connection, month: &str, copy_previous: bool) -> Result<String> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    if budget_row(conn, &p.start)?.is_some() {
+    if budget_row(conn, &p)?.is_some() {
         return invalid("бюджет на этот месяц уже есть");
     }
-    let prev = budget_row(conn, &period(&shift_month(month, -1)?, sd)?.start)?;
+    let prev = budget_row(conn, &period(&shift_month(month, -1)?, sd)?)?;
     if copy_previous && prev.is_none() {
         return invalid("в прошлом месяце бюджета нет: копировать нечего");
     }
@@ -851,7 +873,7 @@ fn round_up_hundred(amount: i64, minor_units: u32) -> i64 {
 pub fn suggest(conn: &Connection, month: &str, mode: FillMode) -> Result<Vec<(String, i64)>> {
     let sd = start_day(conn)?;
     let p = period(month, sd)?;
-    let currency = match budget_row(conn, &p.start)? {
+    let currency = match budget_row(conn, &p)? {
         Some((_, c, _)) => c,
         None => currencies::base_currency(conn)?,
     };
@@ -921,12 +943,7 @@ pub fn fill(
     category: Option<&str>,
 ) -> Result<usize> {
     check_budget(conn, budget_id)?;
-    let start: String = conn.query_row(
-        "SELECT period_start FROM budgets WHERE id = ?1",
-        [budget_id],
-        |r| r.get(0),
-    )?;
-    let month = month_of(conn, &start)?.month;
+    let month = current_budget_period(conn, budget_id)?.month;
     let suggested: Vec<(String, i64)> = suggest(conn, &month, mode)?
         .into_iter()
         .filter(|(c, _)| category.is_none_or(|want| want == c))
@@ -938,8 +955,18 @@ pub fn fill(
         });
     }
     let tx = conn.transaction()?;
+    // Генератор учебной базы используется и на исторических схемах миграции.
+    let has_limit_kind: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('budget_lines') WHERE name='limit_kind')",
+        [],
+        |r| r.get(0),
+    )?;
     for (cat, v) in &suggested {
-        set_limit(&tx, budget_id, cat, Some(*v))?;
+        if has_limit_kind {
+            set_limit_kind(&tx, budget_id, cat, "month", *v)?;
+        } else {
+            set_limit(&tx, budget_id, cat, Some(*v))?;
+        }
     }
     tx.commit()?;
     Ok(suggested.len())
@@ -1007,12 +1034,7 @@ pub fn set_limit_kind(
     let (amount, stored_value) = match kind {
         "month" => (value, None),
         "week" => {
-            let start: String = conn.query_row(
-                "SELECT period_start FROM budgets WHERE id = ?1",
-                [budget_id],
-                |r| r.get(0),
-            )?;
-            let p = month_of(conn, &start)?;
+            let p = current_budget_period(conn, budget_id)?;
             (
                 (value as i128 * period_days(&p) as i128 / 7) as i64,
                 Some(value),
@@ -1122,7 +1144,7 @@ pub fn copy_forward(
         return invalid("скопировать можно на 1–24 месяца");
     }
     let sd = start_day(conn)?;
-    let Some((src, currency, _)) = budget_row(conn, &period(month, sd)?.start)? else {
+    let Some((src, currency, _)) = budget_row(conn, &period(month, sd)?)? else {
         return invalid("в этом месяце бюджета нет: копировать нечего");
     };
     let tx = conn.transaction()?;
@@ -1135,7 +1157,7 @@ pub fn copy_forward(
     for i in 1..=months as i32 {
         let m = shift_month(month, i)?;
         let p = period(&m, sd)?;
-        let id = match budget_row(&tx, &p.start)? {
+        let id = match budget_row(&tx, &p)? {
             Some(_) if !overwrite => {
                 out.skipped.push(m);
                 continue;
@@ -1308,6 +1330,53 @@ mod tests {
     use crate::accounts::{self, tests::input};
     use crate::storage::Storage;
     use crate::transactions::{self, TxnInput};
+
+    #[test]
+    fn existing_budget_survives_changed_start_day_and_can_be_copied() {
+        let mut f = fx();
+        settings::set(f.db.conn(), "month_start_day", "31").unwrap();
+        let id = create(f.db.conn_mut(), "2026-03", false).unwrap();
+        let food = cat(f.db.conn(), "Питание");
+        set_limit(f.db.conn(), &id, &food, Some(7_000)).unwrap();
+        for day in ["1", "15"] {
+            settings::set(f.db.conn(), "month_start_day", day).unwrap();
+            let march = get(f.db.conn(), "2026-03", "2026-03-02").unwrap();
+            assert_eq!(march.id.as_ref(), Some(&id));
+            assert_eq!(march.planned_expense, 7_000);
+            assert!(create(f.db.conn_mut(), "2026-03", false).is_err());
+            assert!(get(f.db.conn(), "2026-02", "2026-02-10")
+                .unwrap()
+                .id
+                .is_none());
+        }
+        let copied = copy_forward(f.db.conn_mut(), "2026-03", 1, false).unwrap();
+        assert_eq!(copied.created, ["2026-04"]);
+        assert_eq!(
+            get(f.db.conn(), "2026-04", "2026-04-01")
+                .unwrap()
+                .planned_expense,
+            7_000
+        );
+        settings::set(f.db.conn(), "month_start_day", "1").unwrap();
+        set_limit_kind(f.db.conn(), &id, &food, "week", 7_000).unwrap();
+        let stored: i64 =
+            f.db.conn()
+                .query_row(
+                    "SELECT limit_amount FROM budget_lines WHERE budget_id=?1 AND category_id=?2",
+                    params![id, food],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        assert_eq!(stored, 31_000);
+        spend(f.db.conn(), &f.card, "2025-03-05", 30_000, "Питание");
+        fill(f.db.conn_mut(), &id, FillMode::LastYear, Some(&food)).unwrap();
+        assert_eq!(
+            get(f.db.conn(), "2026-03", "2026-03-02")
+                .unwrap()
+                .planned_expense,
+            30_000
+        );
+    }
 
     #[test]
     fn periods() {

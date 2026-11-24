@@ -101,7 +101,14 @@ test("аренда 150 000 ₽ с карты через 2 дня: видно, ч
   await waitText(browser, '[data-testid="txn-count"]', /Показано 0 из 0/);
 });
 
-test("заметка «Продлить страховку»: напоминание за неделю прямо из заметки", async () => {
+test("заметка «Продлить страховку»: напоминание за неделю прямо из заметки", async (t) => {
+  t.after(async () => {
+    // После сбоя вложенный редактор не должен перекрывать следующий сценарий.
+    if (await browser.$('[role="dialog"]').isExisting()) {
+      await browser.refresh();
+      await browser.$("main h1").waitForDisplayed();
+    }
+  });
   await openSection(browser, "Заметки");
   await click(browser, "+ Заметка");
   await fill(browser, "noteBody", "Продлить страховку");
@@ -122,11 +129,33 @@ test("заметка «Продлить страховку»: напоминан
       const alert = await browser.$('[role="alert"]');
       throw new Error(`напоминание не сохранилось: ${(await alert.isExisting()) ? await alert.getText() : "диалогов " + (await browser.$$('[role="dialog"]')).length}`);
     });
-  if ((await browser.$$('[role="dialog"]')).length) await click(browser, "Отмена", '//*[@role="dialog"]');
+  const [note] = await invoke("list_notes", { filter: { query: "Продлить страховку" } });
+  assert.equal(note.body, "Продлить страховку");
+  assert.ok(note.reminderId, "заметка связана с сохранённым напоминанием");
+  const saved = await invoke("get_reminder", { id: note.reminderId });
+  assert.equal(saved.noteId, note.id);
+  assert.equal(saved.leadDays, "7");
+  await click(browser, "Напоминание", '//*[@role="dialog"]');
+  const editor = `${lastDialog}//*[@name="reminderTitle"]`;
+  await browser.$(editor).waitForDisplayed();
+  assert.equal(await browser.$(editor).getValue(), saved.title);
+  assert.equal(await browser.$(`${lastDialog}//*[@name="reminderDate"]`).getValue(), inDays(20));
+  assert.equal(await browser.$(`${lastDialog}//*[@name="reminderLeadMode"]`).getValue(), "own");
+  assert.equal(await browser.$(`${lastDialog}//button[normalize-space()="за неделю"]`).getAttribute("aria-pressed"), "true");
+  await browser.$(`${lastDialog}//button[normalize-space()="Удалить"]`).waitForExist();
+  await fill(browser, "reminderNote", "Policy-QA-007");
+  await click(browser, "Сохранить", lastDialog);
+  await browser.waitUntil(async () => (await browser.$$('[role="dialog"]')).length === 1, { timeout: 5000 });
+  const linked = (await invoke("reminders_overview")).reminders.filter((r) => r.noteId === note.id);
+  assert.deepEqual(linked.map((r) => r.id), [saved.id], "редактирование сохранило единственную серию заметки");
+  assert.equal(linked[0].note, "Policy-QA-007");
+  assert.equal(linked[0].leadDays, "7");
+  await click(browser, "Отмена", '//*[@role="dialog"]');
   await (await browser.$('[data-testid="notes"] [aria-label="Есть напоминание"]')).waitForExist({ timeout: 5000 });
 
   await openReminders();
   await waitText(browser, '[data-testid="rem-all"]', /Продлить страховку.*за неделю.*из заметки/s);
+  assert.equal((await browser.$$('//*[@data-testid="reminder-row"][.//span[@class="main" and text()="Продлить страховку"]]')).length, 1);
 });
 
 test("Настройки: сроки «заранее» по умолчанию и проверка денег", async () => {

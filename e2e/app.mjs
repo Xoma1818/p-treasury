@@ -114,6 +114,7 @@ function winFailureMark(bin) {
 }
 
 let driver;
+const windowsSessions = new WeakMap();
 let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
 let killPattern;
@@ -186,8 +187,32 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // С 0.21 на Главной по умолчанию пять карточек. Старые сценарии проверяют все
   // карточки, поэтому включаем их (как у пользователя, который их включил);
   // `homeDefaults: true` оставляет Главную как после установки.
+  if (WIN) windowsSessions.set(browser, { driver, bin: resolve(bin) });
   if (!homeDefaults) await showAllHomeCards(browser);
   return { browser, dataDir };
+}
+
+function nativeWindowSize(browser, dimensions = []) {
+  const owner = windowsSessions.get(browser);
+  if (!owner?.driver.pid || owner.driver.exitCode !== null || owner.driver.signalCode !== null) {
+    throw new Error("Нет работающего драйвера, который запустил это окно Kazna.");
+  }
+  const result = spawnSync("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", join(ROOT, "e2e/windows-window.ps1"),
+    "-DriverId", String(owner.driver.pid), "-AppPath", owner.bin, ...dimensions,
+  ], { encoding: "utf8", timeout: 20000, windowsHide: true });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout).trim());
+  return JSON.parse(result.stdout);
+}
+
+export async function getAppWindowSize(browser) {
+  return WIN ? nativeWindowSize(browser) : browser.getWindowSize();
+}
+
+export async function resizeAppWindow(browser, width, height) {
+  if (!WIN) return browser.setWindowSize(width, height);
+  return nativeWindowSize(browser, ["-Width", String(width), "-Height", String(height)]);
 }
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */

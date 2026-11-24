@@ -325,7 +325,9 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
           <dt>Условия</dt>
           <dd data-testid="debt-terms">
             {c.rateBp ? rateLabel(c.rateBp, c.ratePeriod) : "без процентов"}, {REPAYMENTS[c.repaymentType].toLowerCase()}
-            {c.termMonths ? `, ${c.payEvery === "month" ? `${c.termMonths} мес.` : paymentsText(c.termMonths, c.payEvery)}` : ""}, до {formatDate(c.maturityDate)}
+            {c.termMonths ? `, ${c.payEvery === "month" ? `${c.termMonths} мес.` : paymentsText(c.termMonths, c.payEvery)}` : ""}
+            {c.status !== "closed" && `, по графику до ${formatDate(c.maturityDate)}`}
+            {c.status === "closed" && d.payments[0] && <span className="sub">Погашен {formatDate(d.payments[0].date)}</span>}
           </dd>
           {c.rateBp > 0 && (
             <>
@@ -424,7 +426,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
         <div className="columns debt-columns">
           <div className="card">
             <h2>
-              График платежей
+              {c.status === "closed" ? "Фактический график платежей" : "График платежей"}
               <Hint of="debts.schedule" />
             </h2>
             <div className="table-scroll">
@@ -441,7 +443,17 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
                   </tr>
                 </thead>
                 <tbody>
-                  {d.schedule.map((r) => (
+                  {c.status === "closed" ? [...d.payments].reverse().map((p) => (
+                    <tr key={p.id} className="done" data-testid="schedule-row">
+                      <td>{p.scheduleSeq ?? "—"}</td>
+                      <td>{formatDate(p.date)}</td>
+                      <td className="num">{m(p.principal + p.interest)}</td>
+                      <td className="num">{m(p.principal)}</td>
+                      <td className="num">{m(p.interest)}</td>
+                      <td className="num">{m(p.balanceAfter)}</td>
+                      <td className="status">оплачен</td>
+                    </tr>
+                  )) : d.schedule.map((r) => (
                     <tr key={r.id} className={r.overdue ? "overdue" : r.status !== "pending" ? "done" : undefined} data-testid="schedule-row">
                       <td>{r.seq}</td>
                       <td>{formatDate(r.dueDate)}</td>
@@ -458,7 +470,7 @@ function DebtView({ id, back, payNow }: { id: string; back: () => void; payNow?:
                       <td className="num">{m(r.principalPart)}</td>
                       <td className="num">{m(r.interestPart)}</td>
                       <td className="num">{m(r.balanceAfter)}</td>
-                      <td className="status">{r.overdue ? "просрочен" : STATUS[r.status]}</td>
+                      <td className="status">{r.payment === 0 ? "без платежа" : r.overdue ? "просрочен" : STATUS[r.status]}</td>
                     </tr>
                   ))}
                 </tbody>

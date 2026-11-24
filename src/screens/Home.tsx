@@ -285,7 +285,7 @@ export function Home() {
               </ul>
             </div>
             <div className="card">
-              <h2>
+              <h2 data-txn-focus tabIndex={-1}>
                 Последние операции
                 <Hint of="home.recent" />
               </h2>

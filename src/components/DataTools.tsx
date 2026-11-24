@@ -184,6 +184,8 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const accounts = (useAccounts().data ?? []).filter((a) => !a.archived);
+  const statementAccounts = new Set(preview?.rows.map((row) => row.accountId));
+  const statementCurrencies = new Set(accounts.filter((a) => statementAccounts.has(a.id)).map((a) => a.currencyCode));
   const qc = useQueryClient();
 
   // Предпросмотр, по которому идёт загрузка: пока новый не пришёл, кнопки
@@ -257,7 +259,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
     }
   };
   const commit = async (skipErrors: boolean) => {
-    if (pending || mapperOpen || unresolved || !preview || !path) return;
+    if (pending || mapperOpen || unresolved || !preview || preview.needsTransferChoice || !path) return;
     await saveGuard.run(async () => {
     setSaving(true);
     setError(null);
@@ -367,13 +369,23 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
             Выписка {preview.bank}
           </span>
           <Field label="На какой счёт" hint="Запомним для следующих выписок этого банка. Карта, чьи цифры есть в названии счёта, попадёт на свой счёт.">
-            {(id) => <AccountSelect id={id} name="importAccount" accounts={accounts} value={accountId ?? ""} onChange={(v) => load(path!, v || null)} />}
+            {(id) => <AccountSelect id={id} name="importAccount" accounts={accounts} value={accountId ?? ""} onChange={(v) => load(path!, v || null, null)} />}
           </Field>
           {preview.selfTransfers > 0 && (
-            <Field label={`Переводы своих денег (${preview.selfTransfers}) — второй счёт`} hint="«Между своими счетами», копилка, пополнение из другого банка: строки, которые банк не считает тратами и доходами («Учёт в аналитике: Нет»). Выберите, куда уходят и откуда приходят эти деньги, и они запишутся переводами, а траты и доходы совпадут с банком. Уже загруженные раньше такие строки тоже станут переводами. Если вторая сторона есть в этой же выписке, перевод найдётся сам. Запомним для следующих выписок.">
-              {(id) => <AccountSelect id={id} name="importSelfAccount" placeholder="Не знаю — записать расходом и доходом" accounts={accounts} exclude={accountId ?? undefined} value={preview.selfAccountId ?? ""} onChange={(v) => load(path!, accountId, v)} />}
+            <Field label={`Переводы своих денег (${preview.selfTransfers}) — второй счёт`} hint="«Между своими счетами», копилка, пополнение из другого банка: строки, которые банк не считает тратами и доходами («Учёт в аналитике: Нет»). Выберите, куда уходят и откуда приходят эти деньги, и они запишутся переводами, а траты и доходы совпадут с банком. Уже загруженные раньше такие строки тоже станут переводами. Если вторая сторона есть в этой же выписке, перевод найдётся сам. Второй счёт запомним для следующих выписок. Учёт в доходах и расходах применяется только к этой выписке.">
+              {(id) => (
+                <AccountSelect id={id} name="importSelfAccount"
+                  accounts={accounts.filter((a) => !statementCurrencies.size || statementCurrencies.has(a.currencyCode))}
+                  exclude={accountId ?? undefined}
+                  placeholder={preview.needsTransferChoice ? "Выберите, как учесть переводы" : "Определить по выписке"}
+                  value={preview.selfAccountId || (selfId === "" ? "as-income-expense" : "")}
+                  onChange={(v) => load(path!, accountId, v === "as-income-expense" ? "" : v || null)}>
+                  <option value="as-income-expense">Записать как доходы и расходы</option>
+                </AccountSelect>
+              )}
             </Field>
           )}
+          {preview.needsTransferChoice && <p className="hint warn" role="status">Для каждого перевода нужен другой счёт в той же валюте. Выберите второй счёт или явно укажите учёт в доходах и расходах.</p>}
         </fieldset>
       )}
       {preview && !mapperOpen && (
@@ -516,7 +528,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
       <ErrorText error={error} />
       <div className="actions import-overview-actions">
         {preview && !mapperOpen && !unresolved && preview.errors > 0 && (actionable > 0 || skipped > 0) && (
-          <button className="btn primary" disabled={pending || saving} onClick={() => commit(true)}>
+          <button className="btn primary" disabled={pending || saving || preview.needsTransferChoice} onClick={() => commit(true)}>
             {actionable ? `${saveLabel} (без строк с ошибками)` : "Завершить без загрузки"}
           </button>
         )}
@@ -530,7 +542,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           </button>
         )}
         {preview && !mapperOpen && !unresolved && (actionable > 0 || skipped > 0) && (
-          <button className={preview.errors ? "btn" : "btn primary"} data-testid="statement-save" disabled={pending || saving || preview.errors > 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+          <button className={preview.errors ? "btn" : "btn primary"} data-testid="statement-save" disabled={pending || saving || preview.needsTransferChoice || preview.errors > 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {saveLabel}
           </button>
         )}
