@@ -85,6 +85,10 @@ export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; c
   const p = points[selected];
   const period = monthTitle(p.month);
   const showTip = showHover || showFocus;
+  function inspectMonth(next: string) {
+    setMonth(next);
+    setShowHover(true);
+  }
   const { min, max, step } = netWorthScale(points.map((p) => p.net));
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
@@ -115,7 +119,8 @@ export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; c
         <path d={area} className="nw-area" />
         <path d={line} className="nw-line" pathLength={1} />
         {points.map((pt, i) => (
-          <g key={pt.month} onMouseEnter={() => { setMonth(pt.month); setShowHover(true); }}>
+          // Прокрутка к ползунку может вызвать pointerover под неподвижной мышью.
+          <g key={pt.month} onPointerMove={() => inspectMonth(pt.month)} onClick={() => inspectMonth(pt.month)}>
             <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={showTip && selected === i ? "hit active" : "hit"} />
             {(points.length <= 36 || selected === i) && <circle cx={x(i)} cy={y(pt.net)} r={selected === i ? 5 : 3} className={pt.net < 0 ? "nw-dot neg" : "nw-dot"} />}
             {i % every === 0 && (

@@ -497,6 +497,12 @@ test("Чистые активы: стрелки показывают ту же �
   await browser.keys("Home");
   await browser.keys("ArrowLeft");
   assert.equal(await tip.getText(), first, "На первом месяце стрелка влево сохраняет разбивку");
+  // После прокрутки под неподвижным курсором WebView2 посылает события входа без движения.
+  await browser.execute(point => {
+    point.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }));
+    point.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+  }, points[10]);
+  assert.equal(await tip.getText(), first, "Прокрутка под неподвижным курсором сохраняет месяц, выбранный клавиатурой");
   await browser.keys("Tab");
   assert.equal(await slider.isFocused(), false, "Tab уходит с графика");
   await tip.waitForExist({ reverse: true });
