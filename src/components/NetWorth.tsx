@@ -1,6 +1,6 @@
-// Отчёт «Чистые активы» (В3): значение на конец каждого месяца, под мышкой — разбивка.
+// Отчёт «Чистые активы»: значение и состав активов на конец выбранного месяца.
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, type NetWorthPoint } from "../lib/api";
 import { formatDate, monthTitle } from "../lib/dates";
 import { axisLabel, axisPad, changePercent, netWorthScale } from "../lib/netWorth";
@@ -73,9 +73,18 @@ export function NetWorthReport() {
 }
 
 export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; currency: string }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const [showHover, setShowHover] = useState(false);
+  const [showFocus, setShowFocus] = useState(false);
+  const tipId = useId();
   const settings = useSettings().data;
   const minor = useCurrencies().data?.find(c => c.code === currency)?.minorUnits;
+  if (!points.length) return null;
+  const monthIndex = points.findIndex(point => point.month === month);
+  const selected = monthIndex < 0 ? points.length - 1 : monthIndex;
+  const p = points[selected];
+  const period = monthTitle(p.month);
+  const showTip = showHover || showFocus;
   const { min, max, step } = netWorthScale(points.map((p) => p.net));
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(v);
@@ -91,11 +100,10 @@ export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; c
   const area = `${line} L${x(points.length - 1).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} L${x(0).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} Z`;
   // Подписи месяцев: не чаще, чем помещается.
   const every = Math.max(1, Math.ceil(points.length / 12));
-  const p = hover != null ? points[hover] : null;
 
   return (
-    <div className="chart nw-chart" onMouseLeave={() => setHover(null)}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Чистые активы по месяцам">
+    <div className="chart nw-chart networth-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Чистые активы по месяцам" onMouseLeave={() => setShowHover(false)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD_L} x2={W - PAD_R} y1={y(t)} y2={y(t)} className={t === 0 ? "grid zero" : "grid"} />
@@ -107,9 +115,9 @@ export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; c
         <path d={area} className="nw-area" />
         <path d={line} className="nw-line" pathLength={1} />
         {points.map((pt, i) => (
-          <g key={pt.month} onMouseEnter={() => setHover(i)}>
-            <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
-            {(points.length <= 36 || hover === i) && <circle cx={x(i)} cy={y(pt.net)} r={hover === i ? 5 : 3} className={pt.net < 0 ? "nw-dot neg" : "nw-dot"} />}
+          <g key={pt.month} onMouseEnter={() => { setMonth(pt.month); setShowHover(true); }}>
+            <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={showTip && selected === i ? "hit active" : "hit"} />
+            {(points.length <= 36 || selected === i) && <circle cx={x(i)} cy={y(pt.net)} r={selected === i ? 5 : 3} className={pt.net < 0 ? "nw-dot neg" : "nw-dot"} />}
             {i % every === 0 && (
               <text x={x(i)} y={H - 6} className="axis" textAnchor="middle">
                 {monthTitle(pt.month).slice(0, 3)}
@@ -119,8 +127,26 @@ export function NetWorthChart({ points, currency }: { points: NetWorthPoint[]; c
           </g>
         ))}
       </svg>
-      {p && hover != null && (
-        <div className="tooltip nw-tip" style={{ left: `${Math.min(Math.max((x(hover) / W) * 100, 14), 86)}%` }} data-testid="networth-tip">
+      <label className="fc-period">
+        <span>{period}</span>
+        <input type="range" aria-label="Месяц чистых активов" data-testid="networth-month-slider"
+          min={0} max={points.length - 1} step={1} value={selected}
+          aria-valuetext={period} aria-describedby={showTip ? tipId : undefined}
+          onFocus={() => setShowFocus(true)} onBlur={() => setShowFocus(false)}
+          onChange={event => {
+            setMonth(points[event.currentTarget.valueAsNumber].month);
+            setShowHover(false);
+            setShowFocus(true);
+          }}
+          onKeyDown={event => {
+            if (event.key === "Escape") {
+              setShowFocus(false);
+              setShowHover(false);
+            }
+          }} />
+      </label>
+      {showTip && (
+        <div id={tipId} role="tooltip" className="tooltip nw-tip" style={{ left: `clamp(10rem, ${(x(selected) / W) * 100}%, calc(100% - 10rem))` }} data-testid="networth-tip">
           <div className="main">
             {monthTitle(p.month)} <span className="muted">· на {formatDate(p.date)}</span>
           </div>

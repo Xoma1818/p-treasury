@@ -356,6 +356,12 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .nw-dot { fill: var(--card); stroke: var(--accent); stroke-width: 2; pointer-events: none; transition: r var(--fast) var(--ease); }
 .nw-dot.neg { stroke: var(--over); }
 .nw-tip { min-width: 240px; }
+.networth-chart { container-type: inline-size; }
+.networth-chart .nw-tip { width: 20rem; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.networth-chart .nw-tip-row { flex-wrap: wrap; }
+@container (max-width: 52rem) {
+  .networth-chart .nw-tip { position: static; transform: none; width: 100%; margin-top: 6px; }
+}
 .nw-tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 .nw-tip-row.total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 4px; font-weight: 600; }
 

@@ -460,6 +460,48 @@ test("Отчёты «Чистые активы»: 12 точек, разбивк�
   await browser.waitUntil(async () => (await count('[data-testid="networth-report"] rect.hit')) >= 1, { timeout: 5000 });
 });
 
+test("Чистые активы: стрелки показывают ту же месячную разбивку, что и мышь", async () => {
+  await openSection(browser, "Отчёты");
+  const report = '[data-testid="networth-report"]';
+  if (!(await browser.$(report).isExisting())) await click(browser, "Чистые активы", '//*[@role="tablist"]');
+  await click(browser, "12 месяцев", '//*[@data-testid="networth-report"]');
+  await waitCount(browser, `${report} rect.hit`, 12);
+  const points = await browser.$$(`${report} rect.hit`);
+  const tip = await browser.$('[data-testid="networth-tip"]');
+  async function readMonth(index) {
+    await points[index].moveTo();
+    await tip.waitForDisplayed();
+    const text = await tip.getText();
+    assert.match(text, /Деньги на счетах[\s\S]*Чистые активы/);
+    return text;
+  }
+  const first = await readMonth(0);
+  const previous = await readMonth(10);
+  const latest = await readMonth(11);
+  assert.notEqual(previous, latest);
+
+  const lastPeriodButton = await browser.$('//*[@data-testid="networth-report"]//button[normalize-space()="Всё время"]');
+  await lastPeriodButton.moveTo();
+  await tip.waitForExist({ reverse: true });
+  await browser.execute(button => button.focus(), lastPeriodButton);
+  await browser.keys("Tab");
+  const slider = await browser.$('[data-testid="networth-month-slider"]');
+  assert.ok(await slider.isFocused(), "С переключателей периода Tab переводит фокус на месяц графика");
+  await browser.keys("End");
+  await browser.keys("ArrowLeft");
+  assert.equal(await tip.getText(), previous);
+  await browser.keys("ArrowRight");
+  assert.equal(await tip.getText(), latest);
+  await browser.keys("ArrowRight");
+  assert.equal(await tip.getText(), latest, "На последнем месяце стрелка вправо сохраняет разбивку");
+  await browser.keys("Home");
+  await browser.keys("ArrowLeft");
+  assert.equal(await tip.getText(), first, "На первом месяце стрелка влево сохраняет разбивку");
+  await browser.keys("Tab");
+  assert.equal(await slider.isFocused(), false, "Tab уходит с графика");
+  await tip.waitForExist({ reverse: true });
+});
+
 test("Настройки: «Предупреждать о бюджете» включён по умолчанию и запоминается", async () => {
   await openSettings(browser, "notifications");
   const sw = () => browser.$('[data-testid="budget-alerts"]');
