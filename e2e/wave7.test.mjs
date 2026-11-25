@@ -737,8 +737,25 @@ test("замок записи форм: сохранение покупки и �
   await click(browser, "Показать все операции");
   await fill(browser, "search", payee);
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
-  await browser.$('[data-testid="txn-row"] .date').click();
-  await fill(browser, "amount", "1200");
+  // При открытии формы приходит фоновый ответ с подсказками получателя.
+  // Даём ему завершиться во время прямой замены выделенной суммы клавиатурой.
+  await holdCommands(browser, ["payee_hints"]);
+  try {
+    await browser.$('[data-testid="txn-row"] .date').click();
+    const amount = await browser.$('[role="dialog"] input[name="amount"]');
+    await browser.waitUntil(() => browser.execute(() => window.heldCommands.calls.includes("payee_hints")));
+    assert.equal(await amount.getValue(), "1000");
+    await amount.click();
+    await keys("Control", "a");
+    const selected = await browser.execute(el => el === document.activeElement && el.value.slice(el.selectionStart, el.selectionEnd), amount);
+    assert.equal(selected, "1000");
+    await browser.execute(el => el.addEventListener("beforeinput", window.heldCommands.release, { once: true }), amount);
+    await keys("1");
+    await browser.$(`#payee-hints option[value="${payee}"]`).waitForExist();
+    assert.equal(await amount.getValue(), "1");
+    for (const digit of "200") await keys(digit);
+    assert.equal(await amount.getValue(), "1200");
+  } finally { await restore(); }
   const select = await browser.$('[role="dialog"] select[name="event"]');
   await select.$(`option[value="${event}"]`).waitForExist();
   await select.selectByAttribute("value", event);

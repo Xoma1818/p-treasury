@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { Account, Category, CategoryKind } from "../lib/api";
 import type { HintKey } from "../lib/hints";
 import { Hint } from "./Hint";
@@ -19,17 +19,7 @@ export function Field({ label, children, hint, help }: { label: string; children
   );
 }
 
-/** Поле суммы: хранит текст, наружу отдаёт минимальные единицы или null. */
-export function AmountInput({
-  id,
-  name,
-  value,
-  onChange,
-  minorUnits = 2,
-  allowNegative = false,
-  autoFocus,
-  concealed = false,
-}: {
+type AmountInputProps = {
   id?: string;
   name: string;
   value: string;
@@ -38,7 +28,21 @@ export function AmountInput({
   allowNegative?: boolean;
   autoFocus?: boolean;
   concealed?: boolean;
-}) {
+};
+
+export function AmountInput({ onChange, ...props }: AmountInputProps) {
+  // Редакторы строк передают новый обработчик при обновлении формы.
+  const latestChange = useRef(onChange);
+  useLayoutEffect(() => { latestChange.current = onChange; }, [onChange]);
+  const change = useCallback((text: string) => latestChange.current(text), []);
+  return <AmountField {...props} onChange={change} />;
+}
+
+// В WebKit посторонняя отрисовка формы может вернуть прежний текст между
+// нативным изменением поля и событием input. Обновляем поле при изменении его свойств.
+const AmountField = memo(function AmountField({
+  id, name, value, onChange, minorUnits = 2, allowNegative = false, autoFocus, concealed = false,
+}: AmountInputProps) {
   const parsed = parseAmount(value, minorUnits);
   const bad = !concealed && value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
   const calc = !concealed && !bad && parsed !== null && isExpression(value);
@@ -64,7 +68,7 @@ export function AmountInput({
       )}
     </span>
   );
-}
+});
 
 export const amountText = (v: number | null | undefined, minorUnits = 2) => (v == null ? "" : amountToInput(v, minorUnits));
 
