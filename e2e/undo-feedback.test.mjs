@@ -285,11 +285,38 @@ test("отмена и массовые действия журнала дост�
         throw new Error(`${width}×${height}, ${scale * 100}%: ${JSON.stringify(actual)}`, { cause: error });
       });
       t.diagnostic(`${width}×${height}, ${scale * 100}%: ${JSON.stringify(actual)}`);
-      // Обычные клики WebDriver. Общий помощник умеет закрывать мешающую плашку.
+      // Прокручиваем только саму панель. Первая строка журнала должна оставаться на месте.
       const clickAction = async name => {
         const el = await browser.$(toolbar).$(`button=${name}`);
-        await browser.execute(button => button.scrollIntoView({ block: "nearest", inline: "nearest" }), el);
-        await el.click();
+        const point = await browser.execute(button => {
+          const panel = button.closest('[data-testid="sel-bar"]');
+          const bounds = panel.getBoundingClientRect(), before = button.getBoundingClientRect();
+          if (before.bottom > bounds.bottom) panel.scrollTop += before.bottom - bounds.bottom;
+          else if (before.top < bounds.top) panel.scrollTop -= bounds.top - before.top;
+          const rect = button.getBoundingClientRect();
+          const x = Math.floor(rect.x + rect.width / 2), y = Math.floor(rect.y + rect.height / 2);
+          return { x, y, reachable: !button.disabled && button.contains(document.elementFromPoint(x, y)) };
+        }, el);
+        const context = `${width}×${height}, ${scale * 100}%, «${name}» (${point.x}, ${point.y})`;
+        assert.ok(point.reachable, `${context}: центр кнопки недоступен`);
+        if (WIN || scale === 1) {
+          await el.click();
+          return;
+        }
+        // При зуме WebKitGTK может передавать координаты указателя в единицах окна.
+        // Сначала наводим мышь и проверяем фактическую цель, затем нажимаем ровно один раз.
+        const mouse = actions => browser.performActions([{ type: "pointer", id: "journal-mouse", parameters: { pointerType: "mouse" }, actions }]);
+        try {
+          for (const factor of [1, scale]) {
+            await mouse([{ type: "pointerMove", origin: "viewport", duration: 0,
+              x: Math.round(point.x * factor), y: Math.round(point.y * factor) }]);
+            if (await browser.execute(button => button.matches(":hover"), el)) {
+              await mouse([{ type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }]);
+              return;
+            }
+          }
+          assert.fail(`${context}: указатель не попал в кнопку`);
+        } finally { await browser.releaseActions(); }
       };
       await clickAction("Категория");
       await browser.$(`${toolbar} [name="bulkCategory"]`).waitForDisplayed();
@@ -299,6 +326,7 @@ test("отмена и массовые действия журнала дост�
       await clickAction("Отмена");
       assert.ok(await browser.$(bar).isExisting());
       await clickAction("Снять выделение");
+      await browser.waitUntil(async () => !(await first.isSelected()), { timeoutMsg: "После нажатия строка осталась выделенной" });
       assert.deepEqual(await ledger(), expected);
     }
   }

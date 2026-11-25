@@ -119,7 +119,7 @@ let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
 let killPattern;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false, verboseDriver = true } = {}) {
   currentDir = dataDir;
   killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
@@ -129,7 +129,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   const wv2 = {};
   // Windows: msedgedriver напрямую (как его вызывает tauri-driver), с подробным журналом —
   // если сессия не создаётся, его хвост объясняет почему.
-  const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
+  const edgeLog = WIN && verboseDriver ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
   const appArgs = args ?? [`--data-dir=${dataDir}`];
   // WebKit хранит личное меню вне SQLite. У каждой учебной базы свой профиль,
   // который сохраняется при перезапуске той же базы.
@@ -138,7 +138,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     if (WIN) await winCleanup();
     const childEnv = { ...process.env, ...cbr, ...wv2, ...webkitProfile, ...env };
     driver = WIN
-      ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
+      ? spawn("msedgedriver", ["--port=4444", ...(edgeLog ? ["--verbose", `--log-path=${edgeLog}`] : [])], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
       : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
     await new Promise((r) => setTimeout(r, 1500));
     return remote({
@@ -154,6 +154,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     });
   };
   const edgeTail = () => {
+    if (!edgeLog) return "подробный журнал отключён для длительного замера";
     try {
       return readFileSync(edgeLog, "utf8").split(/\r?\n/).slice(-80).join("\n");
     } catch (e) {
@@ -334,15 +335,19 @@ export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
   const previous = await el.getValue();
+  const replaceDigits = previous !== "" && /^[0-9]+$/.test(value);
   if (previous !== "") {
     await el.click();
-    // Ввод заменяет выделенный текст сразу. Промежуточная очистка управляемого
-    // поля и повторный elementClear в setValue ненадёжны в WebView2 и WebKit.
+    // При замене числа выделение и набор идут одной серией клавиш.
+    // В WebKit отдельный elementSendKeys после Ctrl+A мог терять цифру.
     const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
     if (value === "") keys.down(Key.Backspace).up(Key.Backspace);
+    if (replaceDigits) {
+      for (const digit of value) keys.down(digit).up(digit);
+    }
     await keys.perform();
   }
-  if (value !== "") await el.addValue(value);
+  if (value !== "" && !replaceDigits) await el.addValue(value);
   const got = await el.getValue();
   if (got !== value) throw new Error(`Поле ${name}: было «${previous}», ожидалось «${value}», в поле «${got}»`);
 }
@@ -556,7 +561,7 @@ export async function setDate(browser, name, value) {
 
 /** Новый долг через форму расчёта (0.16): поля расчёта, затем «Записать заём» с кем и счётом.
  *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.16. */
-export async function newDebt(browser, { counterparty, principal, rate, term, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
+export async function newDebt(browser, { counterparty, principal, rate, term, issueDate, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
   await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await browser.$('//main//h1[contains(., "Новый долг")]').waitForDisplayed({ timeout: 5000 });
@@ -568,6 +573,7 @@ export async function newDebt(browser, { counterparty, principal, rate, term, fi
     await fill(browser, "term", term);
   }
   if (maturity) await setDate(browser, "maturity", maturity);
+  if (issueDate) await setDate(browser, "issueDate", issueDate);
   if (firstPayment) await setDate(browser, "firstPayment", firstPayment);
   await click(browser, daily ? "по дням, как банк" : "по месяцам");
   await browser.$('[data-testid="loan-payment"]').waitForDisplayed({ timeout: 5000 });
