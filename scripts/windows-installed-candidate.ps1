@@ -95,6 +95,8 @@ if ($Mode -eq 'clean') {
     if ($exe -ne $oldExe) { throw 'Обновление установилось в другую папку.' }
     $current = Read-Window 'verify-upgrade' $exe
     if (!$current.preMigrationBackup) { throw 'Программа не сообщила путь предмиграционной копии.' }
+    # В журнале Actions вывод Python перенаправлен; системная кодировка Windows может быть cp1252.
+    $env:PYTHONIOENCODING = 'utf-8'
     & python (Join-Path $PSScriptRoot 'compare-installed-upgrade.py') $baseline $current.dbPath $current.preMigrationBackup
     if ($LASTEXITCODE) { throw 'Сверка данных после обновления не прошла.' }
     $report.preserved = $true
