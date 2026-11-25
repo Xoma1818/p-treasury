@@ -335,15 +335,19 @@ export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
   const previous = await el.getValue();
+  const replaceDigits = previous !== "" && /^[0-9]+$/.test(value);
   if (previous !== "") {
     await el.click();
-    // Ввод заменяет выделенный текст сразу. Промежуточная очистка управляемого
-    // поля и повторный elementClear в setValue ненадёжны в WebView2 и WebKit.
+    // При замене числа выделение и набор идут одной серией клавиш.
+    // В WebKit отдельный elementSendKeys после Ctrl+A мог терять цифру.
     const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
     if (value === "") keys.down(Key.Backspace).up(Key.Backspace);
+    if (replaceDigits) {
+      for (const digit of value) keys.down(digit).up(digit);
+    }
     await keys.perform();
   }
-  if (value !== "") await el.addValue(value);
+  if (value !== "" && !replaceDigits) await el.addValue(value);
   const got = await el.getValue();
   if (got !== value) throw new Error(`Поле ${name}: было «${previous}», ожидалось «${value}», в поле «${got}»`);
 }
@@ -557,7 +561,7 @@ export async function setDate(browser, name, value) {
 
 /** Новый долг через форму расчёта (0.16): поля расчёта, затем «Записать заём» с кем и счётом.
  *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.16. */
-export async function newDebt(browser, { counterparty, principal, rate, term, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
+export async function newDebt(browser, { counterparty, principal, rate, term, issueDate, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
   await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await browser.$('//main//h1[contains(., "Новый долг")]').waitForDisplayed({ timeout: 5000 });
@@ -569,6 +573,7 @@ export async function newDebt(browser, { counterparty, principal, rate, term, fi
     await fill(browser, "term", term);
   }
   if (maturity) await setDate(browser, "maturity", maturity);
+  if (issueDate) await setDate(browser, "issueDate", issueDate);
   if (firstPayment) await setDate(browser, "firstPayment", firstPayment);
   await click(browser, daily ? "по дням, как банк" : "по месяцам");
   await browser.$('[data-testid="loan-payment"]').waitForDisplayed({ timeout: 5000 });
