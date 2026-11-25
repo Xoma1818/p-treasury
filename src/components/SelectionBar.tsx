@@ -1,7 +1,8 @@
 // Полоса под списком операций (Г1, Г2): сумма выделенного или найденного
 // и действия с пачкой. Всё действие — один шаг журнала, отмена одним Ctrl+Z.
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, type BulkResult, type Sums, type TxnFilter } from "../lib/api";
 import { useAccounts, useCategories } from "../lib/queries";
 import { plural } from "../lib/receipt";
@@ -12,6 +13,9 @@ import { ErrorText } from "./Modal";
 import { BaseMoney } from "./Money";
 
 type Mode = "category" | "payee" | "account" | "tag" | "delete" | null;
+
+/** Место рядом с глобальной отменой. Выбор строк и форма живут в текущем журнале. */
+export const JournalActionsSlot = createContext<HTMLDivElement | null>(null);
 
 /** Почему строки пропущены: зависит от действия. */
 const SKIP_WHY: Record<Exclude<Mode, null>, string> = {
@@ -45,6 +49,7 @@ export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
   onClear: () => void;
   onDone: () => void;
 }) {
+  const slot = useContext(JournalActionsSlot);
   const selected = ids.length > 0;
   const key = selected ? [...ids].sort().join(",") : "";
   const sums = useQuery({
@@ -64,10 +69,10 @@ export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
     const t = window.setTimeout(() => setMessage(null), 10000);
     return () => window.clearTimeout(t);
   }, [message]);
-  if (!selected && !filtered && !message) return null;
+  if (!slot || (!selected && !filtered && !message)) return null;
 
-  return (
-    <div className={selected ? "sel-bar active" : "sel-bar"} data-testid="sel-bar" role="region" aria-label={selected ? "Выбранные операции" : "Итог найденного"}>
+  return createPortal(
+    <div className={selected ? "sel-bar active" : "sel-bar"} data-testid="sel-bar" role="region" tabIndex={0} aria-label={selected ? "Выбранные операции" : "Итог найденного"}>
       <div className="sel-sum">
         {(selected || filtered) && <SumLine s={sums} selected={selected} countedPeriod={Boolean(filter.counted && (filter.dateFrom || filter.dateTo))} />}
         {!selected && <Hint of="txn.select" />}
@@ -118,7 +123,7 @@ export function SelectionBar({ ids, filter, filtered, onClear, onDone }: {
           {message}
         </div>
       )}
-    </div>
+    </div>, slot
   );
 }
 

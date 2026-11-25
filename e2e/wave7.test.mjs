@@ -306,9 +306,7 @@ test("пачка: категория двум операциям, перевод
       // расходную категорию тоже не получает.
       rows.find((r) => r.querySelector(".main")?.textContent.includes("Магазины")).querySelector('[data-testid="txn-select"]').click();
     });
-    // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
-    if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
-    await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
+    await browser.$('//*[@data-testid="sel-bar"]//button[normalize-space()="Категория"]').click();
     await pickLike("bulkCategory", "Общепит");
     await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
     await waitText(browser, '[data-testid="bulk-message"]', /пропущено 1: переводы/);

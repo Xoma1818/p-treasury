@@ -194,7 +194,7 @@ test("правка и удаление операции меняют балан�
   assert.equal(await amount.getValue(), "700", "после ухода из поля сумма остаётся 700");
   await save(browser);
   await browser.$(cashPurchase).click();
-  const undo = browser.$('[data-testid="undo-bar"] button[title="Ctrl+Z"]');
+  const undo = browser.$('//*[@data-testid="undo-bar"]//button[normalize-space()="Отменить"]');
   await undo.waitForDisplayed();
   assert.equal(await (await field(browser, "amount")).getValue(), "700", "карточка открыла сохранённую сумму");
   assert.equal(await undo.isClickable(), false, "модальная карточка перекрывает плашку отмены");

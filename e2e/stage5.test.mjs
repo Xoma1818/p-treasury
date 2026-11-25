@@ -1,25 +1,25 @@
 // Приёмочные тесты этапа 5 «Календарь, напоминания, заметки»: сценарии из product/mvp-features.md, раздел 10.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { Key } from "webdriverio";
 import { start, stop, openSection, onboard, fill, choose, chooseLike, click, save, waitText, waitContent, money, setDate, waitCount, newDebt } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const now = new Date();
-const today = iso(now);
-const inDays = (n) => iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() + n));
-// Месяц через два от текущего: целиком в будущем.
-const future = new Date(now.getFullYear(), now.getMonth() + 2, 1);
-const futureMonth = iso(future).slice(0, 7);
-
-let browser, dataDir;
+let browser, dataDir, fixtureDate, firstPayment, futureMonth;
 before(async () => {
   ({ browser, dataDir } = await start());
   await onboard(browser, [
     { name: "Наличные", balance: "0" },
     { name: "Карта", balance: "100000" },
   ]);
+  // Все платежи относятся к одному учебному дню, даже если ночью сменится месяц.
+  const [year, month, day] = await browser.execute(() => {
+    const d = new Date();
+    return [d.getFullYear(), d.getMonth(), d.getDate()];
+  });
+  fixtureDate = iso(new Date(year, month, day));
+  firstPayment = iso(new Date(year, month, day + 2));
+  futureMonth = iso(new Date(year, month + 2, 1)).slice(0, 7);
 });
 after(async () => {
   await stop(browser);
@@ -32,6 +32,20 @@ async function openReminders() {
   await openSection(browser, "Календарь");
   await click(browser, "Напоминания");
   await browser.$('[data-testid="rem-all"]').waitForDisplayed({ timeout: 5000 });
+}
+
+async function showMonth(target) {
+  const firstDay = await browser.$('[data-testid="cal-day"]');
+  await firstDay.waitForExist({ timeout: 10000 });
+  let month = (await firstDay.getAttribute("data-date")).slice(0, 7);
+  while (month !== target) {
+    const forward = month < target;
+    const [year, number] = month.split("-").map(Number);
+    const next = iso(new Date(year, number - 1 + (forward ? 1 : -1), 1));
+    await browser.$(`button[aria-label="${forward ? "Следующий месяц" : "Предыдущий месяц"}"]`).click();
+    await browser.$(`[data-testid="cal-day"][data-date="${next}"]`).waitForExist({ timeout: 10000 });
+    month = next.slice(0, 7);
+  }
 }
 
 async function newReminder({ title, date, time = "09:00", repeat, amount, category, account }) {
@@ -48,7 +62,7 @@ async function newReminder({ title, date, time = "09:00", repeat, amount, catego
 
 test("коммуналка: «Учесть платёж» без совпадений открывает форму расхода", async () => {
   await openReminders();
-  await newReminder({ title: "ЖКХ", date: today, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
+  await newReminder({ title: "ЖКХ", date: fixtureDate, time: "00:00", repeat: "Ежемесячно", amount: "6000", category: "Коммунальные платежи", account: "Карта (₽)" });
   await waitText(browser, '[data-testid="rem-all"]', /ЖКХ · ежемесячно, следующее/);
   // Срок наступил сегодня в 0:00 — напоминание в просроченных.
   await click(browser, "Учесть платёж", occ("rem-overdue", "ЖКХ"));
@@ -57,14 +71,9 @@ test("коммуналка: «Учесть платёж» без совпаде�
   assert.equal(await amount.getValue(), "6000");
   assert.equal(await (await browser.$('[role="dialog"] [name="payee"]')).getValue(), "ЖКХ");
   assert.match(await (await browser.$('[role="dialog"] [name="account"]')).getValue(), /.+/);
-  // Заменяем предзаполненную сумму клавишами. Очистка через setValue в WebKit
-  // может потерять первую цифру при перерисовке управляемого поля React.
-  await amount.click();
-  const enteredAmount = "6230";
-  const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
-  for (const digit of enteredAmount) keys.down(digit).up(digit);
-  await keys.perform();
-  assert.equal(await amount.getValue(), enteredAmount);
+  await setDate(browser, "date", fixtureDate);
+  await fill(browser, "amount", "6230");
+  assert.equal(await amount.getValue(), "6230");
   await save(browser, "Записать расход");
   await waitText(browser, '[data-testid="rem-done"]', /ЖКХ/);
   await waitText(browser, '[data-testid="rem-overdue"]', /Всё сделано/);
@@ -73,7 +82,7 @@ test("коммуналка: «Учесть платёж» без совпаде�
 });
 
 test("платёж по кредиту: напоминание за 3 дня, «Оплачено» создаёт платёж по графику", async () => {
-  await newDebt(browser, { counterparty: "Сбер", principal: "300000", rate: "18", term: "24", firstPayment: inDays(2), account: "Карта (₽)" });
+  await newDebt(browser, { counterparty: "Сбер", principal: "300000", rate: "18", term: "24", issueDate: fixtureDate, firstPayment, account: "Карта (₽)" });
   await save(browser);
   await waitText(browser, '[data-testid="debt-next"]', money("14 977,23 ₽"));
 
@@ -84,6 +93,7 @@ test("платёж по кредиту: напоминание за 3 дня, «
   // Открылась карточка долга с отметкой платежа по графику.
   await browser.$('//main//h1[contains(., "Сбер")]').waitForDisplayed({ timeout: 5000 });
   assert.equal(await (await browser.$('[role="dialog"] [name="principal"]')).getValue(), "10477,23");
+  await setDate(browser, "payDate", fixtureDate);
   await save(browser);
   await waitText(browser, '//tr[@data-testid="schedule-row"][1]', /оплачен/);
   await openReminders();
@@ -96,19 +106,7 @@ test("вид месяца: платёж по кредиту, подарок 20-�
   await openReminders();
   await newReminder({ title: "Подарок маме", date: `${futureMonth}-20`, time: "10:00", repeat: "Ежегодно", amount: "5000", category: "Подарки" });
   await click(browser, "Месяц");
-  // Листаем по одному месяцу и ждём, пока он загрузится: иначе быстрые щелчки
-  // проскакивают нужный месяц, пока данные ещё считаются.
-  const shown = async () => {
-    await browser.waitUntil(() => browser.$('[data-testid="cal-day"]').isExisting(), { timeout: 10000 });
-    return (await browser.$('[data-testid="cal-day"]').getAttribute("data-date")).slice(0, 7);
-  };
-  for (let m = await shown(); m < futureMonth; ) {
-    const [y, mm] = m.split("-").map(Number);
-    const next = `${mm === 12 ? y + 1 : y}-${String((mm % 12) + 1).padStart(2, "0")}`;
-    await (await browser.$('button[aria-label="Следующий месяц"]')).click();
-    await browser.waitUntil(async () => (await shown()) === next, { timeout: 10000, timeoutMsg: `не открылся ${next}` });
-    m = next;
-  }
+  await showMonth(futureMonth);
   await waitContent(browser, `[data-testid="cal-day"][data-date="${futureMonth}-20"]`, /Подарок маме/);
   const debtDays = await browser.$$('[data-testid="cal-day"] [data-testid="cal-debt"]');
   assert.equal(debtDays.length, 1, "в месяце один платёж по кредиту");
@@ -122,27 +120,30 @@ test("день календаря: операция на дату и замет�
   // Повторный выбор оставляет месяц подарка; «Сегодня» возвращает текущий.
   await waitContent(browser, `[data-testid="cal-day"][data-date="${futureMonth}-20"]`, /Подарок маме/);
   await click(browser, "Сегодня");
-  const todayButton = await browser.$(`[data-testid="cal-day"][data-date="${today}"] .cal-num`);
-  await todayButton.waitForDisplayed({ timeout: 5000 });
-  await todayButton.click();
+  await browser.$('[data-testid="cal-day"].today').waitForExist({ timeout: 10000 });
+  await showMonth(fixtureDate.slice(0, 7));
+  const cell = `[data-testid="cal-day"][data-date="${fixtureDate}"]`;
+  await waitContent(browser, cell, money("−10 730 ₽"));
+  await browser.$(`${cell} .cal-num`).click();
   await browser.$('[data-testid="day-panel"]').waitForDisplayed({ timeout: 5000 });
   await click(browser, "+ Операция", '//*[@data-testid="day-panel"]');
   await fill(browser, "amount", "45000");
+  assert.equal(await browser.$('[role="dialog"] [name="date"]').getValue(), fixtureDate);
   await fill(browser, "payee", "Холодильник");
   await choose(browser, "category", "Прочие расходы");
   await save(browser);
   await waitText(browser, '[data-testid="day-panel"]', money("−45 000 ₽"));
-  await waitContent(browser, `[data-testid="cal-day"][data-date="${today}"]`, money("−55 730 ₽"));
+  await waitContent(browser, cell, money("−55 730 ₽"));
   // За день: ЖКХ 6 230 + проценты по кредиту 4 500 + холодильник 45 000.
   // Заметка на день.
   await fill(browser, "newNote", "Позвонить в сервис");
   await click(browser, "Добавить", '//*[@data-testid="day-panel"]');
   await waitText(browser, '[data-testid="day-panel"] [data-testid="notes"]', /Позвонить в сервис/);
-  await waitContent(browser, `[data-testid="cal-day"][data-date="${today}"]`, /✎ Позвонить в сервис/);
+  await waitContent(browser, cell, /✎ Позвонить в сервис/);
 
   await click(browser, "Неделя");
   await waitCount(browser, '[data-testid="week-day"]', 7);
-  await waitContent(browser, '[data-testid="week"]', money("−55 730 ₽"));
+  await waitContent(browser, '[data-testid="week-day"][aria-pressed="true"]', money("−55 730 ₽"));
 });
 
 test("заметка к покупке: «гарантия до 10.2028» находится поиском", async () => {
@@ -183,7 +184,7 @@ test("Главная показывает ближайшие напоминан�
 
 test("окно пропущенных напоминаний при запуске", async () => {
   await openReminders();
-  await newReminder({ title: "Продлить ОСАГО", date: today, time: "00:01", amount: "12000" });
+  await newReminder({ title: "Продлить ОСАГО", date: fixtureDate, time: "00:00", amount: "12000" });
   // Перезапуск с теми же данными.
   await stop(browser);
   ({ browser } = await start(dataDir));
