@@ -1,0 +1,181 @@
+# Только одноразовый GitHub-hosted runner. Установщик новой версии запускает сама Kazna.
+param([Parameter(Mandatory)][ValidateSet('prepare','before','restart','after','verify','summary')][string]$Stage)
+$ErrorActionPreference = 'Stop'
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+    $env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'ARM64' -or
+    $env:GITHUB_REF_NAME -ne 'codex/verify-inapp-0421-0428') {
+    throw 'Для проверки требуется отдельная ветка и одноразовая Windows 11 ARM64 GitHub.'
+}
+$repo = $env:GITHUB_WORKSPACE
+$env:KAZNA_QA_SCRATCH = Join-Path $env:RUNNER_TEMP 'kazna-inapp-0421-0428'
+$scratch = $env:KAZNA_QA_SCRATCH
+$evidence = Join-Path $scratch 'evidence'
+$env:KAZNA_QA_FIXTURE = Join-Path $PSScriptRoot 'fixture.py'
+$fixture = $env:KAZNA_QA_FIXTURE
+$windowScript = Join-Path $PSScriptRoot 'window.mjs'
+$dataDir = Join-Path $env:APPDATA 'app.kazna.desktop'
+$db = Join-Path $dataDir 'budget.db'
+$releaseBase = 'https://github.com/Xoma1818/p-treasury-releases/releases'
+$oldInstallerSha = 'e546c60af79e121677d10536aec1f7ca371a3bb5d8bf956f233c97cccf7d62bf'
+$releasedExeSha = '13314aa0575da96ee759e931fc6b7afbdf31052638bb901d2b1395adf1eb324d'
+
+function Get-Registration([string]$Name = 'Kazna') {
+    foreach ($view in [Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32) {
+        $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+        try {
+            $key = $baseKey.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Uninstall\$Name")
+            if ($null -ne $key) {
+                try {
+                    return [ordered]@{
+                        registryView = $view.ToString()
+                        version = [string]$key.GetValue('DisplayVersion')
+                        folder = ([string]$key.GetValue('InstallLocation')).Trim('"')
+                    }
+                } finally { $key.Dispose() }
+            }
+        } finally { $baseKey.Dispose() }
+    }
+}
+function Write-Report([string]$Name, $Data) {
+    $json = $Data | ConvertTo-Json -Depth 12
+    Set-Content -LiteralPath (Join-Path $evidence "$Name.json") -Value $json -Encoding utf8
+    Write-Host $json
+}
+function Read-Report([string]$Name) {
+    Get-Content -LiteralPath (Join-Path $evidence "$Name.json") -Raw -Encoding utf8 | ConvertFrom-Json
+}
+function Db-Fixture {
+    & python $fixture @args
+    if ($LASTEXITCODE -ne 0) { throw "Ошибка Python при выполнении $($args[0])." }
+}
+function Get-Executable($Registration, [string]$Version) {
+    if (!$Registration -or $Registration.version -ne $Version -or !$Registration.folder) {
+        throw "В профиле отсутствует регистрация Kazna $Version."
+    }
+    $file = Get-Item -LiteralPath (Join-Path $Registration.folder 'Kazna.exe')
+    if ($file.VersionInfo.ProductVersion -notmatch ('^' + [regex]::Escape($Version) + '(?:\.0)?$')) {
+        throw "Версия файла $($file.VersionInfo.ProductVersion) отличается от $Version."
+    }
+    $file.FullName
+}
+function Find-OneBackup([string]$Pattern) {
+    $files = @(Get-ChildItem -LiteralPath (Join-Path $dataDir 'backups') -Filter $Pattern -File)
+    if ($files.Count -ne 1) { throw "Нужна одна новая копия $Pattern. Найдено: $($files.Count)." }
+    $files[0].FullName
+}
+
+if ($Stage -eq 'summary') {
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add('## Обновление Kazna из установленной 0.42.1')
+    foreach ($phase in 'prepared','before','restart','after','comparison') {
+        $path = Join-Path $evidence "$phase.json"
+        if (Test-Path -LiteralPath $path) {
+            $content = Get-Content -LiteralPath $path -Raw -Encoding utf8
+            Write-Host "$phase $content"
+            $lines.Add("### $phase")
+            $lines.Add('```json')
+            $lines.Add($content)
+            $lines.Add('```')
+        } else {
+            $lines.Add("- $phase — отчёт отсутствует")
+        }
+    }
+    $lines | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+    return
+}
+foreach ($overridden in 'PTREASURY_DATA_DIR','PTREASURY_DB','PTREASURY_BIN','PTREASURY_UPDATE_URL') {
+    if ([Environment]::GetEnvironmentVariable($overridden)) { throw "Переопределена переменная $overridden." }
+}
+if ($Stage -eq 'prepare') {
+    if ((Test-Path -LiteralPath $dataDir) -or (Test-Path -LiteralPath $scratch) -or
+        (Get-Registration) -or (Get-Registration 'P-Treasury')) { throw 'Нужен чистый профиль.' }
+    $os = Get-CimInstance Win32_OperatingSystem
+    if ($os.Caption -notmatch 'Windows 11' -or [int]$os.BuildNumber -lt 22000) { throw $os.Caption }
+    [void][IO.Directory]::CreateDirectory($evidence)
+    $channel = "$releaseBase/latest/download/latest.json"
+    $manifestFile = Join-Path $evidence 'latest.json'
+    Invoke-WebRequest -Uri $channel -OutFile $manifestFile -TimeoutSec 60
+    $manifest = Get-Content -Raw -Encoding utf8 -LiteralPath $manifestFile | ConvertFrom-Json
+    $manifestSha = (Get-FileHash -LiteralPath $manifestFile).Hash
+    $target = "$releaseBase/download/v0.42.8/Kazna_0.42.8_x64-setup.exe"
+    if ($manifest.version -ne '0.42.8') { throw "Канал предлагает $($manifest.version)." }
+    foreach ($platform in 'windows-x86_64','windows-x86_64-nsis') {
+        if ($manifest.platforms.$platform.url -cne $target -or !$manifest.platforms.$platform.signature) {
+            throw "Отсутствует ожидаемая цель или подпись $platform."
+        }
+    }
+    if ($manifestSha -ne '6ad8978199e23e0f6fbbe576a07b09ca97d6a5b617e82e135fb897c1b5200d73') {
+        throw "Общедоступный манифест отличается от проверенного выпуска 0.42.8: $manifestSha."
+    }
+    $setup = Join-Path $scratch 'Kazna_0.42.1_x64-setup.exe'
+    Invoke-WebRequest -Uri "$releaseBase/download/v0.42.1/Kazna_0.42.1_x64-setup.exe" -OutFile $setup -TimeoutSec 120
+    if ((Get-FileHash -LiteralPath $setup).Hash -ne $oldInstallerSha) { throw 'SHA-256 установщика 0.42.1.' }
+    $install = Start-Process -FilePath $setup -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+    if ($install.ExitCode -ne 0) { throw "Старая версия не установилась. Код $($install.ExitCode)." }
+    $reg = Get-Registration
+    $exe = Get-Executable $reg '0.42.1'
+    Db-Fixture seed $repo $db
+    Write-Report 'prepared' ([ordered]@{
+        windows = $os.Caption; build = $os.BuildNumber; osArchitecture = $env:RUNNER_ARCH
+        workflowCommit = $env:GITHUB_SHA; registration = $reg; exe = $exe; officialInstallerSha256 = $oldInstallerSha
+        oldExeSha256 = (Get-FileHash -LiteralPath $exe).Hash; endpoint = $channel
+        offeredByChannel = $manifest.version; targetUrl = $target; manifestSha256 = $manifestSha
+    })
+    return
+}
+$prepared = Read-Report 'prepared'
+$exe = $prepared.exe
+if ($Stage -in 'before','after') {
+    & node $windowScript $Stage $exe $evidence
+    if ($LASTEXITCODE -ne 0) { throw "Оконная проверка $Stage завершилась с кодом $LASTEXITCODE." }
+    $result = Read-Report $Stage
+    Write-Host ($result | ConvertTo-Json -Depth 12)
+    return
+}
+if ($Stage -eq 'restart') {
+    $oldPid = (Read-Report 'before').oldPid
+    if (!$oldPid) { throw 'Неизвестен PID исходного окна.' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(150)
+    do {
+        $registration = Get-Registration
+        $running = @(Get-Process -Name Kazna -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+        $fresh = @($running | Where-Object { $_.Id -ne $oldPid -and $_.MainWindowHandle -ne 0 })
+        if ($running.Count -eq 1 -and $fresh.Count -eq 1 -and $registration.version -eq '0.42.8') { break }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($running.Count -ne 1 -or $fresh.Count -ne 1) {
+        throw "Новое главное окно не обнаружено. Старый PID $oldPid; запущенные PID: $($running.Id -join ',')."
+    }
+    $restarted = $fresh[0]
+    if ((Get-Executable $registration '0.42.8') -ne $exe) { throw 'Поменялся путь установки.' }
+    $hash = (Get-FileHash -LiteralPath $exe).Hash
+    if ($hash -ne $releasedExeSha) { throw "SHA-256 перезапущенного файла $hash." }
+    Write-Report 'restart' ([ordered]@{
+        automaticRelaunch = $true; oldPid = $oldPid; newPid = $restarted.Id; registeredVersion = $registration.version
+        installedExe = $exe; installedExeSha256 = $hash; windowTitle = $restarted.MainWindowTitle
+        windowHandle = $restarted.MainWindowHandle.ToInt64(); processStartUtc = $restarted.StartTime.ToUniversalTime().ToString('o')
+    })
+    # У учебной базы close_to_tray=0. Закрываем уже обнаруженное новое окно, затем открываем его для WebDriver.
+    if (!$restarted.CloseMainWindow() -or !$restarted.WaitForExit(30000)) { throw 'Не удалось штатно закрыть новое окно.' }
+    return
+}
+$preMigration = Find-OneBackup 'before-update-v31-*.db'
+$preInstall = Find-OneBackup 'before-app-update-*.db'
+$beforeSnapshot = Join-Path $scratch 'before.sqlite'
+$afterSnapshot = Join-Path $scratch 'after.sqlite'
+Db-Fixture snapshot $db $afterSnapshot
+$snapshots = [IO.Directory]::CreateDirectory((Join-Path $evidence 'snapshots')).FullName
+foreach ($file in $beforeSnapshot, $afterSnapshot, $preInstall, $preMigration) {
+    Copy-Item -LiteralPath $file -Destination $snapshots
+}
+foreach ($backup in @{ app = $preInstall; migration = $preMigration }.GetEnumerator()) {
+    Db-Fixture verify $repo $beforeSnapshot $afterSnapshot $backup.Value (Join-Path $evidence "$($backup.Key)-verification.json")
+}
+$checked = Read-Report 'migration-verification'
+Write-Report 'comparison' ([ordered]@{
+    schemaBefore = $checked.before.schema; schemaAfter = $checked.after.schema; tables = $checked.after.tablesCompared
+    settings = @($checked.after.allSettings.PSObject.Properties).Count; transactions = $checked.after.transactionCount
+    accounts = $checked.after.accounts; totalBalanceRubMinor = $checked.after.totalBalanceRubMinor
+    incomeRubMinor = $checked.after.incomeRubMinor; expenseRubMinor = $checked.after.expenseRubMinor
+    appBackup = $preInstall; appBackupRowsMatch = $true; migrationBackup = $preMigration; migrationBackupRowsMatch = $true
+})
