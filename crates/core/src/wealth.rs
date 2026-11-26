@@ -130,15 +130,6 @@ pub struct FxReport {
     pub missing_rates: Vec<String>,
 }
 
-/// Остаток счёта на дату с поправкой на дату открытия, как в отчёте «Остатки».
-fn value_at(conn: &Connection, a: &accounts::Account, date: &str) -> Result<i64> {
-    let mut bal = accounts::balance(conn, &a.id, Some(date))?;
-    if a.opening_date.as_str() > date {
-        bal -= a.opening_balance;
-    }
-    Ok(bal)
-}
-
 /// Курсовая разница за период по каждому счёту в валюте, отличной от основной:
 /// `остаток в конце × курс в конце − остаток в начале × курс в начале −
 /// Σ движений × курс на дату движения`.
@@ -158,8 +149,8 @@ pub fn fx_gain(conn: &Connection, from: &str, to: &str) -> Result<FxReport> {
         .into_iter()
         .filter(|a| a.currency_code != base)
     {
-        let start_balance = value_at(conn, &a, &before)?;
-        let end_balance = value_at(conn, &a, to)?;
+        let start_balance = accounts::historical_balance(conn, &a.id, &before)?;
+        let end_balance = accounts::historical_balance(conn, &a.id, to)?;
         // Движения периода в валюте счёта: (дата, сумма со знаком).
         let mut flows: Vec<(String, i64)> = Vec::new();
         if a.opening_date.as_str() >= from && a.opening_date.as_str() <= to {

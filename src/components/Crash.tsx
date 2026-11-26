@@ -3,6 +3,7 @@
 // а текст можно скопировать и прислать нам. Данные при этом не трогаются.
 import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 import { rememberSection } from "../lib/fine";
+import { Brand } from "./Brand";
 
 interface Props {
   children: ReactNode;
@@ -91,19 +92,23 @@ function CrashScreen({ error, stack, inline, onRetry }: { error: Error; stack: s
   );
 }
 
-/** Пока ядро открывает данные: через пару секунд — надпись, а не пустое окно. */
+/** Оболочка сразу готова, пояснение нужно только если открытие данных затянулось. */
 export function Opening() {
-  const [slow, setSlow] = useState(false);
+  const [stage, setStage] = useState<"start" | "opening" | "stalled">("start");
   useEffect(() => {
-    const t = setTimeout(() => setSlow(true), 1500);
-    return () => clearTimeout(t);
+    const opening = setTimeout(() => setStage("opening"), 200);
+    const stalled = setTimeout(() => setStage("stalled"), 60_000);
+    return () => {
+      clearTimeout(opening);
+      clearTimeout(stalled);
+    };
   }, []);
-  if (!slow) return null;
   return (
     <div className="wizard" data-testid="opening">
-      <div className="card wizard-card">
-        <p>Открываем данные…</p>
-        <p className="hint">Если надпись не исчезает больше минуты, закройте Kazna через значок в трее («Выход») и откройте снова.</p>
+      <div>
+        <Brand />
+        <p role="status">{stage !== "start" && "Открываем данные…"}</p>
+        {stage === "stalled" && <p className="hint">Открытие занимает больше минуты. Закройте Kazna через значок в трее («Выход») и откройте снова.</p>}
       </div>
     </div>
   );

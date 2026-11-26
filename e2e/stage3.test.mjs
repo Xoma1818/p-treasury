@@ -120,6 +120,9 @@ test("Р12: доли кольцом, линия по месяцам и отбо�
   await click(browser, "Структура", "//main");
   await (await browser.$('[data-testid="structure-chart-donut"]')).click();
   await waitText(browser, '[data-testid="structure-donut"]', /Жильё/);
+  await browser.execute(() => document.querySelector('[data-category="Транспорт"] .cat-link').focus());
+  await waitText(browser, ".donut-sub", /Транспорт/);
+  await waitText(browser, ".donut-main", /15 %/);
   // Все расходы — с «Карты»: по «Наличным» расходов нет, перевод не считается.
   await choose(browser, "reportAccount", "Наличные");
   await waitText(browser, "main", /За этот период операций нет/);
@@ -131,6 +134,10 @@ test("Р12: доли кольцом, линия по месяцам и отбо�
   await click(browser, "По месяцам", "//main");
   await (await browser.$('[data-testid="months-chart-line"]')).click();
   await browser.$('[data-testid="months-line"]').waitForExist({ timeout: 5000 });
+  await browser.execute(() => document.querySelector('.chart svg g[tabindex]').focus());
+  await waitText(browser, '.chart [role="tooltip"]', /Доходы/);
+  await browser.keys("Escape");
+  await waitCount(browser, '.chart [role="tooltip"]', 0);
   await waitCount(browser, ".chart path.bar-income", 0);
   await (await browser.$('[data-testid="months-chart-bars"]')).click();
   await waitCount(browser, ".chart path.bar-income", 12);
@@ -145,4 +152,49 @@ test("переход к прошлому периоду: там операций
   await waitText(browser, '[data-testid="report-period"]', new RegExp(title(prev)));
   await waitText(browser, '[data-testid="report-expense"]', money("0 ₽"));
   await waitText(browser, "main", /За этот период операций нет/);
+});
+
+test("девятая категория доступна с клавиатуры, возврат за прошлый месяц не превращается в долю", async () => {
+  // Легенда показывает первые восемь. За её пределами всё ещё доступны подсветка и переход.
+  const seeded = await browser.executeAsync(async (date, previous, done) => {
+    const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+    try {
+      const { id: accountId } = (await invoke("list_accounts", { includeArchived: false })).find(a => a.name === "Карта");
+      const create = (categoryId, at, amount) => invoke("create_transaction", { input: { type: "expense", date: at, accountId, amount, categoryId,
+        payee: null, note: null, toAccountId: null, toAmount: null } });
+      for (let i = 1; i <= 9; i++) {
+        const categoryId = await invoke("create_category", { input: { name: `Проверка ${i}`, kind: "expense", parentId: null } });
+        await create(categoryId, date, 1000 + i);
+      }
+      const categoryId = await invoke("create_category", { input: { name: "Возврат из прошлого", kind: "expense", parentId: null } });
+      done({ purchase: await create(categoryId, previous, 8000) });
+    } catch (error) { done({ error: String(error) }); }
+  }, iso(now), iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+  assert.equal(seeded.error, undefined);
+  await browser.refresh();
+  await openSection(browser, "Отчёты");
+  await choose(browser, "periodKind", "Месяц");
+  await click(browser, "Структура", "//main");
+  await browser.$('[data-testid="structure-chart-donut"]').click();
+  await waitText(browser, '[data-testid="structure-donut"]', /и ещё/);
+  const ninth = await browser.execute(() => {
+    const row = document.querySelectorAll('[data-testid="cat-row"]')[8];
+    row.querySelector(".cat-link").focus();
+    return row.dataset.category;
+  });
+  await waitText(browser, ".donut-sub", new RegExp(ninth));
+  await browser.keys("Enter");
+  await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed();
+
+  const refund = await browser.executeAsync((purchase, date, done) => {
+    window.__TAURI_INTERNALS__.invoke("create_refund", { input: { of: purchase, date, accountId: null, amount: 8000,
+      inPurchaseMonth: false, note: null } }).then(() => done(null), error => done(String(error)));
+  }, seeded.purchase, iso(now));
+  assert.equal(refund, null);
+  await browser.refresh();
+  await openSection(browser, "Отчёты");
+  await waitText(browser, "main", /отрицательные суммы/);
+  await waitText(browser, catRow("Возврат из прошлого"), money("−80 ₽"));
+  await waitCount(browser, '[data-testid="structure-donut"]', 0);
+  await waitCount(browser, '[data-testid="share"]', 0);
 });

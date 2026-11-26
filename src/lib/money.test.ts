@@ -17,6 +17,16 @@ describe("formatAmount", () => {
   it("не принимает дробные числа", () => {
     expect(() => formatAmount(10.5)).toThrow();
   });
+
+  it("без копеек округляет модуль в точных целых и сохраняет знак результата", () => {
+    const whole = (minor: number) => formatAmount(minor, 2, true, true);
+    expect(whole(150)).toBe("2");
+    expect(whole(-150)).toBe("−2");
+    expect(whole(-149)).toBe("−1");
+    expect(whole(-49)).toBe("0");
+    expect(whole(Number.MAX_SAFE_INTEGER)).toBe("90 071 992 547 410");
+    expect(formatAmount(-1234, 0, true, true)).toBe("−1 234");
+  });
 });
 
 describe("formatMoney", () => {

@@ -22,14 +22,13 @@ import { api, type ScanResult } from "../lib/api";
 import { pickFolder } from "../lib/files";
 import { Hint } from "../components/Hint";
 import { formatDate, formatDateTime, today } from "../lib/dates";
-import { useAppInfo, useCurrencies, useSettings } from "../lib/queries";
+import { useCurrencies, useSettings } from "../lib/queries";
 import { formatRate, rateSource } from "../lib/rates";
 import { useAction } from "../lib/useAction";
 import "./secondaryScreens.css";
 import "./settings-navigation.css";
 
 export function Settings() {
-  const info = useAppInfo();
   const settings = useSettings().data;
   const currencies = useCurrencies().data ?? [];
   const setHotkey = useAction(api.setQuickHotkey);
@@ -66,8 +65,10 @@ export function Settings() {
     if (jump.dialog) {
       setDialog(jump.dialog);
     } else if (target) {
-      target.scrollIntoView({ block: "nearest" });
-      target.focus({ preventScroll: true });
+      if (target instanceof HTMLDetailsElement) target.open = true;
+      const focusTarget = target instanceof HTMLDetailsElement ? target.querySelector("summary") ?? target : target;
+      focusTarget.scrollIntoView({ block: "nearest" });
+      focusTarget.focus({ preventScroll: true });
     }
   }, [jump, topic]);
 
@@ -367,30 +368,6 @@ export function Settings() {
 
       <SettingsPanel topic="about" selected={topic}>
         <div id="set-about" className="settings-section" tabIndex={-1}>
-          <div className="card">
-            <h2>О программе</h2>
-            {info.error && <p className="error">{String(info.error)}</p>}
-            {info.data && (
-              <dl className="facts">
-                <dt>Версия</dt>
-                <dd>{info.data.version}</dd>
-                <dt>Версия данных</dt>
-                <dd>
-                  {info.data.schemaVersion} из {info.data.supportedSchemaVersion}
-                </dd>
-                <dt>Файл данных</dt>
-                <dd className="mono">{info.data.dbPath}</dd>
-                {info.data.preMigrationBackup && (
-                  <>
-                    <dt>Копия перед обновлением</dt>
-                    <dd className="mono">{info.data.preMigrationBackup}</dd>
-                  </>
-                )}
-              </dl>
-            )}
-          </div>
-        </div>
-        <div id="set-updates" className="settings-section" tabIndex={-1}>
           <UpdatesCard active={topic === "about"} />
         </div>
       </SettingsPanel>

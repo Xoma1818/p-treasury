@@ -4,7 +4,8 @@ import { X } from "lucide-react";
 import { AmountInput, amountText, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
-import { Money } from "../../components/Money";
+import { FormAmountsToggle } from "../../components/FormAmounts";
+import { useDebtFormAmounts, type RenderDebtMoney } from "./loanFormAmounts";
 import { api, REPAYMENTS, type DebtCard, type DebtDetail, type LoanChangeInput, type LoanCompare, type LoanSnap, type HolidayKind, type InterestMethod, type RecalcMode, type Repayment, type ScheduleRow, type TermsInput } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
 import { useFine } from "../../lib/fine";
@@ -15,8 +16,6 @@ import { useDebounced } from "../../lib/useDebounced";
 import { BalanceChart } from "./BalanceChart";
 import { EarlyEditor } from "./Editors";
 import { PayEverySelect, RatePeriodSelect } from "./LoanPlanner";
-
-const money = (card: DebtCard) => (v: number) => <Money amount={v} symbol={card.currencySymbol} currencyCode={card.currencyCode} minorUnits={card.minorUnits} />;
 
 /** Строка «было → стало» с подсветкой того, что изменилось. */
 function Diff({ label, was, now, testid, changed }: { label: string; was: ReactNode; now: ReactNode; testid?: string; changed?: boolean }) {
@@ -33,8 +32,7 @@ function Diff({ label, was, now, testid, changed }: { label: string; was: ReactN
 }
 
 /** «Было → станет» перед сохранением: ставка, число платежей, переплата, дата закрытия. */
-export function LoanCompareTable({ card, compare, after = "Станет" }: { card: DebtCard; compare: LoanCompare; after?: string }) {
-  const m = money(card);
+export function LoanCompareTable({ money: m, compare, after = "Станет" }: { money: RenderDebtMoney; compare: LoanCompare; after?: string }) {
   const { before: b, after: a } = compare;
   const rate = (x: LoanSnap) => (
     <>
@@ -101,6 +99,7 @@ function useChangePreview(card: DebtCard, input: LoanChangeInput | null) {
 
 /** «Изменить условия»: все поля займа и предпросмотр «было → стало» до сохранения. */
 export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: () => void }) {
+  const privacy = useDebtFormAmounts(detail.card);
   const c = detail.card;
   const mu = c.minorUnits;
   const [f, setF] = useState({
@@ -153,9 +152,10 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
   return (
     <Modal title="Условия займа" onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), terms ? save.run(terms) : save.setError("Проверьте сумму, ставку и срок"))}>
+        <FormAmountsToggle privacy={privacy} />
         <div className="row">
           <Field label="Сумма" help="loan.amount">
-            {(id) => <AmountInput id={id} name="termsPrincipal" value={f.amount} onChange={(v) => set({ amount: v })} minorUnits={mu} autoFocus />}
+            {(id) => <AmountInput id={id} name="termsPrincipal" value={f.amount} onChange={(v) => set({ amount: v })} minorUnits={mu} concealed={privacy.concealed} autoFocus />}
           </Field>
           <Field label="Дата выдачи">{(id) => <input id={id} name="termsIssue" type="date" value={f.issueDate} onChange={(e) => set({ issueDate: e.target.value })} />}</Field>
           <Field label="Ставка" help="loan.rate" hint={annualHint(terms?.rateBp ?? 0, f.ratePeriod)}>
@@ -219,12 +219,12 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
         </div>
         {key && now.data && (
           <div data-testid="terms-preview">
-            <LoanCompareTable card={c} compare={now.data.compare} />
+            <LoanCompareTable money={privacy.money} compare={now.data.compare} />
           </div>
         )}
-        {now.error && <p className="hint warn">{String(now.error)}</p>}
+        {now.error && <p className="hint warn">{privacy.error(String(now.error))}</p>}
         <p className="hint">Прежний график сохранится в истории. Если выдача записана операцией, её сумма и дата тоже изменятся.</p>
-        <ErrorText error={save.error} />
+        <ErrorText error={privacy.error(save.error)} />
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
@@ -241,6 +241,7 @@ export function TermsForm({ detail, onClose }: { detail: DebtDetail; onClose: ()
 
 /** «Ставка изменилась»: новая ставка с даты. */
 export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () => void }) {
+  const privacy = useDebtFormAmounts(card);
   const [from, setFrom] = useState(today());
   const [rate, setRate] = useState("");
   const save = useAction(async () => {
@@ -253,6 +254,7 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
   return (
     <Modal title="Ставка изменилась" onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
+        <FormAmountsToggle privacy={privacy} />
         <div className="row">
           <Field label="С какой даты" help="loan.rateChanged">
             {(id) => <input id={id} name="rateFrom" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />}
@@ -262,9 +264,9 @@ export function RateChangeForm({ card, onClose }: { card: DebtCard; onClose: () 
           </Field>
         </div>
         <p className="hint">Проценты с этой даты считаются по новой ставке, платёж пересчитается с ближайшего платежа, срок прежний.</p>
-        {preview.compare && <LoanCompareTable card={card} compare={preview.compare} />}
-        {preview.error && <p className="hint warn">{String(preview.error)}</p>}
-        <ErrorText error={save.error} />
+        {preview.compare && <LoanCompareTable money={privacy.money} compare={preview.compare} />}
+        {preview.error && <p className="hint warn">{privacy.error(String(preview.error))}</p>}
+        <ErrorText error={privacy.error(save.error)} />
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
@@ -283,16 +285,18 @@ const HOLIDAY: Record<HolidayKind, string> = { interest_only: "Только пр
 
 /** «Каникулы»: только проценты или перенос, с какого платежа и на сколько месяцев. */
 export function HolidayForm({ detail, onClose }: { detail: DebtDetail; onClose: () => void }) {
+  const privacy = useDebtFormAmounts(detail.card);
   const pending = detail.schedule.filter((r) => r.status !== "paid");
   const [kind, setKind] = useState<HolidayKind>("interest_only");
   const [fromSeq, setFromSeq] = useState(String(pending[0]?.seq ?? 1));
   const [months, setMonths] = useState("3");
   const save = useAction(() => api.addDebtHoliday(detail.card.id, { fromSeq: Number(fromSeq), months: Number(months), kind }), onClose, { singleSubmit: true });
-  const m = money(detail.card);
+  const m = privacy.money;
   const preview = useChangePreview(detail.card, { kind: "holiday", fromSeq: Number(fromSeq), months: Number(months), holidayKind: kind });
   return (
     <Modal title="Кредитные каникулы" onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
+        <FormAmountsToggle privacy={privacy} />
         <Field label="Вид каникул" help="loan.holiday">
           {(id) => (
             <select id={id} name="holidayKind" value={kind} onChange={(e) => setKind(e.target.value as HolidayKind)}>
@@ -331,9 +335,9 @@ export function HolidayForm({ detail, onClose }: { detail: DebtDetail; onClose: 
         <p className="hint">
           {kind === "interest_only" ? "В эти месяцы платите только проценты, срок удлинится." : "Платежи сдвинутся, проценты за паузу добавятся к первому платежу после неё."} Сейчас платёж {pending[0] ? m(pending[0].payment) : "—"}.
         </p>
-        {preview.compare && <LoanCompareTable card={detail.card} compare={preview.compare} />}
-        {preview.error && <p className="hint warn">{String(preview.error)}</p>}
-        <ErrorText error={save.error} />
+        {preview.compare && <LoanCompareTable money={privacy.money} compare={preview.compare} />}
+        {preview.error && <p className="hint warn">{privacy.error(String(preview.error))}</p>}
+        <ErrorText error={privacy.error(save.error)} />
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
@@ -388,13 +392,14 @@ export function ChangesList({ detail }: { detail: DebtDetail }) {
 
 /** Плановые досрочки займа (редактор как в форме) и прогноз: когда закроете и сколько сэкономите. */
 export function PlannedBlock({ detail }: { detail: DebtDetail }) {
+  const privacy = useDebtFormAmounts(detail.card);
   const c = detail.card;
   const mu = c.minorUnits;
   const symbol = useFine().code ? c.currencyCode : c.currencySymbol;
   const [lines, setLines] = useState<EarlyLine[]>(() => earlyLines(detail.plannedEarly, mu));
   const forecast = useQuery({ queryKey: ["debtForecast", c.id], queryFn: () => api.debtForecast(c.id) });
   const save = useAction(() => api.setDebtPlannedEarly(c.id, plannedEarly(lines, mu)));
-  const m = money(c);
+  const m = privacy.money;
   // Пока досрочки не сохранены — «было → станет» по прогнозу.
   const draft = plannedEarly(lines, mu);
   const dirty = JSON.stringify(draft) !== JSON.stringify(detail.plannedEarly.map((p) => ({ amount: p.amount, startDate: p.startDate, frequency: p.frequency, endDate: p.endDate, mode: p.mode })));
@@ -410,16 +415,17 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
           Плановые досрочки
           <Hint of="loan.planned" />
         </h2>
-        <EarlyEditor lines={lines} onChange={setLines} minorUnits={mu} symbol={symbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
-        {preview.compare && <LoanCompareTable card={c} compare={preview.compare} after="После сохранения" />}
-        {preview.error && <p className="hint warn">{String(preview.error)}</p>}
+        <FormAmountsToggle privacy={privacy} where="в этом плане" />
+        <EarlyEditor lines={lines} onChange={setLines} concealed={privacy.concealed} minorUnits={mu} symbol={symbol} defaultDate={c.nextPayment?.dueDate ?? today()} bullet={c.repaymentType === "bullet"} />
+        {preview.compare && <LoanCompareTable money={privacy.money} compare={preview.compare} after="После сохранения" />}
+        {preview.error && <p className="hint warn">{privacy.error(String(preview.error))}</p>}
         <div className="actions">
           <span className="spacer" />
           <button className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy} onClick={() => save.run()}>
             Сохранить досрочки
           </button>
         </div>
-        <ErrorText error={save.error} />
+        <ErrorText error={privacy.error(save.error)} />
       </div>
       <div className="card" data-testid="forecast">
         <h2>Прогноз</h2>
@@ -447,6 +453,7 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
             </dl>
             <p className="sub">Прогноз с {formatDate(chartFrom)}{hasOverdue && ". Предполагаем, что в этот день будут внесены все просроченные платежи."}</p>
             <BalanceChart
+              hidden={privacy.concealed}
               base={{ rows: forecastChartRows(detail.schedule, chartFrom), early: [] }}
               withEarly={{ rows: forecastChartRows(fc.rows, chartFrom), early: fc.early.filter((p) => p.planned && p.date >= chartFrom) }}
               issueDate={chartFrom}
@@ -465,6 +472,7 @@ export function PlannedBlock({ detail }: { detail: DebtDetail }) {
 
 /** «А что если»: досрочка без записи — разбивка, новый платёж или срок, экономия. */
 export function WhatIf({ card }: { card: DebtCard }) {
+  const privacy = useDebtFormAmounts(card);
   const mu = card.minorUnits;
   const monthly = card.repaymentType !== "bullet";
   const [amount, setAmount] = useState("");
@@ -479,7 +487,7 @@ export function WhatIf({ card }: { card: DebtCard }) {
     retry: false,
     placeholderData: keepPreviousData,
   });
-  const m = money(card);
+  const m = privacy.money;
   const r = key ? q.data : undefined;
   return (
     <div className="card" data-testid="whatif">
@@ -487,8 +495,9 @@ export function WhatIf({ card }: { card: DebtCard }) {
         А что если внести досрочно
         <Hint of="loan.whatif" />
       </h2>
+      <FormAmountsToggle privacy={privacy} where="в этом расчёте" />
       <div className="row">
-        <Field label="Сумма">{(id) => <AmountInput id={id} name="whatIfAmount" value={amount} onChange={setAmount} minorUnits={mu} />}</Field>
+        <Field label="Сумма">{(id) => <AmountInput id={id} name="whatIfAmount" value={amount} onChange={setAmount} minorUnits={mu} concealed={privacy.concealed} />}</Field>
         <Field label="Дата">{(id) => <input id={id} name="whatIfDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
         {monthly && (
           <Field label="Что уменьшать">
@@ -504,7 +513,7 @@ export function WhatIf({ card }: { card: DebtCard }) {
           </Field>
         )}
       </div>
-      {q.error && key && <p className="hint warn">{String(q.error)}</p>}
+      {q.error && key && <p className="hint warn">{privacy.error(String(q.error))}</p>}
       {r && !q.error && (
         <table className="table compact terms-diff" data-testid="whatif-result">
           <thead>
@@ -540,14 +549,15 @@ export function WhatIf({ card }: { card: DebtCard }) {
 
 /** «История»: снимки графика до каждого изменения, разница итогов и общая экономия. */
 export function History({ card }: { card: DebtCard }) {
+  const privacy = useDebtFormAmounts(card);
   const v = useQuery({ queryKey: ["debtVersions", card.id], queryFn: () => api.debtVersions(card.id) });
-  const m = money(card);
+  const m = privacy.money;
   const d = v.data;
   if (!d) return null;
   const list = d.versions;
   const signed = (x: number) => (
     <span className={x < 0 ? "good-text" : x > 0 ? "over" : "muted"}>
-      {x > 0 ? "+" : x < 0 ? "−" : ""}
+      {!privacy.concealed && (x > 0 ? "+" : x < 0 ? "−" : "")}
       {m(Math.abs(x))}
     </span>
   );
@@ -561,6 +571,7 @@ export function History({ card }: { card: DebtCard }) {
         История графика
         <Hint of="loan.history" />
       </h2>
+      <FormAmountsToggle privacy={privacy} where="в истории" />
       <div className="history-now">
         <div>
           <div className="muted">Сейчас</div>
@@ -582,7 +593,7 @@ export function History({ card }: { card: DebtCard }) {
             return (
               <li key={before.id ?? before.createdAt} data-testid="version" className="fade-up">
                 <div className="history-head">
-                  <b>{before.reason}</b>
+                  <b>{privacy.concealed ? "Изменение графика" : before.reason}</b>
                   <span className="muted">{when(before.createdAt)}</span>
                 </div>
                 <div className="history-diff">
@@ -618,11 +629,12 @@ export function History({ card }: { card: DebtCard }) {
 
 /** Своя сумма неоплаченного платежа: больше или меньше графика; следующие пересчитываются. */
 export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; row: ScheduleRow; onClose: () => void }) {
+  const privacy = useDebtFormAmounts(detail.card, row.id);
   const c = detail.card;
   const own = detail.rowAmounts.find((a) => a.seq === row.seq);
   const [amount, setAmount] = useState(amountText(own?.amount ?? row.payment, c.minorUnits));
   const [mode, setMode] = useState<RecalcMode>(own?.mode ?? "reduce_term");
-  const m = money(c);
+  const m = privacy.money;
   const save = useAction(
     async () => {
       const v = parseAmount(amount, c.minorUnits);
@@ -638,8 +650,9 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
   return (
     <Modal title={`Платёж №${row.seq}, ${formatDate(row.dueDate)}`} onClose={onClose} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), save.run())}>
+        <FormAmountsToggle privacy={privacy} />
         <Field label="Сколько заплатить" help="loan.rowAmount" hint={<>По графику {m(row.payment)}, из них проценты {m(row.interestPart)}</>}>
-          {(id) => <AmountInput id={id} name="rowAmount" value={amount} onChange={setAmount} minorUnits={c.minorUnits} autoFocus />}
+          {(id) => <AmountInput id={id} name="rowAmount" value={amount} onChange={setAmount} minorUnits={c.minorUnits} concealed={privacy.concealed} autoFocus />}
         </Field>
         {v !== null && v < row.interestPart && <p className="hint warn">Меньше процентов: в этот раз уйдут только проценты {m(row.interestPart)}, долг не уменьшится.</p>}
         <div className="loan-method">
@@ -652,10 +665,10 @@ export function RowAmountForm({ detail, row, onClose }: { detail: DebtDetail; ro
             ))}
           </div>
         </div>
-        {preview.compare && <LoanCompareTable card={c} compare={preview.compare} />}
-        {preview.error && <p className="hint warn">{String(preview.error)}</p>}
+        {preview.compare && <LoanCompareTable money={privacy.money} compare={preview.compare} />}
+        {preview.error && <p className="hint warn">{privacy.error(String(preview.error))}</p>}
         <p className="hint">Сумма пойдёт в график и напоминания. Прежний график сохранится в истории.</p>
-        <ErrorText error={save.error ?? reset.error} />
+        <ErrorText error={privacy.error(save.error ?? reset.error)} />
         <div className="actions">
           {own && (
             <button type="button" className="link" onClick={() => reset.run()}>

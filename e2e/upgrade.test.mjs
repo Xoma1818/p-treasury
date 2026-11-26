@@ -7,7 +7,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { start, stop, openSection, openSettings, onboard, fill, choose, click, save, waitText, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, click, clickControl, save, waitText, money } from "./app.mjs";
 
 const OLD = process.env.PTREASURY_OLD_BIN;
 // Последняя версия схемы данных: по числу миграций ядра.
@@ -33,7 +33,7 @@ async function figures(showAllLabel) {
   );
   await openSection(browser, "Главная");
   // Заголовки, объяснения и кнопки развиваются между версиями. Сверяем финансовые значения.
-  f.total = await waitText(browser, '[data-testid="total-balance"] .tile-value', /₽/);
+  f.total = await waitText(browser, '[data-testid="total-balance"] .tile-value .money', /₽/);
   f.expense = await waitText(browser, '[data-testid="month-expense"] .tile-value', /₽/);
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
@@ -103,7 +103,8 @@ test("данные старой версии открываются новой �
   const now = await figures("Показать все операции");
   assert.deepEqual(now, old);
   await openSettings(browser, "about");
-  const about = '//h2[normalize-space()="О программе"]/..';
+  const about = '[data-testid="about-details"]';
+  await clickControl(browser, await browser.$(about + " summary"), "Технические сведения");
   await waitText(browser, about, new RegExp(`${LATEST} из ${LATEST}`));
   await waitText(browser, about, /Копия перед обновлением/);
   const copies = readdirSync(join(dataDir, "backups")).filter((f) => f.startsWith("before-update-"));

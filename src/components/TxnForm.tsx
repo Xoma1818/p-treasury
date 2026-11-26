@@ -5,11 +5,14 @@ import { X } from "lucide-react";
 import { api, type Template, type TxnExtra, type TxnInput, type TxnType } from "../lib/api";
 import { monthTitle, shiftMonth, today } from "../lib/dates";
 import { receiptProblem, receiptRemainder, spreadParts } from "../lib/receipt";
-import { amountToInput, formatAmount, parseAmount } from "../lib/money";
+import { amountToInput, formatAmount, HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { useAccounts, useCategories } from "../lib/queries";
 import { useUi, type TxnFormState } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { useFormWrite } from "../lib/useFormWrite";
 import { AccountSelect, AmountInput, amountText, CategorySelect, Field } from "./Fields";
+import { FormAmountsToggle, useFormAmounts } from "./FormAmounts";
+import { PendingStatus } from "./PendingStatus";
 import { NotesBlock } from "./Notes";
 import { TemplateButtons, useTemplates } from "./Templates";
 import { ErrorText, Modal } from "./Modal";
@@ -32,16 +35,21 @@ export function TxnForm() {
   const state = useUi((s) => s.txnForm);
   const close = useUi((s) => s.openTxnForm);
   if (!state) return null;
+  const closeCurrent = () => {
+    if (useUi.getState().txnForm === state) close(null);
+  };
   // 0.29: возврат открывается своим окном, а не формой операции.
-  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} receiptPurchase={state.purchase.splitId ? state.purchase : undefined} choosePart={state.choosePart} onClose={() => close(null)} />;
+  if (state.mode === "refund") return <RefundDialog key={`refund-${state.purchase.id}`} purchaseId={state.purchase.id} receiptPurchase={state.purchase.splitId ? state.purchase : undefined} choosePart={state.choosePart} onClose={closeCurrent} />;
   if (state.mode === "edit" && state.txn.refund && state.txn.refundOf) {
-    return <RefundDialog key={state.txn.id} purchaseId={state.txn.refundOf} refund={state.txn} onClose={() => close(null)} />;
+    return <RefundDialog key={state.txn.id} purchaseId={state.txn.refundOf} refund={state.txn} onClose={closeCurrent} />;
   }
   const key = state.mode === "edit" ? state.txn.id : `new-${state.type}`;
-  return <TxnFormInner key={key} state={state} onClose={() => close(null)} />;
+  return <TxnFormInner key={key} state={state} onClose={closeCurrent} />;
 }
 
 function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | { mode: "refund" }>; onClose: () => void }) {
+  const write = useFormWrite();
+  const privacy = useFormAmounts(state);
   const openTxnForm = useUi((s) => s.openTxnForm);
   const openDebt = useUi((s) => s.openDebt);
   const editing = state.mode === "edit" ? state.txn : null;
@@ -52,6 +60,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   const prefill = state.mode === "new" ? state.prefill : undefined;
   const reminder = state.mode === "new" ? state.reminder : undefined;
   const cancel = () => {
+    if (write.locked.current) return;
     onClose();
     if (state.mode === "new") state.onCancelReminder?.();
   };
@@ -209,8 +218,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     }
     const extra: TxnExtra = { spreadMonths: type === "expense" && spreadMonths ? spreadMonths : null, tags };
     if (editing) {
-      await api.updateTransactionFull(editing.id, input, extra);
-      if (event !== (editing.eventId ?? null)) await api.assignEvent(event, [editing.id]);
+      const eventChange = event !== (editing.eventId ?? null) ? { eventId: event } : undefined;
+      await api.updateTransactionFull(editing.id, input, extra, eventChange);
       return;
     }
     if (split) {
@@ -227,14 +236,15 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       return;
     }
     await api.createTransactionFull(input, extra, event, reminder);
-  }, onClose, { singleSubmit: true });
-  const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)), onClose);
+  });
+  const remove = useAction(() => (splitId ? api.deleteReceipt(splitId) : api.deleteTransaction(editing!.id)));
 
   // Шаблоны: подставить сохранённую операцию или сохранить текущую.
   const templates = useTemplates().data ?? [];
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [templateSaved, setTemplateSaved] = useState<string | null>(null);
   const pickTemplate = (t: Template) => {
+    privacy.conceal();
     setType(t.type);
     if (t.amount != null) setAmount(amountText(t.amount, t.minorUnits));
     if (t.accountId) setAccountId(t.accountId);
@@ -261,6 +271,9 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     setTemplateSaved(name);
   });
   const suggestedName = () => payee.trim() || categories.find((c) => c.id === categoryId)?.name || "";
+  const writeTemplate = () => {
+    if (templateName?.trim()) write.run("template", () => saveTemplate.runAsync(templateName.trim()));
+  };
 
   // Доли друзей в минимальных единицах; своя доля — остаток.
   const split =
@@ -305,7 +318,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
   };
 
   const submit = () => {
-    if (save.busy) return;
+    if (write.locked.current) return;
     if (splitId && !receiptLoaded.current) return save.setError("Дождитесь загрузки чека");
     if (amountValue === null || amountValue <= 0) return save.setError("Введите сумму больше нуля");
     if (receiptParts) {
@@ -320,7 +333,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       if (split.mine < 0) return save.setError("Доли друзей больше общей суммы");
     }
     if (crossCurrency && (toAmountValue === null || toAmountValue <= 0)) return save.setError("Введите сумму зачисления");
-    save.run({
+    remove.setError(null);
+    write.run("save", () => save.runAsync({
       type,
       date,
       accountId,
@@ -330,7 +344,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       toAmount: type === "transfer" ? (crossCurrency ? toAmountValue : null) : null,
       payee: payee || null,
       note: note || null,
-    });
+    }).then(onClose));
   };
 
   const isAdjustment = editing?.type === "adjustment";
@@ -372,9 +386,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
       !!friends);
   return (
     <>
-    <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={save.busy || remove.busy}>
+    <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={write.busy}>
       <form
         className="form"
+        ref={write.form}
+        onClickCapture={write.blockClick}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -386,9 +402,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
           }
         }}
       >
+        <fieldset disabled={write.busy} style={{ display: "contents" }}>
+        <FormAmountsToggle privacy={privacy} />
         {isAdjustment ? (
           <p className="muted">
-            Корректировка баланса на {formatAmount(editing.amount, editing.minorUnits)} {editing.currencySymbol}. Её можно
+            Корректировка баланса на {privacy.concealed ? HIDDEN_AMOUNT : formatAmount(editing.amount, editing.minorUnits)} {editing.currencySymbol}. Её можно
             только удалить и сверить счёт заново.
           </p>
         ) : (
@@ -403,7 +421,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   role="tab"
                   aria-selected={type === t}
                   className={type === t ? "tab active" : "tab"}
-                  onClick={() => setType(t)}
+                  onClick={() => { if (t !== type) privacy.conceal(); setType(t); }}
                 >
                   {label}
                 </button>
@@ -412,7 +430,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             )}
             <div className="row">
               <Field label={crossCurrency ? `Списано, ${from?.currencySymbol}` : receiptParts ? "Сумма чека" : "Сумма"}>
-                {(id) => <AmountInput id={id} name="amount" value={amount} onChange={setAmount} minorUnits={minor} autoFocus />}
+                {(id) => <AmountInput id={id} name="amount" value={amount} onChange={setAmount} minorUnits={minor} concealed={privacy.concealed} autoFocus />}
               </Field>
               <Field label="Дата">{(id) => <input id={id} name="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
             </div>
@@ -427,8 +445,8 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   )}
                 </Field>
                 {crossCurrency && (
-                  <Field label={`Зачислено, ${to?.currencySymbol}`} hint={rate && <span data-testid="rate">Курс: {rate}</span>}>
-                    {(id) => <AmountInput id={id} name="toAmount" value={toAmount} onChange={setToAmount} minorUnits={to?.minorUnits} />}
+                  <Field label={`Зачислено, ${to?.currencySymbol}`} hint={!privacy.concealed && rate && <span data-testid="rate">Курс: {rate}</span>}>
+                    {(id) => <AmountInput id={id} name="toAmount" value={toAmount} onChange={setToAmount} minorUnits={to?.minorUnits} concealed={privacy.concealed} />}
                   </Field>
                 )}
               </>
@@ -467,6 +485,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                         >
                           <AmountInput
                             name={`partAmount${i}`}
+                            concealed={privacy.concealed}
                             value={x.amount}
                             minorUnits={minor}
                             onChange={(v) => setParts(parts.map((y, j) => (j === i ? { ...y, amount: v } : y)))}
@@ -499,7 +518,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                         </button>
                       )}
                       <span className={receiptLeft === 0 ? "receipt-left done" : receiptLeft < 0 ? "receipt-left bad" : "receipt-left"} data-testid="receipt-left">
-                        {receiptLeft === 0 ? "Распределено полностью" : receiptLeft > 0 ? `Остаток: ${formatAmount(receiptLeft, minor)} ${from?.currencySymbol ?? ""}` : `Больше чека на ${formatAmount(-receiptLeft, minor)} ${from?.currencySymbol ?? ""}`}
+                        {receiptLeft === 0 ? "Распределено полностью" : <>{receiptLeft > 0 ? "Остаток: " : "Больше чека на "}{privacy.concealed ? HIDDEN_AMOUNT : formatAmount(Math.abs(receiptLeft), minor)} {from?.currencySymbol}</>}
                       </span>
                     </div>
                   </div>
@@ -562,6 +581,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                         />
                         <AmountInput
                           name={`friendAmount${i}`}
+                          concealed={privacy.concealed}
                           value={f.amount}
                           minorUnits={minor}
                           onChange={(v) => setFriends(friends.map((x, j) => (j === i ? { ...x, amount: v } : x)))}
@@ -579,7 +599,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                         Поровну
                       </button>
                       <span className={split.mine < 0 ? "warn" : "muted"} data-testid="split-mine">
-                        Моя доля: {formatAmount(split.mine, minor)} {from?.currencySymbol}
+                        Моя доля: {privacy.concealed ? HIDDEN_AMOUNT : formatAmount(split.mine, minor)} {from?.currencySymbol}
                       </span>
                     </div>
                   </div>
@@ -611,7 +631,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                     </>
                   )}
                   <Hint of="txn.spread" />
-                  {spreadPreview && spreadMonths && (
+                  {!privacy.concealed && spreadPreview && spreadMonths && (
                     <span className="hint" data-testid="spread-preview">
                       по {formatAmount(spreadPreview[spreadPreview.length - 1], minor)} {from?.currencySymbol} в месяц
                       {date && spreadPeriod.data && `, ${monthTitle(spreadPeriod.data.month).toLowerCase()} – ${monthTitle(shiftMonth(spreadPeriod.data.month, spreadMonths - 1)).toLowerCase()}`}
@@ -677,11 +697,11 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
                   // Enter сохраняет шаблон, а не операцию.
                   if (e.key === "Enter" && !e.ctrlKey) {
                     e.preventDefault();
-                    saveTemplate.run(templateName.trim());
+                    writeTemplate();
                   }
                 }}
               />
-              <button type="button" className="btn" disabled={!templateName.trim() || saveTemplate.busy} onClick={() => saveTemplate.run(templateName.trim())}>
+              <button type="button" className="btn" disabled={!templateName.trim()} onClick={writeTemplate}>
                 Сохранить шаблон
               </button>
               <button type="button" className="link" onClick={() => setTemplateName(null)}>
@@ -704,28 +724,31 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
             Это платёж по долгу: удалить или изменить его можно в карточке долга, там же пересчитается график.
           </p>
         )}
+        </fieldset>
+        <PendingStatus busy={write.busy}>{write.operation === "delete" ? "Удаляем операцию…" : write.operation === "template" ? "Сохраняем шаблон…" : "Сохраняем операцию…"}</PendingStatus>
         <div className="actions">
           {editing && !editing.debtId && (
-            <button type="button" className="btn danger" onClick={() => remove.run()} disabled={remove.busy}>
+            <button type="button" className="btn danger" aria-busy={write.operation === "delete"} disabled={write.busy}
+              onClick={() => write.run("delete", () => { save.setError(null); return remove.runAsync().then(onClose); })}>
               {splitId ? "Удалить чек" : "Удалить"}
             </button>
           )}
           {editing?.debtId && (
-            <button type="button" className="btn" data-testid="txn-open-debt" onClick={() => (onClose(), openDebt(editing.debtId!))}>
+            <button type="button" className="btn" data-testid="txn-open-debt" disabled={write.busy} onClick={() => (onClose(), openDebt(editing.debtId!))}>
               Открыть долг
             </button>
           )}
           {editing && editing.type === "expense" && !editing.debtId && !editing.spreadMonths && (
-            <button type="button" className="btn" data-testid="txn-refund" onClick={() => openTxnForm({ mode: "refund", purchase: editing, choosePart: state.mode === "edit" && state.wholeReceipt })} title="Деньги за покупку вернулись">
+            <button type="button" className="btn" data-testid="txn-refund" disabled={write.busy} onClick={() => openTxnForm({ mode: "refund", purchase: editing, choosePart: state.mode === "edit" && state.wholeReceipt })} title="Деньги за покупку вернулись">
               Вернуть…
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={cancel} disabled={save.busy}>
+          <button type="button" className="btn" onClick={cancel} disabled={write.busy}>
             {reminder?.allowSeparate ? "Назад" : "Отмена"}
           </button>
           {!isAdjustment && (
-            <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || (!!splitId && !receiptLoaded.current)} title="Ctrl+Enter">
+            <button type="submit" className="btn primary" aria-busy={write.operation === "save"} data-done={save.done || undefined} disabled={write.busy || (!!splitId && !receiptLoaded.current)} title="Ctrl+Enter">
               {reminder && type === "expense" ? "Записать расход" : reminder && type === "income" ? "Записать доход" : "Сохранить"}
             </button>
           )}

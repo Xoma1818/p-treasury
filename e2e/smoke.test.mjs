@@ -3,7 +3,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { start, stop, openSection, openSettings, onboard, waitText, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, waitText, money, click, clickControl } from "./app.mjs";
 
 let app;
 before(async () => {
@@ -34,10 +34,48 @@ test("все разделы меню открываются", async () => {
   }
 });
 
-test("Настройки показывают версию данных", async () => {
+test("Настройки показывают установленную версию, технические сведения раскрываются отдельно", async () => {
   const { browser } = app;
   await openSettings(browser, "about");
-  const about = '//h2[normalize-space()="О программе"]/..';
-  await waitText(browser, about, /(\d+) из \1/);
-  assert.doesNotMatch(await (await browser.$(about)).getText(), /Пример суммы/);
+  await waitText(browser, '[data-testid="app-version"]', /^\d+\.\d+\.\d+$/);
+  const details = await browser.$('[data-testid="about-details"]');
+  assert.equal(await details.getProperty("open"), false);
+  await clickControl(browser, await details.$("summary"), "Технические сведения");
+  await waitText(browser, '[data-testid="about-details"]', /(\d+) из \1/);
+});
+
+test("Что нового открывает установленную версию и позволяет выбрать прошлый выпуск", async () => {
+  const { browser } = app;
+  await openSettings(browser, "about");
+  const version = await waitText(browser, '[data-testid="app-version"]', /^\d+\.\d+\.\d+$/);
+  await click(browser, "Что нового");
+  const dialog = '[role="dialog"]';
+  await waitText(browser, dialog + " h3", /Версия/);
+  assert.equal(await (await browser.$(dialog + " h3")).getText(), "Версия " + version);
+  assert.ok((await browser.$$(dialog + " li")).length > 0);
+  assert.doesNotMatch(await (await browser.$(dialog)).getText(), /(?:^|\n)#+\s/u);
+  const archive = await browser.$(dialog + " details");
+  assert.equal(await archive.getProperty("open"), false);
+  await clickControl(browser, await archive.$("summary"), "Предыдущие версии");
+  const picker = await archive.$("select");
+  await picker.waitForDisplayed();
+  const before = await (await archive.$("li")).getText();
+  await picker.selectByIndex(1);
+  await browser.waitUntil(async () => (await (await archive.$("li")).getText()) !== before);
+  await browser.keys("Escape");
+  await browser.waitUntil(async () => !(await browser.$(dialog).isExisting()) &&
+    await browser.execute(() => document.activeElement?.getAttribute("name") === "releaseNotes"));
+});
+
+test("После отключения сети встроенная история по-прежнему открывается", async () => {
+  const { browser } = app;
+  await openSettings(browser, "about");
+  await browser.execute(() => window.dispatchEvent(new Event("offline")));
+  try {
+    await click(browser, "Что нового");
+    await waitText(browser, '[role="dialog"] li', /\S/u);
+    await browser.keys("Escape");
+  } finally {
+    await browser.execute(() => window.dispatchEvent(new Event("online")));
+  }
 });

@@ -4,13 +4,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type SearchHit } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { formatAmount } from "../lib/money";
-import { useAccounts, useCategories } from "../lib/queries";
+import { useAccounts, useAmountPrivacyToggle, useCategories, useSettings } from "../lib/queries";
 import { SECTIONS, type SectionId } from "../lib/sections";
 import { navSections, useNavPrefs } from "../lib/navLayout";
 import { useUi, type SettingsJump } from "../lib/store";
 import { applyTheme, savedTheme } from "../lib/theme";
-import { useAction } from "../lib/useAction";
-import { useSettings } from "../lib/queries";
 import { SectionIcon } from "./SectionIcon";
 
 interface Item {
@@ -50,7 +48,9 @@ const SETTINGS: { key: string; title: string; words: string; section: string; fi
   { key: "appearance", title: "Оформление", words: "интерфейс внешний вид", section: "appearance" },
   { key: "fine", title: "Формат и правила", words: "тонкие настройки копейки неделя пороги", section: "fine" },
   { key: "updates", title: "Обновления", words: "обновить версия", section: "updates" },
-  { key: "about", title: "О программе", words: "версия файл данных", section: "about" },
+  { key: "releaseNotes", title: "Что нового", words: "история версий изменения выпуска", section: "updates", field: "releaseNotes" },
+  { key: "technical", title: "Технические сведения", words: "файл данных путь к базе версия данных копия перед обновлением", section: "technical" },
+  { key: "about", title: "О программе", words: "установленная версия", section: "about" },
 ];
 
 const HIT_GROUP: Record<SearchHit["kind"], [string, SectionId]> = {
@@ -68,8 +68,9 @@ const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
  *  заметки, события, долги, цели и операции. Стрелки, Enter, Esc. */
 export function Palette() {
   const { setPalette, go, showTransactions, openTxnForm, openDebt, openView, openReport, openSettings, setHelp } = useUi();
-  const hidden = useSettings().data?.hide_amounts === "1";
-  const setSetting = useAction(api.setSetting);
+  const settings = useSettings().data;
+  const hidden = !settings || settings.hide_amounts === "1";
+  const togglePrivacy = useAmountPrivacyToggle();
   const { sectionOn } = useModules();
   const { nav } = useNavPrefs();
   const [q, setQ] = useState("");
@@ -116,7 +117,7 @@ export function Palette() {
       const themeTitle = theme === "system" ? "Переключить светлую и тёмную тему"
         : theme === "dark" ? "Светлая тема" : "Тёмная тема";
       actions.push(
-        { key: "a-hide", group: "Действия", title: hidden ? "Показать суммы" : "Скрыть суммы", detail: "Ctrl+H", words: "скрыть показать суммы деньги глаз", section: "settings", run: () => setSetting.run("hide_amounts", hidden ? "0" : "1") },
+        { key: "a-hide", group: "Действия", title: hidden ? "Показать суммы" : "Скрыть суммы", detail: "Ctrl+H", words: "скрыть показать суммы деньги глаз", section: "settings", run: togglePrivacy },
         { key: "a-theme", group: "Действия", title: themeTitle, words: "тема светлая тёмная тёмный оформление цвет", section: "settings", run: () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark") },
         { key: "a-theme-system", group: "Действия", title: "Тема как в системе", words: "тема оформление windows цвет", section: "settings", run: () => applyTheme("system") },
         { key: "a-keys", group: "Действия", title: "Горячие клавиши", detail: "F1", words: "клавиши сочетания справка", section: "settings", run: () => setHelp(true) },
@@ -156,7 +157,7 @@ export function Palette() {
       out.push({ key: "all", group: "Операции", title: `Все операции с «${q.trim()}»`, section: "transactions", run: () => showTransactions({ search: q.trim() }) });
     }
     return out;
-  }, [q, accounts, categories, views, hits, txns, go, showTransactions, openTxnForm, openDebt, openView, openReport, openSettings, setHelp, hidden, setSetting, sectionOn, nav]);
+  }, [q, accounts, categories, views, hits, txns, go, showTransactions, openTxnForm, openDebt, openView, openReport, openSettings, setHelp, hidden, togglePrivacy, sectionOn, nav]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {

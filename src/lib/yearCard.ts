@@ -79,8 +79,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   canvas.height = CARD_H;
   const g = canvas.getContext("2d")!;
   // На картинке копейки только мешают: суммы округляются до целых.
-  const unit = 10 ** o.minorUnits;
-  const money = (v: number) => (o.hideAmounts ? "•••" : `${formatAmount(Math.round(v / unit) * unit, o.minorUnits)} ${o.symbol}`);
+  const money = (v: number) => (o.hideAmounts ? "•••" : `${formatAmount(v, o.minorUnits, true, true)} ${o.symbol}`);
   const pad = 72;
 
   g.fillStyle = C.bg;

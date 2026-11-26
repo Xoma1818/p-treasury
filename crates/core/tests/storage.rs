@@ -899,5 +899,6 @@ fn migration_files_match_their_numbers() {
     assert_eq!(at(29), "subscription_series");
     assert_eq!(at(30), "reminder_plan_sources");
     assert_eq!(at(31), "import_refund_counts");
-    assert_eq!(LATEST_VERSION, 31);
+    assert_eq!(at(32), "invest_plan_currency");
+    assert_eq!(LATEST_VERSION, 32);
 }

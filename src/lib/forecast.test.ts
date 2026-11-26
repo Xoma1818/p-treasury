@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sameForecastBasis } from "./forecast";
 import type { Forecast, GoalMark, MoneyFlow } from "./api";
 import { aheadSummary, chartPoints, describeChange, goalText, monthLine, seasonText, flowIsEmpty, flowLayout, genitive, monthsText, prepositional, presets, ribbon, scenarioRow, scenarioChange } from "./forecast";
 import { formatMoney } from "./money";
@@ -67,6 +68,16 @@ describe("подписи изменений сценария", () => {
 });
 
 describe("график прогноза", () => {
+  it("отличает новый месяц или изменившийся базовый остаток от другого сценария", () => {
+    const first = { today: "2026-11-14", baseCurrency: "RUB", minorUnits: 2, liquid: 300,
+      months: [{ month: "2026-11", start: "2026-11-01", end: "2026-11-30", closing: 250, scenario: { closing: 190 } }] } as Forecast;
+    const other = { ...first, months: [{ ...first.months[0], scenario: { ...first.months[0].scenario!, closing: 50 } }] };
+    expect(sameForecastBasis(first, other)).toBe(true);
+    expect(sameForecastBasis(first, { ...other, today: "2026-11-15" })).toBe(false);
+    expect(sameForecastBasis(first, { ...other, months: [{ ...other.months[0], month: "2026-12" }] })).toBe(false);
+    expect(sameForecastBasis(first, { ...other, months: [{ ...other.months[0], start: "2026-11-15" }] })).toBe(false);
+    expect(sameForecastBasis(first, { ...other, liquid: 999 })).toBe(false);
+  });
   it("первая точка — сегодня, дальше конец каждого месяца", () => {
     const month = (m: string, closing: number, sc: number | null) => ({
       month: m, start: `${m}-01`, end: `${m}-28`, opening: 0, regularIncome: 0, regularExpense: 0, plannedIncome: 0, plannedExpense: 0, seasonIncome: 0, seasonExpense: 0,

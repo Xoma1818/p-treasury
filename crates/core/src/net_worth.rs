@@ -54,6 +54,7 @@ fn first_date(conn: &Connection) -> Result<Option<String>> {
         "SELECT min(d) FROM (
             SELECT min(opening_date) AS d FROM accounts
             UNION ALL SELECT min(date) FROM transactions
+            UNION ALL SELECT min(date) FROM account_values
             UNION ALL SELECT min(date) FROM asset_values
             UNION ALL SELECT min(issue_date) FROM debts)",
         [],
@@ -72,17 +73,17 @@ pub fn on_date(conn: &Connection, on: &str, missing: &mut Vec<String>) -> Result
     // подсчёта текущих балансов и оценок: здесь нужен только баланс на дату.
     let mut stmt = conn.prepare_cached(
         "SELECT id, type, currency_code FROM accounts
-         WHERE type <> 'debt' AND include_in_total = 1 AND opening_date <= ?1",
+         WHERE type <> 'debt' AND include_in_total = 1",
     )?;
     let accounts: Vec<(String, String, String)> = stmt
-        .query_map([on], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
     for (id, kind, currency_code) in accounts {
         let investment = kind == "investment";
         let value = if investment {
             invest::value_on(conn, &id, on)?.0
         } else {
-            accounts::balance(conn, &id, Some(on))?
+            accounts::historical_balance(conn, &id, on)?
         };
         if value == 0 {
             continue;

@@ -21,7 +21,10 @@ import { addDays, formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
 import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, withOverspendSlot, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { useAction } from "../lib/useAction";
-import { ACCOUNT_DRAG, SpendCard } from "../components/SpendCard";
+import { SpendCard } from "../components/SpendCard";
+import { ErrorText } from "../components/Modal";
+import { useMoveNotice } from "../components/MoveNotice";
+import { homeBlock, spendAccount } from "../lib/directDrag";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
@@ -35,8 +38,6 @@ import { FiguresCard } from "../components/Figures";
 import { useFine } from "../lib/fine";
 import type { HomePeriodKind } from "../lib/api";
 import "./homeOverview.css";
-
-const BLOCK_DRAG = "application/x-p-treasury-block";
 
 export function Home() {
   const modules = useModules();
@@ -64,7 +65,6 @@ export function Home() {
   const [editing, setEditing] = useState(false);
   const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
-  const [dragOver, setDragOver] = useState<HomeBlock | null>(null);
   const settings = useSettings().data;
   const layout = parseLayout(settings?.home_layout);
   // Р2: плитки доходов и расходов — за месяц, неделю или с зарплаты.
@@ -89,7 +89,17 @@ export function Home() {
     enabled: !!custom,
   }).data;
   const setSetting = useAction(api.setSetting);
-  const saveLayout = (l: HomeLayout) => setSetting.run("home_layout", toSetting(l));
+  const changeLayout = useAction((l: HomeLayout) => api.setSetting("home_layout", toSetting(l)), undefined, { singleSubmit: true });
+  const saveLayout = changeLayout.run;
+  const notice = useMoveNotice();
+  const editableOrder = layout.order.filter(modules.blockOn);
+  const reorderBlock = (block: HomeBlock, next: HomeLayout) => {
+    const updated = next.order.filter(modules.blockOn);
+    return notice.confirm(changeLayout.runAsync(next), `«${HOME_BLOCKS[block]}» — позиция ${updated.indexOf(block) + 1} из ${updated.length}.`);
+  };
+  const stepBlock = (block: HomeBlock, delta: number) => {
+    void reorderBlock(block, moveBlock(layout, block, delta, editableOrder)).catch(() => {});
+  };
   const half = (b: HomeBlock) => !!layout.half?.includes(b);
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
@@ -109,7 +119,7 @@ export function Home() {
     }
   };
   const visible = (block: HomeBlock) => modules.blockOn(block) && !layout.hidden.includes(block);
-  const displayOrder = editing ? layout.order.filter(modules.blockOn) : withOverspendSlot(layout.order.filter(visible));
+  const displayOrder = editing ? editableOrder : withOverspendSlot(layout.order.filter(visible));
   const limitBlock = (["tiles", "plans", "summary"] as const).find(visible);
   const budgetToday = budget?.id ? (
     <div className="home-budget-today">
@@ -274,8 +284,7 @@ export function Home() {
                     onClick={() => showTransactions({ accountId: a.id })}
                     className="clickable draggable"
                     data-testid="home-account"
-                    draggable
-                    onDragStart={(e) => e.dataTransfer.setData(ACCOUNT_DRAG, a.id)}
+                    {...(!editing ? spendAccount.source(a.id) : {})}
                     title="Перетащите на категорию в «Куда тратите», чтобы записать расход"
                   >
                     <span>{a.name}</span>
@@ -429,11 +438,13 @@ export function Home() {
       {editing && (
         <p className="hint home-edit-hint">
           Перетащите карточку мышью или двигайте стрелками; «Половина» ставит две карточки в ряд, «Скрыть» убирает карточку с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
-          <button className="link" onClick={() => saveLayout(DEFAULT_LAYOUT)}>
+          <button className="link" disabled={changeLayout.busy} onClick={() => saveLayout(DEFAULT_LAYOUT)}>
             Вернуть по умолчанию
           </button>
         </p>
       )}
+      <ErrorText error={changeLayout.error} />
+      {notice.status}
       <div className="home-grid">
       {displayOrder.map((b) =>
           b === "overspend" ? (
@@ -441,39 +452,31 @@ export function Home() {
           ) : editing ? (
             <div
               key={b}
-              className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block", dragOver === b && "drop-over"].filter(Boolean).join(" ")}
+              className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block"].filter(Boolean).join(" ")}
               data-testid="home-block"
               data-block={b}
-              draggable
-              onDragStart={(e) => e.dataTransfer.setData(BLOCK_DRAG, b)}
-              onDragOver={(e) => {
-                if (!e.dataTransfer.types.includes(BLOCK_DRAG)) return;
-                e.preventDefault();
-                setDragOver(b);
-              }}
-              onDragLeave={() => setDragOver((cur) => (cur === b ? null : cur))}
-              onDrop={(e) => {
-                const from = e.dataTransfer.getData(BLOCK_DRAG) as HomeBlock;
-                setDragOver(null);
-                if (from) saveLayout(placeBefore(layout, from, b));
-              }}
+              tabIndex={-1}
+              data-insert-before=""
+              {...(!changeLayout.busy ? homeBlock.source(b) : {})}
+              {...homeBlock.target((from) => !changeLayout.busy && editableOrder.includes(from) && from !== b && editableOrder[editableOrder.indexOf(from) + 1] !== b,
+                (from) => reorderBlock(from, placeBefore(layout, from, b, editableOrder)))}
             >
               <div className="home-block-bar">
                 <GripVertical className="grip" size={16} aria-hidden />
                 <b>{HOME_BLOCKS[b]}</b>
                 <span className="spacer" />
-                <button className="icon-btn" aria-label={`Выше: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, -1))}>
+                <button className="icon-btn" aria-label={`Выше: ${HOME_BLOCKS[b]}`} disabled={changeLayout.busy || editableOrder[0] === b} onClick={() => stepBlock(b, -1)}>
                   <ChevronUp size={16} />
                 </button>
-                <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} onClick={() => saveLayout(moveBlock(layout, b, 1))}>
+                <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} disabled={changeLayout.busy || editableOrder.at(-1) === b} onClick={() => stepBlock(b, 1)}>
                   <ChevronDown size={16} />
                 </button>
                 {!layout.hidden.includes(b) && (
-                  <button className="link" data-testid="home-half" onClick={() => saveLayout(toggleHalf(layout, b))} title="Две половинные карточки встают в один ряд">
+                  <button className="link" data-testid="home-half" disabled={changeLayout.busy} onClick={() => saveLayout(toggleHalf(layout, b))} title="Две половинные карточки встают в один ряд">
                     {half(b) ? "Во всю ширину" : "Половина"}
                   </button>
                 )}
-                <button className="link" onClick={() => saveLayout(toggleBlock(layout, b))}>
+                <button className="link" disabled={changeLayout.busy} onClick={() => saveLayout(toggleBlock(layout, b))}>
                   {layout.hidden.includes(b) ? "Показать" : "Скрыть"}
                 </button>
               </div>

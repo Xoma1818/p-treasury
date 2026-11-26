@@ -4,7 +4,8 @@
   "description": "Права главного окна",
   "windows": [
     "main",
-    "quick"
+    "quick",
+    "quick-*"
   ],
   "permissions": [
     "core:default",

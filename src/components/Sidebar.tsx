@@ -1,72 +1,61 @@
 import { useQuery } from "@tanstack/react-query";
-import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
-import { useModules } from "../lib/modules";
-import { Keyboard, Monitor, Moon, Search, Star, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChartColumn, Keyboard, ListFilter, Monitor, Moon, Search, Star, Sun } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api } from "../lib/api";
+import { useModules } from "../lib/modules";
+import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
+import type { Section } from "../lib/sections";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
-import { HideAmountsSwitch } from "./Convenience";
-import { SectionIcon } from "./SectionIcon";
-import { DecorativeIcon } from "./DecorativeIcon";
 import { Brand } from "./Brand";
-import type { Section } from "../lib/sections";
+import { HideAmountsSwitch } from "./Convenience";
+import { DecorativeIcon } from "./DecorativeIcon";
+import { RailMenu, RailTooltip } from "./RailOverlays";
+import { SectionIcon } from "./SectionIcon";
 
-/** Ручные темы и режим, который следует оформлению системы. */
+const THEMES = {
+  light: { label: "Светлая", icon: Sun },
+  dark: { label: "Тёмная", icon: Moon },
+  system: { label: "Как в системе", icon: Monitor },
+} as const;
+
 function ThemeSwitch() {
   const [theme, setTheme] = useState<Theme>(savedTheme);
   useEffect(() => {
-    const on = (e: Event) => setTheme((e as CustomEvent<Theme>).detail);
-    window.addEventListener(THEME_EVENT, on);
-    return () => window.removeEventListener(THEME_EVENT, on);
+    const onTheme = (event: Event) => setTheme((event as CustomEvent<Theme>).detail);
+    window.addEventListener(THEME_EVENT, onTheme);
+    return () => window.removeEventListener(THEME_EVENT, onTheme);
   }, []);
-  // Смена темы — мягкое перетекание цветов (класс theme-fade на 300 мс), а не мигание.
-  // Тема ставится сразу: анимация только у цветов. При «меньше движения» — без перетекания.
-  const pick = (t: Theme) => {
-    const root = document.documentElement;
-    if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      root.classList.add("theme-fade");
-      window.setTimeout(() => root.classList.remove("theme-fade"), 300);
+  const pick = (value: Theme) => {
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      document.documentElement.classList.add("theme-fade");
+      window.setTimeout(() => document.documentElement.classList.remove("theme-fade"), 300);
     }
-    applyTheme(t);
-    setTheme(t);
+    applyTheme(value);
   };
+  const current = THEMES[theme];
   return (
-    <div className="theme-switch" role="group" aria-label="Тема" data-testid="theme-switch">
-      <button aria-pressed={theme === "light"} data-testid="theme-light" title="Светлая тема" onClick={() => pick("light")}>
-        <DecorativeIcon icon={Sun} className="foot-icon" size="control" />
-        <span className="sr-only">Светлая</span>
-      </button>
-      <button aria-pressed={theme === "dark"} data-testid="theme-dark" title="Тёмная тема" onClick={() => pick("dark")}>
-        <DecorativeIcon icon={Moon} className="foot-icon" size="control" />
-        <span className="sr-only">Тёмная</span>
-      </button>
-      <button aria-pressed={theme === "system"} data-testid="theme-system" title="Как в системе" onClick={() => pick("system")}>
-        <DecorativeIcon icon={Monitor} className="foot-icon" size="control" />
-        <span className="sr-only">Как в системе</span>
-      </button>
-    </div>
+    <RailMenu label={`Тема: ${current.label}`} className="foot-btn rail-theme-trigger" testId="theme-switch"
+      icon={<DecorativeIcon icon={current.icon} className="foot-icon" size="control" />}
+      choices={(Object.keys(THEMES) as Theme[]).map(value => ({
+        id: value, name: THEMES[value].label, icon: <DecorativeIcon icon={THEMES[value].icon} size="control" />,
+        checked: theme === value, testId: `theme-${value}`, pick: () => pick(value),
+      }))} />
   );
 }
 
-/** Сохранённые виды операций и отчётов: открываются одним нажатием из меню. */
 function NavViews() {
   const views = useQuery({ queryKey: ["views", "all"], queryFn: () => api.listViews(null) }).data ?? [];
-  const openView = useUi((s) => s.openView);
+  const openView = useUi(s => s.openView);
   if (views.length === 0) return null;
   return (
     <li className="nav-views" data-testid="nav-views">
-      <div className="nav-group">Мои виды</div>
-      <ul>
-        {views.map((v) => (
-          <li key={v.id}>
-            <button className="nav-item nav-view" onClick={() => openView(v)} title={v.kind === "report" ? "Открыть отчёт" : "Открыть операции с этим фильтром"}>
-              <DecorativeIcon icon={Star} className="nav-view-mark" />
-              <span className="nav-view-name">{v.name}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <RailMenu label="Мои виды" className="nav-item rail-views-trigger" testId="open-nav-views"
+        icon={<DecorativeIcon icon={Star} />}
+        choices={views.map(view => ({
+          id: view.id, name: view.name, pick: () => openView(view),
+          icon: <DecorativeIcon icon={view.kind === "report" ? ChartColumn : ListFilter} size="control" />,
+        }))} />
     </li>
   );
 }
@@ -75,47 +64,45 @@ export function Sidebar() {
   const { section, go, setHelp, setPalette } = useUi();
   const { sectionOn } = useModules();
   const { nav } = useNavPrefs();
+  const rail = useRef<HTMLElement>(null);
   const shown = navSections(nav, sectionOn);
   const groups = isDefaultNav(nav);
-  const settings = shown.find((item) => item.id === "settings");
-  const sectionButton = (item: Section, index: number) => (
-    <button
-      className={item.id === section ? "nav-item active" : "nav-item"}
-      aria-current={item.id === section ? "page" : undefined}
-      onClick={() => go(item.id)}
-      title={index < 9 ? `${item.hint} · Ctrl+${index + 1}` : item.hint}
-    >
+  const settings = shown.find(item => item.id === "settings");
+  const sectionButton = (item: Section) => (
+    <button type="button" className={item.id === section ? "nav-item active" : "nav-item"}
+      aria-current={item.id === section ? "page" : undefined} aria-label={item.title}
+      data-section={item.id} data-rail-tip={item.title}
+      style={{ "--rail-color": item.color } as CSSProperties} onClick={() => { if (item.id !== section) go(item.id); }}>
       <SectionIcon id={item.id} />
-      {item.title}
+      <span className="sr-only">{item.title}</span>
     </button>
   );
   return (
-    <nav className="sidebar app-nav" aria-label="Разделы">
-      <Brand />
-      <button className="nav-search" onClick={() => setPalette(true)} data-testid="open-palette">
-        <DecorativeIcon icon={Search} size="inline" />
-        <span>Поиск</span>
-        <kbd>Ctrl+K</kbd>
+    <nav ref={rail} className="sidebar app-nav" aria-label="Разделы">
+      <Brand iconOnly />
+      <button type="button" className="nav-search" aria-label="Поиск" data-rail-tip="Поиск"
+        onClick={() => setPalette(true)} data-testid="open-palette">
+        <DecorativeIcon icon={Search} />
       </button>
       <ul data-testid="nav-list">
         {nav.viewsTop && <NavViews />}
-        {shown.filter((item) => item.id !== "settings").map((item, i) => (
+        {shown.filter(item => item.id !== "settings").map((item, i) => (
           <li key={item.id} className={groups && i > 0 && shown[i - 1].group !== item.group ? "nav-break" : undefined}>
-            {sectionButton(item, i)}
+            {sectionButton(item)}
           </li>
         ))}
         {!nav.viewsTop && <NavViews />}
       </ul>
-      {settings && <div className="nav-settings">{sectionButton(settings, shown.indexOf(settings))}</div>}
-      {/* Нижний ряд (0.28): тема, скрыть суммы и горячие клавиши — одной строкой, чтобы меню помещалось в окно высотой 800 px. */}
+      {settings && <div className="nav-settings">{sectionButton(settings)}</div>}
       <div className="sidebar-foot">
         <ThemeSwitch />
-        <span className="foot-spacer" />
         <HideAmountsSwitch />
-        <button className="foot-btn" onClick={() => setHelp(true)} title="Горячие клавиши · F1" aria-label="Горячие клавиши" data-testid="hotkeys-open">
+        <button type="button" className="foot-btn" onClick={() => setHelp(true)} aria-label="Горячие клавиши"
+          data-rail-tip="Горячие клавиши" data-testid="hotkeys-open">
           <DecorativeIcon icon={Keyboard} className="foot-icon" size="control" />
         </button>
       </div>
+      <RailTooltip rail={rail} />
     </nav>
   );
 }

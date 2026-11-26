@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { start, stop, resizeAppWindow, onboard, openSection, fill, choose, click, save, setDate, waitText } from "./app.mjs";
+import { start, stop, resizeAppWindow, selectTheme, onboard, openSection, fill, choose, click, save, setDate, waitText } from "./app.mjs";
 
 const dir = resolve(process.argv[2] ?? "screens");
 const width = Number(process.argv[3] ?? 1280);
@@ -28,7 +28,6 @@ const shot = async (name, theme) => {
     await browser.pause(400);
   }
 };
-const setTheme = (t) => browser.execute((label) => [...document.querySelectorAll(".theme-switch button")].find((b) => b.textContent.includes(label))?.click(), t === "light" ? "Светлая" : "Тёмная");
 const scrollTop = () => browser.execute(() => document.querySelector(".content")?.scrollTo(0, 0) ?? window.scrollTo(0, 0));
 const pick = (path) => browser.execute((p) => (window.__ptPick = [p]), path);
 
@@ -71,7 +70,7 @@ try {
   await browser.$('[data-testid="forecast-savings"]').waitForDisplayed({ timeout: 5000 });
 
   for (const theme of ["dark", "light"]) {
-    await setTheme(theme);
+    await selectTheme(browser, theme);
     // Форма расчёта с досрочками и диаграммой.
     await openSection(browser, "Займы и долги");
     await click(browser, "Калькулятор");

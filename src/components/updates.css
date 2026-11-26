@@ -1,0 +1,117 @@
+.updates-card {
+  max-inline-size: 62rem;
+}
+
+.updates-overview,
+.updates-preference {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem 1.5rem;
+}
+
+.updates-overview,
+.updates-actions {
+  flex-wrap: wrap;
+}
+
+.updates-overview h2 {
+  margin-block-end: .35rem;
+}
+
+.updates-installed {
+  margin: 0;
+  color: var(--muted);
+}
+
+.updates-installed strong {
+  color: var(--text);
+}
+
+.updates-actions {
+  align-items: center;
+  gap: .5rem 1rem;
+}
+
+.updates-status {
+  margin: .75rem 0 0;
+}
+
+.updates-status:empty {
+  margin: 0;
+}
+
+.updates-actions [aria-disabled="true"],
+.updates-control:has(input[aria-disabled="true"]) {
+  opacity: .65;
+  cursor: progress;
+}
+
+.updates-preference {
+  border-block: 1px solid var(--border);
+  margin: 1.25rem 0 .5rem;
+  padding: .85rem 0;
+}
+
+label.updates-preference {
+  cursor: pointer;
+}
+
+.updates-control {
+  display: inline-flex;
+  position: relative;
+}
+
+.updates-control input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.updates-control input:checked + .switch {
+  background: var(--accent);
+}
+
+.updates-control input:checked + .switch::after {
+  transform: translateX(16px);
+}
+
+.updates-control input:focus-visible + .switch,
+.updates-details summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.updates-details summary {
+  inline-size: fit-content;
+  padding-block: .45rem;
+  cursor: pointer;
+}
+
+.updates-details .facts {
+  grid-template-columns: fit-content(38%) minmax(0, 1fr);
+  margin-block: .55rem .3rem;
+}
+
+.portable-update input {
+  display: block;
+  width: 100%;
+  margin-block-start: .35rem;
+}
+
+@media (forced-colors: active) {
+  .updates-control .switch {
+    forced-color-adjust: none;
+    background: Canvas;
+    outline: 1px solid ButtonText;
+  }
+  .updates-control .switch::after { background: ButtonText; }
+  .updates-control input:checked + .switch { background: Highlight; }
+  .updates-control input:checked + .switch::after { background: HighlightText; }
+  .updates-control input:focus-visible + .switch { outline: 2px solid Highlight; }
+}

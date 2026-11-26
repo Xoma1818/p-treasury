@@ -98,6 +98,13 @@ test("окно быстрого ввода: открывается поверх,
   await type("такси 640 карта");
   await enter();
   await waitText(browser, '[data-testid="quick-saved"]', /Записано: .*640\.$/);
+  // Окно могут вызвать повторно, пока видна отметка о записи предыдущей покупки.
+  await browser.execute(() => window.__TAURI_INTERNALS__.invoke("open_quick"));
+  await (await browser.$('[name="quickText"]')).setValue("черновик");
+  await browser.pause(1050); // Дольше срока автоскрытия предыдущей записи.
+  assert.equal(await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:window|is_visible", { label: "quick" })), true);
+  assert.equal(await browser.$('[name="quickText"]').getValue(), "черновик");
+  await browser.keys("Escape");
   await browser.switchToWindow(main);
   await openSection(browser, "Операции");
   await waitText(browser, "main", /640/);

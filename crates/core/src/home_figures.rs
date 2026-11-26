@@ -381,7 +381,7 @@ fn balance(
     let bal = if kind == "investment" {
         crate::invest::value_on(conn, id, on)?.0
     } else {
-        accounts::balance(conn, id, Some(on))?
+        accounts::historical_balance(conn, id, on)?
     };
     Ok(match currencies::convert(conn, bal, &cur, &base, on)? {
         Some(v) => v,

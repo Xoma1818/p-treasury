@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { click, fill, openSection, start, stop, waitText } from "./app.mjs";
+import { click, fill, openSection, openSavedView, start, stop, waitText } from "./app.mjs";
 
 const merchant = "Киноклуб";
 const row = (currency) => `[data-testid="sub-row"][data-key="киноклуб"][data-currency="${currency}"]`;
@@ -135,9 +135,7 @@ test("Подписки: журнал из Отчётов и Главной по�
   const fourth = await addEarlierRub();
   // После перезагрузки открываем сохранённый вид так же, как при следующем запуске.
   await browser.refresh();
-  const saved = browser.$('//*[@data-testid="nav-views"]//button[contains(., "Киноклуб в рублях")]');
-  await saved.waitForDisplayed();
-  await saved.click();
+  await openSavedView(browser, "Киноклуб в рублях");
   await checkPayments("RUB", [...expected.RUB, fourth.date]);
   assert.deepEqual(await ledger(invoke), {
     balances: [["JPY", 997_750], ["RUB", 801_100]], ids: [...initial.ids, fourth.id].sort(),

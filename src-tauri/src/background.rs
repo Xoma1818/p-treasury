@@ -345,7 +345,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit("tray-add-transaction", ());
             }
             "quick" => {
-                let _ = crate::quick_window::open(app);
+                crate::quick_window::request_open(app);
             }
             "quit" => app.exit(0),
             _ => {}

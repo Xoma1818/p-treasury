@@ -11,8 +11,7 @@
 .import-overview-intro h2,
 .import-overview-intro p,
 .import-overview-heading h2,
-.import-overview-heading p,
-.import-overview-progress {
+.import-overview-heading p {
   margin: 0;
 }
 
