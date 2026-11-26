@@ -23,6 +23,7 @@ function visibleInList(button: HTMLElement) {
 /** Один ярлык на всю панель. Названия кнопок доступны также при выключенных подсказках «?». */
 export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const mouseLabel = useRef(false);
   const tip = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const nav = rail.current;
@@ -36,10 +37,14 @@ export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
     };
     const buttonAt = (target: EventTarget | null) =>
       target instanceof Element ? target.closest<HTMLButtonElement>("button[data-rail-tip]") : null;
-    const show = (button: HTMLButtonElement | null) => {
+    const show = (button: HTMLButtonElement | null, immediate = false) => {
       clear();
       if (!button || button.getAttribute("aria-expanded") === "true") return;
-      delay = window.setTimeout(() => { if (button.isConnected) setAnchor(button); }, 180);
+      mouseLabel.current = !immediate;
+      if (immediate) setAnchor(button);
+      else delay = window.setTimeout(() => {
+        if (button.isConnected && visibleInList(button)) setAnchor(button);
+      }, 400);
     };
     const hover = (event: PointerEvent) => {
       if (event.target instanceof Node && tip.current?.contains(event.target)) {
@@ -47,7 +52,9 @@ export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
         return;
       }
       const button = buttonAt(event.target);
-      if (button && event.pointerType !== "touch" && button !== buttonAt(event.relatedTarget)) show(button);
+      if (button && event.pointerType !== "touch" && button !== buttonAt(event.relatedTarget)) {
+        show(button, button === document.activeElement && button.matches(":focus-visible"));
+      }
     };
     const focusedButton = () => {
       const button = buttonAt(document.activeElement);
@@ -61,14 +68,18 @@ export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
       if (fromTip || (previous && previous !== focused && previous !== buttonAt(event.relatedTarget))) {
         window.clearTimeout(delay);
         window.clearTimeout(leaveDelay);
-        leaveDelay = window.setTimeout(() => show(focusedButton()), 240);
+        leaveDelay = window.setTimeout(() => show(focusedButton(), true), 120);
       }
     };
     const focus = (event: FocusEvent) => {
       const button = buttonAt(event.target);
-      if (button?.matches(":focus-visible")) show(button);
+      if (button?.matches(":focus-visible")) show(button, true);
     };
-    const onScroll = () => show(focusedButton());
+    const onScroll = () => {
+      const button = focusedButton();
+      show(button, true);
+      if (button && tip.current) positionOverlay(button, tip.current);
+    };
     const key = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") clear(); };
     const events = new AbortController();
     const options = { signal: events.signal };
@@ -91,7 +102,7 @@ export function RailTooltip({ rail }: { rail: RefObject<HTMLElement | null> }) {
     if (anchor && tip.current) positionOverlay(anchor, tip.current);
   }, [anchor]);
   return anchor && createPortal(
-    <div className="rail-tip" ref={tip} role="tooltip">
+    <div className="rail-tip" data-hover={mouseLabel.current || undefined} ref={tip} role="tooltip">
       {anchor.dataset.railTip}
     </div>, document.body,
   );

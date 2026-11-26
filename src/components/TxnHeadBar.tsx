@@ -1,13 +1,10 @@
 import { Check, MoreHorizontal } from "lucide-react";
-import { api, type Template } from "../lib/api";
-import { today } from "../lib/dates";
 import { DEFAULT_HEAD, isDefaultHead, saveHead, shownTemplates, toggleHead, useHeadBar } from "../lib/headBar";
-import { useUi } from "../lib/store";
-import { useAction } from "../lib/useAction";
 import { usePopup } from "../lib/usePopup";
 import { ExportButton, FORMATS, type useExport } from "./DataTools";
 import { ErrorText } from "./Modal";
-import { useTemplates } from "./Templates";
+import { useTemplatePick, useTemplates } from "./Templates";
+import { PendingStatus } from "./PendingStatus";
 
 const IMPORT_TITLE = "Выписка банка (Excel, CSV, PDF) или таблица по шаблону. Файл можно просто перетащить в окно";
 
@@ -16,14 +13,8 @@ const IMPORT_TITLE = "Выписка банка (Excel, CSV, PDF) или таб�
 export function TxnHeadBar({ onImport, exp }: { onImport: () => void; exp: ReturnType<typeof useExport> }) {
   const head = useHeadBar();
   const templates = useTemplates().data ?? [];
-  const openTxnForm = useUi((s) => s.openTxnForm);
-  const apply = useAction((id: string) => api.applyTemplate(id, today()));
+  const apply = useTemplatePick(templates);
   const { open, setOpen, ref } = usePopup();
-  const pick = (t: Template) => {
-    if (t.complete) return apply.run(t.id);
-    api.templateUsed(t.id);
-    openTxnForm({ mode: "new", type: t.type, prefill: { amount: t.amount, accountId: t.accountId, toAccountId: t.toAccountId, categoryId: t.categoryId, payee: t.payee, note: t.note } });
-  };
   const shown = (id: string) => head.shown.includes(id);
   const pinned = shownTemplates(head, templates.map((t) => t.id)).map((id) => templates.find((t) => t.id === id)!);
   const run = (f: () => void) => () => (setOpen(false), f());
@@ -36,7 +27,8 @@ export function TxnHeadBar({ onImport, exp }: { onImport: () => void; exp: Retur
   return (
     <>
       {pinned.map((t) => (
-        <button key={t.id} className="btn" data-testid="head-template" onClick={() => pick(t)} title={t.complete ? "Записать операцию сейчас" : "Открыть форму с этими данными"}>
+        <button key={t.id} className="btn" data-testid="head-template" disabled={apply.isApplying(t.id)} aria-busy={apply.isApplying(t.id) || undefined}
+          onClick={() => apply.pick(t)} title={t.complete ? "Записать операцию сейчас" : "Открыть форму с этими данными"}>
           {t.name}
         </button>
       ))}
@@ -66,7 +58,7 @@ export function TxnHeadBar({ onImport, exp }: { onImport: () => void; exp: Retur
             {templates
               .filter((t) => !shown(`tpl:${t.id}`))
               .map((t) => (
-                <button key={t.id} role="menuitem" className="menu-item" onClick={run(() => pick(t))}>
+                <button key={t.id} role="menuitem" className="menu-item" disabled={apply.isApplying(t.id)} onClick={run(() => apply.pick(t))}>
                   {t.name}
                 </button>
               ))}
@@ -87,6 +79,7 @@ export function TxnHeadBar({ onImport, exp }: { onImport: () => void; exp: Retur
           </div>
         )}
       </div>
+      <PendingStatus busy={apply.busy}>Записываем операцию по шаблону…</PendingStatus>
       <ErrorText error={apply.error} />
     </>
   );

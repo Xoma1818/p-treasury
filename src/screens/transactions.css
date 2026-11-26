@@ -48,3 +48,65 @@
 .txn-empty p {
   margin: 4px 0;
 }
+
+/* Общий нижний край журнала: место под обе полосы задаёт их содержимое. */
+.journal-feedback:has(.sel-bar) {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  margin-block-start: 12px;
+  pointer-events: none;
+}
+
+.journal-feedback .sel-bar {
+  position: static;
+  margin: 0;
+  pointer-events: auto;
+}
+
+.journal-feedback:has(.sel-bar) > .undo-bar {
+  position: static;
+  justify-self: center;
+  max-inline-size: 100%;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  transform: none;
+  animation: none;
+}
+
+.journal-feedback :is(.sel-sum, .sel-actions, .sel-form) {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+}
+
+.journal-feedback .sel-form :is(input, select) {
+  max-inline-size: 100%;
+  min-inline-size: min(200px, 100%);
+}
+
+/* Оставляем видимыми журнал и отмену. Прокручивается только высокая форма выбора. */
+@media (max-width: 700px), (max-height: 540px) {
+  .journal-feedback:has(.sel-bar) {
+    display: flex;
+    flex-direction: column;
+    max-block-size: 55dvh;
+  }
+  .journal-feedback > :first-child {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 0;
+  }
+  .journal-feedback .sel-bar {
+    min-block-size: 0;
+    overflow-y: auto;
+    align-content: flex-start;
+  }
+  .journal-feedback:has(.sel-bar) > .undo-bar {
+    flex: none;
+    align-self: center;
+  }
+}

@@ -1346,7 +1346,10 @@ mod tests {
     use crate::transactions::Filter;
 
     fn setup() -> Storage {
-        let db = Storage::open_in_memory().unwrap();
+        seed_import_accounts(Storage::open_in_memory().unwrap())
+    }
+
+    fn seed_import_accounts(db: Storage) -> Storage {
         categories::seed_defaults(db.conn()).unwrap();
         accounts::create(db.conn(), &input("Карта", "debit", "RUB", 0)).unwrap();
         accounts::create(db.conn(), &input("Наличные", "cash", "RUB", 0)).unwrap();
@@ -1622,7 +1625,17 @@ mod tests {
         assert_eq!(state(db.conn()), before);
 
         // В новую базу: возвраты остаются возвратами своих покупок и своих месяцев.
-        let mut db2 = setup();
+        let mut db2 = seed_import_accounts(
+            Storage::open_with(
+                &dir.path().join("schema-30.db"),
+                &crate::storage::OpenOptions {
+                    backup_dir: dir.path().to_owned(),
+                    keep_backups: 1,
+                },
+                &crate::storage::MIGRATIONS[..30],
+            )
+            .unwrap(),
+        );
         let p = preview(db2.conn(), &book, None).unwrap();
         assert_eq!(p.errors, 0, "{:?}", p.rows);
         assert_eq!(import(db2.conn_mut(), &book, false, None).unwrap().added, 5);
@@ -1641,7 +1654,6 @@ mod tests {
         db2.conn()
             .execute("UPDATE import_batches SET added = 3", [])
             .unwrap();
-        db2.conn().pragma_update(None, "user_version", 30).unwrap();
         let old_book = dir.path().join("Все данные 30.xlsx");
         crate::vault::write_all_data(db2.conn(), &old_book).unwrap();
         let mut restored = setup();

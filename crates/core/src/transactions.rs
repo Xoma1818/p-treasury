@@ -218,6 +218,23 @@ fn existing(conn: &Connection, id: &str) -> Result<Existing> {
 }
 
 pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
+    update_fields(conn, id, input, None)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventChange {
+    // Только явный null снимает выбранное событие.
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    pub event_id: Option<String>,
+}
+
+fn update_fields(
+    conn: &Connection,
+    id: &str,
+    input: &TxnInput,
+    event_change: Option<&EventChange>,
+) -> Result<()> {
     let old = existing(conn, id)?;
     if old.debt_id.is_some() {
         return invalid("это платёж по долгу: измените его в карточке долга");
@@ -240,6 +257,13 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
         .flatten()
         .collect();
     let c = validate(conn, input, &previous)?;
+    let event_id = event_change.and_then(|change| change.event_id.as_deref());
+    if let Some(event) = event_id {
+        if !matches!(input.kind.as_str(), "income" | "expense") {
+            return invalid("к событию можно отнести только доход или расход");
+        }
+        crate::events::ensure_exists(conn, event)?;
+    }
     crate::refunds::purchase_edited(
         conn,
         id,
@@ -252,7 +276,8 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
     conn.execute(
         "UPDATE transactions SET type = ?2, date = ?3, account_id = ?4, amount = ?5, category_id = ?6,
                 to_account_id = ?7, to_amount = ?8, payee = ?9, note = ?10, updated_at = ?11,
-                spread_months = CASE WHEN ?2 = 'expense' THEN spread_months END
+                spread_months = CASE WHEN ?2 = 'expense' THEN spread_months END,
+                event_id = CASE WHEN ?12 THEN ?13 ELSE event_id END
          WHERE id = ?1",
         params![
             id,
@@ -265,7 +290,9 @@ pub fn update(conn: &Connection, id: &str, input: &TxnInput) -> Result<()> {
             c.to_amount,
             c.payee,
             c.note,
-            time::now_utc()
+            time::now_utc(),
+            event_change.is_some(),
+            event_id
         ],
     )?;
     Ok(())
@@ -393,9 +420,20 @@ pub fn update_with(
     input: &TxnInput,
     extra: &TxnExtra,
 ) -> Result<()> {
+    update_with_event(conn, id, input, extra, None)
+}
+
+/// Полная правка одним шагом. При отсутствии event_change связь сохраняется.
+pub fn update_with_event(
+    conn: &mut Connection,
+    id: &str,
+    input: &TxnInput,
+    extra: &TxnExtra,
+    event_change: Option<&EventChange>,
+) -> Result<()> {
     let tx = conn.transaction()?;
     let mark = crate::history::last_id(&tx)?;
-    update(&tx, id, input)?;
+    update_fields(&tx, id, input, event_change)?;
     set_spread(&tx, id, extra.spread_months)?;
     // Правка тегов существующей операции попадает в ту же запись истории.
     crate::tags::edit_for(&tx, id, &extra.tags, Some(mark))?;
@@ -1169,6 +1207,121 @@ mod tests {
             to_amount,
             ..txn("transfer", "2026-10-20", from, amount, None)
         }
+    }
+
+    fn trip(c: &Connection) -> String {
+        crate::events::create(
+            c,
+            &crate::events::EventInput {
+                name: "Поездка".into(),
+                start_date: "2026-10-20".into(),
+                end_date: "2026-10-25".into(),
+                budget: None,
+                note: None,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn edited_purchase_and_event_are_one_undo_step() {
+        let mut f = fx();
+        let c = f.db.conn_mut();
+        let before = txn("expense", "2026-10-20", &f.card, 100_000, Some(&f.food));
+        let after = txn("expense", "2026-10-22", &f.card, 120_000, Some(&f.cafe));
+        let id = create(c, &before).unwrap();
+        let event = EventChange {
+            event_id: Some(trip(c)),
+        };
+        let extra = TxnExtra {
+            spread_months: Some(3),
+            tags: vec!["Поездка".into()],
+        };
+        let mut undo = crate::undo::Journal::default();
+        undo.record(c, "Изменение операции", |c| {
+            update_with_event(c, &id, &after, &extra, Some(&event))
+        })
+        .unwrap();
+        let saved = get(c, &id).unwrap();
+        assert_eq!(saved.event_id, event.event_id);
+        assert_eq!(saved.amount, 120_000);
+        assert_eq!(saved.spread_months, Some(3));
+        assert_eq!(crate::tags::names_of(c, &id).unwrap(), extra.tags);
+        assert_eq!(accounts::balance(c, &f.card, None).unwrap(), 9_880_000);
+        assert_eq!(undo.undo(c).unwrap().as_deref(), Some("Изменение операции"));
+        let restored = get(c, &id).unwrap();
+        assert_eq!(restored.amount, 100_000);
+        assert_eq!(restored.date, before.date);
+        assert_eq!(restored.category_id, before.category_id);
+        assert_eq!(restored.event_id, None);
+        assert_eq!(restored.spread_months, None);
+        assert!(crate::tags::names_of(c, &id).unwrap().is_empty());
+        assert_eq!(accounts::balance(c, &f.card, None).unwrap(), 9_900_000);
+        assert!(undo.undo(c).unwrap().is_none());
+    }
+
+    #[test]
+    fn stale_event_and_invalid_spread_leave_existing_purchase_untouched() {
+        let mut f = fx();
+        let c = f.db.conn_mut();
+        let before = txn("expense", "2026-10-20", &f.card, 100_000, Some(&f.food));
+        let after = txn("expense", "2026-10-22", &f.card, 120_000, Some(&f.cafe));
+        let id = create(c, &before).unwrap();
+        let original_event = trip(c);
+        crate::events::assign(c, Some(&original_event), std::slice::from_ref(&id)).unwrap();
+        let deleted_event = trip(c);
+        crate::events::delete(c, &deleted_event).unwrap();
+        let history_mark = crate::history::last_id(c).unwrap();
+        let mut undo = crate::undo::Journal::default();
+        // Первый отказ происходит при проверке события, второй — после UPDATE.
+        for (event_id, months) in [(Some(deleted_event), 3), (None, 25)] {
+            let change = EventChange { event_id };
+            let extra = TxnExtra {
+                spread_months: Some(months),
+                tags: vec!["Новый".into()],
+            };
+            let result = undo.record(c, "Изменение операции", |c| {
+                update_with_event(c, &id, &after, &extra, Some(&change))
+            });
+            assert!(result.is_err());
+            let row = get(c, &id).unwrap();
+            assert_eq!(row.amount, 100_000);
+            assert_eq!(row.category_id, before.category_id);
+            assert_eq!(row.date, before.date);
+            assert_eq!(row.event_id.as_deref(), Some(original_event.as_str()));
+            assert_eq!(row.spread_months, None);
+            assert!(crate::tags::names_of(c, &id).unwrap().is_empty());
+            assert_eq!(accounts::balance(c, &f.card, None).unwrap(), 9_900_000);
+            assert_eq!(crate::history::last_id(c).unwrap(), history_mark);
+            assert!(undo.state().undo.is_none());
+        }
+    }
+
+    #[test]
+    fn editing_event_requires_explicit_selection_or_clear() {
+        assert!(serde_json::from_str::<EventChange>("{}").is_err());
+        let clear = serde_json::from_str::<EventChange>(r#"{"eventId": null}"#).unwrap();
+        let mut f = fx();
+        let c = f.db.conn_mut();
+        let before = txn("expense", "2026-10-20", &f.card, 100_000, Some(&f.food));
+        let id = create(c, &before).unwrap();
+        let trip_id = trip(c);
+        let selected = EventChange {
+            event_id: Some(trip_id.clone()),
+        };
+        let extra = TxnExtra::default();
+        update_with_event(c, &id, &before, &extra, Some(&selected)).unwrap();
+        update_with(c, &id, &before, &extra).unwrap();
+        assert_eq!(
+            get(c, &id).unwrap().event_id.as_deref(),
+            Some(trip_id.as_str())
+        );
+        let as_transfer = transfer(&f.card, &f.cash, 100_000, None);
+        assert!(update_with_event(c, &id, &as_transfer, &extra, Some(&selected)).is_err());
+        assert_eq!(get(c, &id).unwrap().kind, "expense");
+        update_with_event(c, &id, &as_transfer, &extra, Some(&clear)).unwrap();
+        assert_eq!(get(c, &id).unwrap().event_id, None);
+        assert_eq!(accounts::balance(c, &f.cash, None).unwrap(), 100_000);
     }
 
     #[test]

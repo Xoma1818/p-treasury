@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::assets::Valuation;
 use crate::error::invalid;
-use crate::{accounts, budgets, currencies, reports, settings, time, Error, Result};
+use crate::{accounts, budgets, currencies, reports, time, Error, Result};
 
 /// Вид инвестиционного счёта: обычный брокерский, ИИС или ПДС.
 pub const INVEST_KINDS: &[&str] = &["broker", "iis", "pds"];
@@ -125,7 +125,7 @@ fn contributions(
     to: &str,
     kinds: &[&str],
     inflow_only: bool,
-    base: &str,
+    mut convert: impl FnMut(i64, &str, &str) -> Result<Option<i64>>,
     missing: &mut Vec<String>,
 ) -> Result<i64> {
     let mut stmt = conn.prepare(
@@ -136,7 +136,8 @@ fn contributions(
          JOIN accounts fa ON fa.id = t.account_id
          JOIN accounts ta ON ta.id = t.to_account_id
          WHERE t.type = 'transfer' AND t.status = 'cleared' AND t.date BETWEEN ?1 AND ?2
-           AND (fa.type = 'investment') <> (ta.type = 'investment')",
+           AND (fa.type = 'investment') <> (ta.type = 'investment')
+         ORDER BY t.date DESC",
     )?;
     type Row = (String, i64, String, i64, String, bool, String, bool, String);
     let rows: Vec<Row> = stmt
@@ -165,7 +166,7 @@ fn contributions(
         if !kinds.contains(&kind.as_str()) || (inflow_only && sign < 0) {
             continue;
         }
-        match currencies::convert(conn, amount, &currency, base, &date)? {
+        match convert(amount, &currency, &date)? {
             Some(v) => sum += sign * v,
             None if !missing.contains(&currency) => missing.push(currency),
             None => {}
@@ -179,29 +180,31 @@ fn contributions(
 pub struct Plan {
     /// `""` — не задан, `amount` — сумма, `percent` — процент от доходов месяца.
     pub mode: String,
-    /// Сумма в основной валюте или процент.
+    /// Целое число минимальных единиц исходной валюты или процент.
     pub value: i64,
+    /// У старого фиксированного плана до подтверждения валюты здесь None.
+    pub currency_code: Option<String>,
     /// План задан только для этого месяца, а не общий на каждый месяц.
     pub only_month: bool,
 }
 
 /// Общий план на каждый месяц.
 pub fn plan(conn: &Connection) -> Result<Plan> {
-    let mode = settings::get(conn, "invest_plan_mode")?.unwrap_or_default();
-    let value = settings::get(conn, "invest_plan_value")?
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-    Ok(normalize(mode, value, false))
+    let [mode, raw, currency] = plan_values(conn)?;
+    let value = raw.and_then(|v| v.parse().ok()).unwrap_or(0);
+    Ok(normalize(mode.unwrap_or_default(), value, currency, false))
 }
 
-fn normalize(mode: String, value: i64, only_month: bool) -> Plan {
+fn normalize(mode: String, value: i64, currency: Option<String>, only_month: bool) -> Plan {
     match mode.as_str() {
         "amount" | "percent" if value > 0 => Plan {
+            currency_code: if mode == "amount" { currency } else { None },
             mode,
             value,
             only_month,
         },
         _ => Plan {
+            currency_code: None,
             mode: String::new(),
             value: 0,
             only_month,
@@ -211,17 +214,20 @@ fn normalize(mode: String, value: i64, only_month: bool) -> Plan {
 
 /// План месяца: свой для месяца, если задан, иначе общий.
 pub fn plan_for(conn: &Connection, month: &str) -> Result<Plan> {
-    let own: Option<(String, i64)> = conn
-        .query_row(
-            "SELECT mode, value FROM invest_month_plans WHERE month = ?1",
-            [month],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    match own {
-        Some((mode, value)) => Ok(normalize(mode, value, true)),
+    match own_month_plan(conn, month)? {
+        Some(plan) => Ok(plan),
         None => plan(conn),
     }
+}
+
+fn own_month_plan(conn: &Connection, month: &str) -> Result<Option<Plan>> {
+    Ok(conn
+        .query_row(
+            "SELECT mode, value, currency_code FROM invest_month_plans WHERE month = ?1",
+            [month],
+            |r| Ok(normalize(r.get(0)?, r.get(1)?, r.get(2)?, true)),
+        )
+        .optional()?)
 }
 
 fn check_plan(mode: &str, value: i64) -> Result<i64> {
@@ -238,20 +244,180 @@ fn check_plan(mode: &str, value: i64) -> Result<i64> {
 
 /// Задать общий план на каждый месяц; `mode = ""` убирает план.
 pub fn set_plan(conn: &Connection, mode: &str, value: i64) -> Result<()> {
-    let value = check_plan(mode, value)?;
-    settings::set(conn, "invest_plan_mode", mode)?;
-    settings::set(conn, "invest_plan_value", &value.to_string())
+    change_plan(conn, mode, value, None).map(|_| ())
+}
+
+pub(crate) type PlanValues = [Option<String>; 3];
+
+fn plan_values(conn: &Connection) -> Result<PlanValues> {
+    Ok(conn.query_row(
+        "SELECT (SELECT value FROM settings WHERE key='invest_plan_mode'),
+                (SELECT value FROM settings WHERE key='invest_plan_value'),
+                (SELECT value FROM settings WHERE key='invest_plan_currency')",
+        [],
+        |r| Ok([r.get(0)?, r.get(1)?, r.get(2)?]),
+    )?)
+}
+
+pub(crate) fn change_plan(
+    conn: &Connection,
+    mode: &str,
+    value: i64,
+    currency_code: Option<&str>,
+) -> Result<(PlanValues, PlanValues)> {
+    let before = plan_values(conn)?;
+    let after = [
+        Some(mode.to_owned()),
+        Some(check_plan(mode, value)?.to_string()),
+        currency_for_edit(
+            conn,
+            mode,
+            currency_code,
+            before[0].as_deref(),
+            before[2].as_deref(),
+        )?,
+    ];
+    write_plan(conn, &before, &after)?;
+    Ok((before, after))
+}
+
+fn currency_for_edit(
+    conn: &Connection,
+    mode: &str,
+    requested: Option<&str>,
+    old_mode: Option<&str>,
+    old_currency: Option<&str>,
+) -> Result<Option<String>> {
+    if mode != "amount" {
+        return Ok(None);
+    }
+    let currency = if old_mode == Some("amount") {
+        let Some(old) = old_currency else {
+            return invalid("сначала укажите валюту старого инвестиционного плана");
+        };
+        if requested.is_some_and(|code| code != old) {
+            return invalid("валюта инвестиционного плана изменилась; откройте план снова");
+        }
+        old.to_owned()
+    } else if let Some(code) = requested {
+        code.to_owned()
+    } else {
+        currencies::base_currency(conn)?
+    };
+    currencies::get(conn, &currency)?;
+    Ok(Some(currency))
+}
+
+pub(crate) fn confirm_global_currency(
+    conn: &Connection,
+    expected: i64,
+    currency: &str,
+) -> Result<(PlanValues, PlanValues)> {
+    currencies::get(conn, currency)?;
+    let before = plan_values(conn)?;
+    if expected <= 0
+        || before[0].as_deref() != Some("amount")
+        || before[1].as_deref().and_then(|v| v.parse().ok()) != Some(expected)
+        || before[2].is_some()
+    {
+        return invalid("план инвестиций изменился позже");
+    }
+    let mut after = before.clone();
+    after[2] = Some(currency.to_owned());
+    write_plan(conn, &before, &after)?;
+    Ok((before, after))
+}
+
+/// Сумма, валюта и режим составляют один план. Проверяем весь прежний снимок.
+pub(crate) fn write_plan(conn: &Connection, from: &PlanValues, to: &PlanValues) -> Result<()> {
+    // Демо и восстановление могут уже работать внутри внешней транзакции.
+    conn.execute_batch("SAVEPOINT kazna_invest_plan")?;
+    let result = (|| {
+        if &plan_values(conn)? != from {
+            return invalid("план инвестиций изменился позже");
+        }
+        for ((key, old), new) in [
+            "invest_plan_mode",
+            "invest_plan_value",
+            "invest_plan_currency",
+        ]
+        .into_iter()
+        .zip(from)
+        .zip(to)
+        {
+            if old == new {
+                continue;
+            }
+            let rows = match new {
+                Some(value) => conn.execute(
+                    "INSERT INTO settings (key,value) VALUES (?1,?2)
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    params![key, value],
+                )?,
+                None => conn.execute("DELETE FROM settings WHERE key=?1", [key])?,
+            };
+            if rows != 1 {
+                return invalid("не удалось изменить план инвестиций");
+            }
+        }
+        if &plan_values(conn)? != to {
+            return invalid("не удалось изменить план инвестиций");
+        }
+        conn.execute_batch("RELEASE kazna_invest_plan")?;
+        Ok(())
+    })();
+    if result.is_err() && !conn.is_autocommit() {
+        conn.execute_batch("ROLLBACK TO kazna_invest_plan; RELEASE kazna_invest_plan")?;
+    }
+    result
 }
 
 /// Свой план на один месяц (`2026-12`); `mode = ""` — в этом месяце не откладывать.
-pub fn set_month_plan(conn: &Connection, month: &str, mode: &str, value: i64) -> Result<()> {
+pub fn set_month_plan(
+    conn: &Connection,
+    month: &str,
+    mode: &str,
+    value: i64,
+    currency_code: Option<&str>,
+) -> Result<()> {
     budgets::period(month, 1)?;
     let value = check_plan(mode, value)?;
-    conn.execute(
-        "INSERT INTO invest_month_plans (month, mode, value) VALUES (?1, ?2, ?3)
-         ON CONFLICT (month) DO UPDATE SET mode = excluded.mode, value = excluded.value",
-        params![month, mode, value],
+    let old = own_month_plan(conn, month)?;
+    let currency = currency_for_edit(
+        conn,
+        mode,
+        currency_code,
+        old.as_ref().map(|p| p.mode.as_str()),
+        old.as_ref().and_then(|p| p.currency_code.as_deref()),
     )?;
+    conn.execute(
+        "INSERT INTO invest_month_plans (month, mode, value, currency_code) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (month) DO UPDATE SET mode = excluded.mode, value = excluded.value,
+                                           currency_code = excluded.currency_code",
+        params![month, mode, value, currency],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn replace_month_currency(
+    conn: &Connection,
+    month: &str,
+    expected: i64,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<()> {
+    budgets::period(month, 1)?;
+    if let Some(code) = to {
+        currencies::get(conn, code)?;
+    }
+    let rows = conn.execute(
+        "UPDATE invest_month_plans SET currency_code = ?1
+         WHERE month = ?2 AND mode = 'amount' AND value = ?3 AND value > 0 AND currency_code IS ?4",
+        params![to, month, expected, from],
+    )?;
+    if rows != 1 {
+        return invalid("план инвестиций изменился позже");
+    }
     Ok(())
 }
 
@@ -264,16 +430,20 @@ pub fn clear_month_plan(conn: &Connection, month: &str) -> Result<()> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonthProgress {
+    pub currency: currencies::Currency,
+    pub income_currency: currencies::Currency,
     pub month: String,
     pub start: String,
     pub end: String,
     pub plan: Plan,
-    /// План в основной валюте; для процента — от доходов месяца. `None` без плана.
+    /// План в currency; None без плана, исходной валюты или курса для дохода.
     pub planned: Option<i64>,
     /// Доходы месяца (для плана в процентах).
     pub income: i64,
+    pub income_complete: bool,
     /// Отложено за месяц: переводы на инвестиционные счета минус выводы.
     pub saved: i64,
+    pub saved_complete: bool,
     /// Процент выполнения плана.
     pub percent: Option<i64>,
     pub missing_rates: Vec<String>,
@@ -283,43 +453,68 @@ pub struct MonthProgress {
 pub fn month_progress(conn: &Connection, month: &str) -> Result<MonthProgress> {
     let p = budgets::period(month, budgets::start_day(conn)?)?;
     let base = currencies::base_currency(conn)?;
+    let income_currency = currencies::get(conn, &base)?;
+    let plan = plan_for(conn, &p.month)?;
+    let currency = match plan.currency_code.as_deref() {
+        Some(code) if code != base => currencies::get(conn, code)?,
+        _ => income_currency.clone(),
+    };
     let mut missing = Vec::new();
+    let mut plan_rates = currencies::PlanRates::new(&currency);
     let saved = contributions(
         conn,
         &p.start,
         &p.end,
         INVEST_KINDS,
         false,
-        &base,
+        |n, from, date| {
+            if plan.currency_code.is_some() {
+                plan_rates.convert(conn, n, from, date)
+            } else {
+                currencies::convert(conn, n, from, &currency.code, date)
+            }
+        },
         &mut missing,
     )?;
-    let plan = plan_for(conn, &p.month)?;
+    let saved_complete = missing.is_empty();
     let summary = reports::period_summary(conn, &p.start, &p.end)?;
+    let income_complete = !summary.missing_income_rate;
     for c in summary.missing_rates {
         if !missing.contains(&c) {
             missing.push(c);
         }
     }
     let planned = match plan.mode.as_str() {
-        "amount" => Some(plan.value),
-        // Процент от доходов, округлённый до рубля.
-        "percent" => {
-            let unit = 10i64.pow(currencies::minor_units(conn, &base)?);
-            Some((summary.income.max(0) * plan.value / 100 + unit / 2) / unit * unit)
+        "amount" if plan.currency_code.is_some() => Some(plan.value),
+        // Процент от доходов, округлённый до целой единицы основной валюты.
+        "percent" if income_complete => {
+            let unit = 10i128.pow(currency.minor_units);
+            let value = (i128::from(summary.income.max(0)) * i128::from(plan.value) / 100
+                + unit / 2)
+                / unit
+                * unit;
+            Some(
+                i64::try_from(value)
+                    .map_err(|_| Error::Validation("слишком большая сумма плана".into()))?,
+            )
         }
         _ => None,
     };
     let percent = planned
-        .filter(|&v| v > 0)
+        .filter(|&v| v > 0 && saved_complete)
         .map(|v| reports::percent(saved.max(0), v));
     Ok(MonthProgress {
+        currency,
+        income_currency,
         month: p.month,
         start: p.start,
         end: p.end,
         plan,
         planned,
         income: summary.income,
+        income_complete,
         saved,
+        saved_complete,
         percent,
         missing_rates: missing,
     })
@@ -466,8 +661,15 @@ pub fn overview(conn: &Connection, today: &str) -> Result<Overview> {
         .year();
     let (jan, dec) = (format!("{year}-01-01"), format!("{year}-12-31"));
     let tax = if has_tax_account {
-        let contributed =
-            contributions(conn, &jan, &dec, &["iis", "pds"], true, "RUB", &mut missing)?;
+        let contributed = contributions(
+            conn,
+            &jan,
+            &dec,
+            &["iis", "pds"],
+            true,
+            |n, from, date| currencies::convert(conn, n, from, "RUB", date),
+            &mut missing,
+        )?;
         Some(TaxYear {
             year,
             contributed,
@@ -505,6 +707,7 @@ pub fn overview(conn: &Connection, today: &str) -> Result<Overview> {
 mod tests {
     use super::*;
     use crate::accounts::tests::input;
+    use crate::settings;
     use crate::storage::Storage;
     use crate::storage::{migrate, MIGRATIONS};
     use crate::transactions::{self, TxnInput};
@@ -585,6 +788,54 @@ mod tests {
     }
 
     #[test]
+    fn undo_restores_each_missing_plan_key_inside_an_outer_transaction() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let initial = plan_values(db.conn()).unwrap();
+        for keys in [
+            vec!["invest_plan_mode"],
+            vec!["invest_plan_value"],
+            vec!["invest_plan_mode", "invest_plan_value"],
+        ] {
+            let tx = db.conn_mut().transaction().unwrap();
+            for key in &keys {
+                tx.execute("DELETE FROM settings WHERE key=?1", [key])
+                    .unwrap();
+            }
+            let legacy = plan_values(&tx).unwrap();
+            let mut journal = crate::undo::Journal::default();
+            // При FAIL SQLite может оставить уже изменённую первую строку.
+            tx.execute_batch(
+                "CREATE TEMP TRIGGER reject_plan_value BEFORE INSERT ON settings
+                 WHEN NEW.key='invest_plan_value' BEGIN SELECT RAISE(FAIL, 'test'); END;",
+            )
+            .unwrap();
+            assert!(journal.set_invest_plan(&tx, "percent", 15, None).is_err());
+            assert!(journal.state().undo.is_none());
+            assert_eq!(plan_values(&tx).unwrap(), legacy);
+            tx.execute_batch("DROP TRIGGER reject_plan_value").unwrap();
+            journal.set_invest_plan(&tx, "percent", 15, None).unwrap();
+            let saved = [Some("percent".to_owned()), Some("15".to_owned()), None];
+            assert_eq!(plan_values(&tx).unwrap(), saved);
+            journal.undo(&tx).unwrap();
+            assert_eq!(plan_values(&tx).unwrap(), legacy);
+            journal.redo(&tx).unwrap();
+            assert_eq!(plan_values(&tx).unwrap(), saved);
+
+            journal.undo(&tx).unwrap();
+            tx.execute(
+                "INSERT INTO settings (key,value) VALUES (?1,'later')",
+                [keys[0]],
+            )
+            .unwrap();
+            let external = plan_values(&tx).unwrap();
+            assert!(journal.redo(&tx).is_err());
+            assert_eq!(plan_values(&tx).unwrap(), external);
+            tx.rollback().unwrap();
+            assert_eq!(plan_values(db.conn()).unwrap(), initial);
+        }
+    }
+
+    #[test]
     fn month_plan_and_saved() {
         let db = Storage::open_in_memory().unwrap();
         let c = db.conn();
@@ -622,20 +873,274 @@ mod tests {
         assert!(set_plan(c, "amount", -5).is_err());
         assert!(set_plan(c, "weekly", 5).is_err());
         // Свой план на месяц важнее общего; соседние месяцы его не видят.
-        set_month_plan(c, "2026-10", "amount", 4_000_000).unwrap();
+        set_month_plan(c, "2026-10", "amount", 4_000_000, None).unwrap();
         let m = month_progress(c, "2026-10").unwrap();
         assert_eq!((m.planned, m.plan.only_month), (Some(4_000_000), true));
         assert_eq!(month_progress(c, "2026-11").unwrap().planned, Some(0));
-        set_month_plan(c, "2026-10", "", 0).unwrap();
+        set_month_plan(c, "2026-10", "", 0, None).unwrap();
         assert_eq!(month_progress(c, "2026-10").unwrap().planned, None);
         clear_month_plan(c, "2026-10").unwrap();
         assert_eq!(
             month_progress(c, "2026-10").unwrap().planned,
             Some(1_500_000)
         );
-        assert!(set_month_plan(c, "2026-13", "amount", 1).is_err());
+        assert!(set_month_plan(c, "2026-13", "amount", 1, None).is_err());
         set_plan(c, "", 0).unwrap();
         assert_eq!(plan(c).unwrap().mode, "");
+    }
+
+    #[test]
+    fn legacy_currency_confirmation_preserves_raw_amount_scope_and_undo() {
+        let mut c = Connection::open_in_memory().unwrap();
+        migrate(&mut c, &MIGRATIONS[..31]).unwrap();
+        settings::set(&c, "invest_plan_mode", "amount").unwrap();
+        settings::set(&c, "invest_plan_value", "120000").unwrap();
+        c.execute_batch(
+            "INSERT INTO invest_month_plans(month,mode,value) VALUES
+            ('2026-12','amount',50000),('2027-01','percent',15),('2027-02','',0)",
+        )
+        .unwrap();
+        settings::set(&c, "base_currency", "JPY").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let workbook = dir.path().join("old.xlsx");
+        crate::vault::write_all_data(&c, &workbook).unwrap();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        let mut restored = Storage::open_in_memory().unwrap();
+        crate::vault::import_all_data(restored.conn_mut(), &workbook).unwrap();
+        for conn in [&c, restored.conn()] {
+            let legacy = month_progress(conn, "2026-11").unwrap();
+            assert_eq!(
+                (
+                    legacy.plan.value,
+                    legacy.plan.currency_code,
+                    legacy.planned,
+                    legacy.percent
+                ),
+                (120_000, None, None, None)
+            );
+            assert_eq!(legacy.currency.code, "JPY");
+            assert_eq!(month_progress(conn, "2026-12").unwrap().plan.value, 50_000);
+            assert_eq!(month_progress(conn, "2027-01").unwrap().plan.value, 15);
+            assert_eq!(month_progress(conn, "2027-02").unwrap().plan.mode, "");
+        }
+        let mut j = crate::undo::Journal::default();
+        assert!(j
+            .confirm_invest_plan_currency(&c, None, 120_001, "RUB")
+            .is_err());
+        assert!(j
+            .confirm_invest_plan_currency(&c, None, 120_000, "XYZ")
+            .is_err());
+        assert!(j
+            .confirm_invest_plan_currency(&c, Some("2026-11"), 120_000, "RUB")
+            .is_err());
+        assert!(j
+            .confirm_invest_plan_currency(&c, Some("2027-01"), 15, "RUB")
+            .is_err());
+        assert!(j.set_invest_plan(&c, "amount", 120_000, None).is_err());
+        assert!(set_month_plan(&c, "2026-12", "amount", 50_000, Some("JPY")).is_err());
+        assert!(j.state().undo.is_none());
+        j.confirm_invest_plan_currency(&c, None, 120_000, "RUB")
+            .unwrap();
+        let m = month_progress(&c, "2026-11").unwrap();
+        assert_eq!(
+            (
+                m.currency.code.as_str(),
+                m.planned,
+                m.income_currency.code.as_str()
+            ),
+            ("RUB", Some(120_000), "JPY")
+        );
+        assert!(j
+            .confirm_invest_plan_currency(&c, None, 120_000, "JPY")
+            .is_err());
+        assert_eq!(month_progress(&c, "2026-12").unwrap().planned, None);
+        j.confirm_invest_plan_currency(&c, Some("2026-12"), 50_000, "JPY")
+            .unwrap();
+        assert_eq!(month_progress(&c, "2026-12").unwrap().planned, Some(50_000));
+        j.undo(&c).unwrap();
+        assert_eq!(month_progress(&c, "2026-12").unwrap().planned, None);
+        assert_eq!(
+            month_progress(&c, "2026-11").unwrap().planned,
+            Some(120_000)
+        );
+        j.undo(&c).unwrap();
+        assert_eq!(plan(&c).unwrap().currency_code, None);
+        j.redo(&c).unwrap();
+        j.redo(&c).unwrap();
+        crate::vault::write_all_data(&c, &workbook).unwrap();
+        let mut fresh = Storage::open_in_memory().unwrap();
+        crate::vault::import_all_data(fresh.conn_mut(), &workbook).unwrap();
+        for month in ["2026-11", "2026-12", "2027-01", "2027-02"] {
+            assert_eq!(
+                plan_for(fresh.conn(), month).unwrap(),
+                plan_for(&c, month).unwrap()
+            );
+        }
+        // Поздняя правка той же строки блокирует отмену подтверждения.
+        c.execute(
+            "UPDATE invest_month_plans SET value=1 WHERE month='2026-12'",
+            [],
+        )
+        .unwrap();
+        assert!(j.undo(&c).is_err());
+        let later = plan_for(&c, "2026-12").unwrap();
+        assert_eq!(
+            (later.value, later.currency_code.as_deref()),
+            (1, Some("JPY"))
+        );
+    }
+
+    #[test]
+    fn fixed_plan_uses_transfer_date_and_original_currency_after_base_change() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Карта", "debit", "RUB", 0)).unwrap();
+        let br = broker(c, "Брокер", "broker", 0);
+        set_plan(c, "amount", 120_000).unwrap();
+        settings::set(c, "base_currency", "USD").unwrap();
+        let m = month_progress(c, "2026-10").unwrap();
+        assert_eq!(
+            (m.currency.code.as_str(), m.planned),
+            ("RUB", Some(120_000))
+        );
+        set_plan(c, "amount", 120_050).unwrap();
+        assert_eq!(plan(c).unwrap().currency_code.as_deref(), Some("RUB"));
+        set_month_plan(c, "2026-10", "amount", 1_200, Some("JPY")).unwrap();
+        // Курсы 1 RUB = 2 JPY и 1 RUB = 3 JPY в соответствующие дни.
+        transfer(c, "2026-10-02", &card, &br, 10_000);
+        transfer(c, "2026-10-20", &card, &br, 20_000);
+        transfer(c, "2026-10-23", &br, &card, 2_000);
+        currencies::set_rate(c, "2026-10-15", "RUB", "JPY", "3").unwrap();
+        let m = month_progress(c, "2026-10").unwrap();
+        assert_eq!(
+            (m.planned, m.saved, m.saved_complete, m.percent),
+            (Some(1_200), 540, false, None)
+        );
+        currencies::set_rate(c, "2026-10-01", "RUB", "JPY", "2").unwrap();
+        let m = month_progress(c, "2026-10").unwrap();
+        assert_eq!(
+            (
+                m.currency.minor_units,
+                m.planned,
+                m.saved,
+                m.saved_complete,
+                m.percent
+            ),
+            (0, Some(1_200), 740, true, Some(62))
+        );
+        assert_eq!(accounts::balance(c, &card, None).unwrap(), -28_000);
+        assert_eq!(accounts::balance(c, &br, None).unwrap(), 28_000);
+        settings::set(c, "base_currency", "RUB").unwrap();
+        assert_eq!(month_progress(c, "2026-10").unwrap().saved, 740);
+        let listed = currencies::list(c).unwrap();
+        assert!(listed.iter().any(|cur| cur.code == "JPY"));
+        assert!(crate::cbr::wanted_currencies(c)
+            .unwrap()
+            .contains(&"JPY".to_string()));
+        assert!(currencies::list_for_picker(c, true)
+            .unwrap()
+            .iter()
+            .any(|cur| cur.code == "BYN"));
+    }
+
+    #[test]
+    fn missing_income_rate_only_affects_percentage_plans() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let yen = accounts::create(c, &input("Иены", "debit", "JPY", 0)).unwrap();
+        crate::categories::seed_defaults(c).unwrap();
+        let cats = crate::categories::list(c, false).unwrap();
+        for kind in ["expense", "income"] {
+            let id = cats.iter().find(|cat| cat.kind == kind).unwrap().id.clone();
+            transactions::create(
+                c,
+                &TxnInput {
+                    category_id: Some(id),
+                    ..txn(kind, "2026-10-15", &yen, 2_000)
+                },
+            )
+            .unwrap();
+            set_plan(c, "percent", 15).unwrap();
+            let m = month_progress(c, "2026-10").unwrap();
+            assert!(m.saved_complete);
+            if kind == "expense" {
+                assert!(m.income_complete);
+                assert_eq!(m.planned, Some(0));
+            } else {
+                assert!(!m.income_complete);
+                assert_eq!((m.planned, m.percent), (None, None));
+            }
+        }
+        set_plan(c, "amount", 25_000).unwrap();
+        let m = month_progress(c, "2026-10").unwrap();
+        assert_eq!((m.planned, m.percent), (Some(25_000), Some(0)));
+    }
+
+    #[test]
+    fn fixed_plan_uses_latest_same_day_cross_even_after_another_base_change() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Доллары", "debit", "USD", 0)).unwrap();
+        let br = broker(c, "Брокер", "broker", 0);
+        set_plan(c, "amount", 100_000).unwrap();
+        settings::set(c, "base_currency", "EUR").unwrap();
+        transfer(c, "2026-10-20", &card, &br, 1_000);
+        let progress = || {
+            let m = month_progress(c, "2026-10").unwrap();
+            (m.saved, m.saved_complete, m.percent)
+        };
+        currencies::set_rate(c, "2026-10-01", "USD", "RUB", "80").unwrap();
+        currencies::set_rate(c, "2026-10-19", "RUB", "EUR", ".02").unwrap();
+        currencies::set_rate(c, "2026-10-20", "USD", "EUR", ".9").unwrap();
+        currencies::set_rate(c, "2026-10-21", "USD", "RUB", "130").unwrap();
+        // Несовпадающие даты двух валют и будущая котировка не подходят.
+        assert_eq!(progress(), (80_000, true, Some(80)));
+        currencies::set_rate(c, "2026-10-20", "RUB", "EUR", ".01").unwrap();
+        assert_eq!(progress(), (90_000, true, Some(90)));
+        c.execute("DELETE FROM exchange_rates WHERE date='2026-10-01'", [])
+            .unwrap();
+        assert_eq!(progress(), (90_000, true, Some(90)));
+        settings::set(c, "base_currency", "JPY").unwrap();
+        assert_eq!(progress(), (90_000, true, Some(90)));
+        // На ту же дату прямая пара имеет преимущество. Ручной обратный курс
+        // этой пары сильнее прямого курса ЦБ, как в остальных расчётах.
+        c.execute(
+            "INSERT INTO exchange_rates VALUES ('2026-10-20','USD','RUB','95','cbr')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(progress(), (95_000, true, Some(95)));
+        currencies::set_rate(c, "2026-10-20", "RUB", "USD", ".0125").unwrap();
+        assert_eq!(progress(), (80_000, true, Some(80)));
+    }
+
+    #[test]
+    fn fixed_plan_month_on_ten_year_exchange_history() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let card = accounts::create(c, &input("Доллары", "debit", "USD", 0)).unwrap();
+        let br = broker(c, "Брокер", "broker", 0);
+        set_plan(c, "amount", 15_000_000).unwrap();
+        settings::set(c, "base_currency", "EUR").unwrap();
+        c.execute_batch("WITH RECURSIVE days(d) AS (VALUES('2016-01-01')
+              UNION ALL SELECT date(d,'+1 day') FROM days WHERE d<'2025-12-31')
+            INSERT INTO exchange_rates(date,from_code,to_code,rate,source)
+            SELECT d, code, 'EUR', CASE code WHEN 'USD' THEN '.9' WHEN 'RUB' THEN '.01' ELSE '1' END, 'cbr'
+            FROM days CROSS JOIN currencies WHERE code IN ('RUB','USD','JPY','GBP','KZT','CNY','AED','TRY')").unwrap();
+        c.execute("WITH RECURSIVE numbers(i) AS (VALUES(0) UNION ALL SELECT i+1 FROM numbers WHERE i<1549)
+            INSERT INTO transactions(id,type,date,account_id,amount,to_account_id,to_amount,created_at,updated_at)
+            SELECT 'test-' || i,'transfer',date('2025-12-01','+' || (i%31) || ' days'),?1,100,?2,9000,'',''
+            FROM numbers", params![card, br]).unwrap();
+        let start = std::time::Instant::now();
+        let m = month_progress(c, "2025-12").unwrap();
+        eprintln!(
+            "Десять лет курсов, 1550 взносов за месяц: {:?}",
+            start.elapsed()
+        );
+        assert_eq!(
+            (m.saved, m.saved_complete, m.percent),
+            (13_950_000, true, Some(93))
+        );
     }
 
     #[test]

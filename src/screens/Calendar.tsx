@@ -6,7 +6,9 @@ import { ErrorText } from "../components/Modal";
 import { BaseMoney, Money } from "../components/Money";
 import { NotesBlock } from "../components/Notes";
 import { leadText, OccurrenceItem, parseLead, ReminderForm } from "../components/Reminders";
-import { TXN_DRAG, TxnTable } from "../components/TxnTable";
+import { TxnTable } from "../components/TxnTable";
+import { calendarTxn } from "../lib/directDrag";
+import { useMoveNotice } from "../components/MoveNotice";
 import { HabitsCard } from "../components/Habits";
 import { api, REPEATS, type CalendarDay, type CalendarMonth, type Reminder } from "../lib/api";
 import { addDays, formatDate, formatDateTime, monthTitle, nowLocal, shiftMonth, today, weekdays, weekStart } from "../lib/dates";
@@ -70,7 +72,7 @@ export function Calendar() {
       {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={selectDay} selected={selected} />}
       {tab === "year" && <YearView selected={selected} select={selectDay} />}
       {tab === "reminders" && <RemindersView />}
-      {selected && tab !== "reminders" && <DayPanel date={selected} heading={dayHeading} onClose={closeDay} onReminder={() => setReminderDate(selected)} />}
+      {selected && tab !== "reminders" && <DayPanel date={selected} canDrag={tab === "month"} heading={dayHeading} onClose={closeDay} onReminder={() => setReminderDate(selected)} />}
       {reminderDate && <ReminderForm date={reminderDate} onClose={() => setReminderDate(null)} />}
     </section>
   );
@@ -202,8 +204,8 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
   const m = q.data;
   const t = today();
   // Перетаскивание операции из панели дня на другой день.
-  const [over, setOver] = useState<string | null>(null);
-  const move = useAction(api.moveTransaction, () => {});
+  const move = useAction(api.moveTransaction, undefined, { singleSubmit: true });
+  const notice = useMoveNotice();
   // Пустые клетки до первого числа: неделя с понедельника или воскресенья (Г12).
   const fineView = useFine();
   const lead = m ? weekdayIndex(new Date(`${month}-01T00:00`).getDay(), fineView) : 0;
@@ -242,27 +244,15 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
             {m.days.map((d) => (
               <button type="button"
                 key={d.date}
-                className={["cal-cell", d.date === t && "today", d.date === selected && "selected", d.date > t && "future", d.noSpend && "no-spend", d.date === over && "drop-over"]
+                className={["cal-cell", d.date === t && "today", d.date === selected && "selected", d.date > t && "future", d.noSpend && "no-spend"]
                   .filter(Boolean)
                   .join(" ")}
                 data-testid="cal-day"
                 data-date={d.date}
                 aria-pressed={d.date === selected}
                 onClick={(event) => select(d.date, event)}
-                onDragOver={(e) => {
-                  if (!e.dataTransfer.types.includes(TXN_DRAG)) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setOver(d.date);
-                }}
-                onDragLeave={() => setOver((cur) => (cur === d.date ? null : cur))}
-                onDrop={(e) => {
-                  const id = e.dataTransfer.getData(TXN_DRAG);
-                  setOver(null);
-                  if (!id) return;
-                  e.preventDefault();
-                  move.run(id, d.date);
-                }}
+                {...calendarTxn.target((txn) => !move.busy && txn.date === selected && txn.date !== d.date,
+                  (txn) => notice.confirm(move.runAsync(txn.id, d.date), `Операция перенесена на ${formatDate(d.date)}.`))}
               >
                 <span className="cal-num">
                   <span aria-hidden="true">{Number(d.date.slice(8))}</span>
@@ -278,6 +268,7 @@ function MonthView({ month, setMonth, selected, select }: { month: string; setMo
             ))}
           </div>
           <ErrorText error={move.error} />
+          {notice.status}
           <Totals m={m} />
           {modules.on("habits") && <HabitsCard noSpend={m.days.filter((d) => d.noSpend).length} />}
         </>
@@ -422,7 +413,7 @@ function WeekView({ start, selected, select }: { start: string; selected: string
 }
 
 /** Панель дня: операции, платежи, напоминания и заметки; добавить на эту дату. */
-function DayPanel({ date, heading, onClose, onReminder }: { date: string; heading: RefObject<HTMLHeadingElement | null>; onClose: () => void; onReminder: () => void }) {
+function DayPanel({ date, canDrag, heading, onClose, onReminder }: { date: string; canDrag: boolean; heading: RefObject<HTMLHeadingElement | null>; onClose: () => void; onReminder: () => void }) {
   const { openTxnForm, openDebt } = useUi();
   const month = date.slice(0, 7);
   const cal = useQuery({ queryKey: ["calendar", month], queryFn: () => api.calendarMonth(month) }).data;
@@ -450,8 +441,8 @@ function DayPanel({ date, heading, onClose, onReminder }: { date: string; headin
       </div>
       <h3 data-txn-focus tabIndex={-1}>Операции</h3>
       {txns && txns.items.length === 0 && <p className="muted small">Операций нет.</p>}
-      {txns && txns.items.length > 0 && <TxnTable items={txns.items} compact draggable />}
-      {txns && txns.items.length > 0 && <p className="hint">Операцию можно перетащить на другой день календаря.</p>}
+      {txns && txns.items.length > 0 && <TxnTable items={txns.items} compact draggable={canDrag} />}
+      {canDrag && txns && txns.items.length > 0 && <p className="hint">Перетащите операцию на другой день или откройте её клавишей Enter, чтобы изменить дату.</p>}
       {day && day.debts.length > 0 && (
         <>
           <h3>Платежи по долгам</h3>

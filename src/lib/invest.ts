@@ -1,4 +1,5 @@
 /** Расчёты раздела «Инвестиции», которые живут только в интерфейсе (калькулятор). */
+import type { InvestMonth } from "./api";
 
 /** Общий лимит взносов на ИИС и ПДС для вычета: 400 000 ₽ в копейках (как в ядре). */
 const TAX_LIMIT = 40_000_000;
@@ -59,4 +60,29 @@ export function tenthsText(tenths: number, signed = false): string {
 /** Сколько ещё отложить в этом месяце, чтобы выполнить план. */
 export function leftToSave(planned: number | null, saved: number): number {
   return planned == null ? 0 : Math.max(planned - Math.max(saved, 0), 0);
+}
+
+export function needsPlanCurrency(plan: InvestMonth["plan"]): boolean {
+  return plan.mode === "amount" && plan.currencyCode === null;
+}
+
+export function progressIssue(m: InvestMonth): string | null {
+  if (needsPlanCurrency(m.plan)) return "Для расчёта нужна валюта сохранённого плана.";
+  if (m.plan.mode === "percent" && !m.incomeComplete) return "Для плана в процентах нужен курс валюты дохода.";
+  if (!m.savedComplete) return "Для расчёта прогресса нужен курс валюты перевода.";
+  return null;
+}
+
+export function contributionPrefill(m: InvestMonth) {
+  return {
+    amountCurrency: m.currency.code,
+    amount: progressIssue(m) ? null : leftToSave(m.planned, m.saved) || null,
+  };
+}
+
+/** Калькулятор ИИС принимает рубли. Пример взноса уместен только при отсутствии плана. */
+export function rubleContribution(m: InvestMonth): number | null {
+  if (m.currency.code !== "RUB") return null;
+  if (m.plan.mode || m.plan.onlyMonth) return m.planned;
+  return 1_000_000;
 }

@@ -3,6 +3,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { start, stop, resizeAppWindow, openSection, openSettings, selectTheme, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
+import { pointerDrag } from "./pointer-drag.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -20,27 +21,6 @@ before(async () => {
 after(async () => {
   await stop(browser);
 });
-
-/** Перетаскивание мышью: WebDriver не умеет HTML5 drag-and-drop, поэтому события те же, что шлёт браузер. */
-async function dragTo(source, target) {
-  const ok = await browser.execute(
-    (s, d) => {
-      const src = document.querySelector(s);
-      const dst = document.querySelector(d);
-      if (!src || !dst) return false;
-      const dt = new DataTransfer();
-      src.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dst.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dst.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
-      dst.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
-      src.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: dt }));
-      return true;
-    },
-    source,
-    target,
-  );
-  assert.ok(ok, `нет элемента для перетаскивания: ${source} → ${target}`);
-}
 
 test("имущество: оценка входит в чистые активы на Главной", async () => {
   await waitText(browser, '[data-testid="home-net-worth"]', /Чистые активы с имуществом и долгами/);
@@ -140,7 +120,7 @@ test("календарь: дни без трат отмечены, итог не
   const rows = async () => (await browser.$$('[data-testid="day-panel"] [data-testid="txn-row"]')).length;
   const n = await rows();
   if (target !== today) {
-    await dragTo('[data-testid="day-panel"] tr.draggable', `[data-testid="cal-day"][data-date="${target}"]`);
+    await pointerDrag(browser, '[data-testid="day-panel"] tr.draggable', `[data-testid="cal-day"][data-date="${target}"]`);
     await browser.waitUntil(async () => (await rows()) === n - 1, { timeout: 5000, timeoutMsg: "операция не ушла с этого дня" });
     await browser.$(`[data-testid="cal-day"][data-date="${target}"]`).click();
     await waitText(browser, '[data-testid="day-panel"]', /Пиццерия|Ремонт|Общепит/);
@@ -455,7 +435,7 @@ test("своя Главная: скрыть карточку, перестави
     timeoutMsg: "«Быстрый ввод» не опустился ниже",
   });
   // Перетаскивание карточки: «Напоминания» — в самый верх.
-  await dragTo('[data-testid="home-block"][data-block="reminders"]', '[data-testid="home-block"][data-block="summary"]');
+  await pointerDrag(browser, '[data-block="reminders"] .home-block-bar', '[data-block="summary"] .home-block-bar');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
   await click(browser, "Готово");
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false, "шаблоны скрыты");
@@ -492,7 +472,7 @@ test("счёт, перетащенный на категорию «Куда тр
   assert.equal(await picked("category"), "Такси");
   await browser.keys("Escape");
   await browser.$('[role="dialog"]').waitForExist({ timeout: 5000, reverse: true });
-  await dragTo('[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Общепит"]');
+  await pointerDrag(browser, '[data-testid="home-account"]:first-child', '[data-testid="spend-chip"][data-category="Общепит"]');
   await browser.$('[role="dialog"]').waitForDisplayed({ timeout: 5000 });
   assert.equal(await picked("category"), "Общепит");
   assert.match(await picked("account"), /^Наличные/);

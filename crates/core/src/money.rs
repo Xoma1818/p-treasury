@@ -102,6 +102,57 @@ pub struct Rate {
 }
 
 impl Rate {
+    /// Две котировки одной даты. Сокращаем общие множители до умножения и
+    /// округляем один раз в минимальных единицах конечной валюты.
+    pub(crate) fn convert_cross(
+        first: (Rate, bool),
+        second: (Rate, bool),
+        amount: i64,
+        from_minor: u32,
+        to_minor: u32,
+    ) -> Result<i64> {
+        let overflow = || Error::Validation("сумма после пересчёта слишком велика".into());
+        let frac = |(rate, inverse): (Rate, bool)| {
+            let unit = 10u128.pow(rate.scale);
+            let n = rate.mantissa as u128;
+            if inverse {
+                (unit, n)
+            } else {
+                (n, unit)
+            }
+        };
+        let (a, b) = frac(first);
+        let (c, d) = frac(second);
+        let mut nums = [
+            u128::from(amount.unsigned_abs()),
+            10u128.checked_pow(to_minor).ok_or_else(overflow)?,
+            a,
+            c,
+        ];
+        let mut dens = [10u128.checked_pow(from_minor).ok_or_else(overflow)?, b, d];
+        for n in &mut nums {
+            for den in &mut dens {
+                let (mut x, mut y) = (*n, *den);
+                while y != 0 {
+                    (x, y) = (y, x % y);
+                }
+                *n /= x;
+                *den /= x;
+            }
+        }
+        let num = nums
+            .into_iter()
+            .try_fold(1u128, u128::checked_mul)
+            .ok_or_else(overflow)?;
+        let den = dens
+            .into_iter()
+            .try_fold(1u128, u128::checked_mul)
+            .ok_or_else(overflow)?;
+        let rounded = num / den + u128::from(num % den >= den.div_ceil(2));
+        let value = i128::try_from(rounded).map_err(|_| overflow())? * i128::from(amount.signum());
+        i64::try_from(value).map_err(|_| overflow())
+    }
+
     /// Разобрать курс: `92`, `92,15`, `0.0108`. Курс должен быть больше нуля,
     /// до 10 знаков после запятой.
     pub fn parse(input: &str) -> Result<Self> {

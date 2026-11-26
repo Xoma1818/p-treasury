@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { AccountSelect, AmountInput, amountText, Field } from "../../components/Fields";
 import { Hint } from "../../components/Hint";
 import { ErrorText, Modal } from "../../components/Modal";
-import { Money } from "../../components/Money";
+import { FormAmountsToggle } from "../../components/FormAmounts";
+import { useDebtFormAmounts } from "./loanFormAmounts";
 import { api, type DebtCard, type PaymentInput, type RecalcMode } from "../../lib/api";
 import { formatDate, today } from "../../lib/dates";
 import { parseAmount } from "../../lib/money";
@@ -19,6 +20,7 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
   const accounts = (useAccounts().data ?? []).filter((a) => a.currencyCode === card.currencyCode);
   const next = card.nextPayment;
   const mu = card.minorUnits;
+  const privacy = useDebtFormAmounts(card);
   const monthly = card.repaymentType !== "bullet";
   const [early, setEarly] = useState(startEarly || !next);
   const [date, setDate] = useState(!early && next && next.dueDate < today() ? next.dueDate : today());
@@ -89,12 +91,13 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
     if (!accountId) return save.setError(`Выберите счёт в ${card.currencyCode}`);
     save.run({ date, accountId, principal: p, interest: i, scheduleId: early ? null : (next?.id ?? null), recalcMode: monthly && differs ? mode : null });
   };
-  const m = (v: number) => <Money amount={v} symbol={card.currencySymbol} currencyCode={card.currencyCode} minorUnits={mu} />;
+  const m = privacy.money;
   const title = !early ? "Платёж по графику" : monthly ? "Досрочный платёж" : "Частичный возврат";
 
   return (
-    <Modal title={title} onClose={onClose} wide>
+    <Modal title={title} onClose={onClose} dismissDisabled={save.busy} wide>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())}>
+        <FormAmountsToggle privacy={privacy} />
         <div className="row">
           <Field label="Дата">{(id) => <input id={id} name="payDate" type="date" value={date} onChange={(e) => {
             if (needsQuote) setManual(null);
@@ -119,15 +122,15 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
         )}
         {early && (
           <Field label={monthly ? "Сумма досрочки" : "Сумма возврата"} help="pay.amount">
-            {(id) => <AmountInput id={id} name="earlyAmount" value={amount} onChange={(v) => { setManual(null); setAmount(v); }} minorUnits={mu} autoFocus />}
+            {(id) => <AmountInput id={id} name="earlyAmount" value={amount} onChange={(v) => { setManual(null); setAmount(v); }} minorUnits={mu} concealed={privacy.concealed} autoFocus />}
           </Field>
         )}
         <div className="row">
           <Field label="Основной долг" hint={<>Остаток {m(card.outstanding)}</>}>
-            {(id) => <AmountInput id={id} name="principal" value={parts.principal} onChange={(v) => setManual({ ...parts, principal: v })} minorUnits={mu} autoFocus={!early} />}
+            {(id) => <AmountInput id={id} name="principal" value={parts.principal} onChange={(v) => setManual({ ...parts, principal: v })} minorUnits={mu} concealed={privacy.concealed} autoFocus={!early} />}
           </Field>
           <Field label="Проценты" hint={lent ? "доход «Проценты по займам»" : "расход «Проценты по кредитам»"}>
-            {(id) => <AmountInput id={id} name="interest" value={parts.interest} onChange={(v) => setManual({ ...parts, interest: v })} minorUnits={mu} />}
+            {(id) => <AmountInput id={id} name="interest" value={parts.interest} onChange={(v) => setManual({ ...parts, interest: v })} minorUnits={mu} concealed={privacy.concealed} />}
           </Field>
         </div>
         {monthly && differs && (
@@ -154,17 +157,17 @@ export function PayForm({ card, early: startEarly, onClose }: { card: DebtCard; 
             / экономия <b>{m(Math.max(0, q.savings))}</b>
           </div>
         )}
-        {q && !changedSplit && <LoanCompareTable card={card} compare={q.compare} after="После платежа" />}
+        {q && !changedSplit && <LoanCompareTable money={m} compare={q.compare} after="После платежа" />}
         {changedSplit && !reason && <p className="hint">График будет пересчитан по введённым частям после сохранения.</p>}
-        {reason && <p className="hint" role="status">{reason}</p>}
+        {reason && <p className="hint" role="status">{privacy.error(reason)}</p>}
         {quoteError && <button type="button" className="link" onClick={() => void quote.refetch()}>Повторить расчёт</button>}
         <p className="hint">
           Основной долг запишется переводом {lent ? "со счёта долга на ваш счёт" : "с вашего счёта на счёт долга"}, проценты отдельной операцией.
         </p>
-        <ErrorText error={save.error} />
+        <ErrorText error={privacy.error(save.error)} />
         <div className="actions">
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" onClick={onClose} disabled={save.busy}>
             Отмена
           </button>
           <button type="submit" className="btn primary" aria-busy={save.busy} data-done={save.done || undefined} disabled={save.busy || !!reason}>

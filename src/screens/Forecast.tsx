@@ -10,9 +10,10 @@ import { BaseMoney as M } from "../components/Money";
 import { ScreenTitle } from "../components/SectionIcon";
 import { api, type ChangeInput, type ChangeKind, type Forecast as ForecastData, type ForecastItem, type ForecastMonth, type MoneyFlow, type Scenario } from "../lib/api";
 import { formatDate, monthTitle, shiftMonth, today } from "../lib/dates";
-import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, scenarioChange, scenarioRow, seasonText, type FlowBand, type ScenarioRow } from "../lib/forecast";
+import { CHANGE_KINDS, chartPoints, describeChange, flowIsEmpty, flowLayout, genitive, goalText, monthsText, prepositional, presets, ribbon, sameForecastBasis, scenarioChange, scenarioRow, seasonText, type FlowBand, type ScenarioRow } from "../lib/forecast";
 import { useFine } from "../lib/fine";
-import { HIDDEN_AMOUNT } from "../lib/money";
+import { formatMoney, HIDDEN_AMOUNT } from "../lib/money";
+import { chartScrub } from "../lib/chartScrub";
 import { axisLabel, axisPad, netWorthScale } from "../lib/netWorth";
 import { useMonthOf, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
@@ -107,6 +108,8 @@ function ForecastTab() {
   const q2 = useQuery({ queryKey: ["forecast", second, months], queryFn: () => api.forecast(second, months), enabled: !!second });
   const [editing, setEditing] = useState<Scenario | "new" | null>(null);
   const f = q.data;
+  const comparison = second ? q2.data : undefined;
+  const outdated = !!(f && comparison && !sameForecastBasis(f, comparison));
 
   return (
     <>
@@ -158,7 +161,12 @@ function ForecastTab() {
       </div>
 
       {q.error && <p className="error">{String(q.error)}</p>}
-      {f && <ForecastView f={f} second={second ? (q2.data ?? null) : null} />}
+      {second && (outdated || q2.isError) && <p role="status">
+        {q2.isError ? "Не удалось получить второй прогноз." : "Для сравнения нужно пересчитать оба сценария на одну дату."}{" "}
+        <button className="link" type="button" disabled={q.isFetching || q2.isFetching}
+          onClick={() => { void q.refetch(); void q2.refetch(); }}>Обновить сравнение</button>
+      </p>}
+      {f && <ForecastView f={f} second={!outdated && !q2.isError ? comparison ?? null : null} />}
       {editing && f && (
         <ScenarioForm
           scenario={editing === "new" ? null : editing}
@@ -284,7 +292,11 @@ const PAD_T = 12;
 const PAD_B = 24;
 
 function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: ForecastData | null; showAmounts: boolean }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const [showTip, setShowTip] = useState(false);
+  const useCurrencyCode = useFine().code;
+  const selected = month == null ? 0 : f.months.findIndex((item) => item.month === month) + 1;
+  const selectStep = (step: number) => setMonth(step === 0 ? null : f.months[step - 1].month);
   const points = chartPoints(f);
   // Р16: второй сценарий — по тем же месяцам (прогноз тот же, другой сценарий поверх).
   const secondAt = (i: number): number | null => (!second ? null : i === 0 ? second.liquid : (second.months[i - 1]?.scenario?.closing ?? null));
@@ -310,11 +322,23 @@ function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: Fo
   const area = `${base} L${x(points.length - 1).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} L${x(0).toFixed(1)} ${y(Math.max(min, 0)).toFixed(1)} Z`;
   const scenario = f.scenarioId != null ? path((i) => points[i].scenario ?? points[i].base) : null;
   const secondLine = second ? path((i) => secondAt(i) ?? points[i].base) : null;
-  const m: ForecastMonth | null = hover != null && hover > 0 ? f.months[hover - 1] : null;
+  const m: ForecastMonth | null = selected > 0 ? f.months[selected - 1] : null;
+  const period = m ? monthTitle(m.month) : `Сейчас · ${formatDate(f.today)}`;
+  const balances = [{ label: m ? "На конец месяца" : "Остаток", amount: points[selected].base }];
+  if (m?.scenario) balances.push({ label: f.scenarioName ?? "Сценарий", amount: m.scenario.closing });
+  const otherClosing = secondAt(selected);
+  if (m && otherClosing != null) balances.push({ label: second?.scenarioName ?? "Второй сценарий", amount: otherClosing });
+  const money = (amount: number) => formatMoney(amount, useCurrencyCode ? f.baseCurrency : f.currencySymbol, f.minorUnits);
+  const spoken = showAmounts ? balances.map(({ label, amount }) => `${label} ${money(amount)}`).join(". ") : "Сумма скрыта";
 
   return (
-    <div className="chart nw-chart fc-chart" onMouseLeave={() => setHover(null)} data-testid="fc-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Прогноз остатка по месяцам">
+    <div className="chart nw-chart fc-chart" data-testid="fc-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Прогноз остатка по месяцам"
+        {...chartScrub(x(0), x(points.length - 1), points.length - 1, (step) => {
+          selectStep(step);
+          setShowTip(true);
+        })}
+        onPointerLeave={() => setShowTip(false)} onLostPointerCapture={() => setShowTip(false)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD_L} x2={W - PAD_R} y1={y(t)} y2={y(t)} className={t === 0 ? "grid zero" : "grid"} />
@@ -337,10 +361,10 @@ function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: Fo
           );
         })}
         {points.map((p, i) => (
-          <g key={i} onMouseEnter={() => setHover(i)}>
-            <rect x={x(i) - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
-            {(every === 1 || hover === i) && <circle cx={x(i)} cy={y(p.base)} r={hover === i ? 5 : 3} className={p.base < 0 ? "nw-dot neg" : "nw-dot"} />}
-            {(every === 1 || hover === i) && p.scenario != null && i > 0 && <circle cx={x(i)} cy={y(p.scenario)} r={hover === i ? 5 : 3} className={p.scenario < 0 ? "fc-dot neg" : "fc-dot"} />}
+          <g key={i}>
+            {selected === i && <line className="fc-cursor" x1={x(i)} x2={x(i)} y1={PAD_T} y2={H - PAD_B} />}
+            {(every === 1 || selected === i) && <circle cx={x(i)} cy={y(p.base)} r={selected === i ? 5 : 3} className={p.base < 0 ? "nw-dot neg" : "nw-dot"} />}
+            {(every === 1 || selected === i) && p.scenario != null && i > 0 && <circle cx={x(i)} cy={y(p.scenario)} r={selected === i ? 5 : 3} className={p.scenario < 0 ? "fc-dot neg" : "fc-dot"} />}
             {i % every === 0 && (
               <text x={x(i)} y={H - 6} className="axis" textAnchor="middle">
                 {every > 1 && i > 0 ? `${p.label} ${f.months[i - 1].month.slice(2, 4)}` : p.label}
@@ -349,8 +373,17 @@ function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: Fo
           </g>
         ))}
       </svg>
-      {hover != null && (
-        <div className="tooltip nw-tip" style={{ left: `${Math.min(Math.max((x(hover) / W) * 100, 14), 86)}%` }} data-testid="fc-tip">
+      <label className="fc-period">
+        <span>{period}</span>
+        <input type="range" aria-label="Месяц прогноза" data-testid="fc-month-slider" min={0} max={points.length - 1}
+          step={1} value={selected} disabled={points.length < 2} aria-valuetext={`${period}. ${spoken}`}
+          onChange={(event) => { setShowTip(false); selectStep(event.currentTarget.valueAsNumber); }} />
+      </label>
+      <div className="fc-period-balances" data-testid="fc-period-readout">
+        {balances.map(({ label, amount }, index) => <span key={index}>{label} <b>{showAmounts ? money(amount) : HIDDEN_AMOUNT}</b></span>)}
+      </div>
+      {showTip && (
+        <div className="tooltip nw-tip" style={{ left: `${Math.min(Math.max((x(selected) / W) * 100, 14), 86)}%` }} data-testid="fc-tip">
           {m ? (
             <>
               <div className="main">{monthTitle(m.month)}</div>
@@ -367,10 +400,10 @@ function ForecastChart({ f, second, showAmounts }: { f: ForecastData; second: Fo
                   <M amount={m.scenario.closing} />
                 </div>
               )}
-              {hover != null && secondAt(hover) != null && (
+              {otherClosing != null && (
                 <div className="nw-tip-row second">
                   <span>{second?.scenarioName}</span>
-                  <M amount={secondAt(hover)!} />
+                  <M amount={otherClosing} />
                 </div>
               )}
               {f.goals

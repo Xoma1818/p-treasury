@@ -33,7 +33,7 @@ async function figures(showAllLabel) {
   );
   await openSection(browser, "Главная");
   // Заголовки, объяснения и кнопки развиваются между версиями. Сверяем финансовые значения.
-  f.total = await waitText(browser, '[data-testid="total-balance"] .tile-value', /₽/);
+  f.total = await waitText(browser, '[data-testid="total-balance"] .tile-value .money', /₽/);
   f.expense = await waitText(browser, '[data-testid="month-expense"] .tile-value', /₽/);
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);

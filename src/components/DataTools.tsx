@@ -10,6 +10,7 @@ import { baseName, CSV, OFX, pickOpen, pickSave, STATEMENT, XLSX } from "../lib/
 import { useAccounts, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
+import { PendingStatus } from "./PendingStatus";
 import { AccountSelect, Field } from "./Fields";
 import { ErrorText, Modal } from "./Modal";
 import { DecorativeIcon } from "./DecorativeIcon";
@@ -178,6 +179,13 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
   // Второй счёт для переводов себе: null — запомненный, "" — «не перевод».
   const [selfId, setSelfId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<ImportSaved | null>(null);
+  const result = loaded && [
+    `Загружено операций: ${loaded.added}`,
+    loaded.converted > 0 && `стали переводами: ${loaded.converted}`,
+    loaded.linked > 0 && `связано с вашими записями: ${loaded.linked}`,
+    skipped > 0 && `по вашему выбору пропущено: ${skipped}`,
+    loaded.suggested > 0 && `совпадений на проверку: ${loaded.suggested}`,
+  ].filter(Boolean).join(", ");
   const [loadedAccount, setLoadedAccount] = useState<string | null>(null);
   const [next, setNext] = useState<"history" | "matches" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -349,7 +357,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
             Повторы пропускаются, возвраты отмечаются отдельно. Найденные ручные операции связываются со строками выписки.
           </p>
         </details>
-        {pending && <p className="muted import-overview-progress" role="status">Проверяем файл…</p>}
+        <PendingStatus busy={pending}>Проверяем файл…</PendingStatus>
       </section>
       {path && mapperOpen && (
         <CsvProfileEditor
@@ -501,33 +509,22 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           {saved}
         </p>
       )}
-      {loaded !== null && (
-        <div className="ok" data-testid="import-done">
-          Загружено операций: {loaded.added}
-          {loaded.converted > 0 && `, стали переводами: ${loaded.converted}`}
-          {loaded.linked > 0 && `, связано с вашими записями: ${loaded.linked}`}
-          {skipped > 0 && `, по вашему выбору пропущено: ${skipped}`}
-          {loaded.suggested > 0 && (
-            <>
-              {`. Совпадений на проверку: ${loaded.suggested}. `}
-              <button className="link" data-testid="open-matches" onClick={() => setNext("matches")}>
-                Разобрать
-              </button>
-            </>
-          )}
-          {loadedAccount && accounts.some((account) => account.id === loadedAccount && account.type !== "investment") && (
-            <div><button type="button" className="link" data-testid="import-reconcile" disabled={saving} onClick={() => {
-              onClose();
-              useUi.getState().openReconciliation(loadedAccount);
-            }}>Сверить остаток по выписке</button></div>
-          )}
-        </div>
-      )}
-      {saving && <p className="muted" role="status">Сохраняем операции…</p>}
+      <div className={loaded ? "ok" : undefined} data-testid={loaded ? "import-done" : undefined}>
+        <PendingStatus busy={saving} result={result ?? undefined}>Сохраняем операции…</PendingStatus>
+        {loaded && loaded.suggested > 0 && (
+          <button className="link" data-testid="open-matches" disabled={saving} onClick={() => setNext("matches")}>Разобрать</button>
+        )}
+        {loaded && loadedAccount && accounts.some((account) => account.id === loadedAccount && account.type !== "investment") && (
+          <div><button type="button" className="link" data-testid="import-reconcile" disabled={saving} onClick={() => {
+            onClose();
+            useUi.getState().openReconciliation(loadedAccount);
+          }}>Сверить остаток по выписке</button></div>
+        )}
+      </div>
       <ErrorText error={error} />
       <div className="actions import-overview-actions">
         {preview && !mapperOpen && !unresolved && preview.errors > 0 && (actionable > 0 || skipped > 0) && (
-          <button className="btn primary" disabled={pending || saving || preview.needsTransferChoice} onClick={() => commit(true)}>
+          <button className="btn primary" disabled={pending || saving || preview.needsTransferChoice} aria-busy={saving} onClick={() => commit(true)}>
             {actionable ? `${saveLabel} (без строк с ошибками)` : "Завершить без загрузки"}
           </button>
         )}
@@ -541,7 +538,7 @@ export function ImportDialog({ onClose, initialPath, saveGuard: suppliedSaveGuar
           </button>
         )}
         {preview && !mapperOpen && !unresolved && (actionable > 0 || skipped > 0) && (
-          <button className={preview.errors ? "btn" : "btn primary"} data-testid="statement-save" disabled={pending || saving || preview.needsTransferChoice || preview.errors > 0} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
+          <button className={preview.errors ? "btn" : "btn primary"} data-testid="statement-save" disabled={pending || saving || preview.needsTransferChoice || preview.errors > 0} aria-busy={saving} onClick={() => commit(false)} title={preview.errors ? "Сначала исправьте строки с ошибками" : undefined}>
             {saveLabel}
           </button>
         )}

@@ -24,9 +24,71 @@ pub const LIMIT: usize = 50;
 struct Step {
     id: u64,
     label: String,
-    changes: Vec<u8>,
-    /// Настройки, которые меняются вместе с данными (ключ, было, стало).
-    settings: Vec<(String, Option<String>, Option<String>)>,
+    action: Action,
+}
+
+enum Action {
+    Rows {
+        changes: Vec<u8>,
+        settings: Vec<(String, Option<String>, Option<String>)>,
+    },
+    InvestPlan {
+        before: crate::invest::PlanValues,
+        after: crate::invest::PlanValues,
+    },
+    InvestMonthCurrency {
+        month: String,
+        value: i64,
+        currency: String,
+    },
+}
+
+impl Action {
+    fn replay(&self, conn: &Connection, invert: bool) -> Result<()> {
+        match self {
+            Self::InvestMonthCurrency {
+                month,
+                value,
+                currency,
+            } => {
+                let code = Some(currency.as_str());
+                let (from, to) = if invert { (code, None) } else { (None, code) };
+                crate::invest::replace_month_currency(conn, month, *value, from, to)
+            }
+            Self::InvestPlan { before, after } => {
+                let (from, to) = if invert {
+                    (after, before)
+                } else {
+                    (before, after)
+                };
+                crate::invest::write_plan(conn, from, to)
+            }
+            Self::Rows { changes, settings } => {
+                // Изменения строк, связанных настроек и истории составляют один шаг.
+                // SAVEPOINT также поддерживает вызывающего внутри своей транзакции.
+                conn.execute_batch("SAVEPOINT kazna_undo_rows")?;
+                let result = (|| {
+                    let snap = crate::history::before_undo(conn, &touched(changes)?)?;
+                    apply(conn, changes, invert)?;
+                    for (key, before, after) in settings {
+                        let (from, to) = if invert {
+                            (after, before)
+                        } else {
+                            (before, after)
+                        };
+                        shift_setting(conn, key, from, to)?;
+                    }
+                    crate::history::after_undo(conn, &snap)?;
+                    conn.execute_batch("RELEASE kazna_undo_rows")?;
+                    Ok(())
+                })();
+                if result.is_err() && !conn.is_autocommit() {
+                    conn.execute_batch("ROLLBACK TO kazna_undo_rows; RELEASE kazna_undo_rows")?;
+                }
+                result
+            }
+        }
+    }
 }
 
 /// Эти списки меняются одновременно с данными счетов и видимостью подписок.
@@ -125,6 +187,7 @@ impl Journal {
         }
     }
 
+    /// Сохраняем счётчик, чтобы при смене бюджета новый шаг не получил id старой кнопки.
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
@@ -158,60 +221,127 @@ impl Journal {
             .map(|(k, (b, a))| (k.to_string(), b, a))
             .collect();
         if !changes.is_empty() || !settings.is_empty() {
-            self.next_id += 1;
-            self.undo.push(Step {
-                id: self.next_id,
-                label: label.to_string(),
-                changes,
-                settings,
-            });
-            if self.undo.len() > LIMIT {
-                self.undo.remove(0);
-            }
-            self.redo.clear();
+            self.push(label, Action::Rows { changes, settings });
         }
         Ok(out)
     }
 
+    pub fn set_invest_plan(
+        &mut self,
+        conn: &Connection,
+        mode: &str,
+        value: i64,
+        currency_code: Option<&str>,
+    ) -> Result<()> {
+        let (before, after) = crate::invest::change_plan(conn, mode, value, currency_code)?;
+        if before != after {
+            self.push("План инвестиций", Action::InvestPlan { before, after });
+        }
+        Ok(())
+    }
+
+    pub fn confirm_invest_plan_currency(
+        &mut self,
+        conn: &Connection,
+        month: Option<&str>,
+        expected: i64,
+        currency: &str,
+    ) -> Result<()> {
+        let action = if let Some(month) = month {
+            crate::invest::replace_month_currency(conn, month, expected, None, Some(currency))?;
+            Action::InvestMonthCurrency {
+                month: month.to_owned(),
+                value: expected,
+                currency: currency.to_owned(),
+            }
+        } else {
+            let (before, after) = crate::invest::confirm_global_currency(conn, expected, currency)?;
+            Action::InvestPlan { before, after }
+        };
+        self.push("Валюта плана инвестиций", action);
+        Ok(())
+    }
+
+    fn push(&mut self, label: &str, action: Action) {
+        self.next_id += 1;
+        self.undo.push(Step {
+            id: self.next_id,
+            label: label.to_owned(),
+            action,
+        });
+        if self.undo.len() > LIMIT {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+    }
+
     /// Отменить последнее действие; `None`, если отменять нечего.
     pub fn undo(&mut self, conn: &Connection) -> Result<Option<String>> {
-        let Some(step) = self.undo.pop() else {
-            return Ok(None);
-        };
-        // Теги и состав чека отмена меняет мимо триггеров истории:
-        // запоминаем их до и записываем разницу после.
-        let snap = crate::history::before_undo(conn, &touched(&step.changes)?)?;
-        if let Err(e) = apply(conn, &step.changes, true) {
-            return Err(blocked("отменить", &step.label, e));
-        }
-        for (k, before, after) in &step.settings {
-            shift_setting(conn, k, after, before)?;
-        }
-        crate::history::after_undo(conn, &snap)?;
-        let label = step.label.clone();
-        self.redo.push(step);
-        Ok(Some(label))
+        self.undo_if_current(conn, None)
+    }
+
+    pub fn undo_if_current(
+        &mut self,
+        conn: &Connection,
+        expected_id: Option<u64>,
+    ) -> Result<Option<String>> {
+        replay_step(conn, &mut self.undo, &mut self.redo, expected_id, true)
     }
 
     /// Повторить отменённое действие; `None`, если повторять нечего.
     pub fn redo(&mut self, conn: &Connection) -> Result<Option<String>> {
-        let Some(step) = self.redo.pop() else {
-            return Ok(None);
-        };
-        // Теги и состав чека отмена меняет мимо триггеров истории:
-        // запоминаем их до и записываем разницу после.
-        let snap = crate::history::before_undo(conn, &touched(&step.changes)?)?;
-        if let Err(e) = apply(conn, &step.changes, false) {
-            return Err(blocked("повторить", &step.label, e));
-        }
-        for (k, before, after) in &step.settings {
-            shift_setting(conn, k, before, after)?;
-        }
-        crate::history::after_undo(conn, &snap)?;
-        let label = step.label.clone();
-        self.undo.push(step);
-        Ok(Some(label))
+        self.redo_if_current(conn, None)
     }
+
+    pub fn redo_if_current(
+        &mut self,
+        conn: &Connection,
+        expected_id: Option<u64>,
+    ) -> Result<Option<String>> {
+        replay_step(conn, &mut self.redo, &mut self.undo, expected_id, false)
+    }
+}
+
+fn replay_step(
+    conn: &Connection,
+    source: &mut Vec<Step>,
+    destination: &mut Vec<Step>,
+    expected_id: Option<u64>,
+    invert: bool,
+) -> Result<Option<String>> {
+    if expected_id.is_some_and(|id| source.last().map(|step| step.id) != Some(id)) {
+        return Err(Error::Validation(
+            "История действий изменилась. Проверьте последнее действие.".into(),
+        ));
+    }
+    let Some(step) = source.pop() else {
+        return Ok(None);
+    };
+    if let Err(error) = step.action.replay(conn, invert) {
+        let verb = if invert {
+            "отменить"
+        } else {
+            "повторить"
+        };
+        let error = blocked(verb, &step.label, error);
+        // Конфликт данных делает шаг недоступным. При отказе записи оставляем
+        // его наверху: после устранения причины можно безопасно повторить.
+        if !matches!(error, Error::Validation(_)) {
+            source.push(step);
+        }
+        if let Error::Db(err) = &error {
+            use rusqlite::ErrorCode::{DatabaseBusy, DatabaseLocked};
+            if matches!(err.sqlite_error_code(), Some(DatabaseBusy | DatabaseLocked)) {
+                return Err(Error::Validation(
+                    "База сейчас занята. Попробуйте ещё раз.".into(),
+                ));
+            }
+        }
+        return Err(error);
+    }
+    let label = step.label.clone();
+    destination.push(step);
+    Ok(Some(label))
 }
 
 /// Шаг, который нельзя выполнить, из журнала убирается: данные изменились.
@@ -309,7 +439,10 @@ mod tests {
     use crate::transactions::{self, TxnInput};
 
     fn setup() -> (Storage, String, String) {
-        let db = Storage::open_in_memory().unwrap();
+        seed(Storage::open_in_memory().unwrap())
+    }
+
+    fn seed(db: Storage) -> (Storage, String, String) {
         crate::categories::seed_defaults(db.conn()).unwrap();
         let card = accounts::create(db.conn(), &input("Карта", "debit", "RUB", 100_000)).unwrap();
         let food: String = db
@@ -339,6 +472,153 @@ mod tests {
 
     fn balance(db: &Storage, card: &str) -> i64 {
         accounts::balance(db.conn(), card, None).unwrap()
+    }
+
+    #[test]
+    fn busy_database_keeps_the_same_step_for_undo_and_redo() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("budget.db");
+        let options = crate::storage::OpenOptions {
+            backup_dir: dir.path().join("backups"),
+            keep_backups: 0,
+        };
+        let (mut db, card, food) = seed(Storage::open(&path, &options).unwrap());
+        db.conn().busy_timeout(std::time::Duration::ZERO).unwrap();
+        let locker = Connection::open(&path).unwrap();
+        let mut journal = Journal::default();
+        journal
+            .record(db.conn_mut(), "Покупка", |c| {
+                transactions::create(c, &buy(&card, &food, 700))
+            })
+            .unwrap();
+        let id = journal.state().undo.unwrap().id;
+        locker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let error = journal.undo_if_current(db.conn(), Some(id)).unwrap_err();
+        assert!(error.to_string().contains("занята"), "{error}");
+        assert_eq!(balance(&db, &card), 99_300);
+        assert_eq!(journal.state().undo.unwrap().id, id);
+        assert!(journal.state().redo.is_none());
+        locker.execute_batch("ROLLBACK").unwrap();
+        journal.undo_if_current(db.conn(), Some(id)).unwrap();
+        assert_eq!(balance(&db, &card), 100_000);
+
+        locker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let error = journal.redo_if_current(db.conn(), Some(id)).unwrap_err();
+        assert!(error.to_string().contains("занята"), "{error}");
+        assert_eq!(balance(&db, &card), 100_000);
+        assert_eq!(journal.state().redo.unwrap().id, id);
+        assert!(journal.state().undo.is_none());
+        locker.execute_batch("ROLLBACK").unwrap();
+        journal.redo_if_current(db.conn(), Some(id)).unwrap();
+        assert_eq!(balance(&db, &card), 99_300);
+    }
+
+    #[test]
+    fn failed_setting_write_rolls_back_the_purchase_and_its_history() {
+        const KEY: &str = "budget_excluded_accounts";
+        let (mut db, card, food) = setup();
+        db.conn()
+            .execute("DELETE FROM settings WHERE key=?1", [KEY])
+            .unwrap();
+        let mut journal = Journal::default();
+        let excluded = serde_json::to_string(&[&card]).unwrap();
+        journal
+            .record(db.conn_mut(), "Изменение", |c| {
+                transactions::create(c, &buy(&card, &food, 700))?;
+                c.execute(
+                    "INSERT INTO settings (key,value) VALUES (?1,?2)",
+                    [KEY, &excluded],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let id = journal.state().undo.unwrap().id;
+        let history_len = |c: &Connection| {
+            c.query_row("SELECT COUNT(*) FROM txn_history", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        let before = history_len(db.conn());
+        db.conn()
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_setting BEFORE DELETE ON settings
+             WHEN OLD.key = 'budget_excluded_accounts'
+             BEGIN SELECT RAISE(ABORT, 'отказ записи'); END",
+            )
+            .unwrap();
+        assert!(journal.undo_if_current(db.conn(), Some(id)).is_err());
+        assert_eq!(journal.state().undo.unwrap().id, id);
+        assert_eq!(balance(&db, &card), 99_300);
+        assert_eq!(history_len(db.conn()), before);
+        assert_eq!(
+            crate::settings::get(db.conn(), KEY).unwrap(),
+            Some(excluded)
+        );
+        db.conn()
+            .execute_batch("DROP TRIGGER reject_setting")
+            .unwrap();
+        journal.undo_if_current(db.conn(), Some(id)).unwrap();
+        assert_eq!(balance(&db, &card), 100_000);
+        assert_eq!(crate::settings::get(db.conn(), KEY).unwrap(), None);
+    }
+
+    #[test]
+    fn stale_undo_and_redo_leave_balances_and_pending_steps_untouched() {
+        let (mut db, card, food) = setup();
+        let mut journal = Journal::default();
+        let mut purchase = |journal: &mut Journal, amount| {
+            journal
+                .record(db.conn_mut(), "Покупка", |c| {
+                    transactions::create(c, &buy(&card, &food, amount))
+                })
+                .unwrap();
+            journal.state().undo.unwrap().id
+        };
+        let first = purchase(&mut journal, 500);
+        let second = purchase(&mut journal, 700);
+        assert!(journal.undo_if_current(db.conn(), Some(first)).is_err());
+        assert_eq!(balance(&db, &card), 98_800);
+        assert_eq!(journal.state().undo.unwrap().id, second);
+
+        journal.undo_if_current(db.conn(), Some(second)).unwrap();
+        assert!(journal.undo_if_current(db.conn(), Some(second)).is_err());
+        assert_eq!(balance(&db, &card), 99_500);
+        journal.undo_if_current(db.conn(), Some(first)).unwrap();
+        assert!(journal.redo_if_current(db.conn(), Some(second)).is_err());
+        assert_eq!(balance(&db, &card), 100_000);
+        assert_eq!(journal.state().redo.unwrap().id, first);
+        journal.redo_if_current(db.conn(), Some(first)).unwrap();
+        assert!(journal.redo_if_current(db.conn(), Some(first)).is_err());
+        assert_eq!(balance(&db, &card), 99_500);
+        journal.redo_if_current(db.conn(), Some(second)).unwrap();
+        assert_eq!(balance(&db, &card), 98_800);
+    }
+
+    #[test]
+    fn stale_step_after_switch_cannot_change_the_new_budget() {
+        let (mut old, old_card, old_food) = setup();
+        let (mut new, new_card, new_food) = setup();
+        let mut journal = Journal::default();
+        journal
+            .record(old.conn_mut(), "Покупка", |c| {
+                transactions::create(c, &buy(&old_card, &old_food, 700))
+            })
+            .unwrap();
+        let old_id = journal.state().undo.unwrap().id;
+        journal.clear();
+        assert!(journal.undo_if_current(new.conn(), Some(old_id)).is_err());
+        journal
+            .record(new.conn_mut(), "Покупка", |c| {
+                transactions::create(c, &buy(&new_card, &new_food, 200))
+            })
+            .unwrap();
+        let new_id = journal.state().undo.unwrap().id;
+        assert_ne!(old_id, new_id);
+        assert!(journal.undo_if_current(new.conn(), Some(old_id)).is_err());
+        assert_eq!(journal.state().undo.unwrap().id, new_id);
+        assert_eq!(balance(&old, &old_card), 99_300);
+        assert_eq!(balance(&new, &new_card), 99_800);
     }
 
     #[test]
@@ -393,6 +673,79 @@ mod tests {
         assert_eq!(balance(&db, &card), 95_000);
         j.undo(db.conn()).unwrap();
         assert_eq!(balance(&db, &card), 99_000);
+    }
+
+    #[test]
+    fn invest_plan_sits_above_purchase_and_failure_keeps_both_keys() {
+        let (mut db, card, food) = setup();
+        let mut journal = Journal::default();
+        let c = db.conn_mut();
+        let purchase = journal
+            .record(c, "Покупка", |c| {
+                transactions::create(c, &buy(&card, &food, 25_000))
+            })
+            .unwrap();
+        c.execute_batch(
+            "CREATE TEMP TRIGGER reject_amount BEFORE UPDATE OF value ON settings
+             WHEN NEW.key = 'invest_plan_value' BEGIN SELECT RAISE(ABORT, 'test'); END;",
+        )
+        .unwrap();
+        assert!(journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .is_err());
+        assert_eq!(
+            crate::settings::get(c, "invest_plan_mode")
+                .unwrap()
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            crate::settings::get(c, "invest_plan_value")
+                .unwrap()
+                .as_deref(),
+            Some("0")
+        );
+        assert_eq!(journal.state().undo.unwrap().label, "Покупка");
+        c.execute_batch("DROP TRIGGER reject_amount").unwrap();
+
+        journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .unwrap();
+        let step = journal.state().undo.unwrap();
+        journal
+            .set_invest_plan(c, "amount", 1_234_567, None)
+            .unwrap();
+        assert_eq!(journal.state().undo, Some(step));
+        assert_eq!(journal.undo(c).unwrap().as_deref(), Some("План инвестиций"));
+        assert_eq!(crate::invest::plan(c).unwrap().mode, "");
+        assert_eq!(transactions::get(c, &purchase).unwrap().amount, 25_000);
+        assert_eq!(journal.state().undo.unwrap().label, "Покупка");
+        journal.redo(c).unwrap();
+        let plan = crate::invest::plan(c).unwrap();
+        assert_eq!((plan.mode.as_str(), plan.value), ("amount", 1_234_567));
+        journal.undo(c).unwrap();
+        journal.undo(c).unwrap();
+        assert!(transactions::get(c, &purchase).is_err());
+    }
+
+    #[test]
+    fn independent_change_to_either_plan_field_blocks_replay() {
+        let (db, _, _) = setup();
+        let c = db.conn();
+        crate::invest::set_plan(c, "amount", 10).unwrap();
+        let mut journal = Journal::default();
+        journal.set_invest_plan(c, "amount", 20, None).unwrap();
+        crate::settings::set(c, "invest_plan_mode", "percent").unwrap();
+        assert!(journal.undo(c).is_err());
+        let plan = crate::invest::plan(c).unwrap();
+        assert_eq!((plan.mode.as_str(), plan.value), ("percent", 20));
+
+        journal.set_invest_plan(c, "amount", 20, None).unwrap();
+        journal.undo(c).unwrap();
+        crate::settings::set(c, "invest_plan_value", "30").unwrap();
+        assert!(journal.redo(c).is_err());
+        let plan = crate::invest::plan(c).unwrap();
+        assert_eq!((plan.mode.as_str(), plan.value), ("percent", 30));
     }
 
     #[test]

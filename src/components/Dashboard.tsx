@@ -7,6 +7,8 @@ import { useMonthOf, useSettings } from "../lib/queries";
 import { MonthsChart } from "../screens/Reports";
 import { BaseMoney as M } from "./Money";
 import { Hint } from "./Hint";
+import { ChartStatus, MissingChartRates } from "./ChartStatus";
+import { homeShares, shareUnavailable } from "../lib/categoryShares";
 import "./chartMotion.css";
 
 /** Цвета долей в кольце «Куда ушли деньги»: последний — «Остальное». */
@@ -15,12 +17,12 @@ const DONUT = ["var(--series-expense)", "#60a5fa", "#a78bfa", "#f472b6", "var(--
 /** Данные дашборда Главной: полгода по месяцам и те же дни прошлого месяца. */
 export function useDashboard(period: Period | undefined) {
   const date = today();
-  const months = useQuery({
+  const monthsQuery = useQuery({
     staleTime: AGGREGATE_STALE_MS,
     queryKey: ["dashMonths", period?.month],
     queryFn: () => api.reportByMonth(shiftMonth(period!.month, -5), period!.month),
     enabled: !!period,
-  }).data;
+  });
   const prev = useMonthOf(period ? addDays(period.start, -1) : date).data;
   // Сравниваем с тем же числом дней прошлого месяца: месяц ещё идёт.
   const elapsed = period ? daysBetween(period.start, date <= period.end ? date : period.end) : 0;
@@ -31,7 +33,7 @@ export function useDashboard(period: Period | undefined) {
     queryFn: () => api.periodSummary(prev!.start, prevEnd!),
     enabled: !!period && !!prev && !!prevEnd,
   }).data;
-  return { months, prevSame };
+  return { months: monthsQuery.data, monthsQuery, prevSame };
 }
 
 function daysBetween(a: string, b: string) {
@@ -112,8 +114,8 @@ export function SummaryCard({ period, dailyLimit }: { period: Period; dailyLimit
   const cal = useQuery({ queryKey: ["calendar", today().slice(0, 7)], queryFn: () => api.calendarMonth(today().slice(0, 7)) }).data;
   if (!month) return <div className="card summary-card" data-testid="home-summary" />;
   const exp = change(month.expense, prevSame?.expense);
-  const top = cats?.items[0];
-  const noSpend = cal?.days.filter((d) => d.noSpend).length ?? 0;
+  const top = cats && !shareUnavailable(cats) ? cats.items[0] : undefined;
+  const noSpend = cal?.days.filter((d) => d.noSpend).length;
   const left = daysBetween(today(), period.end);
   const title =
     exp == null ? `Сводка: ${monthTitle(period.month).toLowerCase()}` : exp < 0 ? "Месяц идёт экономнее прошлого" : exp > 0 ? "Тратите больше, чем в прошлом месяце" : "Траты как в прошлом месяце";
@@ -146,10 +148,10 @@ export function SummaryCard({ period, dailyLimit }: { period: Period; dailyLimit
             </li>
           )}
           {dailyLimit && <li>{dailyLimit}</li>}
-          <li>
+          {noSpend != null && <li>
             <b className="good">{noSpend}</b>
             <span>{plural(noSpend, "день", "дня", "дней")} без трат в этом месяце</span>
-          </li>
+          </li>}
         </ul>
       </div>
       {month.savingsRate != null && (
@@ -173,14 +175,11 @@ export function plural(n: number, one: string, few: string, many: string) {
 
 /** «Полгода» и «Куда ушли деньги»: столбцы по месяцам и кольцо категорий. */
 export function TrendCard({ period }: { period: Period }) {
-  const { months } = useDashboard(period);
-  const cats = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) }).data;
-  const hidden = useSettings().data?.hide_amounts === "1";
-  const items = cats?.items ?? [];
-  const top = items.slice(0, 4);
-  const rest = items.slice(4).reduce((s, i) => s + i.amount, 0);
-  const parts = [...top.map((i) => ({ name: i.name, amount: i.amount })), ...(rest > 0 ? [{ name: "Остальное", amount: rest }] : [])];
-  const total = cats?.total ?? 0;
+  const { months, monthsQuery } = useDashboard(period);
+  const categoryQuery = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) });
+  const cats = categoryQuery.data;
+  const fallback = cats && shareUnavailable(cats);
+  const parts = cats && !fallback ? homeShares(cats) : [];
   let acc = 0;
   return (
     <div className="columns trend-row">
@@ -189,28 +188,36 @@ export function TrendCard({ period }: { period: Period }) {
           Доходы и расходы за полгода
           <Hint of="home.trend" />
         </h2>
-        {months && <MonthsChart r={months} />}
+        <ChartStatus query={monthsQuery} loading="Загружаем данные за полгода…" />
+        {months && <MonthsChart key={period.month} r={months} />}
       </div>
       <div className="card" data-testid="home-donut">
         <h2>Куда ушли деньги</h2>
-        {total === 0 && <p className="muted">В этом месяце расходов пока нет.</p>}
-        {total > 0 && (
+        <ChartStatus query={categoryQuery} loading="Загружаем расходы по категориям…" />
+        {cats && <MissingChartRates rates={cats.missingRates} />}
+        {cats && cats.items.length === 0 && <p className="muted">{cats.missingRates.length ? "Нет расходов с известным курсом." : "В этом месяце расходов пока нет."}</p>}
+        {cats && cats.items.length > 0 && fallback && <>
+          <p className="muted">{fallback}</p>
+          <ul className="donut-legend">{cats.items.map(c => <li key={c.categoryId}><span className="name">{c.name}</span><M amount={c.amount} currencyCode={cats.baseCurrency} /></li>)}</ul>
+          <p>Итого: <M amount={cats.total} currencyCode={cats.baseCurrency} /></p>
+        </>}
+        {cats && parts.length > 0 && (
           <div className="donut-wrap">
             <div className="donut" role="img" aria-label="Расходы месяца по категориям">
               <svg viewBox="0 0 140 140" aria-hidden="true">
                 <circle cx="70" cy="70" r="54" className="ring-track" />
                 {parts.map((p, i) => {
-                  const pct = (p.amount / total) * 100;
+                  const pct = (p.amount / cats.total) * 100;
                   const seg = (
                     <circle
-                      key={p.name}
+                      key={p.id}
                       cx="70"
                       cy="70"
                       r="54"
                       className="donut-seg"
-                      stroke={DONUT[i === parts.length - 1 && rest > 0 ? 4 : i]}
+                      stroke={DONUT[i]}
                       pathLength={100}
-                      strokeDasharray={`${Math.max(pct - 0.8, 0.1)} ${100 - Math.max(pct - 0.8, 0.1)}`}
+                      strokeDasharray={`${pct} ${100 - pct}`}
                       strokeDashoffset={-acc}
                     />
                   );
@@ -219,17 +226,17 @@ export function TrendCard({ period }: { period: Period }) {
                 })}
               </svg>
               <div className="ring-center">
-                <b>{hidden ? "•••" : <M amount={total} />}</b>
+                <b><M amount={cats.total} currencyCode={cats.baseCurrency} /></b>
                 <span>{monthTitle(period.month).toLowerCase()}</span>
               </div>
             </div>
             <ul className="donut-legend">
               {parts.map((p, i) => (
-                <li key={p.name}>
-                  <i style={{ background: DONUT[i === parts.length - 1 && rest > 0 ? 4 : i] }} />
+                <li key={p.id}>
+                  <i style={{ background: DONUT[i] }} />
                   <span className="name">{p.name}</span>
-                  <span className="muted">{Math.round((p.amount / total) * 100)} %</span>
-                  <M amount={p.amount} />
+                  <span className="muted">{Math.round((p.amount / cats.total) * 100)} %</span>
+                  <M amount={p.amount} currencyCode={cats.baseCurrency} />
                 </li>
               ))}
             </ul>

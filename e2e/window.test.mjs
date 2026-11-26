@@ -59,6 +59,7 @@ test("Esc в форме с введённой суммой спрашивает,
     await (await browser.$(`${dialog} [name="amount"]`)).getValue(),
     "123",
   );
+  assert.equal(await (await browser.$(`${dialog} [name="amount"]`)).isFocused(), true);
   // «×» тоже спрашивает; «Продолжить ввод» оставляет форму.
   await (await browser.$(`${dialog} button[aria-label="Закрыть"]`)).click();
   await (await browser.$(askButton("Продолжить ввод"))).click();
@@ -67,8 +68,22 @@ test("Esc в форме с введённой суммой спрашивает,
   await browser.keys("Escape");
   await (await browser.$(askButton("Закрыть"))).click();
   await browser.$(dialog).waitForExist({ reverse: true, timeout: 3000 });
+  assert.equal(await (await browser.$('button=+ Операция')).isFocused(), true);
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="total-balance"]', money("10 000 ₽"));
+});
+
+test("повторный выбор активного раздела сохраняет поле и место в журнале", async () => {
+  const { browser } = app;
+  await openSection(browser, "Операции");
+  const field = await browser.$('main input[name="search"]');
+  await field.setValue("учебный запрос");
+  const before = field.elementId;
+  await (await browser.$('.app-nav [data-section="transactions"]')).click();
+  const after = await browser.$('main input[name="search"]');
+  assert.equal(after.elementId, before, "страница сохранила исходное поле поиска");
+  assert.equal(await after.getValue(), "учебный запрос");
+  await after.clearValue();
 });
 
 test("«Отмена» закрывает форму сразу, без вопроса", async () => {
