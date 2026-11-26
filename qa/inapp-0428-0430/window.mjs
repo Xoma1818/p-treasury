@@ -33,8 +33,8 @@ const normalise=v=>resolve(v).toLowerCase();
 const reportName=join(evidence,phase+'.json');
 const report={phase,exe,sha256:createHash('sha256').update(readFileSync(exe)).digest('hex'),dbPath,events:[]};
 function event(action,more={}){const mark={at:new Date().toISOString(),action,...more};report.events.push(mark);console.log(JSON.stringify(mark));writeFileSync(reportName,JSON.stringify(report,null,2));}
-function pids(){
-  const script="$p=@(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($env:KAZNA_QA_BIN)) -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:KAZNA_QA_BIN } | Select-Object -ExpandProperty Id); ConvertTo-Json -InputObject $p -Compress";
+function appProcesses(){
+  const script="$p=@(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($env:KAZNA_QA_BIN)) -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:KAZNA_QA_BIN } | ForEach-Object { [PSCustomObject]@{ pid=$_.Id; hwnd=$_.MainWindowHandle.ToInt64() } }); ConvertTo-Json -InputObject $p -Compress";
   return JSON.parse(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',windowsHide:true,env:{...process.env,KAZNA_QA_BIN:exe}}).trim()||'[]');
 }
 const port=old?4452:4453;
@@ -52,9 +52,9 @@ try{
     if(!ready) await sleep(300);
   }while(!ready && Date.now()<expiry);
   assert(ready,'EdgeDriver не готов: '+(report.driverError||''));
-  assert.deepEqual(pids(),[], 'Перед запуском установленное приложение уже открыто');
+  assert.deepEqual(appProcesses(),[], 'Перед запуском установленное приложение уже открыто');
   browser=await remote({hostname:'127.0.0.1',port,path:'/',logLevel:'error',connectionRetryCount:0,connectionRetryTimeout:45000,
-    capabilities:{browserName:'webview2','wdio:enforceWebDriverClassic':true,'ms:edgeOptions':{binary:exe,args:detectOnly?['--data-dir='+process.env.PTREASURY_DATA_DIR]:[]}}});
+    capabilities:{browserName:'webview2','wdio:enforceWebDriverClassic':true,'ms:edgeOptions':{binary:exe,detach:phase==='before',args:detectOnly?['--data-dir='+process.env.PTREASURY_DATA_DIR]:[]}}});
   async function cmd(name,args={}){
     const reply=await browser.executeAsync((name,args,done)=>window.__TAURI_INTERNALS__.invoke(name,args).then(value=>done({value}),e=>done({error:String(e)})),name,args);
     assert.equal(reply.error,undefined,name+': '+reply.error);return reply.value;
@@ -94,7 +94,7 @@ try{
     assert.deepEqual(balances,prior.balances);
     assert.deepEqual(prefs,prior.preferences);
   }
-  const live=pids();
+  const live=appProcesses().map(process=>process.pid);
   assert.equal(live.length,1,'Ожидалось одно окно Kazna этого EXE');
   Object.assign(report,{version:info.version,schema:info.schemaVersion,oldPid:old?live[0]:undefined,pid:live[0],window:await browser.getWindowHandle(),
     preMigrationBackup:info.preMigrationBackup,balances,journal,settings,count:tx.total,total:totals.total,periodIncome:period.income,periodExpense:period.expense,preferences:prefs,appearance});
@@ -129,25 +129,37 @@ try{
       event('WebDriver подтвердил нажатие «Обновить»');
       // Не отправлять DELETE сессии и не завершать дерево с NSIS.
       const expiry=Date.now()+160000;
-      let current=pids();
-      while(current.includes(report.oldPid)&&Date.now()<expiry){
+      let current=appProcesses();
+      while(current.some(process=>process.pid===report.oldPid)&&Date.now()<expiry){
         try { const text=await browser.execute(()=>document.querySelector('[role="dialog"] [role="alert"]')?.textContent?.trim()); if(text){report.installError=text;break;} } catch {}
         await sleep(700);
-        current=pids();
+        current=appProcesses();
       }
       assert(!report.installError,report.installError);
-      assert(!current.includes(report.oldPid),'Старая Kazna осталась открытой после нажатия «Обновить»');
+      assert(!current.some(process=>process.pid===report.oldPid),'Старая Kazna осталась открытой после нажатия «Обновить»');
       event('Старый процесс завершился',{oldPid:report.oldPid});
+      // Оставляем родительский EdgeDriver живым, пока NSIS устанавливает и запускает Kazna.
+      const windowDeadline=Date.now()+90000;
+      while(!current.some(process=>process.pid!==report.oldPid&&process.hwnd!==0)&&Date.now()<windowDeadline){
+        await sleep(500);
+        current=appProcesses();
+      }
+      const fresh=current.find(process=>process.pid!==report.oldPid&&process.hwnd!==0);
+      report.relaunchObservation={driverPid:driver.pid,windows:current,newWindow:fresh??null};
+      // Этап restart независимо проверит версию, хеш и базу в автоматически открытом окне.
+      event(fresh?'Обнаружено новое окно при работающем EdgeDriver':'За 90 секунд новое окно не появилось',report.relaunchObservation);
     }
   }
 } catch(e){
   report.error=String(e.stack||e);
-  try {if(browser) await browser.saveScreenshot(join(evidence,phase+'-error.png'));} catch{}
-  if(browser) try{report.screen=(await browser.$('body').getText()).slice(-2500);}catch{}
+  try {if(browser&&!clicked) await browser.saveScreenshot(join(evidence,phase+'-error.png'));} catch{}
+  if(browser&&!clicked) try{report.screen=(await browser.$('body').getText()).slice(-2500);}catch{}
   event('Ошибка проверки');
   throw e;
 } finally {
   if(browser&&!clicked) try{await browser.deleteSession()}catch{}
-  // Остановить только собственный EdgeDriver, без SIGTERM дочерним NSIS/Kazna.
-  if(driver.exitCode===null&&driver.pid) driver.kill();
+  // Первую службу оставляем до очистки одноразовой ВМ. После проверки нового окна
+  // сценарий использует отдельный порт; следующий этап сам закроет обнаруженную Kazna.
+  if(clicked) driver.unref();
+  else if(driver.exitCode===null&&driver.pid) driver.kill();
 }

@@ -140,8 +140,47 @@ if ($Stage -eq 'prepare') {
 $prepared = Read-Report 'prepared'
 $exe = $prepared.exe
 if ($Stage -in 'before','after') {
-    & node $windowScript $Stage $exe $evidence
-    if ($LASTEXITCODE -ne 0) { throw "Оконная проверка $Stage завершилась с кодом $LASTEXITCODE." }
+    if ($Stage -eq 'before') {
+        # Наблюдатель фиксирует процессы. Ни установщик, ни новое окно он не запускает.
+        $trace = Start-Job -ArgumentList $evidence, $env:TEMP -ScriptBlock {
+            param($evidence, $tempPath)
+            $log = Join-Path $evidence 'process-trace.jsonl'
+            foreach ($kind in 'Start','Stop') {
+                $query = "SELECT * FROM Win32_Process${kind}Trace WHERE ProcessName LIKE '%Kazna%' OR ProcessName LIKE '%installer%' OR ProcessName LIKE '%.tmp'"
+                Register-CimIndicationEvent -Query $query -SourceIdentifier $kind | Out-Null
+            }
+            $hashed = $false
+            do {
+                foreach ($evt in @(Get-Event)) {
+                    $p = $evt.SourceEventArgs.NewEvent
+                    [ordered]@{time=$evt.TimeGenerated.ToUniversalTime().ToString('o');event=$evt.SourceIdentifier;name=$p.ProcessName;pid=$p.ProcessID;parent=$p.ParentProcessID;exitStatus=$p.ExitStatus} |
+                        ConvertTo-Json -Compress | Add-Content -LiteralPath $log
+                    Remove-Event -EventIdentifier $evt.EventIdentifier
+                }
+                if (!$hashed) {
+                    $package = Get-ChildItem -Path "$tempPath/Kazna-0.43.0-updater-*/Kazna-0.43.0-installer.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($package -and $package.Length -eq 8351821) {
+                        try {
+                            [ordered]@{time=[DateTime]::UtcNow.ToString('o');file=$package.Name;bytes=$package.Length;sha256=(Get-FileHash -LiteralPath $package.FullName -ErrorAction Stop).Hash} |
+                                ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'downloaded-by-app.json')
+                            $hashed = $true
+                        } catch {}
+                    }
+                }
+                Start-Sleep -Milliseconds 300
+            } while (!(Test-Path -LiteralPath (Join-Path $evidence 'observation-complete')))
+        }
+    }
+    try {
+        & node $windowScript $Stage $exe $evidence
+        if ($LASTEXITCODE -ne 0) { throw "Оконная проверка $Stage завершилась с кодом $LASTEXITCODE." }
+    } finally {
+        if ($Stage -eq 'before') {
+            [IO.File]::WriteAllText((Join-Path $evidence 'observation-complete'),'')
+            $null = Wait-Job $trace -Timeout 5
+            Receive-Job $trace -ErrorAction Continue
+        }
+    }
     $result = Read-Report $Stage
     Write-Host ($result | ConvertTo-Json -Depth 12)
     return
@@ -149,7 +188,7 @@ if ($Stage -in 'before','after') {
 if ($Stage -eq 'restart') {
     $oldPid = (Read-Report 'before').oldPid
     if (!$oldPid) { throw 'Неизвестен PID исходного окна.' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(150)
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
     do {
         $registration = Get-Registration
         $running = @(Get-Process -Name Kazna -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
@@ -157,8 +196,20 @@ if ($Stage -eq 'restart') {
         if ($running.Count -eq 1 -and $fresh.Count -eq 1 -and $registration.version -eq '0.43.0') { break }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
+    $file = Get-Item -LiteralPath $exe -ErrorAction SilentlyContinue
+    Write-Report 'restart-inspection' ([ordered]@{
+        registration=$registration; diskVersion=$file.VersionInfo.ProductVersion
+        diskSha256=if ($file){(Get-FileHash -LiteralPath $exe).Hash}
+        visible=@(Get-Process | Where-Object { $_.ProcessName -like '*Kazna*' -or $_.ProcessName -like '*installer*' } | Select-Object ProcessName,Id,Path,MainWindowTitle)
+        crashes=@(Get-WinEvent -FilterHashtable @{LogName='Application';Id=1000,1001;StartTime=(Get-Date).AddMinutes(-6)} -ErrorAction SilentlyContinue | Where-Object Message -match 'Kazna' | Select-Object TimeCreated,Id,Message)
+    })
     if ($running.Count -ne 1 -or $fresh.Count -ne 1) {
-        throw "Новое главное окно не обнаружено. Старый PID $oldPid; запущенные PID: $($running.Id -join ',')."
+        if ((Get-Executable $registration '0.43.0') -ne $exe -or (Get-FileHash $exe).Hash -ne $prepared.expectedNsisPayloadSha256) {
+            throw 'Обновлённый файл или путь установки не подтверждены.'
+        }
+        if ($running.Count) { throw 'Есть процесс без подтверждённого нового окна. Второй экземпляр не открываем.' }
+        Write-Report 'restart' ([ordered]@{automaticRelaunch=$false;oldPid=$oldPid;registeredVersion=$registration.version;installedExe=$exe;installedExeSha256=(Get-FileHash $exe).Hash})
+        return
     }
     $restarted = $fresh[0]
     if ((Get-Executable $registration '0.43.0') -ne $exe) { throw 'Поменялся путь установки.' }
@@ -180,10 +231,13 @@ $restartSnapshot = Join-Path $scratch 'restarted.sqlite'
 $afterSnapshot = Join-Path $scratch 'after.sqlite'
 Db-Fixture snapshot $db $afterSnapshot
 $snapshots = [IO.Directory]::CreateDirectory((Join-Path $evidence 'snapshots')).FullName
-foreach ($file in $beforeSnapshot, $restartSnapshot, $afterSnapshot, $preInstall) {
+$automatic = (Read-Report 'restart').automaticRelaunch
+$copies = @($beforeSnapshot, $afterSnapshot, $preInstall)
+if ($automatic) { $copies += $restartSnapshot }
+foreach ($file in $copies) {
     Copy-Item -LiteralPath $file -Destination $snapshots
 }
-Db-Fixture verify $repo $beforeSnapshot $restartSnapshot $preInstall (Join-Path $evidence 'restart-verification.json')
+if ($automatic) { Db-Fixture verify $repo $beforeSnapshot $restartSnapshot $preInstall (Join-Path $evidence 'restart-verification.json') }
 Db-Fixture verify $repo $beforeSnapshot $afterSnapshot $preInstall (Join-Path $evidence 'app-verification.json')
 $checked = Read-Report 'app-verification'
 Write-Report 'comparison' ([ordered]@{
@@ -191,5 +245,6 @@ Write-Report 'comparison' ([ordered]@{
     settings = @($checked.after.allSettings.PSObject.Properties).Count; transactions = $checked.after.transactionCount
     accounts = $checked.after.accounts; totalBalanceRubMinor = $checked.after.totalBalanceRubMinor
     incomeRubMinor = $checked.after.incomeRubMinor; expenseRubMinor = $checked.after.expenseRubMinor
-    appBackup = $preInstall; appBackupRowsMatch = $true; automaticRestartRowsMatch = $true
+    appBackup = $preInstall; appBackupRowsMatch = $true; automaticRestartRowsMatch = $automatic
 })
+if (!$automatic) { throw 'Данные после открытия обновлённой программы совпали, самостоятельный перезапуск не подтверждён.' }
