@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currencyLabel, DEFAULT_FINE, DEFAULT_LAYERS, parseFine, shownAmount, startSection, weekdayIndex } from "./fine";
+import { currencyLabel, DEFAULT_FINE, DEFAULT_LAYERS, parseFine, startSection, weekdayIndex } from "./fine";
 
 describe("Г12: тонкие настройки", () => {
   it("разбирает сохранённое, незнакомое — по умолчанию", () => {
@@ -10,15 +10,14 @@ describe("Г12: тонкие настройки", () => {
     expect(parseFine('{"layers":{"balance":true,"expense":false,"debts":"да"}}').layers).toEqual({ ...DEFAULT_LAYERS, balance: true, expense: false });
     expect(parseFine('{"start":"nowhere","week":"tue"}')).toEqual(DEFAULT_FINE);
   });
-  it("без копеек округляет только для экрана, код вместо значка", () => {
+  it("выбирает код валюты из каталога, в том числе для общего знака иены и юаня", () => {
     const f = { ...DEFAULT_FINE, kopecks: false, code: true };
-    expect(shownAmount(123450, 2, f)).toBe(123500);
-    expect(shownAmount(-123449, 2, f)).toBe(-123400);
-    expect(shownAmount(1234, 0, f)).toBe(1234);
-    expect(shownAmount(123450, 2, DEFAULT_FINE)).toBe(123450);
-    expect(currencyLabel("₽", f)).toBe("RUB");
-    expect(currencyLabel("¥", f)).toBe("CNY");
-    expect(currencyLabel("₽", DEFAULT_FINE)).toBe("₽");
+    expect(currencyLabel("₽", 2, f)).toBe("RUB");
+    expect(currencyLabel("¥", 2, f)).toBe("CNY");
+    expect(currencyLabel("¥", 0, f)).toBe("JPY");
+    expect(currencyLabel("Br", 2, f)).toBe("BYN");
+    expect(currencyLabel("₺", 2, f)).toBe("TRY");
+    expect(currencyLabel("₽", 2, DEFAULT_FINE)).toBe("₽");
   });
   it("начало недели и экран при запуске", () => {
     expect(weekdayIndex(0, DEFAULT_FINE)).toBe(6); // воскресенье в конце

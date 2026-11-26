@@ -23,6 +23,15 @@ let pending = 0;
 let writeQueue = Promise.resolve();
 let revision = 0;
 let replacing = 0;
+let budgetGeneration = 0;
+const budgetListeners = new Set<() => void>();
+
+/** Даже восстановление в тот же файл открывает новый контекст истории действий. */
+export const currentBudgetGeneration = () => replacing ? null : budgetGeneration;
+export function watchBudgetGeneration(listener: () => void) {
+  budgetListeners.add(listener);
+  return () => { budgetListeners.delete(listener); };
+}
 
 export const uiPrefsReadRevision = () => (pending || replacing ? null : revision);
 
@@ -30,11 +39,15 @@ export const uiPrefsReadRevision = () => (pending || replacing ? null : revision
 export async function afterUiPrefsSaved<T>(replace: () => Promise<T>): Promise<T> {
   replacing++;
   revision++;
+  budgetListeners.forEach(listener => listener());
   try {
     await writeQueue;
-    return await replace();
+    const result = await replace();
+    budgetGeneration++;
+    return result;
   } finally {
     replacing--;
+    budgetListeners.forEach(listener => listener());
   }
 }
 

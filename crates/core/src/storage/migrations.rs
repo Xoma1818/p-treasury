@@ -171,6 +171,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "import_refund_counts",
         sql: include_str!("../../migrations/0031_import_refund_counts.sql"),
     },
+    Migration {
+        version: 32,
+        name: "invest_plan_currency",
+        sql: include_str!("../../migrations/0032_invest_plan_currency.sql"),
+    },
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;

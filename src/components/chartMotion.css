@@ -8,11 +8,11 @@
 }
 
 .ring > svg .ring-value {
-  transition: stroke-dasharray var(--motion-surface) var(--ease), stroke var(--motion-feedback) var(--ease);
+  transition: stroke var(--motion-feedback) var(--ease);
 }
 
 .donut > svg .donut-seg {
-  transition: stroke-dasharray var(--motion-surface) var(--ease), stroke-dashoffset var(--motion-surface) var(--ease), stroke-width var(--motion-feedback) var(--ease);
+  transition: stroke-width var(--motion-feedback) var(--ease);
 }
 
 .heat .heat-cell {

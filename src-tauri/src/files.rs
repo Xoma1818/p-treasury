@@ -291,6 +291,7 @@ mod tests {
         fs::create_dir(data_dir.join(LIST)).unwrap();
         let state = AppState {
             db: std::sync::Mutex::new(Ok(db)),
+            budget_generation: Default::default(),
             data_dir: data_dir.clone(),
             undo: std::sync::Mutex::new(undo),
             portable: true,

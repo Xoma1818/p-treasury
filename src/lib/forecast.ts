@@ -21,6 +21,18 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 export const monthsText = (n: number) => `${n} ${plural(n, "месяц", "месяца", "месяцев")}`;
 
+/** Only overlay scenarios calculated against the same starting balance and calendar. */
+export function sameForecastBasis(first: Forecast, second: Forecast): boolean {
+  return first.today === second.today && first.baseCurrency === second.baseCurrency
+    && first.minorUnits === second.minorUnits && first.liquid === second.liquid
+    && first.months.length === second.months.length
+    && first.months.every((month, i) => {
+      const other = second.months[i];
+      return month.month === other.month && month.start === other.start && month.end === other.end
+        && month.closing === other.closing && other.scenario != null;
+    });
+}
+
 export interface ScenarioRow {
   kind: ChangeKind;
   title: string;

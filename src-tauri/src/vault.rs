@@ -265,9 +265,9 @@ pub fn vault_inspect(path: String) -> CmdResult<Found> {
 /// сохраняются страховочной копией; дальше папка сохранности — та, откуда
 /// перенесли (облако остаётся облаком). Возвращает путь к страховке.
 #[tauri::command(async)]
-pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String> {
+pub fn vault_transfer(app: AppHandle, state: State<AppState>, found: Found) -> CmdResult<String> {
     let opts = state.open_options();
-    let safety = {
+    let safety = crate::quick_window::during_replacement(&app, &state, || {
         let mut guard = state.lock_db();
         let safety = state.replace_data(&mut guard, |slot| {
             let db = slot.as_mut().map_err(|e| e.clone())?;
@@ -297,8 +297,8 @@ pub fn vault_transfer(state: State<AppState>, found: Found) -> CmdResult<String>
         set("vault_dir", &value)?;
         set("vault_error", "")?;
         set("onboarding_done", "1")?;
-        safety.display().to_string()
-    };
+        Ok(safety.display().to_string())
+    })?;
     sync(&state, false);
     Ok(safety)
 }

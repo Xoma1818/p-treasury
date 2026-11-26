@@ -4,11 +4,12 @@ import { InvestBudgetCard } from "../components/Invest";
 import { PlanFactCard } from "../components/PlanFact";
 import { useEffect, useRef, useState } from "react";
 import { AmountInput, amountText, CategorySelect } from "../components/Fields";
+import { FormAmountsToggle, useFormAmounts, useFormMoney } from "../components/FormAmounts";
 import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
 import { api, type Budget as BudgetData, type BudgetLine, type CategoryKind, type FillMode, type LimitKind } from "../lib/api";
 import { formatDate, monthGenitive, monthTitle, shiftMonth, today } from "../lib/dates";
-import { formatAmount, parseAmount } from "../lib/money";
+import { HIDDEN_AMOUNT, parseAmount } from "../lib/money";
 import { useBudget, useCategories, useCurrencies, useMonthOf, useSpendingVsUsual } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -145,6 +146,7 @@ function Forecast({ b, minor }: { b: BudgetData; minor: number }) {
 }
 
 function BudgetView({ b }: { b: BudgetData }) {
+  const privacy = useFormAmounts(JSON.stringify([b.id, b.period.start, b.period.end, b.currencyCode]));
   const minor = useCurrencies().data?.find((c) => c.code === b.currencyCode)?.minorUnits ?? 2;
   const sym = b.currencySymbol;
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -223,8 +225,9 @@ function BudgetView({ b }: { b: BudgetData }) {
           Для покупки, распределённой на несколько месяцев, рядом с полным списанием видна доля периода.
         </p>
       )}
-      <Lines b={b} kind="expense" minor={minor} />
-      <Lines b={b} kind="income" minor={minor} />
+      <FormAmountsToggle privacy={privacy} where="в строках бюджета" />
+      <Lines b={b} kind="expense" minor={minor} privacy={privacy} />
+      <Lines b={b} kind="income" minor={minor} privacy={privacy} />
 
       <div className="columns budget-details">
         <Note b={b} />
@@ -256,7 +259,7 @@ function BudgetView({ b }: { b: BudgetData }) {
   );
 }
 
-function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: number }) {
+function Lines({ b, kind, minor, privacy }: { b: BudgetData; kind: CategoryKind; minor: number; privacy: ReturnType<typeof useFormAmounts> }) {
   const [cover, setCover] = useState<{ budget: BudgetData; target: BudgetLine } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -287,9 +290,13 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
   });
   const income = kind === "income";
   const sym = b.currencySymbol;
+  const format = useFormMoney(privacy, b.currencyCode, sym, minor);
+  const money = (value: number) => <span className="money">{format(value)}</span>;
   const [filled, setFilled] = useState<string | null>(null);
   // А2: пометка «+34 % к обычному» у категорий, где траты заметно не как обычно.
   const usual = useSpendingVsUsual(b.period.month, !income).data;
+  const usualMinor = useCurrencies().data?.find(c => c.code === usual?.baseCurrency)?.minorUnits;
+  const usualMoney = useFormMoney(privacy, usual?.baseCurrency ?? b.currencyCode, usual?.baseSymbol ?? sym, usualMinor ?? minor);
   const notable = new Map((usual?.monthsCounted ? usual.items : []).filter((u) => u.notable).map((u) => [u.categoryId, u]));
   const rollover = useAction((categoryId: string, on: boolean) => api.setBudgetRollover(b.id!, categoryId, on));
   const fill = useAction(
@@ -357,7 +364,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                       <span
                         className={(notable.get(l.categoryId)!.percent ?? 0) > 0 ? "usual-pill up" : "usual-pill down"}
                         data-testid="usual-pill"
-                        title={`Обычно к этому дню: ${formatAmount(notable.get(l.categoryId)!.usual, 2)} ${usual?.baseSymbol ?? sym}`}
+                        title={usualMinor == null ? undefined : `Обычно к этому дню: ${usualMoney(notable.get(l.categoryId)!.usual)}`}
                       >
                         {usualLabel(notable.get(l.categoryId)!.percent)}
                       </span>
@@ -388,10 +395,11 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                     )}
                   </td>
                   <td className="num">
-                    <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} basis={b.incomeBasis} days={periodDays(b)} />
+                    <LimitInput budgetId={b.id!} line={l} minor={minor} focus={focusCat === l.categoryId} basis={b.incomeBasis} days={periodDays(b)}
+                      concealed={privacy.concealed} money={money} />
                     {l.carried > 0 && (
                       <span className="carried" data-testid="budget-carried" title="Остаток прошлого месяца">
-                        + <Money amount={l.carried} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} /> с прошлого месяца
+                        + {money(l.carried)} с прошлого месяца
                       </span>
                     )}
                   </td>
@@ -410,15 +418,15 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
                         budgetMonth: b.period.month,
                       })}
                     >
-                      <Money amount={l.actual} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
+                      {money(l.actual)}
                       <span className="sr-only"> — открыть операции категории «{l.categoryName}»</span>
                     </button>
                   </td>
                   <td className={l.over && !income ? "num over" : "num"}>
-                    <Money amount={l.remaining} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
+                    {money(l.remaining)}
                     {l.over && l.canRebalance && (
                       <div><button className="link" type="button" aria-haspopup="dialog"
-                        onClick={(e) => { opener.current = e.currentTarget; setCover({ budget: b, target: l }); }}>
+                        onClick={(e) => { opener.current = e.currentTarget; privacy.conceal(); setCover({ budget: b, target: l }); }}>
                         Покрыть перерасход…
                       </button></div>
                     )}
@@ -434,7 +442,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
       )}
       {!income && b.unbudgetedExpense > 0 && (
         <p className="hint">
-          Расходы по категориям без лимита: <Money amount={b.unbudgetedExpense} symbol={sym} currencyCode={b.currencyCode} minorUnits={minor} />
+          Расходы по категориям без лимита: {money(b.unbudgetedExpense)}
         </p>
       )}
       <ErrorText error={fill.error ?? rollover.error} />
@@ -448,7 +456,7 @@ function Lines({ b, kind, minor }: { b: BudgetData; kind: CategoryKind; minor: n
           placeholder="Добавить категорию"
           exclude={(c) => lines.some((l) => l.categoryId === c.id)}
         />
-        <AmountInput name={`add-${kind}-limit`} value={newLimit} onChange={setNewLimit} minorUnits={minor} />
+        <AmountInput name={`add-${kind}-limit`} value={newLimit} onChange={setNewLimit} minorUnits={minor} concealed={privacy.concealed} />
         <button className="btn small" onClick={submit} aria-busy={add.busy} data-done={add.done || undefined} disabled={add.busy}>
           Добавить
         </button>
@@ -465,7 +473,10 @@ const KIND_LABEL: Record<LimitKind, string> = { month: "в месяц", week: "�
 
 /** Лимит редактируется на месте: сохраняется при уходе из поля или по Enter; пустое поле убирает строку.
  *  Р9: у расходов вид лимита — в месяц, в неделю или долей дохода месяца. */
-function LimitInput({ budgetId, line, minor, focus, basis, days }: { budgetId: string; line: BudgetLine; minor: number; focus?: boolean; basis: number; days: number }) {
+function LimitInput({ budgetId, line, minor, focus, basis, days, concealed, money }: {
+  budgetId: string; line: BudgetLine; minor: number; focus?: boolean; basis: number; days: number;
+  concealed: boolean; money: (value: number) => React.ReactNode;
+}) {
   const kind = line.limitKind ?? "month";
   const shown = kind === "week" ? (line.limitValue ?? 0) : kind === "percent" ? (line.limitValue ?? 0) : line.baseLimit;
   const toText = (v: number) => (kind === "percent" ? String(v / 100).replace(".", ",") : amountText(v, minor));
@@ -474,6 +485,7 @@ function LimitInput({ budgetId, line, minor, focus, basis, days }: { budgetId: s
   const save = useAction((limit: number | null) => api.setBudgetLimit(budgetId, line.categoryId, limit));
   const saveKind = useAction((k: LimitKind, v: number) => api.setBudgetLimitKind(budgetId, line.categoryId, k, v));
   const commit = () => {
+    if (concealed) return;
     if (text.trim() === "") return save.run(null);
     if (kind === "percent") {
       const pct = Number(text.replace(",", ".").replace("%", "").trim());
@@ -499,9 +511,10 @@ function LimitInput({ budgetId, line, minor, focus, basis, days }: { budgetId: s
     <span className="limit-cell">
       <span onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}>
         {kind === "percent" ? (
-          <input name="limit" className="pct-input" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} aria-label="Доля дохода, %" autoFocus={focus} />
+          <input name="limit" className="pct-input" inputMode="decimal" value={concealed ? HIDDEN_AMOUNT : text} readOnly={concealed}
+            onChange={(e) => setText(e.target.value)} aria-label="Доля дохода, %" autoFocus={focus} />
         ) : (
-          <AmountInput name="limit" value={text} onChange={setText} minorUnits={minor} autoFocus={focus} />
+          <AmountInput name="limit" value={text} onChange={setText} minorUnits={minor} autoFocus={focus} concealed={concealed} />
         )}
       </span>
       {!income && (
@@ -512,6 +525,7 @@ function LimitInput({ budgetId, line, minor, focus, basis, days }: { budgetId: s
           value={kind}
           onChange={(e) => switchKind(e.target.value as LimitKind)}
           data-testid="limit-kind"
+          disabled={concealed}
         >
           {(Object.keys(KIND_LABEL) as LimitKind[]).map((k) => (
             <option key={k} value={k}>
@@ -522,7 +536,7 @@ function LimitInput({ budgetId, line, minor, focus, basis, days }: { budgetId: s
       )}
       {kind !== "month" && (
         <span className="limit-month muted small" data-testid="limit-month">
-          ≈ <Money amount={line.baseLimit} minorUnits={minor} /> в месяц
+          ≈ {money(line.baseLimit)} в месяц
         </span>
       )}
       <ErrorText error={save.error ?? saveKind.error} />
@@ -737,8 +751,7 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
   // Без копеек, в валюте бюджета этого месяца, с учётом «скрыть суммы».
   const cell = (v: number, i: number) => {
     const minor = y?.minorUnits[i] ?? 2;
-    const unit = 10 ** minor;
-    return <Money amount={Math.round(v / unit) * unit} symbol={y?.symbols[i] ?? "₽"} minorUnits={minor} />;
+    return <Money amount={v} symbol={y?.symbols[i] ?? "₽"} minorUnits={minor} wholeUnits />;
   };
   return (
     <div className="card" data-testid="budget-year">

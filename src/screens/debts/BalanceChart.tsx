@@ -1,8 +1,8 @@
-import { useId, useMemo, useState, type PointerEvent } from "react";
+import { useId, useMemo, useState } from "react";
+import { chartScrub } from "../../lib/chartScrub";
 import { formatDate } from "../../lib/dates";
 import { addDays, balanceOnDate, balancePoints, dayNumber, type Point } from "../../lib/loan";
 import type { EarlyRow, LoanRow } from "../../lib/api";
-import { useSettings } from "../../lib/queries";
 import { formatMoney, HIDDEN_AMOUNT } from "../../lib/money";
 
 const W = 640;
@@ -13,12 +13,10 @@ type View = { rows: LoanRow[]; early: EarlyRow[] };
 
 /** Диаграмма остатка долга: пунктир — по графику без досрочек, сплошная — с досрочками.
  *  Цвета из токенов темы; линия «рисуется» один раз (выключается системным «меньше движения»). */
-export function BalanceChart({ base, withEarly, issueDate, principal, symbol, minorUnits }: { base: View; withEarly?: View | null; issueDate: string; principal: number; symbol: string; minorUnits: number }) {
-  const settings = useSettings().data;
-  const hidden = !settings || settings.hide_amounts === "1";
+export function BalanceChart({ base, withEarly, issueDate, principal, symbol, minorUnits, hidden }: { base: View; withEarly?: View | null; issueDate: string; principal: number; symbol: string; minorUnits: number; hidden: boolean }) {
   const gid = useId().replace(/:/g, "");
   const [selectedDate, setSelectedDate] = useState(issueDate);
-  const { a, b, x0, x1, endDate, years } = useMemo(() => {
+  const { a, b, x0, x1, days, endDate, years, x, y, mainLine, baseLine, area } = useMemo(() => {
     const a = balancePoints(base, issueDate, principal);
     const b = withEarly ? balancePoints(withEarly, issueDate, principal) : null;
     const x0 = dayNumber(issueDate);
@@ -31,35 +29,32 @@ export function BalanceChart({ base, withEarly, issueDate, principal, symbol, mi
     const step = Math.max(1, Math.ceil((lastYear - firstYear + 1) / 8));
     const years: number[] = [];
     for (let y = firstYear; y <= lastYear; y += step) years.push(y);
-    return { a, b, x0, x1, endDate, years };
+    const days = x1 - x0;
+    const x = (d: string) => PAD.l + ((dayNumber(d) - x0) / Math.max(days, 1)) * (W - PAD.l - PAD.r);
+    const y = (v: number) => PAD.t + (1 - v / Math.max(principal, 1)) * (H - PAD.t - PAD.b);
+    const line = (pts: Point[]) => pts.map((p, i) => i
+      ? `H${x(p.date).toFixed(1)}V${y(p.balance).toFixed(1)}`
+      : `M${x(p.date).toFixed(1)},${y(p.balance).toFixed(1)}`).join("");
+    const main = b ?? a;
+    const mainLine = line(main);
+    const area = `${mainLine}L${x(main[main.length - 1].date).toFixed(1)},${y(0)}L${x(main[0].date).toFixed(1)},${y(0)}Z`;
+    return { a, b, x0, x1, endDate, years, days, x, y, mainLine, baseLine: b ? line(a) : null, area };
   }, [base, withEarly, issueDate, principal]);
   const top = Math.max(principal, 1);
-  const days = x1 - x0;
-  const x = (d: string) => PAD.l + ((dayNumber(d) - x0) / Math.max(days, 1)) * (W - PAD.l - PAD.r);
-  const y = (v: number) => PAD.t + (1 - v / top) * (H - PAD.t - PAD.b);
-  const line = (pts: Point[]) => pts.map((p, i) => i
-    ? `H${x(p.date).toFixed(1)}V${y(p.balance).toFixed(1)}`
-    : `M${x(p.date).toFixed(1)},${y(p.balance).toFixed(1)}`).join("");
-  const area = (pts: Point[]) => `${line(pts)}L${x(pts[pts.length - 1].date).toFixed(1)},${y(0)}L${x(pts[0].date).toFixed(1)},${y(0)}Z`;
-  const main = b ?? a;
   const money = (v: number) => (hidden ? HIDDEN_AMOUNT : formatMoney(v, symbol, minorUnits));
   const date = selectedDate < issueDate ? issueDate : selectedDate > endDate ? endDate : selectedDate;
   const baseValue = balanceOnDate(a, date) ?? principal;
   const mainValue = b ? balanceOnDate(b, date) ?? principal : baseValue;
   const spokenBalance = b ? `Без досрочек ${money(baseValue)}. С досрочками ${money(mainValue)}` : `Остаток ${money(baseValue)}`;
-  const onPointerDate = (e: PointerEvent<SVGSVGElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * W;
-    const ratio = Math.max(0, Math.min(1, (px - PAD.l) / (W - PAD.l - PAD.r)));
-    setSelectedDate(addDays(issueDate, Math.round(ratio * days)));
-  };
+  const selectDay = (offset: number) => setSelectedDate(addDays(issueDate, offset));
   const value = (v: number) => hidden
     ? <><span aria-hidden="true">{HIDDEN_AMOUNT}</span><span className="sr-only">Сумма скрыта</span></>
     : money(v);
 
   return (
     <div className="loan-chart" data-testid="loan-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Остаток долга по датам" onPointerMove={onPointerDate} onPointerDown={onPointerDate}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Остаток долга по датам"
+        {...chartScrub(PAD.l, W - PAD.r, days, selectDay)}>
         <defs>
           <linearGradient id={`fill-${gid}`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor="var(--accent)" stopOpacity="0.22" />
@@ -81,9 +76,9 @@ export function BalanceChart({ base, withEarly, issueDate, principal, symbol, mi
             </text>
           ) : null;
         })}
-        <path className="area" d={area(main)} fill={`url(#fill-${gid})`} />
-        {b && <path className="line-base" d={line(a)} />}
-        <path className="line-main draw" d={line(main)} pathLength={1} />
+        <path className="area" d={area} fill={`url(#fill-${gid})`} />
+        {baseLine && <path className="line-base" d={baseLine} />}
+        <path className="line-main draw" d={mainLine} pathLength={1} />
         <g className="hover">
           <line x1={x(date)} x2={x(date)} y1={PAD.t} y2={y(0)} />
           {b && baseValue !== mainValue && <circle className="base" cx={x(date)} cy={y(baseValue)} r={4} />}
@@ -95,7 +90,7 @@ export function BalanceChart({ base, withEarly, issueDate, principal, symbol, mi
           <span>Дата <time dateTime={date}>{formatDate(date)}</time></span>
           <input type="range" min={0} max={days} step={1} value={dayNumber(date) - x0} disabled={!days}
             aria-label="Дата остатка долга" aria-valuetext={`${formatDate(date)}. ${hidden ? "Сумма скрыта" : spokenBalance}`}
-            onChange={(event) => setSelectedDate(addDays(issueDate, Number(event.target.value)))} />
+            onChange={(event) => selectDay(event.currentTarget.valueAsNumber)} />
         </label>
         <div className="legend">
           {b && <span><i className="key base" aria-hidden="true" /> Без досрочек <b>{value(baseValue)}</b></span>}

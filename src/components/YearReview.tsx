@@ -6,6 +6,7 @@ import { formatDate, monthTitle } from "../lib/dates";
 import { baseName, pickSave, PNG } from "../lib/files";
 import { useCurrencies, useSettings } from "../lib/queries";
 import { cardPng, drawYearCard } from "../lib/yearCard";
+import { amountPrivacy, guardActive } from "../lib/amountPrivacy";
 import { change, Delta, plural, Ring } from "./Dashboard";
 import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
@@ -133,14 +134,25 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const drawing = useRef({ revision: 0, masked: true });
+  const sharing = useRef(false);
   useLayoutEffect(() => {
     if (!canvas.current) return;
     drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
+    drawing.current = { revision: drawing.current.revision + 1, masked: hide };
   }, [r, base, hide]);
 
   const share = async (action: "save" | "copy") => {
     const preview = canvas.current;
-    if (!preview || pending) return;
+    if (!preview || sharing.current) return;
+    sharing.current = true;
+    const checkDrawing = (revision: number) => {
+      const frame = drawing.current;
+      if (canvas.current !== preview || revision !== frame.revision ||
+          (!frame.masked && (amountPrivacy.state.getState().masked || guardActive()))) {
+        throw new Error("Вид картинки изменился. Повторите действие.");
+      }
+    };
     setPending(action);
     setStatus(null);
     setError(null);
@@ -148,17 +160,24 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
       if (action === "save") {
         const path = await pickSave(`Kazna — итоги ${r.year} года.png`, [PNG]);
         if (!path) return;
-        const blob = await cardPng(preview);
-        await api.saveBytes(path, new Uint8Array(await blob.arrayBuffer()));
+        const revision = drawing.current.revision;
+        checkDrawing(revision);
+        const bytes = new Uint8Array(await (await cardPng(preview)).arrayBuffer());
+        checkDrawing(revision);
+        await api.saveBytes(path, bytes);
         setStatus(`Сохранено: ${baseName(path)}`);
       } else {
         // Clipboard.write нужен жест пользователя, поэтому передаём PNG как Promise сразу.
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": cardPng(preview) })]);
+        const revision = drawing.current.revision;
+        checkDrawing(revision);
+        const image = cardPng(preview).then(blob => { checkDrawing(revision); return blob; });
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": image })]);
         setStatus("Картинка скопирована: вставьте её в чат через Ctrl+V");
       }
     } catch (e) {
       setError(action === "save" ? `Не удалось сохранить PNG: ${e}` : "Не получилось скопировать в буфер обмена: сохраните картинку файлом");
     } finally {
+      sharing.current = false;
       setPending(null);
     }
   };

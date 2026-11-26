@@ -1057,16 +1057,20 @@ export interface Valuation {
 export type InvestPlanMode = "" | "amount" | "percent";
 
 export interface InvestMonth {
+  currency: Currency;
   month: string;
   start: string;
   end: string;
   /** onlyMonth — свой план только на этот месяц. */
-  plan: { mode: InvestPlanMode; value: number; onlyMonth: boolean };
-  /** План в основной валюте; для процента — от доходов месяца. */
+  plan: { mode: InvestPlanMode; value: number; onlyMonth: boolean; currencyCode: string | null };
+  /** План и отложенное выражены в currency. У старого плана без валюты planned отсутствует. */
   planned: number | null;
   income: number;
+  incomeCurrency: Currency;
+  incomeComplete: boolean;
   /** Отложено: переводы на брокерские счета минус выводы. */
   saved: number;
+  savedComplete: boolean;
   percent: number | null;
   missingRates: string[];
 }
@@ -2038,9 +2042,11 @@ export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
+  dragThreshold: () => invoke<[number, number] | null>("drag_threshold"),
   getSettings: () => invoke<Settings>("get_settings"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listCurrencies: () => invoke<Currency[]>("list_currencies"),
+  listAllCurrencies: () => invoke<Currency[]>("list_currencies", { all: true }),
   listRates: () => invoke<ExchangeRate[]>("list_rates"),
   ratesOverview: (date: string) => invoke<RatesOverview>("rates_overview", { date }),
   setRate: (date: string, from: string, to: string, rate: string) => invoke<void>("set_rate", { date, from, to, rate }),
@@ -2060,6 +2066,8 @@ export const api = {
     invoke<void>("set_account_includes", { id, inTotal, inBudget, inForecast }),
   setAccountLook: (id: string, icon: string | null, color: string | null) => invoke<void>("set_account_look", { id, icon, color }),
   setAccountGroup: (id: string, groupId: string | null) => invoke<void>("set_account_group", { id, groupId }),
+  moveAccount: (id: string, groupId: string | null, beforeId: string | null) =>
+    invoke<void>("move_account", { id, groupId, beforeId }),
   reorderAccounts: (ids: string[]) => invoke<void>("reorder_accounts", { ids }),
   listAccountGroups: (today: string) => invoke<AccountGroup[]>("list_account_groups", { today }),
   createAccountGroup: (name: string) => invoke<string>("create_account_group", { name }),
@@ -2175,7 +2183,8 @@ export const api = {
   setInvestValue: (accountId: string, date: string, value: number) => invoke<void>("set_invest_value", { accountId, date, value }),
   deleteInvestValue: (accountId: string, date: string) => invoke<void>("delete_invest_value", { accountId, date }),
   /** С `month` — план только на этот месяц, без — общий на каждый месяц. */
-  setInvestPlan: (mode: InvestPlanMode, value: number, month: string | null = null) => invoke<void>("set_invest_plan", { mode, value, month }),
+  setInvestPlan: (mode: InvestPlanMode, value: number, month: string | null = null, currencyCode: string | null = null) => invoke<void>("set_invest_plan", { mode, value, month, currencyCode }),
+  confirmInvestPlanCurrency: (month: string | null, expectedValue: number, currencyCode: string) => invoke<void>("confirm_invest_plan_currency", { month, expectedValue, currencyCode }),
   clearInvestMonthPlan: (month: string) => invoke<void>("clear_invest_month_plan", { month }),
   reportFx: (from: string, to: string) => invoke<FxReport>("report_fx", { from, to }),
   listViews: (kind: ViewKind | null = null) => invoke<SavedView[]>("list_views", { kind }),
@@ -2310,7 +2319,7 @@ export const api = {
   applyTemplate: (id: string, date: string) => invoke<string>("apply_template", { id, date }),
   templateUsed: (id: string) => invoke<void>("template_used", { id }),
   undoState: () => invoke<UndoState>("undo_state"),
-  undo: () => invoke<string | null>("undo"),
+  undo: (expectedId?: number) => invoke<string | null>("undo", { expectedId }),
   listGoals: () => invoke<Goal[]>("list_goals"),
   setGoalPriority: (ids: string[]) => invoke<void>("set_goal_priority", { ids }),
   setGoalShare: (id: string, shareBp: number | null) => invoke<void>("set_goal_share", { id, shareBp }),
@@ -2342,8 +2351,8 @@ export const api = {
     invoke<string>("create_transaction_full", { input, eventId, extra, reminder: reminder ?? null }),
   saveQuickTransaction: (input: TxnInput, extra: TxnExtra, merchant: string | null) =>
     invoke<string>("save_quick_transaction", { input, extra, merchant }),
-  updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra) =>
-    invoke<void>("update_transaction_full", { id, input, extra }),
+  updateTransactionFull: (id: string, input: TxnInput, extra: TxnExtra, eventChange?: { eventId: string | null }) =>
+    invoke<void>("update_transaction_full", { id, input, extra, eventChange }),
   setTransactionSpread: (id: string, months: number | null) => invoke<void>("set_transaction_spread", { id, months }),
   sumSelected: (ids: string[]) => invoke<Sums>("sum_selected", { ids }),
   sumFiltered: (filter: TxnFilter) => invoke<Sums>("sum_filtered", { filter }),
@@ -2373,7 +2382,7 @@ export const api = {
   deleteDuplicate: (secondId: string) => invoke<void>("delete_duplicate", { secondId }),
   /** months: 12, 36 или null — всё время. */
   netWorthHistory: (months: number | null) => invoke<NetWorthHistory>("net_worth_history", { months }),
-  redo: () => invoke<string | null>("redo"),
+  redo: (expectedId?: number) => invoke<string | null>("redo", { expectedId }),
 };
 
 export const ACCOUNT_TYPES: Record<AccountType, string> = {

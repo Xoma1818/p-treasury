@@ -5,7 +5,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { start, stop, openSection, openSettings, onboard, click, choose, waitText, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, click, choose, fill, save, setDate, waitText, waitCount, money } from "./app.mjs";
 
 const fixtures = join(import.meta.dirname, "..", "crates/core/testdata");
 const dialog = '//*[@role="dialog"]';
@@ -21,6 +21,21 @@ const invoke = async (command, args = {}) => {
 };
 
 let card;
+const localDay = () => browser.execute(() => {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+});
+
+async function recordHomeExpense(day, amount, payee, category) {
+  await click(browser, "+ Расход");
+  await (await browser.$('[role="dialog"] select[name="account"]')).selectByAttribute("value", card);
+  await setDate(browser, "date", day);
+  await fill(browser, "amount", amount);
+  await fill(browser, "payee", payee);
+  await choose(browser, "category", category);
+  await save(browser);
+}
+
 before(async () => {
   ({ browser } = await start());
   await onboard(browser, [{ name: "Карта", balance: "100000" }]);
@@ -98,14 +113,10 @@ test("история импорта: счётчики и отмена импор
 });
 
 test("«Как посчитано»: расходы месяца раскладываются по категориям ровно в итог плитки", async () => {
-  await invoke("create_transaction", {
-    input: { type: "expense", date: new Date().toISOString().slice(0, 10), accountId: card, amount: 50_000, categoryId: (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Питание").id, toAccountId: null, toAmount: null, payee: "Рынки", note: null },
-    eventId: null,
-  });
   await openSection(browser, "Главная");
+  await recordHomeExpense(await localDay(), "500", "Рынки", "Питание");
   const tile = await browser.$('[data-testid="explain-expense"]');
   await waitText(browser, '[data-testid="explain-expense"]', /\d/);
-  await browser.pause(1500); // сумма на плитке «набегает»
   const shown = (await tile.getText()).trim();
   await tile.click();
   // Сумма разбора совпадает с суммой на плитке.
@@ -119,24 +130,25 @@ test("«Как посчитано»: расходы месяца расклад�
 });
 
 test("«Состояние данных» и курсы в «Как посчитано»: копия, курсы, операции без категории", async () => {
-  const day = new Date().toISOString().slice(0, 10);
-  const [first, last] = [`${day.slice(0, 8)}01`, `${day.slice(0, 8)}31`];
-  const other = (await invoke("list_categories", { includeArchived: false })).find((c) => c.name === "Прочие расходы").id;
-  await invoke("create_transaction", {
-    input: { type: "expense", date: day, accountId: card, amount: 7_000, categoryId: other, toAccountId: null, toAmount: null, payee: "Неразобранное", note: null },
-    eventId: null,
-  });
+  await openSection(browser, "Главная");
+  const day = await localDay();
+  const { start: dateFrom, end: dateTo } = await invoke("month_of", { date: day });
+  const filter = { dateFrom, dateTo, quick: ["uncategorized"], limit: 1 };
+  const before = await invoke("list_transactions", { filter });
+  const uncategorized = '[data-testid="data-status-row"][data-key="uncategorized"]';
+  await waitText(browser, uncategorized, new RegExp(`Без категории в этом месяце: ${before.total || "нет"}`));
   const usd = await invoke("create_account", {
     input: { name: "Доллары", type: "debit", currencyCode: "USD", openingBalance: 10_000, openingDate: day, creditLimit: null, includeInTotal: true },
   });
   assert.ok(usd);
   await invoke("set_rate", { date: day, from: "USD", to: "RUB", rate: "90" });
-  const page = await invoke("list_transactions", { filter: { dateFrom: first, dateTo: last, quick: ["uncategorized"], limit: 1 } });
-  assert.ok(page.total >= 1);
+  // Запись из формы обновляет уже открытую Главную тем же путём, что и у пользователя.
+  await recordHomeExpense(day, "70", "Неразобранное", "Прочие расходы");
+  const page = await invoke("list_transactions", { filter });
+  assert.equal(page.total, before.total + 1);
 
-  await openSection(browser, "Главная");
   await waitCount(browser, '[data-testid="data-status-row"]', 3, 10000);
-  await waitText(browser, '[data-testid="data-status-row"][data-key="uncategorized"]', new RegExp(`Без категории в этом месяце: ${page.total}`));
+  await waitText(browser, uncategorized, new RegExp(`Без категории в этом месяце: ${page.total}\\b`));
   await waitText(browser, '[data-testid="data-status-row"][data-key="rates"]', /Курс/);
   assert.equal(await (await browser.$('[data-testid="data-status-row"][data-key="rates"]')).getAttribute("data-level"), "ok");
   await waitText(browser, '[data-testid="data-status-row"][data-key="backup"]', /Копия/);

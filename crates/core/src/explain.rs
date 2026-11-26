@@ -45,8 +45,11 @@ pub fn balance(conn: &Connection, on: &str) -> Result<BalanceExplain> {
         let bal = if a.kind == "investment" {
             crate::invest::value_on(conn, &a.id, on)?.0
         } else {
-            accounts::balance(conn, &a.id, Some(on))?
+            accounts::historical_balance(conn, &a.id, on)?
         };
+        if a.opening_date.as_str() > on && bal == 0 {
+            continue;
+        }
         let converted = currencies::convert(conn, bal, &a.currency_code, &base, on)?;
         let status = match (a.include_in_total, converted) {
             (false, _) => "excluded",

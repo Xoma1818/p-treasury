@@ -2,17 +2,25 @@ import { X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { DecorativeIcon } from "./DecorativeIcon";
 
-/** Окно уходит так же мягко, как появилось (0.25): Esc, «×» и щелчок мимо окна
- *  сначала играют исчезновение, потом закрывают. Под автотестом — сразу.
- *  guardUnsaved: если в окне что-то вводили, Esc, «×» и щелчок мимо сначала
- *  спрашивают «Закрыть без сохранения?». Кнопка «Отмена» формы закрывает сразу. */
-const CLOSE_MS = 160; // --motion-feedback в styles.css
 const FOCUSABLE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex]';
+const DIALOG = '[role="dialog"][aria-modal="true"]';
 
 function tabStops(dialog: HTMLElement) {
   return [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
     (el) => !el.matches(":disabled") && el.tabIndex >= 0 && el.getClientRects().length > 0,
   );
+}
+
+// Уходить может только пустая подложка: данные и фокус покидают диалог сразу.
+function fadeBackdrop(side: boolean) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const veil = document.createElement("div");
+  veil.className = side ? "modal-veil leaving side" : "modal-veil leaving";
+  veil.setAttribute("aria-hidden", "true");
+  document.body.appendChild(veil);
+  const animation = veil.getAnimations()[0];
+  if (animation) void animation.finished.then(() => veil.remove(), () => veil.remove());
+  else veil.remove();
 }
 
 /** `side` — панель справа во всю высоту окна (Р4), а не окно посередине. */
@@ -35,13 +43,15 @@ export function Modal({
   dismissDisabled?: boolean;
   focusClose?: boolean;
 }) {
-  const [closing, setClosing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [asking, setAsking] = useState(false);
-  const timer = useRef(0);
   const box = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  const [opener] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const askedFrom = useRef<HTMLElement | null>(null);
+  const resumeEditing = () => {
+    setAsking(false);
+    if (askedFrom.current?.isConnected) askedFrom.current.focus({ preventScroll: true });
+  };
   // Блоки со своим сохранением (заметки) форму «грязной» не делают.
   const markDirty = (e: { target: EventTarget }) => {
     if (!(e.target instanceof Element && e.target.closest("[data-own-save]")))
@@ -49,38 +59,47 @@ export function Modal({
   };
   const dismiss = (force = false) => {
     if (dismissDisabled) return;
-    if (guardUnsaved && dirty && !force) return setAsking(true);
-    if (
-      navigator.webdriver ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    )
-      return close.current();
-    if (timer.current) return;
-    setClosing(true);
-    timer.current = window.setTimeout(() => {
-      // Если окно не закрылось (например, спросило подтверждение), возвращаем его как было.
-      timer.current = 0;
-      setClosing(false);
-      close.current();
-    }, CLOSE_MS);
+    if (guardUnsaved && dirty && !force) {
+      if (!asking) askedFrom.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setAsking(true);
+      return;
+    }
+    onClose();
   };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useLayoutEffect(() => {
+    const dialog = box.current;
+    if (!dialog) return;
+    if (!dialog.contains(document.activeElement)) (tabStops(dialog)[0] ?? dialog).focus({ preventScroll: true });
+    return () => queueMicrotask(() => {
+      // React StrictMode повторяет эффект без удаления окна.
+      if (dialog.isConnected) return;
+      const remaining = document.querySelectorAll<HTMLElement>(DIALOG);
+      const top = remaining[remaining.length - 1];
+      if (document.activeElement === document.body) {
+        const target = opener?.isConnected && opener !== document.body && !opener.matches(":disabled") &&
+          opener.getClientRects().length && (!top || top.contains(opener)) ? opener : null;
+        (target ?? top ?? document.querySelector<HTMLElement>('.app-nav [aria-current="page"]'))?.focus({ preventScroll: true });
+      }
+      if (!top) fadeBackdrop(!!side);
+    });
+  }, [opener, side]);
   // Если последняя кнопка отключилась во время записи, браузер может вернуть
   // фокус на body. До следующего Tab переносим его на само верхнее окно.
   useLayoutEffect(() => {
     const dialog = box.current;
     if (!dismissDisabled || !dialog || tabStops(dialog).length > 0) return;
-    const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+    const dialogs = document.querySelectorAll(DIALOG);
     if (dialogs[dialogs.length - 1] === dialog) dialog.focus({ preventScroll: true });
   }, [dismissDisabled]);
   useEffect(() => {
     // Esc при вопросе возвращает к вводу: так случайное второе нажатие ничего не теряет.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      const dialogs = document.querySelectorAll(DIALOG);
       if (dialogs[dialogs.length - 1] !== box.current) return;
       e.preventDefault();
-      if (asking) setAsking(false);
+      if (e.repeat || e.isComposing) return;
+      if (asking) resumeEditing();
       else dismiss();
     };
     window.addEventListener("keydown", onKey);
@@ -91,7 +110,8 @@ export function Modal({
   const trapTab = (e: ReactKeyboardEvent) => {
     if (e.key !== "Tab" || !box.current) return;
     if (e.target instanceof Element && e.target.closest('[role="dialog"]') !== box.current) return;
-    const items = tabStops(box.current);
+    const scope = asking ? box.current.querySelector<HTMLElement>('[role="alertdialog"]') : box.current;
+    const items = tabStops(scope ?? box.current);
     if (items.length === 0) {
       e.preventDefault();
       box.current.focus({ preventScroll: true });
@@ -100,7 +120,7 @@ export function Modal({
     const first = items[0];
     const last = items[items.length - 1];
     const at = document.activeElement;
-    const inside = at !== box.current && at instanceof Node && box.current.contains(at);
+    const inside = at !== scope && at instanceof Node && scope?.contains(at);
     if (e.shiftKey && (at === first || !inside)) {
       e.preventDefault();
       last.focus();
@@ -111,7 +131,7 @@ export function Modal({
   };
   return (
     <div
-      className={["overlay", side && "side", closing && "closing"].filter(Boolean).join(" ")}
+      className={side ? "overlay side" : "overlay"}
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (dismissDisabled) e.preventDefault();
@@ -154,7 +174,7 @@ export function Modal({
               type="button"
               className="btn small"
               autoFocus
-              onClick={() => setAsking(false)}
+              onClick={resumeEditing}
             >
               Продолжить ввод
             </button>

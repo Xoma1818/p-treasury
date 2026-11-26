@@ -22,6 +22,11 @@ after(async () => {
 const card = `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="Карта"]]`;
 const debtRow = (name) => `//tr[@data-testid="debt-row" and @data-name="${name}"]`;
 
+async function backToDebtList() {
+  await click(browser, "Все долги");
+  await browser.$('//main//h1[normalize-space()="Займы и долги"]').waitForDisplayed({ timeout: 5000 });
+}
+
 async function openDebt(name) {
   await openSection(browser, "Займы и долги");
   await (await browser.$(`${debtRow(name)}//div[@class="main"]`)).click();
@@ -94,7 +99,10 @@ test("досрочный платёж «уменьшить срок»: плат�
 });
 
 test("занял другу: Иван вернул 5 000 из 20 000, остаток 15 000", async () => {
-  await openSection(browser, "Займы и долги");
+  // Повторный выбор активного раздела сохраняет открытую карточку банка.
+  await browser.$('nav button[data-section="debts"][aria-current="page"]').click();
+  await waitText(browser, "main h1", /Банк/);
+  await backToDebtList();
   await click(browser, "+ Новый долг");
   await choose(browser, "repayment", "Разовый возврат в конце");
   await fill(browser, "principal", "20000");
@@ -117,7 +125,7 @@ test("занял другу: Иван вернул 5 000 из 20 000, остат
 });
 
 test("сколько мне должны: сводка, ближайший платёж и чистые активы", async () => {
-  await openSection(browser, "Займы и долги");
+  await backToDebtList();
   await waitText(browser, '[data-testid="owed-to-me"]', money("15 000 ₽"));
   await waitText(browser, '[data-testid="i-owe"]', money("189 522,77 ₽"));
   await waitText(browser, '[data-testid="upcoming"]', /Банк/);
@@ -159,7 +167,7 @@ test("Р17: два своих долга — карточка «Как быст�
   await choose(browser, "account", "Карта (₽)");
   await save(browser);
   await waitText(browser, '[data-testid="debt-outstanding"]', money("10 000 ₽"));
-  await openSection(browser, "Займы и долги");
+  await backToDebtList();
   await waitText(browser, '[data-testid="payoff-free"]', /Свободны от долгов/);
   await waitText(browser, '[data-testid="payoff-saved"]', /₽/);
   await waitCount(browser, '[data-testid="payoff-order"] li', 2);

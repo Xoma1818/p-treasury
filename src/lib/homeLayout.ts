@@ -77,22 +77,31 @@ export function parseLayout(raw: string | undefined | null): HomeLayout {
   return half.length ? { ...out, half } : out;
 }
 
-/** Передвинуть карточку на `delta` позиций (−1 — выше). */
-export function moveBlock(l: HomeLayout, block: HomeBlock, delta: number): HomeLayout {
-  const order = [...l.order];
+/** Переставляем только карточки включённых модулей. Остальные сохраняют свои места. */
+function replaceVisible(l: HomeLayout, visible: HomeBlock[], ordered: HomeBlock[]): HomeLayout {
+  if (visible.every((b, i) => b === ordered[i])) return l;
+  const slots = new Set(visible);
+  let i = 0;
+  return { ...l, order: l.order.map((b) => slots.has(b) ? ordered[i++] : b) };
+}
+
+/** Передвинуть карточку на `delta` видимых позиций (−1 — выше). */
+export function moveBlock(l: HomeLayout, block: HomeBlock, delta: number, visible = l.order): HomeLayout {
+  const order = [...visible];
   const i = order.indexOf(block);
+  if (i < 0) return l;
   const j = Math.max(0, Math.min(order.length - 1, i + delta));
   order.splice(i, 1);
   order.splice(j, 0, block);
-  return { ...l, order };
+  return replaceVisible(l, visible, order);
 }
 
 /** Поставить карточку перед другой (перетаскиванием). */
-export function placeBefore(l: HomeLayout, block: HomeBlock, target: HomeBlock): HomeLayout {
-  if (block === target) return l;
-  const order = l.order.filter((b) => b !== block);
+export function placeBefore(l: HomeLayout, block: HomeBlock, target: HomeBlock, visible = l.order): HomeLayout {
+  if (block === target || !visible.includes(block) || !visible.includes(target)) return l;
+  const order = visible.filter((b) => b !== block);
   order.splice(order.indexOf(target), 0, block);
-  return { ...l, order };
+  return replaceVisible(l, visible, order);
 }
 
 export function toggleBlock(l: HomeLayout, block: HomeBlock): HomeLayout {

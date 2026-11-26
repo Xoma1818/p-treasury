@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, openSettings, onboard, fill, choose, chooseLike, click, save, waitText, money, setDate, newDebt, rateHistory } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, choose, chooseLike, click, save, waitText, waitCount, money, setDate, newDebt, rateHistory } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -63,6 +63,7 @@ const expense = csvExpense + manualExpense + loanInterest;
 const cardBalance =
   5000000 + sum((r) => r[2] === "Карта" && r[1] === "Доход") - sum((r) => r[2] === "Карта" && r[1] !== "Доход") - manualExpense + 10000000 - loanPayment;
 const cashBalance = 500000 + 1000000 - sum((r) => r[2] === "Наличные" && r[1] === "Расход");
+const budgetLimits = [["Питание", "15000"], ["Общепит", "3000"]];
 
 let browser, dataDir;
 before(async () => {
@@ -83,6 +84,7 @@ async function snapshot() {
   await waitText(browser, '[data-testid="month-expense"]', /₽/);
   for (const id of ["total-balance", "month-income", "month-expense", "home-budget", "home-upcoming"]) s[id] = await text(`[data-testid="${id}"]`);
   await openSection(browser, "Счета");
+  await waitCount(browser, '[data-testid="account-row"]', 3);
   s.accounts = await browser.execute(() => [...document.querySelectorAll('[data-testid="account-row"]')].map((r) => r.textContent));
   await openSection(browser, "Операции");
   await click(browser, "Показать все операции");
@@ -90,16 +92,30 @@ async function snapshot() {
   s.txnCount = await text('[data-testid="txn-count"]');
   s.txns = await browser.execute(() => [...document.querySelectorAll('[data-testid="txn-row"]')].map((r) => r.textContent));
   await openSection(browser, "Бюджет");
+  for (const [category, limit] of budgetLimits) {
+    const input = await browser.$(`[data-testid="budget-expense"] [data-category="${category}"] input[name="limit"]`);
+    await input.waitForExist();
+    assert.equal(await input.getValue(), limit, `Лимит категории «${category}»`);
+  }
   s.budget = await browser.execute(() => [...document.querySelectorAll('[data-testid="budget-line"]')].map((r) => r.textContent));
   await openSection(browser, "Отчёты");
   await waitText(browser, '[data-testid="report-expense"]', /₽/);
   for (const id of ["report-income", "report-expense", "report-balance", "savings-rate"]) s[id] = await text(`[data-testid="${id}"]`);
   await openSection(browser, "Займы и долги");
-  s.debts = await text("main");
+  await waitText(browser, '[data-testid="debt-row"]', /Банк/);
+  await waitText(browser, '[data-testid="i-owe"]', money("92 115,12 ₽"));
+  // Общая панель «Отменить» живёт рядом с разделом и не входит в резервную копию.
+  s.debts = await text("main section.screen");
   await openSection(browser, "Календарь");
-  s.calendar = await browser.execute(() => document.querySelector("main").textContent);
+  await waitText(browser, '[data-testid="cal-expense"]', /₽/);
+  await waitText(browser, '[data-testid="cal-forecast"]', /₽/);
+  s.calendar = await browser.execute(() => document.querySelector(".calendar-screen").textContent);
+  await click(browser, "Напоминания");
+  await waitText(browser, '[data-testid="reminder-row"]', /Коммунальные платежи/);
+  s.reminders = await text('[data-testid="rem-all"]');
   await openSection(browser, "Заметки");
-  s.notes = await text("main");
+  await waitText(browser, '[data-testid="note"]', /Холодильник/);
+  s.notes = await text('[data-testid="notes"]');
   return s;
 }
 
@@ -150,7 +166,7 @@ test("месяц жизни: от первого запуска до сводк�
   // 3. Бюджет месяца.
   await openSection(browser, "Бюджет");
   await click(browser, "Создать пустой");
-  for (const [cat, limit] of [["Питание", "15000"], ["Общепит", "3000"]]) {
+  for (const [cat, limit] of budgetLimits) {
     await choose(browser, "add-expense", cat);
     await fill(browser, "add-expense-limit", limit);
     await click(browser, "Добавить", '//*[@data-testid="budget-expense"]');

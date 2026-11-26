@@ -4,6 +4,7 @@
 // выключатель «Предупреждать о бюджете». Постановка: docs/product/0.16-quick-wins.md.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
+import { holdCommands } from "./hold-commands.mjs";
 import { start, stop, openSection, openSettings, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -51,6 +52,15 @@ async function press(xpath) {
 const count = (sel) => browser.execute((s) => document.querySelectorAll(s).length, sel);
 
 let browser;
+async function invoke(command, args = {}) {
+  const result = await browser.executeAsync((cmd, input, done) => {
+    window.__TAURI_INTERNALS__.invoke(cmd, input)
+      .then((value) => done({ value }), (error) => done({ error: String(error) }));
+  }, command, args);
+  assert.equal(result.error, undefined, `${command}: ${result.error}`);
+  return result.value;
+}
+
 before(async () => {
   ({ browser } = await start());
   await browser.$("//h1[normalize-space()='Основная валюта']").waitForDisplayed({ timeout: 15000 });
@@ -296,9 +306,7 @@ test("пачка: категория двум операциям, перевод
       // расходную категорию тоже не получает.
       rows.find((r) => r.querySelector(".main")?.textContent.includes("Магазины")).querySelector('[data-testid="txn-select"]').click();
     });
-    // Плашку «Отменено» от прошлого шага закрываем: она внизу экрана, как и полоса.
-    if (await browser.$('[data-testid="undo-bar"]').isExisting()) await (await browser.$('[data-testid="undo-bar"] button[aria-label="Закрыть"]')).click();
-    await click(browser, "Категория", '//*[@data-testid="sel-bar"]');
+    await browser.$('//*[@data-testid="sel-bar"]//button[normalize-space()="Категория"]').click();
     await pickLike("bulkCategory", "Общепит");
     await click(browser, "Поставить", '//*[@data-testid="sel-bar"]');
     await waitText(browser, '[data-testid="bulk-message"]', /пропущено 1: переводы/);
@@ -452,6 +460,54 @@ test("Отчёты «Чистые активы»: 12 точек, разбивк�
   await browser.waitUntil(async () => (await count('[data-testid="networth-report"] rect.hit')) >= 1, { timeout: 5000 });
 });
 
+test("Чистые активы: стрелки показывают ту же месячную разбивку, что и мышь", async () => {
+  await openSection(browser, "Отчёты");
+  const report = '[data-testid="networth-report"]';
+  if (!(await browser.$(report).isExisting())) await click(browser, "Чистые активы", '//*[@role="tablist"]');
+  await click(browser, "12 месяцев", '//*[@data-testid="networth-report"]');
+  await waitCount(browser, `${report} rect.hit`, 12);
+  const points = await browser.$$(`${report} rect.hit`);
+  const tip = await browser.$('[data-testid="networth-tip"]');
+  async function readMonth(index) {
+    await points[index].moveTo();
+    await tip.waitForDisplayed();
+    const text = await tip.getText();
+    assert.match(text, /Деньги на счетах[\s\S]*Чистые активы/);
+    return text;
+  }
+  const first = await readMonth(0);
+  const previous = await readMonth(10);
+  const latest = await readMonth(11);
+  assert.notEqual(previous, latest);
+
+  const lastPeriodButton = await browser.$('//*[@data-testid="networth-report"]//button[normalize-space()="Всё время"]');
+  await lastPeriodButton.moveTo();
+  await tip.waitForExist({ reverse: true });
+  await browser.execute(button => button.focus(), lastPeriodButton);
+  await browser.keys("Tab");
+  const slider = await browser.$('[data-testid="networth-month-slider"]');
+  assert.ok(await slider.isFocused(), "С переключателей периода Tab переводит фокус на месяц графика");
+  await browser.keys("End");
+  await browser.keys("ArrowLeft");
+  assert.equal(await tip.getText(), previous);
+  await browser.keys("ArrowRight");
+  assert.equal(await tip.getText(), latest);
+  await browser.keys("ArrowRight");
+  assert.equal(await tip.getText(), latest, "На последнем месяце стрелка вправо сохраняет разбивку");
+  await browser.keys("Home");
+  await browser.keys("ArrowLeft");
+  assert.equal(await tip.getText(), first, "На первом месяце стрелка влево сохраняет разбивку");
+  // После прокрутки под неподвижным курсором WebView2 посылает события входа без движения.
+  await browser.execute(point => {
+    point.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }));
+    point.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+  }, points[10]);
+  assert.equal(await tip.getText(), first, "Прокрутка под неподвижным курсором сохраняет месяц, выбранный клавиатурой");
+  await browser.keys("Tab");
+  assert.equal(await slider.isFocused(), false, "Tab уходит с графика");
+  await tip.waitForExist({ reverse: true });
+});
+
 test("Настройки: «Предупреждать о бюджете» включён по умолчанию и запоминается", async () => {
   await openSettings(browser, "notifications");
   const sw = () => browser.$('[data-testid="budget-alerts"]');
@@ -500,14 +556,6 @@ test("Категории → Теги: переименовать и объед�
 test("событие разбитого чека: создание, смена и снятие сохраняются целиком и отменяются одним Ctrl+Z", async () => {
   // Команды используются для подготовки событий и чтения записанных частей;
   // создание и каждое изменение самого чека проходят через настоящую форму.
-  const invoke = async (command, args = {}) => {
-    const result = await browser.executeAsync((cmd, input, done) => {
-      window.__TAURI_INTERNALS__.invoke(cmd, input)
-        .then((value) => done({ value }), (error) => done({ error: String(error) }));
-    }, command, args);
-    assert.equal(result.error, undefined, `${command}: ${result.error}`);
-    return result.value;
-  };
   const eventNames = ["E2E: поездка чека", "E2E: другое событие"];
   const eventIds = [];
   for (const name of eventNames) {
@@ -598,4 +646,145 @@ test("событие разбитого чека: создание, смена �
   await waitText(browser, '[data-testid="notes-block"]', /Гарантия на весь чек E2E/);
   await browser.keys("Escape");
   await browser.$(dialog).waitForExist({ timeout: 5000, reverse: true });
+});
+
+test("правка покупки и события: исчезнувшее событие сохраняет прежнюю сумму, успешная правка отменяется один раз", async () => {
+  const payee = "Контрольная покупка со сменой события";
+  const accounts = await invoke("list_accounts", { includeArchived: false });
+  const account = accounts.find((a) => a.currencyCode === "RUB");
+  const categories = await invoke("list_categories", { includeArchived: false });
+  const category = categories.find((c) => c.kind === "expense");
+  const date = iso(now);
+  const createEvent = (name) => invoke("create_event", { input: {
+    name, startDate: date, endDate: date, budget: null, note: null,
+  } });
+  const oldEvent = await createEvent("Подготовка поездки E2E");
+  const newEvent = await createEvent("Новая поездка E2E");
+  const deletedEvent = await createEvent("Отменённая поездка E2E");
+  const id = await invoke("create_transaction", { eventId: oldEvent, input: {
+    type: "expense", accountId: account.id, amount: 100000, categoryId: category.id, date, payee,
+  } });
+  const read = () => invoke("get_transaction", { id });
+  await openSection(browser, "Операции");
+  await click(browser, "Показать все операции");
+  await fill(browser, "search", payee);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  await browser.$('[data-testid="txn-row"] .date').click();
+  await fill(browser, "amount", "1200");
+  const event = await browser.$('[role="dialog"] select[name="event"]');
+  await event.$(`option[value="${deletedEvent}"]`).waitForExist();
+  await event.selectByAttribute("value", deletedEvent);
+  // Имитируем изменение базы, пока у человека открыта форма.
+  await invoke("delete_event", { id: deletedEvent });
+  await click(browser, "Сохранить", dialog);
+  await waitText(browser, '[role="dialog"] [role="alert"]', /событие/i);
+  const unchanged = await read();
+  assert.equal(unchanged.amount, 100000);
+  assert.equal(unchanged.eventId, oldEvent);
+  await event.selectByAttribute("value", newEvent);
+  await click(browser, "Сохранить", dialog);
+  await browser.$(dialog).waitForExist({ timeout: 5000, reverse: true });
+  const saved = await read();
+  assert.equal(saved.amount, 120000);
+  assert.equal(saved.eventId, newEvent);
+  await blur();
+  await keys("Control", "z");
+  await browser.waitUntil(async () => {
+    const restored = await read();
+    return restored.amount === 100000 && restored.eventId === oldEvent;
+  }, { timeout: 5000 });
+});
+
+test("замок записи форм: сохранение покупки и удаление напоминания исключают встречное действие", async () => {
+  // Задерживаем только отправку выбранных команд. Ответ и изменение базы настоящие.
+  const startRace = async (commands, firstButton) => {
+    await holdCommands(browser, commands);
+    await browser.execute((first) => {
+      const form = document.querySelector('[role="dialog"] > form');
+      const submit = form.querySelector('.actions button[type="submit"]');
+      const remove = form.querySelector(".actions button.danger");
+      const firstAction = first === "save" ? submit : remove;
+      firstAction.focus();
+      firstAction.click();
+      (first === "save" ? remove : submit).click();
+      form.requestSubmit();
+      for (const [key, code] of [["Enter", "Enter"], ["t", "KeyT"], ["z", "KeyZ"]]) {
+        form.dispatchEvent(new KeyboardEvent("keydown", { key, code, ctrlKey: true, bubbles: true, cancelable: true }));
+      }
+    }, firstButton);
+  };
+  const finish = () => browser.execute(() => window.heldCommands.release());
+  const restore = () => browser.execute(() => { window.heldCommands?.restore(); });
+  const waitLocked = async (field, message, command) => {
+    await waitText(browser, '[role="dialog"] form [role="status"]:not(.sr-only)', message);
+    const actual = await browser.execute((name) => {
+      const form = document.querySelector('form[data-write-pending]');
+      return { calls: window.heldCommands.calls, disabled: form?.querySelector(`[name="${name}"]`)?.matches(":disabled"),
+        actionsDisabled: [...(form?.querySelectorAll(".actions:last-child button") ?? [])].every((b) => b.matches(":disabled")),
+        ownsFocus: !!form?.closest('[role="dialog"]')?.contains(document.activeElement) };
+    }, field);
+    assert.deepEqual(actual, { calls: [command], disabled: true, actionsDisabled: true, ownsFocus: true });
+  };
+
+  const accounts = await invoke("list_accounts", { includeArchived: false });
+  const category = (await invoke("list_categories", { includeArchived: false })).find((c) => c.kind === "expense");
+  const payee = "Проверка двух действий формы";
+  const date = iso(now);
+  const id = await invoke("create_transaction", { eventId: null, input: { type: "expense", date, amount: 100000,
+    accountId: accounts.find((a) => a.currencyCode === "RUB").id, categoryId: category.id, payee } });
+  const event = await invoke("create_event", { input: { name: "Исчезающее событие формы", startDate: date, endDate: date } });
+  await openSection(browser, "Операции");
+  await click(browser, "Показать все операции");
+  await fill(browser, "search", payee);
+  await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
+  // При открытии формы приходит фоновый ответ с подсказками получателя.
+  // Даём ему завершиться во время прямой замены выделенной суммы клавиатурой.
+  await holdCommands(browser, ["payee_hints"]);
+  try {
+    await browser.$('[data-testid="txn-row"] .date').click();
+    const amount = await browser.$('[role="dialog"] input[name="amount"]');
+    await browser.waitUntil(() => browser.execute(() => window.heldCommands.calls.includes("payee_hints")));
+    assert.equal(await amount.getValue(), "1000");
+    await amount.click();
+    await keys("Control", "a");
+    const selected = await browser.execute(el => el === document.activeElement && el.value.slice(el.selectionStart, el.selectionEnd), amount);
+    assert.equal(selected, "1000");
+    await browser.execute(el => el.addEventListener("beforeinput", window.heldCommands.release, { once: true }), amount);
+    await keys("1");
+    await browser.$(`#payee-hints option[value="${payee}"]`).waitForExist();
+    assert.equal(await amount.getValue(), "1");
+    for (const digit of "200") await keys(digit);
+    assert.equal(await amount.getValue(), "1200");
+  } finally { await restore(); }
+  const select = await browser.$('[role="dialog"] select[name="event"]');
+  await select.$(`option[value="${event}"]`).waitForExist();
+  await select.selectByAttribute("value", event);
+  await invoke("delete_event", { id: event });
+  try {
+    await startRace(["update_transaction_full", "delete_transaction", "undo"], "save");
+    await waitLocked("amount", /Сохраняем операцию/, "update_transaction_full");
+    await finish();
+    await waitText(browser, '[role="dialog"] [role="alert"]', /событие/i);
+    await browser.waitUntil(() => browser.$('[role="dialog"] .actions button[type="submit"]').isFocused());
+    assert.equal((await invoke("get_transaction", { id })).amount, 100000);
+    assert.equal(await browser.$('[role="dialog"] [name="amount"]').getValue(), "1200");
+  } finally { await restore(); }
+  await click(browser, "Отмена", dialog);
+
+  const title = "Одно удаление расписания";
+  await openSection(browser, "Календарь");
+  await click(browser, "Напоминания");
+  await click(browser, "+ Напоминание");
+  await fill(browser, "reminderTitle", title);
+  await save(browser);
+  const row = `//*[@data-testid="reminder-row"][.//span[@class="main" and text()="${title}"]]`;
+  await browser.$(`${row}//button[contains(@class,"reminder-edit")]`).click();
+  try {
+    await startRace(["update_reminder", "delete_reminder", "undo"], "delete");
+    await waitLocked("reminderTitle", /Удаляем напоминание/, "delete_reminder");
+    await finish();
+    await browser.$(dialog).waitForExist({ reverse: true, timeout: 5000 });
+    assert.equal(await browser.$(row).isExisting(), false);
+    assert.deepEqual(await browser.execute(() => window.heldCommands.calls), ["delete_reminder"]);
+  } finally { await restore(); }
 });
