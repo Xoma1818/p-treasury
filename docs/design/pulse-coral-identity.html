@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пульс · знак и шрифт Kazna</title>
+<style>
+  * { box-sizing: border-box; }
+  :root { color-scheme: light; font-family: "Segoe UI Variable Text", "Segoe UI", Arial, sans-serif; color:#27222a; background:#f1ede7; }
+  body { margin:0; }
+  main { max-width:1410px; margin:auto; padding:32px clamp(16px,4vw,62px) 36px; }
+  h1,h2,h3,p { margin:0; }
+  .heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:12px 26px; margin-bottom:26px; }
+  h1 { font:560 clamp(31px,3.4vw,52px)/1.05 "Segoe UI Variable Display","Segoe UI",sans-serif; letter-spacing:-.045em; }
+  h2 { font-size:24px; font-weight:570; line-height:1.15; letter-spacing:-.035em; }
+  h3 { font-size:18px; font-weight:600; letter-spacing:-.035em; }
+  .heading p,.subtitle,.sample-caption,.note { font-size:13px; color:#605761; line-height:1.5; }
+  .heading p { font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+  .variant,.typecard { overflow:hidden; border:1px solid #dcd4ce; border-radius:21px; background:#fcf9f4; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:14px 16px 10px; }
+  .tag { color:#843421; font-size:12px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; margin:0 8px; border-radius:15px; overflow:hidden; }
+  .night,.day,.mono { --stamp:#ff9979; --letter:#351b19; --surface:#202230; --body:#f6f0eb; }
+  .day { --stamp:#963e2d; --letter:#fff8f2; --surface:#eee5dc; --body:#28232b; }
+  .mono { --stamp:#25242b; --letter:#fcf9f4; --body:#25242b; }
+  .sample { display:flex; justify-content:center; align-items:center; height:94px; background:var(--surface); }
+  .mark { display:block; flex:none; }
+  .sizes { margin:12px 16px; display:flex; justify-content:space-between; align-items:end; gap:12px; }
+  .size { text-align:center; display:grid; justify-items:center; align-items:end; gap:4px; }
+  .size small { font-size:11px; color:#605761; font-variant-numeric:tabular-nums; }
+  .sizes>span { color:#605761; font-size:12px; align-self:center; margin-right:auto; }
+  .nav-strip { display:flex; align-items:center; background:#1b1c29; color:#f6f0eb; padding:8px 14px; gap:7px; margin:0 8px; border-radius:11px; }
+  .wordmark { font-weight:630; font-size:14px; letter-spacing:-.5px; }
+  .nav-item { display:flex; align-items:center; gap:5px; padding:4px 8px; margin-left:auto; font-size:12px; border-radius:9px; color:#ffad93; background:#332e3e; }
+  .variant p { padding:10px 16px 14px; font-size:13px; line-height:1.4; }
+  .type-heading { margin:26px 0 9px; display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 18px; }
+  .typecard .head { display:block; }
+  .sample-caption { padding-top:2px; }
+  .type-sample { margin:0 8px; border-radius:13px; padding:11px 14px; background:#202230; color:#f6f0eb; }
+  .label { font-size:12px; color:#cdc3ce; }
+  .amount { white-space:nowrap; font-size:clamp(27px,3vw,42px); letter-spacing:-.042em; line-height:1.12; font-weight:500; }
+  .rows { padding:8px 16px 4px; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:5px 0; font-size:14px; }
+  .row+.row { border-top:1px solid #dfd6d0; }
+  .num,.amount { font-variant-numeric:lining-nums tabular-nums; }
+  .num { font-weight:550; white-space:nowrap; }
+  .font-info { padding:4px 16px 12px; font-size:12px; color:#605761; }
+  .conclusion { margin-top:16px; font-size:14px; }
+  #sources { margin-top:17px; }
+  a { color:#873a2b; }
+  .symbols { position:absolute; width:0; height:0; overflow:hidden; }
+  @media(max-width:850px) { .grid{gap:8px} main{padding-inline:14px}.variant p,.head,.rows,.font-info{padding-inline:12px}.sizes{gap:5px;margin-inline:12px}.sizes>span{display:none} }
+  @media(max-width:660px) { .grid{grid-template-columns:1fr}.heading{margin-bottom:15px}.sizes{justify-content:flex-start;gap:22px}.sizes>span{display:inline}.sample{height:90px}.amount{font-size:36px}.type-heading{margin-top:24px} }
+  @media print { main{max-width:none;padding:0}.variant,.typecard{break-inside:avoid}.grid{gap:8px}*{print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <path id="seal" d="M15 2h34q13 0 13 13v29L44 62H15Q2 62 2 49V15Q2 2 15 2Z"/>
+    <symbol id="stamp" viewBox="0 0 64 64">
+      <use href="#seal" fill="var(--stamp)"/>
+      <path fill="var(--letter)" d="M15 15h7v13l15-14h10L29 31l16 17H35L22 34v14h-7Z"/>
+    </symbol>
+    <symbol id="fold" viewBox="0 0 64 64">
+      <use href="#seal" fill="var(--stamp)"/>
+      <path fill="var(--letter)" d="M14 18l8-5v14l15-14h12L23 37v10l-9 5Zm12 19 7-7 14 16-8 4Z"/>
+    </symbol>
+    <symbol id="outline" viewBox="0 0 64 64">
+      <use href="#seal" fill="var(--surface,#fcf9f4)" transform="translate(2 2) scale(.9375)" stroke="var(--stamp)" stroke-width="4.8"/>
+      <path fill="none" stroke="var(--stamp)" stroke-width="6.8" stroke-linecap="round" stroke-linejoin="round" d="M18 16v31m24-31L25 32l15 15M18 32h7"/>
+    </symbol>
+    <symbol id="home" viewBox="0 0 20 20"><path d="m3 8 7-6 7 6v9h-5v-5H8v5H3Z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.6"/></symbol>
+  </defs>
+</svg>
+<main>
+  <header class="heading"><h1>Пульс · знак и шрифт</h1><p>Kazna в коралле и чернилах</p></header>
+  <section aria-label="Варианты знака"><div id="marks" class="grid"></div></section>
+  <section aria-labelledby="typography">
+    <div class="type-heading"><h2 id="typography">Шрифт в интерфейсе</h2><span class="subtitle">Одна сумма и две строки журнала во всех образцах</span></div>
+    <div id="fonts" class="grid"></div>
+  </section>
+  <p class="conclusion"><strong>Предлагаем «Печать» и Segoe + Bahnschrift.</strong> У знака уверенный штрих даже при 16 px. Подписи сохраняют рисунок нынешней Kazna, а цифры сумм выстраиваются в ровные столбцы.</p>
+  <footer id="sources" class="note">Образцы используют шрифты устройства. Edge в Windows подобрал математический минус из Segoe для суммы в Bahnschrift. <a href="https://learn.microsoft.com/ru-ru/windows/apps/design/signature-experiences/typography">Шрифты Windows и поддержка кириллицы</a>.</footer>
+  <noscript>Включите JavaScript, чтобы увидеть сравнение.</noscript>
+</main>
+<script>
+(() => {
+  const marks = [
+    {id:'stamp', title:'Печать', pick:true, detail:'Широкий штрих и открытый угол у «К». Ближе всего к знаку нынешнего «Пульса».'},
+    {id:'fold', title:'Сгиб', detail:'Два штриха разделены узкой щелью. Нижняя диагональ напоминает сгиб бумажной ленты.'},
+    {id:'outline', title:'Контур', detail:'Лёгкая рамка повторяет срез, а скруглённая «К» рифмуется с иконками разделов.'}
+  ];
+  const ui = '"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif';
+  const fonts = [
+    {title:'Segoe UI Variable', primary:['Segoe UI Variable Text','Segoe UI Variable Text Regular','Segoe UI Variable'], display:['Segoe UI Variable Display','Segoe UI Variable Display Regular','Segoe UI Variable'], text:ui, sum:'"Segoe UI Variable Display",'+ui, role:'Text для журнала, Display для баланса'},
+    {title:'Segoe + Bahnschrift', primary:['Bahnschrift','Bahnschrift Regular'], text:ui, numbers:'Bahnschrift,'+ui, sum:'Bahnschrift,'+ui, role:'Геометрические цифры, знакомые подписи'},
+    {title:'Georgia + Segoe', primary:['Georgia'], sum:'Georgia,'+ui, text:ui, role:'Засечки в балансе, нейтральный журнал'}
+  ];
+  const icon = (id,size) => '<svg aria-hidden="true" class="mark" width="'+size+'" height="'+size+'"><use href="#'+id+'" width="'+size+'" height="'+size+'"/></svg>';
+  document.getElementById('marks').innerHTML = marks.map(m => '<article class="variant"><div class="head"><h3>'+m.title+'</h3>'+(m.pick?'<span class="tag">Выбор для Kazna</span>':'')+'</div><div class="pair" aria-label="Тёмная и светлая темы"><div class="sample night">'+icon(m.id,71)+'</div><div class="sample day">'+icon(m.id,71)+'</div></div><div class="sizes mono" style="--surface:#fcf9f4"><span>Монохром</span>'+[16,24,48].map(n=>'<div class="size">'+icon(m.id,n)+'<small>'+n+' px</small></div>').join('')+'</div><div class="nav-strip night" aria-label="Фрагмент навигации Kazna">'+icon(m.id,27)+'<span class="wordmark">Kazna</span><span class="nav-item">'+icon('home',16)+'Главная</span></div><p>'+m.detail+'</p></article>').join('');
+  const types = document.getElementById('fonts');
+  fonts.forEach((f,i)=>{
+    const card = document.createElement('article');
+    card.className='typecard';
+    card.innerHTML='<div class="head"><h3>'+f.title+'</h3><p class="sample-caption">'+f.role+'</p></div><div class="type-sample"><span class="label">Общий баланс</span><div class="amount">25 364,17 ₽</div></div><div class="rows"><div class="row"><span>Покупка в аптеке</span><b class="num">−1 110,00 ₽</b></div><div class="row"><span>Возврат покупки</span><b class="num">+8 888,88 ₽</b></div></div><p class="font-info">Проверяем локальный шрифт…</p>';
+    types.appendChild(card);
+    const rows=card.querySelector('.rows'), sum=card.querySelector('.amount'), info=card.querySelector('.font-info');
+    rows.style.fontFamily=f.text; sum.style.fontFamily=f.sum;
+    rows.querySelectorAll('.num').forEach(n=>{ n.style.fontFamily=f.numbers||f.text; });
+    async function local(names, part) {
+      const face=new FontFace('KaznaTest'+i+part,names.map(n=>'local("'+n+'")').join(','));
+      try { await face.load(); return true; } catch { return false; }
+    }
+    Promise.all([local(f.primary,'A'),local(f.display||f.primary,'B'),local(fonts[0].primary,'UI')]).then(([textFound,sumFound,uiFound])=>{
+      const fallback=!uiFound || !textFound || !sumFound;
+      const ruler = document.createElement('span');
+      ruler.style.cssText='position:absolute;visibility:hidden;font-size:14px;font-weight:550;font-variant-numeric:lining-nums tabular-nums';
+      ruler.style.fontFamily=f.numbers||f.text;
+      rows.appendChild(ruler);
+      const widths = Array.from('0123456789', digit => {ruler.textContent=digit.repeat(10);return ruler.getBoundingClientRect().width;});
+      ruler.remove();
+      const fixed = Math.max(...widths)-Math.min(...widths)<.15;
+      info.textContent=(fallback?'Есть системная замена':'Доступно локально')+' · '+(fixed?'цифры в строках равной ширины':'цифры в строках разной ширины');
+      info.dataset.ready='true';
+    });
+  });
+})();
+</script>
+</body>
+</html>
