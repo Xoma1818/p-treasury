@@ -68,11 +68,15 @@ export function Calendar() {
           </button>
         ))}
       </div>
-      {tab === "month" && <MonthView month={month} setMonth={setMonth} selected={selected} select={selectDay} />}
-      {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={selectDay} selected={selected} />}
-      {tab === "year" && <YearView selected={selected} select={selectDay} />}
-      {tab === "reminders" && <RemindersView />}
-      {selected && tab !== "reminders" && <DayPanel date={selected} canDrag={tab === "month"} heading={dayHeading} onClose={closeDay} onReminder={() => setReminderDate(selected)} />}
+      <div className="calendar-workspace">
+        <div className="calendar-period">
+          {tab === "month" && <MonthView month={month} setMonth={setMonth} selected={selected} select={selectDay} />}
+          {tab === "week" && <WeekView start={weekStart(selected ?? today())} select={selectDay} selected={selected} />}
+          {tab === "year" && <YearView selected={selected} select={selectDay} />}
+          {tab === "reminders" && <RemindersView />}
+        </div>
+        {selected && tab !== "reminders" && <DayPanel date={selected} canDrag={tab === "month"} heading={dayHeading} onClose={closeDay} onReminder={() => setReminderDate(selected)} />}
+      </div>
       {reminderDate && <ReminderForm date={reminderDate} onClose={() => setReminderDate(null)} />}
     </section>
   );
@@ -181,7 +185,7 @@ function ForecastLine({ month }: { month: string }) {
   const line = f ? monthLine(f, month) : null;
   if (!f || !line) return null;
   return (
-    <div className="card cal-forecast clickable" onClick={() => go("forecast")} title="Открыть «Взгляд вперёд»" data-testid="cal-forecast">
+    <button type="button" className="card cal-forecast clickable" onClick={() => go("forecast")} title="Открыть «Взгляд вперёд»" data-testid="cal-forecast">
       <span>
         Прогноз на {formatDate(line.end)}: <b className={line.closing < 0 ? "over" : undefined}><BaseMoney amount={line.closing} /></b>
       </span>
@@ -193,7 +197,7 @@ function ForecastLine({ month }: { month: string }) {
           ◆ {settings && settings.hide_amounts !== "1" ? goalText(g, f.currencySymbol, f.minorUnits) : `${g.name} к ${formatDate(g.deadline)} · сумма скрыта`}
         </span>
       ))}
-    </div>
+    </button>
   );
 }
 
@@ -397,9 +401,11 @@ function WeekView({ start, selected, select }: { start: string; selected: string
             {m.days.map((d, i) => (
               <li key={d.date} className={d.date === selected ? "selected" : undefined}>
                 <button type="button" className="week-day" data-testid="week-day" aria-pressed={d.date === selected} onClick={(event) => select(d.date, event)}>
-                  <span className="week-date">
-                    {weekdays()[i]}, {formatDate(d.date)}
+                  <span className="week-stamp" aria-hidden="true">
+                    <b>{Number(d.date.slice(-2))}</b>
+                    <small>{weekdays()[i]}</small>
                   </span>
+                  <span className="sr-only">{weekdays()[i]}, {formatDate(d.date)}</span>
                   <DayChips day={d} m={m} layers={fineView.layers} showAmounts={!!settings && settings.hide_amounts !== "1"} balance={balances?.get(d.date)} />
                 </button>
               </li>

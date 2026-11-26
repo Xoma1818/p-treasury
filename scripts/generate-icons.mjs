@@ -46,3 +46,7 @@ const images = sizes.map((size, index) => {
   return image;
 });
 writeFileSync(join(icons, "icon.ico"), Buffer.concat([directory, ...images]));
+
+if (process.platform === "win32") {
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", join(root, "scripts", "generate-installer-art.ps1")], { stdio: "inherit" });
+}

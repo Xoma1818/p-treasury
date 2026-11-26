@@ -9,10 +9,9 @@ import { BaseMoney as M } from "./Money";
 import { Hint } from "./Hint";
 import { ChartStatus, MissingChartRates } from "./ChartStatus";
 import { homeShares, shareUnavailable } from "../lib/categoryShares";
+import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
+import { useCategoryMap } from "./CategoryMark";
 import "./chartMotion.css";
-
-/** Цвета долей в кольце «Куда ушли деньги»: последний — «Остальное». */
-const DONUT = ["var(--series-expense)", "#60a5fa", "#a78bfa", "#f472b6", "var(--muted)"];
 
 /** Данные дашборда Главной: полгода по месяцам и те же дни прошлого месяца. */
 export function useDashboard(period: Period | undefined) {
@@ -62,13 +61,14 @@ export function Delta({ pct, lowerIsBetter, hint }: { pct: number | null; lowerI
 }
 
 /** Мини-график в плитке виден сразу. */
-export function Sparkline({ values, className }: { values: number[]; className?: string }) {
+export function Sparkline({ values, className, area }: { values: number[]; className?: string; area?: boolean }) {
   if (values.length < 2) return null;
   const max = Math.max(...values);
   const min = Math.min(...values);
   const d = values.map((v, i) => `${i ? "L" : "M"}${((i * 200) / (values.length - 1)).toFixed(1)} ${(36 - ((v - min) / (max - min || 1)) * 32).toFixed(1)}`).join(" ");
   return (
     <svg className={className ? `spark ${className}` : "spark"} viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
+      {area && <path d={d + " L200 40 H0 Z"} className="spark-area" />}
       <path d={d} />
     </svg>
   );
@@ -176,10 +176,14 @@ export function plural(n: number, one: string, few: string, many: string) {
 /** «Полгода» и «Куда ушли деньги»: столбцы по месяцам и кольцо категорий. */
 export function TrendCard({ period }: { period: Period }) {
   const { months, monthsQuery } = useDashboard(period);
+  const categoryMap = useCategoryMap();
   const categoryQuery = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) });
   const cats = categoryQuery.data;
   const fallback = cats && shareUnavailable(cats);
-  const parts = cats && !fallback ? homeShares(cats) : [];
+  const parts = cats && !fallback ? homeShares(cats).map((part, i) => ({
+    ...part,
+    color: part.id === "rest" ? "var(--muted)" : colorVar(lookOf(cats.items[i].categoryId, categoryMap).color ?? CATEGORY_COLORS[i]),
+  })) : [];
   let acc = 0;
   return (
     <div className="columns trend-row">
@@ -206,7 +210,7 @@ export function TrendCard({ period }: { period: Period }) {
             <div className="donut" role="img" aria-label="Расходы месяца по категориям">
               <svg viewBox="0 0 140 140" aria-hidden="true">
                 <circle cx="70" cy="70" r="54" className="ring-track" />
-                {parts.map((p, i) => {
+                {parts.map((p) => {
                   const pct = (p.amount / cats.total) * 100;
                   const seg = (
                     <circle
@@ -215,7 +219,7 @@ export function TrendCard({ period }: { period: Period }) {
                       cy="70"
                       r="54"
                       className="donut-seg"
-                      stroke={DONUT[i]}
+                      stroke={p.color}
                       pathLength={100}
                       strokeDasharray={`${pct} ${100 - pct}`}
                       strokeDashoffset={-acc}
@@ -231,9 +235,9 @@ export function TrendCard({ period }: { period: Period }) {
               </div>
             </div>
             <ul className="donut-legend">
-              {parts.map((p, i) => (
+              {parts.map((p) => (
                 <li key={p.id}>
-                  <i style={{ background: DONUT[i] }} />
+                  <i style={{ background: p.color }} />
                   <span className="name">{p.name}</span>
                   <span className="muted">{Math.round((p.amount / cats.total) * 100)} %</span>
                   <M amount={p.amount} currencyCode={cats.baseCurrency} />

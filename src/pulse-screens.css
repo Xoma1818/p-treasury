@@ -1,0 +1,264 @@
+/* Главная: общий баланс, дневной лимит и финансовые показатели. */
+.home-overview.tiles,
+.reports-overview .reports-tiles,
+.budget-screen .budget-overview { gap: 8px; }
+
+.home-overview.tiles .home-balance {
+  background: linear-gradient(110deg, var(--card) 38%, color-mix(in srgb, var(--accent) 6%, var(--card)));
+  padding: clamp(14px, 2.2cqi, 26px);
+}
+.home-balance-metrics { align-items: stretch; }
+.home-balance-main, .home-free-detail { align-content: center; }
+.home-overview .home-balance .tile-explain {
+  font-size: clamp(1.9rem, 4.2cqi, 3.25rem);
+  line-height: 1.12;
+  letter-spacing: -.055em;
+}
+.home-free-explain strong { font-size: clamp(1.5rem, 2.5cqi, 2.25rem); }
+.home-balance-chart {
+  background: radial-gradient(var(--grid-rule) .9px, transparent 1px) 0 0 / 8px 8px;
+  margin-block-start: 9px;
+}
+.home-balance-chart > .spark { display: block; height: 48px; margin: 0; }
+.home-overview .home-balance-chart .spark-area { fill: var(--accent); opacity: .12; stroke: none; }
+.home-balance-chart path:not(.spark-area) { vector-effect: non-scaling-stroke; stroke-width: 2.25px; }
+.home-net-worth { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.home-net-worth > span { min-width: 0; overflow-wrap: anywhere; }
+.home-net-worth .nw-spark {
+  display: inline-flex;
+  align-items: center;
+  width: 6rem;
+  max-width: 100%;
+  min-height: 26px;
+  margin: 0;
+  padding: 3px 5px;
+  border-radius: var(--control-radius);
+}
+.home-net-worth .nw-spark .spark { height: 16px; margin: 0; }
+.home-net-worth .spark.networth path { stroke: var(--muted); stroke-width: 1.5px; }
+.home-net-worth .nw-spark:is(:hover, :focus-visible) { background: var(--fill); }
+.home-net-worth .nw-spark:is(:hover, :focus-visible) path { stroke: var(--accent); }
+
+.home-overview .home-balance-main .tile-label::before,
+.reports-overview .reports-balance .tile-label::before {
+  content: "";
+  flex: 0 0 7px;
+  height: 7px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.home-screen .home-budget-today,
+.budget-screen .budget-overview .budget-today {
+  border: 1px solid color-mix(in srgb, var(--action-ink) 16%, var(--action));
+  border-radius: var(--radius);
+  background: repeating-linear-gradient(125deg, transparent 0 7px, color-mix(in srgb, var(--action-ink) 7%, transparent) 7px 8px) right / 25% 100% no-repeat, var(--action);
+  color: var(--action-ink);
+}
+.home-screen .home-budget-today { justify-content: center; padding: 12px 16px; }
+.home-screen .home-budget-today > span,
+.home-screen .home-budget-today .hint:not(.warn),
+.budget-today :is(.tile-label, .tile-value, .muted, .hint:not(.warn)) { color: inherit; }
+.home-screen .home-budget-today > b {
+  font-size: clamp(1.4rem, 2.65cqi, 2.1rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.045em;
+}
+.home-budget-today .hint.warn,
+.budget-today :is(.hint.warn, .tile-value.over) {
+  width: fit-content;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--over-strong);
+}
+.budget-today .hint-q {
+  color: var(--action-ink);
+  background: transparent;
+  border-color: currentColor;
+}
+.budget-today .hint-q:focus-visible { outline-color: var(--action-ink); }
+.home-account-list li { align-items: center; gap: 8px; border-radius: 0; }
+.home-account-list li + li { border-block-start: 1px solid var(--border); }
+.home-account-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-inline-end: auto;
+  overflow-wrap: anywhere;
+}
+.home-account-name .cat-mark,
+.account-name .cat-mark { flex-shrink: 0; border-radius: var(--control-radius); }
+.budget-screen .bar,
+.home-screen .budget-brief .bar {
+  height: 9px;
+  border-radius: 2px;
+  background-image: repeating-linear-gradient(90deg, transparent 0 7px, var(--grid-rule) 7px 8px);
+}
+
+/* Журнал и форма операции. */
+.txn-screen .txn-results-header {
+  padding-block-end: 10px;
+  border-block-end: 1px solid var(--border);
+}
+.txn-screen .txn-period-row { border-block-start-style: dashed; }
+.txn-table .th-sort.active { color: var(--accent); }
+.txn-table .cat-mark { border-radius: 4px; }
+.txn-table .date { font-variant-numeric: tabular-nums; }
+.txn-screen .table-foot .link {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--fill);
+}
+.txn-table tr.receipt-part td { background: var(--fill); }
+.txn-table tr.receipt-part.selected td { background: var(--sel-row); }
+.modal:has(.txn-editor) {
+  background: linear-gradient(145deg, var(--accent-soft), var(--card) 165px);
+}
+.txn-editor .row:has(input[name="amount"]) {
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--card);
+}
+.txn-editor input[name="amount"] { font-size: 1.18em; font-variant-numeric: tabular-nums; }
+.txn-editor :is(.receipt-split, .split, .spread) {
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: var(--control-radius);
+  background: var(--fill);
+}
+.txn-screen .sel-bar {
+  border: 1px solid var(--accent);
+  background-color: var(--card);
+}
+
+/* Календарь: на широком экране операции дня открываются рядом с периодом. */
+.calendar-workspace { display: grid; gap: 12px; align-items: start; }
+.calendar-period,
+.calendar-workspace .day-panel { min-width: 0; }
+.calendar-workspace .day-panel {
+  margin-block-start: 0;
+  border-block-start: 3px solid var(--accent);
+  background: linear-gradient(160deg, var(--accent-soft), var(--card) 100px);
+  overflow-x: auto;
+}
+@container (min-width: 62rem) {
+  .calendar-workspace:has(> .day-panel) {
+    grid-template-columns: minmax(0, 1.6fr) minmax(20rem, 1fr);
+  }
+}
+.calendar-period .week-list { padding: 4px; }
+.calendar-period .week-list li { border: 0; }
+.calendar-period .week-list li.selected { background: transparent; }
+.week-list .week-day {
+  position: relative;
+  align-items: center;
+  gap: 16px;
+  min-height: 58px;
+  padding: 5px 12px;
+  border-radius: var(--control-radius);
+  transition: background-color var(--motion-feedback) var(--ease);
+}
+.week-list li:not(:last-child) .week-day::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 31px;
+  inset-block-start: calc(50% + 20px);
+  height: calc(100% - 40px);
+  border-inline-start: 1px solid var(--border-strong);
+  pointer-events: none;
+}
+.week-day:hover { background: var(--fill); }
+.week-list .week-day[aria-pressed="true"] { background: var(--accent-soft); }
+.week-stamp {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  flex: 0 0 40px;
+  block-size: 40px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--fill);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.week-stamp b { font-size: 1.05rem; }
+.week-stamp small { margin-block-start: 2px; font-size: .65rem; }
+.week-day[aria-pressed="true"] .week-stamp,
+.calendar-period .cal-cell.selected .cal-num {
+  background: var(--action);
+  color: var(--action-ink);
+  border-color: transparent;
+}
+.calendar-period .cal-num {
+  align-self: start;
+  min-width: 22px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.calendar-period .cal-cell:not(.empty) { border-radius: 5px; }
+.calendar-period .cal-cell.today { border-color: var(--accent); }
+.calendar-period .cal-cell.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+.calendar-period .cal-forecast {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+
+/* Отчёты, прогноз и связанные финансовые экраны. */
+.reports-overview .reports-balance {
+  background: linear-gradient(110deg, var(--card), var(--accent-soft));
+}
+.reports-overview .reports-detail { margin-block-start: 16px; }
+.reports-overview .period-picker .month-switch { border-radius: var(--control-radius); }
+.report-tabs { gap: 4px; }
+.chart .grid, .fc-chart .grid, .loan-chart .grid { stroke-dasharray: 3 5; }
+.monthly-bars .swatch.expense {
+  background: repeating-linear-gradient(135deg, var(--series-expense) 0 3px, var(--card) 3px 4px);
+}
+.chart .swatch { border-radius: 2px; }
+.heat .heat-cell,
+.heat-grid .heat-day { border-radius: 3px; font-variant-numeric: tabular-nums; }
+.cat-report .cat-row:hover { background: var(--fill); }
+.forecast-screen .fc-detail > td { background: var(--fill); border-inline-start: 3px solid var(--accent); }
+.invest-totals > div, .loan-totals .loan-total {
+  padding: 8px 12px;
+  border-radius: var(--control-radius);
+  background: var(--fill);
+}
+.loan-totals .loan-total.big { background: var(--accent-soft); }
+.secondary-screen .tree li.child { border-inline-start: 1px solid var(--border); }
+.secondary-screen .tree li.parent .name { font-weight: 620; }
+.compare .compare-periods .period-box {
+  border-inline-start: 3px solid var(--border-strong);
+  border-radius: var(--control-radius);
+}
+.compare .compare-periods .period-box.p2,
+.notes-screen .note-list .pinned { border-inline-start: 3px solid var(--accent); }
+.notes-screen .note-list li { padding-inline-start: 12px; }
+.accounts-table .account-name { gap: 10px; }
+.onboarding-header .onboarding-progress {
+  height: 5px;
+  border-radius: 2px;
+  background: var(--fill-strong);
+}
+.import-overview-source,
+.statement-review-entry { border-inline-start: 3px solid var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .week-list .week-day { transition: none; }
+}
+@media (forced-colors: active) {
+  .week-day[aria-pressed="true"] .week-stamp,
+  .calendar-period .cal-cell.selected { border: 2px solid Highlight; }
+  .monthly-bars .bar-expense { stroke: CanvasText; }
+  .monthly-bars pattern rect { fill: Canvas; }
+  .monthly-bars pattern path { stroke: CanvasText; }
+}

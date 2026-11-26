@@ -1,12 +1,13 @@
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { CrashGuard } from "../components/Crash";
-import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, GripVertical } from "lucide-react";
 import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CbrButton } from "../components/CbrButton";
+import { accountLook, LookMark } from "../components/CategoryMark";
 import { CushionCard } from "../components/Cushion";
 import { AheadCard } from "../components/Ahead";
 import { change, DaysCard, Delta, Sparkline, sparkSeries, SummaryCard, TrendCard, useDashboard } from "../components/Dashboard";
@@ -167,7 +168,7 @@ export function Home() {
                   </button>
                   {hasBalanceChart && (
                     <div className="home-balance-chart" role="img" aria-label="Динамика общего баланса по месяцам" title="Динамика общего баланса по месяцам">
-                      <Sparkline values={spark.balance} />
+                      <Sparkline values={spark.balance} area />
                     </div>
                   )}
                 </div>
@@ -191,8 +192,8 @@ export function Home() {
                 </div>
               )}
               {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0 || debts.assets !== 0) && (
-                <div className="hint home-balance-detail" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
-                  Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <BaseMoney amount={debts.netWorth} currencyCode={debts.baseCurrency} />
+                <div className="hint home-balance-detail home-net-worth" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
+                  <span>Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <BaseMoney amount={debts.netWorth} currencyCode={debts.baseCurrency} /></span>
                   <NetWorthSpark />
                 </div>
               )}
@@ -277,7 +278,7 @@ export function Home() {
                 <Hint of="home.accounts" />
               </h2>
               {accounts.length === 0 && <p className="muted">Счетов нет.</p>}
-              <ul className="account-list">
+              <ul className="account-list home-account-list">
                 {accounts.map((a) => (
                   <li
                     key={a.id}
@@ -287,8 +288,14 @@ export function Home() {
                     {...(!editing ? spendAccount.source(a.id) : {})}
                     title="Перетащите на категорию в «Куда тратите», чтобы записать расход"
                   >
-                    <span>{a.name}</span>
+                    <span className="home-account-name">
+                      <LookMark look={a.icon || a.color ? accountLook(a) : { icon: "wallet", color: null }} size={30} />
+                      <span>{a.name}</span>
+                    </span>
                     <Money amount={a.value ?? a.balance} symbol={a.currencySymbol} currencyCode={a.currencyCode} minorUnits={a.minorUnits} />
+                    <button type="button" className="icon-btn small" aria-label={`Операции по счёту «${a.name}»`}>
+                      <ChevronRight size={15} aria-hidden="true" />
+                    </button>
                   </li>
                 ))}
               </ul>

@@ -63,3 +63,13 @@ it("сохраняет разные ID при совпадении имён и �
   expect(parts.at(-1)).toEqual({ id: "rest", name: "Остальное", amount: 20 });
   expect(parts.reduce((s, p) => s + p.amount, 0)).toBe(r.total);
 });
+
+it("показывает выбранный цвет категории в кольце и легенде, даже при одинаковых названиях", () => {
+  const client = new QueryClient();
+  client.setQueryData(["categories", true], [{ id: "second", color: "rose" }]);
+  client.setQueryData(queryKey, report([item("first", 1200), item("second", 600), item("3", 300), item("4", 200), item("5", 100)]));
+  const html = render(client);
+  expect(html).toContain('stroke="var(--cat-rose)"');
+  expect(html).toContain('style="background:var(--cat-rose)"');
+  expect(html).toContain('stroke="var(--muted)"');
+});

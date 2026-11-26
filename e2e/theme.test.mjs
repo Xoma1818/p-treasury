@@ -90,3 +90,27 @@ test("текст основной кнопки читается в светло�
     assert.ok(contrast >= 4.5, `${mode}: контраст подписи основной кнопки ${contrast.toFixed(2)}:1`);
   }
 });
+
+test("быстрая смена разделов «Пульса» оставляет один экран и один видимый штрих меню", async () => {
+  const { browser } = app;
+  await openSection(browser, "Главная");
+  const navigation = await browser.executeAsync((done) => {
+    const buttons = [...document.querySelectorAll(".app-nav button[data-section]")];
+    const select = id => buttons.find(button => button.dataset.section === id).click();
+    select("budget");
+    setTimeout(() => select("calendar"), 20);
+    setTimeout(() => select("transactions"), 40);
+    setTimeout(() => {
+      const active = document.querySelector(".app-nav [aria-current=page]");
+      const strokes = [...document.querySelectorAll(".rail-mark")];
+      done({
+        section: document.querySelector("main.content").dataset.section,
+        screens: document.querySelectorAll("main.content > .screen").length,
+        label: active.querySelector(".rail-label").innerText,
+        visible: strokes.filter(el => getComputedStyle(el).visibility === "visible").length,
+        running: strokes.some(el => el.getAnimations().length > 0),
+      });
+    }, 350);
+  });
+  assert.deepEqual(navigation, { section: "transactions", screens: 1, label: "Операции", visible: 1, running: false });
+});

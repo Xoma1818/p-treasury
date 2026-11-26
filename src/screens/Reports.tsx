@@ -732,6 +732,7 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const [pointed, setPointed] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const tipId = useId();
+  const expensePattern = useId();
   const settings = useSettings().data;
   const minorUnits = useCurrencies().data?.find(c => c.code === r.baseCurrency)?.minorUnits;
   if (!r.months.length) return <><MissingChartRates rates={r.missingRates} /><p className="muted">Нет данных за выбранные месяцы.</p></>;
@@ -748,7 +749,7 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const y = (v: number) => 12 + plotH - ((v - min) / (max - min)) * plotH;
 
   return (
-    <div className="chart" onPointerLeave={() => setPointed(null)}>
+    <div className={line ? "chart" : "chart monthly-bars"} onPointerLeave={() => setPointed(null)}>
       <MissingChartRates rates={r.missingRates} />
       <div className="legend">
         <span>
@@ -760,6 +761,12 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         <span className="muted">{r.baseCurrency}</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Доходы и расходы по месяцам">
+        {!line && <defs>
+          <pattern id={expensePattern} patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(35)">
+            <rect width="5" height="5" fill="var(--series-expense)" />
+            <path d="M0 0 V5" stroke="var(--card)" strokeWidth="1.5" />
+          </pattern>
+        </defs>}
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD_L} x2={W - 8} y1={y(t)} y2={y(t)} className="grid" />
@@ -789,7 +796,7 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
               onKeyDown={e => { if (e.key === "Escape") { setPointed(null); setFocused(null); } }}>
               <rect x={cx - slot / 2} y={0} width={slot} height={H} className={selected === m ? "hit active" : "hit"} />
               {!line && <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />}
-              {!line && <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i } as React.CSSProperties} />}
+              {!line && <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i, fill: `url(#${expensePattern})` } as React.CSSProperties} />}
               {line && <circle cx={cx} cy={y(m.income)} r={selected === m ? 4.5 : 3} className="dot-income" />}
               {line && <circle cx={cx} cy={y(m.expense)} r={selected === m ? 4.5 : 3} className="dot-expense" />}
               <text x={cx} y={H - 6} className="axis" textAnchor="middle">
