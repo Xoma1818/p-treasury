@@ -1,8 +1,8 @@
-import { useId, type ReactNode } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { Account, Category, CategoryKind } from "../lib/api";
 import type { HintKey } from "../lib/hints";
 import { Hint } from "./Hint";
-import { amountToInput, formatAmount, isExpression, parseAmount } from "../lib/money";
+import { amountToInput, formatAmount, HIDDEN_AMOUNT, isExpression, parseAmount } from "../lib/money";
 
 /** Поле с подписью; `help` — значок «?» с подсказкой из hints.ts у подписи. */
 export function Field({ label, children, hint, help }: { label: string; children: (id: string) => ReactNode; hint?: ReactNode; help?: HintKey }) {
@@ -19,16 +19,7 @@ export function Field({ label, children, hint, help }: { label: string; children
   );
 }
 
-/** Поле суммы: хранит текст, наружу отдаёт минимальные единицы или null. */
-export function AmountInput({
-  id,
-  name,
-  value,
-  onChange,
-  minorUnits = 2,
-  allowNegative = false,
-  autoFocus,
-}: {
+type AmountInputProps = {
   id?: string;
   name: string;
   value: string;
@@ -36,10 +27,25 @@ export function AmountInput({
   minorUnits?: number;
   allowNegative?: boolean;
   autoFocus?: boolean;
-}) {
+  concealed?: boolean;
+};
+
+export function AmountInput({ onChange, ...props }: AmountInputProps) {
+  // Редакторы строк передают новый обработчик при обновлении формы.
+  const latestChange = useRef(onChange);
+  useLayoutEffect(() => { latestChange.current = onChange; }, [onChange]);
+  const change = useCallback((text: string) => latestChange.current(text), []);
+  return <AmountField {...props} onChange={change} />;
+}
+
+// В WebKit посторонняя отрисовка формы может вернуть прежний текст между
+// нативным изменением поля и событием input. Обновляем поле при изменении его свойств.
+const AmountField = memo(function AmountField({
+  id, name, value, onChange, minorUnits = 2, allowNegative = false, autoFocus, concealed = false,
+}: AmountInputProps) {
   const parsed = parseAmount(value, minorUnits);
-  const bad = value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
-  const calc = !bad && parsed !== null && isExpression(value);
+  const bad = !concealed && value.trim() !== "" && (parsed === null || (!allowNegative && parsed < 0));
+  const calc = !concealed && !bad && parsed !== null && isExpression(value);
   return (
     <span className="amount-field">
       <input
@@ -48,7 +54,8 @@ export function AmountInput({
         className={bad ? "amount invalid" : "amount"}
         inputMode="decimal"
         autoComplete="off"
-        value={value}
+        value={concealed ? HIDDEN_AMOUNT : value}
+        readOnly={concealed}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
         // Уход с поля заменяет выражение результатом: «1890+455» → «2345».
@@ -61,7 +68,7 @@ export function AmountInput({
       )}
     </span>
   );
-}
+});
 
 export const amountText = (v: number | null | undefined, minorUnits = 2) => (v == null ? "" : amountToInput(v, minorUnits));
 

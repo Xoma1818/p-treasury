@@ -179,13 +179,22 @@ test("правка и удаление операции меняют балан�
   await browser.$(cashPurchase).click();
   const amount = await field(browser, "amount");
   assert.equal(await amount.getValue(), "500", "открылась исходная сумма наличной покупки");
-  await fill(browser, "amount", "700");
+  await amount.click();
+  await browser.keys(["Control", "a"]);
+  // Проверяем каждый введённый знак, в том числе два последовательных нуля.
+  // Одной посылкой elementSendKeys WebKit иногда возвращал преждевременные «70».
+  for (const expected of ["7", "70", "700"]) {
+    await browser.keys(expected.at(-1));
+    await browser.waitUntil(async () => await amount.getValue() === expected, {
+      timeout: 3000, timeoutMsg: `Сумма после ввода должна равняться «${expected}»`,
+    });
+  }
   assert.ok(await amount.isFocused(), "фокус остаётся в изменённом поле суммы");
   await browser.keys("Tab");
   assert.equal(await amount.getValue(), "700", "после ухода из поля сумма остаётся 700");
   await save(browser);
   await browser.$(cashPurchase).click();
-  const undo = browser.$('[data-testid="undo-bar"] button[title="Ctrl+Z"]');
+  const undo = browser.$('//*[@data-testid="undo-bar"]//button[normalize-space()="Отменить"]');
   await undo.waitForDisplayed();
   assert.equal(await (await field(browser, "amount")).getValue(), "700", "карточка открыла сохранённую сумму");
   assert.equal(await undo.isClickable(), false, "модальная карточка перекрывает плашку отмены");

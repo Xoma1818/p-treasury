@@ -1,0 +1,10 @@
+[data-drag-source] { cursor: grab; user-select: none; }
+[data-direct-drag], [data-direct-drag] * { cursor: grabbing !important; user-select: none !important; }
+[data-drag-active] { outline: 1px dashed var(--muted); outline-offset: -2px; }
+[data-direct-drag] [data-drag-target] { transition: none; }
+[data-drag-over] { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+[data-drag-over][data-insert-before] { outline: 0; box-shadow: inset 0 3px 0 var(--accent); }
+@media (forced-colors: active) {
+  [data-drag-active] { outline-color: CanvasText; }
+  [data-drag-over], [data-drag-over][data-insert-before] { outline: 2px solid Highlight; }
+}

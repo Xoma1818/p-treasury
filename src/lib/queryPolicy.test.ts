@@ -1,6 +1,24 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { MutationObserver, onlineManager, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { expect, test } from "vitest";
-import { AGGREGATE_STALE_MS } from "./queryPolicy";
+import { AGGREGATE_STALE_MS, budgetQueryDefaults } from "./queryPolicy";
+
+test("без сети локальная запись, её чтение и ошибка внешней службы завершаются", async () => {
+  const client = new QueryClient({ defaultOptions: budgetQueryDefaults });
+  const wasOnline = onlineManager.isOnline();
+  onlineManager.setOnline(false);
+  try {
+    let balance = 20_000;
+    const purchase = new MutationObserver(client, { mutationFn: async (amount: number) => { balance -= amount; } });
+    await purchase.mutate(1000);
+    expect(await client.fetchQuery({ queryKey: ["balance"], queryFn: async () => balance })).toBe(19_000);
+    const check = new MutationObserver(client, { mutationFn: async () => { throw new Error("Нет связи"); } });
+    await expect(check.mutate()).rejects.toThrow("Нет связи");
+    expect(check.getCurrentResult().isPaused).toBe(false);
+  } finally {
+    onlineManager.setOnline(wasOnline);
+    client.clear();
+  }
+});
 
 test("Home remount reuses aggregates but mutations and a new date fetch fresh data", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });

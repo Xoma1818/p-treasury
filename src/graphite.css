@@ -1,8 +1,6 @@
 /* Shared surfaces and interaction states for the Graphite and Mint design. */
 :root {
-  --motion-press: 85ms;
-  --motion-selection: 220ms;
-  --ease-selection: cubic-bezier(.22, 1, .36, 1);
+  --motion-selection: var(--motion-layer);
   --page-gutter: clamp(16px, 3vw, 36px);
 }
 
@@ -59,7 +57,7 @@
     transform var(--motion-feedback) var(--ease-selection), filter var(--motion-press) ease-out;
 }
 :is(.icon-btn, .foot-btn, .nav-search, .theme-switch > button):active:not(:disabled):not([aria-disabled="true"]) {
-  transform: scale(.97);
+  transform: none;
 }
 
 :where(a[href], summary, [role="button"], [role="menuitem"], [role="option"]):focus-visible {
@@ -70,9 +68,9 @@
 input:is([type="range"], [type="checkbox"], [type="radio"]) { accent-color: var(--accent); }
 input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 input[type="range"]::-webkit-slider-thumb { transition: transform var(--motion-press) ease-out; }
-input[type="range"]:active:not(:disabled)::-webkit-slider-thumb { transform: scale(1.12); }
+input[type="range"]:active:not(:disabled)::-webkit-slider-thumb { transform: scale(1.04); }
 input[type="range"]::-moz-range-thumb { transition: transform var(--motion-press) ease-out; }
-input[type="range"]:active:not(:disabled)::-moz-range-thumb { transform: scale(1.12); }
+input[type="range"]:active:not(:disabled)::-moz-range-thumb { transform: scale(1.04); }
 
 /* A decorative indicator follows the selected tab with no layout reads or event hooks. */
 @supports selector(:has(> button)) {

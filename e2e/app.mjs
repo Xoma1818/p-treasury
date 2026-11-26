@@ -119,7 +119,7 @@ let currentDir;
 /** По этому образцу добивается процесс приложения после прогона. */
 let killPattern;
 
-export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false } = {}) {
+export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e-")), { env = {}, bin = APP_BIN, args, homeDefaults = false, verboseDriver = true } = {}) {
   currentDir = dataDir;
   killPattern = args ? bin : `--data-dir=${dataDir}`;
   // Переменные окружения доходят до приложения через tauri-driver.
@@ -129,7 +129,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   const wv2 = {};
   // Windows: msedgedriver напрямую (как его вызывает tauri-driver), с подробным журналом —
   // если сессия не создаётся, его хвост объясняет почему.
-  const edgeLog = WIN ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
+  const edgeLog = WIN && verboseDriver ? join(mkdtempSync(join(tmpdir(), "p-treasury-edgelog-")), "msedgedriver.log") : null;
   const appArgs = args ?? [`--data-dir=${dataDir}`];
   // WebKit хранит личное меню вне SQLite. У каждой учебной базы свой профиль,
   // который сохраняется при перезапуске той же базы.
@@ -138,7 +138,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     if (WIN) await winCleanup();
     const childEnv = { ...process.env, ...cbr, ...wv2, ...webkitProfile, ...env };
     driver = WIN
-      ? spawn("msedgedriver", ["--port=4444", "--verbose", `--log-path=${edgeLog}`], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
+      ? spawn("msedgedriver", ["--port=4444", ...(edgeLog ? ["--verbose", `--log-path=${edgeLog}`] : [])], { stdio: ["ignore", "ignore", "inherit"], env: childEnv })
       : spawn("tauri-driver", [], { stdio: ["ignore", "ignore", "inherit"], env: childEnv });
     await new Promise((r) => setTimeout(r, 1500));
     return remote({
@@ -154,6 +154,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
     });
   };
   const edgeTail = () => {
+    if (!edgeLog) return "подробный журнал отключён для длительного замера";
     try {
       return readFileSync(edgeLog, "utf8").split(/\r?\n/).slice(-80).join("\n");
     } catch (e) {
@@ -195,14 +196,14 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   return { browser, dataDir };
 }
 
-function nativeWindowSize(browser, dimensions = []) {
+function nativeWindowCommand(browser, args = []) {
   const owner = windowsSessions.get(browser);
   if (!owner?.driver.pid || owner.driver.exitCode !== null || owner.driver.signalCode !== null) {
     throw new Error("Нет работающего драйвера, который запустил это окно Kazna.");
   }
   const result = spawnSync("powershell.exe", [
     "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", join(ROOT, "e2e/windows-window.ps1"),
-    "-DriverId", String(owner.driver.pid), "-AppPath", owner.bin, ...dimensions,
+    "-DriverId", String(owner.driver.pid), "-AppPath", owner.bin, ...args,
   ], { encoding: "utf8", timeout: 20000, windowsHide: true });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error((result.stderr || result.stdout).trim());
@@ -210,12 +211,20 @@ function nativeWindowSize(browser, dimensions = []) {
 }
 
 export async function getAppWindowSize(browser) {
-  return WIN ? nativeWindowSize(browser) : browser.getWindowSize();
+  return WIN ? nativeWindowCommand(browser) : browser.getWindowSize();
 }
 
 export async function resizeAppWindow(browser, width, height) {
   if (!WIN) return browser.setWindowSize(width, height);
-  return nativeWindowSize(browser, ["-Width", String(width), "-Height", String(height)]);
+  return nativeWindowCommand(browser, ["-Width", String(width), "-Height", String(height)]);
+}
+
+export function minimizeTestWindow(browser, minimized) {
+  return nativeWindowCommand(browser, ["-WindowState", minimized ? "Minimize" : "Restore"]);
+}
+
+export function testWindowMemory(browser) {
+  return nativeWindowCommand(browser, ["-MeasureMemory"]);
 }
 
 /** Показать все карточки Главной (раскладка до 0.21: всё видно) и перезагрузить окно. */
@@ -259,19 +268,10 @@ export function appPid(dataDir = currentDir) {
 }
 
 /** Закрыть окно кнопкой «×», как пользователь (WebDriver вместо этого убивает процесс). */
-export function closeLikeUser(dataDir = currentDir) {
-  const pid = appPid(dataDir);
-  if (!pid && WIN) {
-    const all = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${APP_FILE}'" | ForEach-Object { $_.CommandLine }`], { encoding: "utf8" }).stdout.trim();
-    throw new Error(`приложение не запущено: нет процесса с --data-dir=${dataDir}; запущены: ${all || "нет"}`);
-  }
+export function closeLikeUser(browser) {
+  if (WIN) return nativeWindowCommand(browser, ["-CloseMain"]);
+  const pid = appPid();
   if (!pid) throw new Error("приложение не запущено");
-  if (WIN) {
-    // taskkill без /F посылает окнам WM_CLOSE — то же, что нажать «×».
-    const r = spawnSync("taskkill", ["/PID", pid], { encoding: "utf8" });
-    if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr || r.stdout}`);
-    return;
-  }
   const wins = spawnSync("xdotool", ["search", "--pid", pid], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
   const r = spawnSync("python3", [join(ROOT, "e2e/wm_close.py"), ...wins], { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`не удалось закрыть окно: ${r.stderr}`);
@@ -335,15 +335,19 @@ export async function fill(browser, name, value) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
   const previous = await el.getValue();
+  const replaceDigits = previous !== "" && /^[0-9]+$/.test(value);
   if (previous !== "") {
     await el.click();
-    // Ввод заменяет выделенный текст сразу. Промежуточная очистка управляемого
-    // поля и повторный elementClear в setValue ненадёжны в WebView2 и WebKit.
+    // При замене числа выделение и набор идут одной серией клавиш.
+    // В WebKit отдельный elementSendKeys после Ctrl+A мог терять цифру.
     const keys = browser.action("key").down(Key.Ctrl).down("a").up("a").up(Key.Ctrl);
     if (value === "") keys.down(Key.Backspace).up(Key.Backspace);
+    if (replaceDigits) {
+      for (const digit of value) keys.down(digit).up(digit);
+    }
     await keys.perform();
   }
-  if (value !== "") await el.addValue(value);
+  if (value !== "" && !replaceDigits) await el.addValue(value);
   const got = await el.getValue();
   if (got !== value) throw new Error(`Поле ${name}: было «${previous}», ожидалось «${value}», в поле «${got}»`);
 }
@@ -372,7 +376,7 @@ async function why(browser, el) {
     .catch((e) => `диагностика не удалась: ${e.message}`);
 }
 
-/** Выбрать пункт списка, текст которого содержит `text` (подкатегории идут с отступом). */
+/** Выбрать пункт по полной подписи без краевых отступов (они бывают у подкатегорий). */
 export async function chooseLike(browser, name, text) {
   const el = await field(browser, name);
   await el.waitForDisplayed({ timeout: 5000 });
@@ -557,7 +561,7 @@ export async function setDate(browser, name, value) {
 
 /** Новый долг через форму расчёта (0.16): поля расчёта, затем «Записать заём» с кем и счётом.
  *  По умолчанию проценты «по месяцам» — так считались суммы в тестах до 0.16. */
-export async function newDebt(browser, { counterparty, principal, rate, term, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
+export async function newDebt(browser, { counterparty, principal, rate, term, issueDate, firstPayment, account, lent = false, repayment, maturity, daily = false }) {
   await openSection(browser, "Займы и долги");
   await click(browser, "+ Новый долг");
   await browser.$('//main//h1[contains(., "Новый долг")]').waitForDisplayed({ timeout: 5000 });
@@ -569,6 +573,7 @@ export async function newDebt(browser, { counterparty, principal, rate, term, fi
     await fill(browser, "term", term);
   }
   if (maturity) await setDate(browser, "maturity", maturity);
+  if (issueDate) await setDate(browser, "issueDate", issueDate);
   if (firstPayment) await setDate(browser, "firstPayment", firstPayment);
   await click(browser, daily ? "по дням, как банк" : "по месяцам");
   await browser.$('[data-testid="loan-payment"]').waitForDisplayed({ timeout: 5000 });

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Покрыть перерасход · Учебный бюджет Kazna</title>
+  <style>
+    :root { color-scheme: dark; --bg: #15191d; --surface: #1e242a; --tile: #252d33; --edge: #46515b; --text: #f2f6f5; --muted: #b5c2c6; --mint: #83e2c2; --warn: #ffc595; --err: #ffb0ab; font: 16px/1.5 "Segoe UI Variable Text","Segoe UI",sans-serif; }
+    *,*::before,*::after { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); }
+    main, header { max-width: 980px; margin-inline: auto; padding-inline: clamp(16px,4.7vw,52px); }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 22px; border-bottom: 1px solid var(--edge); }
+    .brand,.tools,.actions { display: flex; align-items: center; gap: 10px; }
+    .brand { font-size: 1.22rem; font-weight: 700; letter-spacing: -.045em; }
+    .brand svg { width: 30px; height: 30px; }
+    main { padding-block: 24px 40px; }
+    h1,h2,p,dl,dd { margin: 0; }
+    h1 { font-size: clamp(1.85rem,4vw,2.6rem); letter-spacing: -.045em; line-height: 1.12; }
+    h2, caption { font-size: 1.13rem; font-weight: 630; letter-spacing: -.015em; }
+    .quiet,dt,.note,small,legend { color: var(--muted); }
+    .lead { margin-top: 8px; }
+    .note,small,legend { font-size: .875rem; }
+    .lab { color: var(--muted); font-size: .84rem; font-weight: 500; }
+    .panel { background: var(--surface); border: 1px solid var(--edge); border-radius: 16px; padding: clamp(16px,3vw,26px); margin-top: 20px; }
+    .summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 18px; margin-top: 20px; }
+    dt { font-size: .9rem; }
+    dd { margin-top: 4px; font-size: clamp(1.12rem,2.4vw,1.5rem); font-weight: 620; }
+    .amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; margin-block: 16px 22px; font-variant-numeric: tabular-nums; }
+    th,td { padding: 10px 8px; border-bottom: 1px solid var(--edge); text-align: right; }
+    thead th { color: var(--muted); font-size: .82rem; font-weight: 550; }
+    tbody th,thead th:first-child { text-align: left; }
+    tbody th { font-weight: 590; }
+    td { white-space: nowrap; }
+    [data-result] { color: var(--mint); }
+    .status { min-height: 1.6em; margin-top: 12px; }
+    .status.error { color: var(--err); }
+    .actions { flex-wrap: wrap; }
+    button, select { border: 1px solid var(--edge); border-radius: 8px; background: var(--tile); color: var(--text); font: inherit; padding: 8px 13px; min-height: 40px; }
+    button { cursor: pointer; }
+    button.primary { background: var(--mint); border-color: transparent; color: #102c23; font-weight: 650; }
+    button[aria-disabled="true"] { cursor: default; background: var(--tile); color: var(--muted); border-color: var(--edge); }
+    :focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
+    @media (hover:hover) { button:not([aria-disabled="true"]):hover { box-shadow: inset 0 0 0 1px currentColor; } }
+    .options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px 24px; align-items: start; }
+    fieldset { margin: 0; border: 0; padding: 0; min-width: 0; }
+    legend,.select-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: .9rem; }
+    .choice { display: inline-flex; align-items: center; gap: 5px; margin-right: 9px; min-height: 36px; }
+    input { accent-color: var(--mint); }
+    select { width: 100%; }
+    .options h2 { grid-column: 1/-1; }
+    .full { grid-column: 1/-1; }
+    .flash td,.flash th { animation: row-accent 160ms cubic-bezier(.2,0,0,1); }
+    @keyframes row-accent { from { background-color: #31584d; } to { background-color: transparent; } }
+    html[data-reduced="true"] *, html[data-private="true"] tr * { animation: none !important; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+    @media (max-width: 590px) {
+      .summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .options { grid-template-columns: 1fr; }
+      .brand { gap: 6px; }
+      th,td { font-size: .88rem; padding: 9px 4px; }
+      thead th { font-size: .77rem; }
+      .lab { font-size: .77rem; }
+      header { flex-wrap: wrap; }
+    }
+    @media (max-width: 390px) { th,td { font-size: .79rem; } .panel { padding: 12px; } }
+    @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } .flash * { animation: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg aria-hidden="true" viewBox="0 0 576 576"><path fill="#02b899" d="M162 4h252a152 155 0 0 1 152 155v258a152 155 0 0 1-152 155H162A152 155 0 0 1 10 417V159A152 155 0 0 1 162 4Z"/><path fill="#f5f8fb" d="M245 105h75c27 0 48 21 48 47 0 14-6 26-16 36L187 347c-8 8-21 13-32 13-28 0-45-21-45-45v-69c0-80 60-141 135-141ZM257 473h76c73 0 133-59 133-135v-74c0-26-16-46-39-46-13 0-22 5-32 14L227 393c-10 10-16 22-16 36 0 25 20 44 46 44Z"/></svg>
+      Kazna <span class="lab">· Учебный бюджет</span>
+    </div>
+    <button id="privacy" type="button" aria-pressed="false">Скрыть суммы</button>
+  </header>
+  <main>
+    <h1>Покрыть перерасход</h1>
+    <p class="quiet lead" id="lead"></p>
+    <section class="panel" aria-labelledby="limits">
+      <h2 id="limits">Лимиты категорий</h2>
+      <table aria-labelledby="limits">
+        <thead><tr><th scope="col">Категория</th><th scope="col" id="previous"></th><th scope="col" id="next"></th><th scope="col">Потрачено</th></tr></thead>
+        <tbody>
+          <tr id="food"><th scope="row"></th><td></td><td data-result></td><td></td></tr>
+          <tr id="leisure"><th scope="row"></th><td></td><td data-result></td><td></td></tr>
+        </tbody>
+      </table>
+      <div class="actions">
+        <button id="apply" class="primary" type="button"></button>
+        <button id="reset" type="button">Начать заново</button>
+      </div>
+      <p id="status" role="status" class="status"></p>
+      <p id="error" role="alert" class="status error" hidden></p>
+    </section>
+    <section class="panel" aria-labelledby="totals">
+      <h2 id="totals">Итоги месяца</h2>
+      <dl class="summary">
+        <div><dt>Общий план</dt><dd class="amount" id="plan"></dd></div>
+        <div><dt>Потрачено</dt><dd class="amount" id="spent"></dd></div>
+        <div><dt id="card-label"></dt><dd class="amount" id="card"></dd></div>
+        <div><dt id="cash-label"></dt><dd class="amount" id="cash"></dd></div>
+      </dl>
+    </section>
+    <section class="panel options" aria-labelledby="config">
+      <h2 id="config">Сравнение вариантов</h2>
+      <fieldset>
+        <legend>Подтверждение</legend>
+        <label class="choice"><input name="accent" type="radio" value="none"> Без акцента</label>
+        <label class="choice"><input name="accent" type="radio" value="local" checked> Выделить строки</label>
+      </fieldset>
+      <div><label class="select-label" for="response">Ответ учебной базы</label>
+        <select id="response">
+          <option value="fast">Быстрый</option>
+          <option value="slow">С задержкой</option>
+          <option value="error">Ошибка при первой попытке</option>
+        </select>
+      </div>
+      <label class="choice full"><input id="reduce" type="checkbox"> Уменьшить движение дополнительно к настройке Windows</label>
+      <p class="note full">Все данные вымышлены. «Начать заново» возвращает исходные лимиты и сохраняет выбранные условия сравнения.</p>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const byId = (id) => document.getElementById(id);
+    const format = new Intl.NumberFormat('ru-RU', {style:'currency', currency:'RUB', maximumFractionDigits:0});
+    const preference = matchMedia('(prefers-reduced-motion: reduce)');
+    const example = { food: {name:'Питание', plan:3000, spent:3400}, leisure:{name:'Досуг', plan:2000, spent:1000}, card:22600, cash:5000 };
+    const coverage = example.food.spent - example.food.plan;
+    let privateMode = false;
+    let stage = 'ready';
+    let showWaiting = false;
+    let attempts = 0;
+    let revision = 0;
+    let acknowledgement, completion;
+    const money = (amount) => privateMode ? '•••' : format.format(amount);
+    function setText(id, value) {
+      const el = byId(id);
+      if (el.textContent !== value) el.textContent = value;
+    }
+    function render() {
+      const saved = stage === 'saved';
+      const pending = stage === 'pending';
+      document.documentElement.dataset.private = String(privateMode);
+      document.documentElement.dataset.reduced = String(preference.matches || byId('reduce').checked);
+      if (privateMode || document.documentElement.dataset.reduced === 'true') {
+        document.querySelectorAll('.flash').forEach(el => el.classList.remove('flash'));
+      }
+      byId('privacy').setAttribute('aria-pressed', String(privateMode));
+      setText('privacy', privateMode ? 'Показать суммы' : 'Скрыть суммы');
+      setText('lead', privateMode ? 'Перенос свободного лимита между двумя категориями.' :
+        'Перенос ' + money(coverage) + ' из «Досуга» в «Питание».');
+      setText('previous', saved ? 'До переноса' : 'Сейчас');
+      setText('next', saved ? 'Сейчас' : 'После переноса');
+      for (const id of ['food', 'leisure']) {
+        const row = byId(id), value = example[id], incoming = id === 'food';
+        const cells = [privateMode ? (incoming ? 'Получатель' : 'Источник') : value.name,
+          money(value.plan), money(value.plan + (incoming ? coverage : -coverage)), money(value.spent)];
+        cells.forEach((text,i) => { if (row.cells[i].textContent !== text) row.cells[i].textContent = text; });
+      }
+      setText('plan', money(example.food.plan + example.leisure.plan));
+      setText('spent', money(example.food.spent + example.leisure.spent));
+      setText('card-label', privateMode ? 'Первый счёт' : 'Карта');
+      setText('cash-label', privateMode ? 'Второй счёт' : 'Наличные');
+      setText('card', money(example.card));
+      setText('cash', money(example.cash));
+      byId('apply').setAttribute('aria-disabled', String(pending || saved));
+      setText('apply', saved ? 'Перенос выполнен' : stage === 'error' ? 'Повторить' : (pending && showWaiting ? 'Сохраняем…' : 'Подтвердить перенос'));
+      byId('status').hidden = stage === 'error';
+      let status = 'Проверьте оба лимита перед подтверждением.';
+      if (saved) status = 'Лимиты обновлены. Общий план и остатки на счетах сохранились.';
+      if (pending) status = showWaiting ? 'Ожидаем подтверждения записи.' : '';
+      setText('status', stage === 'error' ? '' : status);
+      byId('error').hidden = stage !== 'error';
+      setText('error', stage === 'error' ? 'Запись не прошла. Лимиты прежние. Можно повторить.' : '');
+    }
+    function reset() {
+      ++revision;
+      clearTimeout(acknowledgement);
+      clearTimeout(completion);
+      stage = 'ready';
+      showWaiting = false;
+      attempts = 0;
+      for (const el of [byId('food'),byId('leisure')]) el.classList.remove('flash');
+      render();
+      byId('apply').focus({preventScroll:true});
+    }
+    function apply() {
+      if (stage !== 'ready' && stage !== 'error') return;
+      const mode = byId('response').value, generation = ++revision;
+      const fail = mode === 'error' && attempts === 0;
+      ++attempts;
+      stage = 'pending';
+      showWaiting = false;
+      render();
+      acknowledgement = setTimeout(() => {
+        if (generation !== revision || stage !== 'pending') return;
+        showWaiting = true;
+        render();
+      }, 200);
+      completion = setTimeout(() => {
+        if (generation !== revision) return;
+        clearTimeout(acknowledgement);
+        stage = fail ? 'error' : 'saved';
+        render();
+        if (!fail && !privateMode && document.documentElement.dataset.reduced === 'false' &&
+            document.querySelector('input[name="accent"]:checked').value === 'local') {
+          for (const el of [byId('food'),byId('leisure')]) el.classList.add('flash');
+        }
+      }, mode === 'fast' ? 25 : 950);
+    }
+    byId('apply').addEventListener('click', apply);
+    byId('reset').addEventListener('click', reset);
+    byId('privacy').addEventListener('click', () => {
+      privateMode = !privateMode;
+      render();
+    });
+    byId('reduce').addEventListener('change', render);
+    preference.addEventListener('change', render);
+    document.addEventListener('animationend', event => {
+      if (event.animationName === 'row-accent') event.target.closest('tr')?.classList.remove('flash');
+    });
+    render();
+  </script>
+</body>
+</html>

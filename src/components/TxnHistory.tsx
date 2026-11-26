@@ -23,7 +23,8 @@ function times(n: number) {
  */
 export function TxnHistory({ id, splitId }: { id: string; splitId?: string | null }) {
   const [open, setOpen] = useState(false);
-  const hidden = useSettings().data?.hide_amounts === "1";
+  const settings = useSettings().data;
+  const hidden = !settings || settings.hide_amounts === "1";
   const { data } = useQuery({ queryKey: ["txnHistory", id, splitId ?? null], queryFn: () => api.transactionHistory(id, splitId ?? null) });
   if (!data?.createdAt) return null;
   const n = data.changes.length;

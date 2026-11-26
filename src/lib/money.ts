@@ -1,17 +1,18 @@
-import { currencyLabel, shownAmount } from "./fine";
+import { currencyLabel, fine } from "./fine";
 // Деньги в UI: целые минимальные единицы (копейки), как в ядре.
 // Формат совпадает с budget_core::money::format_amount.
 
 const GROUP_SEP = " ";
 
-export function formatAmount(amount: number, minorUnits = 2, trimZeroFraction = true): string {
+export function formatAmount(amount: number, minorUnits = 2, trimZeroFraction = true, wholeUnits = false): string {
   if (!Number.isSafeInteger(amount)) {
     throw new Error(`сумма должна быть целым числом минимальных единиц: ${amount}`);
   }
   const negative = amount < 0;
   const abs = BigInt(Math.abs(amount));
   const scale = 10n ** BigInt(minorUnits);
-  const intPart = (abs / scale).toString();
+  const major = wholeUnits ? (abs + scale / 2n) / scale : abs / scale;
+  const intPart = major.toString();
   const fracPart = abs % scale;
 
   let grouped = "";
@@ -20,16 +21,16 @@ export function formatAmount(amount: number, minorUnits = 2, trimZeroFraction = 
     grouped += intPart[i];
   }
 
-  let out = (negative ? "−" : "") + grouped;
-  if (minorUnits > 0 && !(trimZeroFraction && fracPart === 0n)) {
+  let out = (negative && !(wholeUnits && major === 0n) ? "−" : "") + grouped;
+  if (!wholeUnits && minorUnits > 0 && !(trimZeroFraction && fracPart === 0n)) {
     out += "," + fracPart.toString().padStart(minorUnits, "0");
   }
   return out;
 }
 
 /** Сумма для экрана с учётом тонких настроек (Г12): без копеек и с кодом валюты по желанию. */
-export function formatMoney(amount: number, symbol: string, minorUnits = 2): string {
-  return `${formatAmount(shownAmount(amount, minorUnits), minorUnits)}${GROUP_SEP}${currencyLabel(symbol)}`;
+export function formatMoney(amount: number, symbol: string, minorUnits = 2, wholeUnits = !fine().kopecks): string {
+  return `${formatAmount(amount, minorUnits, true, wholeUnits)}${GROUP_SEP}${currencyLabel(symbol, minorUnits)}`;
 }
 
 export const HIDDEN_AMOUNT = "•••";

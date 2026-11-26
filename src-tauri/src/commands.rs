@@ -154,6 +154,34 @@ pub fn app_info(state: State<AppState>) -> CmdResult<AppInfo> {
     })
 }
 
+/// Физические пиксели допуска перемещения мыши для текущего монитора.
+#[tauri::command]
+pub fn drag_threshold(window: tauri::WebviewWindow) -> Option<[i32; 2]> {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetricsForDpi(index: i32, dpi: u32) -> i32;
+        }
+        const SM_CXDRAG: i32 = 68;
+        const SM_CYDRAG: i32 = 69;
+        let dpi = (96.0 * window.scale_factor().ok()?).round() as u32;
+        // SAFETY: обе метрики принимают только целые числа, указателей нет.
+        let metrics = unsafe {
+            [
+                GetSystemMetricsForDpi(SM_CXDRAG, dpi).abs(),
+                GetSystemMetricsForDpi(SM_CYDRAG, dpi).abs(),
+            ]
+        };
+        metrics.into_iter().all(|n| n > 0).then_some(metrics)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        None
+    }
+}
+
 // --- Настройки и валюты ---
 
 #[tauri::command(async)]
@@ -167,8 +195,10 @@ pub fn set_setting(state: State<AppState>, key: String, value: String) -> CmdRes
 }
 
 #[tauri::command(async)]
-pub fn list_currencies(state: State<AppState>) -> CmdResult<Vec<Currency>> {
-    with_db(&state, |db| currencies::list(db.conn()))
+pub fn list_currencies(state: State<AppState>, all: Option<bool>) -> CmdResult<Vec<Currency>> {
+    with_db(&state, |db| {
+        currencies::list_for_picker(db.conn(), all.unwrap_or(false))
+    })
 }
 
 #[tauri::command(async)]
@@ -296,11 +326,13 @@ pub fn seed_demo(state: State<AppState>) -> CmdResult<()> {
 /// Удалить пример и вернуться к мастеру первого запуска. Отменить нельзя:
 /// журнал отмены очищается, чтобы Ctrl+Z не вернул пример по частям.
 #[tauri::command(async)]
-pub fn clear_demo(state: State<AppState>) -> CmdResult<()> {
-    let mut guard = state.lock_db();
-    state.replace_data(&mut guard, |slot| {
-        let db = slot.as_mut().map_err(|e| e.clone())?;
-        demo::clear(db.conn_mut()).map_err(|e| e.to_string())
+pub fn clear_demo(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    crate::quick_window::during_replacement(&app, &state, || {
+        let mut guard = state.lock_db();
+        state.replace_data(&mut guard, |slot| {
+            let db = slot.as_mut().map_err(|e| e.clone())?;
+            demo::clear(db.conn_mut()).map_err(|e| e.to_string())
+        })
     })
 }
 
@@ -374,6 +406,18 @@ pub fn set_account_group(
 ) -> CmdResult<()> {
     with_undo(&state, "Группа счёта", |c| {
         accounts::set_group(c, &id, group_id.as_deref())
+    })
+}
+
+#[tauri::command(async)]
+pub fn move_account(
+    state: State<AppState>,
+    id: String,
+    group_id: Option<String>,
+    before_id: Option<String>,
+) -> CmdResult<()> {
+    with_undo(&state, "Перемещение счёта", |c| {
+        accounts::move_account(c, &id, group_id.as_deref(), before_id.as_deref())
     })
 }
 
@@ -969,8 +1013,13 @@ pub fn delete_view(state: State<AppState>, id: String) -> CmdResult<()> {
 }
 
 #[tauri::command(async)]
-pub fn quick_parse(state: State<AppState>, text: String) -> CmdResult<Draft> {
+pub fn quick_parse(
+    window: tauri::Window,
+    state: State<AppState>,
+    text: String,
+) -> CmdResult<Draft> {
     with_db(&state, |db| {
+        crate::quick_window::check_budget(&state, window.label())?;
         quick::parse(db.conn(), &text, &time::today_local())
     })
 }
@@ -989,12 +1038,14 @@ pub fn remember_rule(
 
 #[tauri::command(async)]
 pub fn save_quick_transaction(
+    window: tauri::Window,
     state: State<AppState>,
     input: TxnInput,
     extra: TxnExtra,
     merchant: Option<String>,
 ) -> CmdResult<String> {
     with_undo(&state, "Новая операция", |c| {
+        crate::quick_window::check_budget(&state, window.label())?;
         quick::save(c, &input, &extra, merchant.as_deref())
     })
 }
@@ -1047,8 +1098,8 @@ pub fn open_quick(app: AppHandle) -> CmdResult<()> {
 
 /// Операция записана в окне быстрого ввода: окно прячется, главное обновляет данные.
 #[tauri::command]
-pub fn hide_quick(app: AppHandle, saved: bool) {
-    crate::quick_window::hide(&app);
+pub fn hide_quick(app: AppHandle, window: tauri::Window, saved: bool) {
+    crate::quick_window::hide(&app, window.label());
     if saved {
         let _ = app.emit("data-changed", ());
     }
@@ -1138,10 +1189,34 @@ pub fn set_invest_plan(
     mode: String,
     value: i64,
     month: Option<String>,
+    currency_code: Option<String>,
 ) -> CmdResult<()> {
-    with_undo(&state, "План инвестиций", |c| match &month {
-        Some(m) => invest::set_month_plan(c, m, &mode, value),
-        None => invest::set_plan(c, &mode, value),
+    match month {
+        Some(m) => with_undo(&state, "План инвестиций", |c| {
+            invest::set_month_plan(c, &m, &mode, value, currency_code.as_deref())
+        }),
+        None => with_db(&state, |db| {
+            state
+                .lock_undo()
+                .set_invest_plan(db.conn(), &mode, value, currency_code.as_deref())
+        }),
+    }
+}
+
+#[tauri::command(async)]
+pub fn confirm_invest_plan_currency(
+    state: State<AppState>,
+    month: Option<String>,
+    expected_value: i64,
+    currency_code: String,
+) -> CmdResult<()> {
+    with_db(&state, |db| {
+        state.lock_undo().confirm_invest_plan_currency(
+            db.conn(),
+            month.as_deref(),
+            expected_value,
+            &currency_code,
+        )
     })
 }
 
@@ -1221,21 +1296,25 @@ pub fn list_files(state: State<AppState>) -> CmdResult<Vec<crate::files::FileRow
 }
 
 #[tauri::command(async)]
-pub fn create_file(state: State<AppState>, name: String) -> CmdResult<String> {
-    crate::files::create(&state, &name)
+pub fn create_file(app: AppHandle, state: State<AppState>, name: String) -> CmdResult<String> {
+    crate::quick_window::during_replacement(&app, &state, || crate::files::create(&state, &name))
 }
 
 #[tauri::command(async)]
-pub fn open_file(state: State<AppState>, path: String) -> CmdResult<()> {
-    crate::files::open_existing(&state, Path::new(&path))
+pub fn open_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<()> {
+    crate::quick_window::during_replacement(&app, &state, || {
+        crate::files::open_existing(&state, Path::new(&path))
+    })
 }
 
 #[tauri::command(async)]
-pub fn switch_file(state: State<AppState>, path: String) -> CmdResult<()> {
+pub fn switch_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<()> {
     if !Path::new(&path).exists() {
         return Err("файла нет на месте: проверьте флешку или папку".into());
     }
-    crate::files::switch(&state, Path::new(&path))
+    crate::quick_window::during_replacement(&app, &state, || {
+        crate::files::switch(&state, Path::new(&path))
+    })
 }
 
 #[tauri::command(async)]
@@ -1611,11 +1690,9 @@ pub fn delete_template(state: State<AppState>, id: String) -> CmdResult<()> {
 
 #[tauri::command(async)]
 pub fn apply_template(state: State<AppState>, id: String, date: String) -> CmdResult<String> {
-    let txn = with_undo(&state, "Операция по шаблону", |c| {
-        templates::apply(c, &id, &date)
-    })?;
-    with_db(&state, |db| templates::used(db.conn(), &id))?;
-    Ok(txn)
+    with_db(&state, |db| {
+        templates::apply_with_undo(db.conn_mut(), &mut state.lock_undo(), &id, &date)
+    })
 }
 
 #[tauri::command(async)]
@@ -1632,18 +1709,18 @@ pub fn undo_state(state: State<AppState>) -> CmdResult<UndoState> {
 
 /// Отменить последнее действие; возвращает его название (или ничего, если отменять нечего).
 #[tauri::command(async)]
-pub fn undo(state: State<AppState>) -> CmdResult<Option<String>> {
+pub fn undo(state: State<AppState>, expected_id: Option<u64>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
         let mut j = state.lock_undo();
-        j.undo(db.conn())
+        j.undo_if_current(db.conn(), expected_id)
     })
 }
 
 #[tauri::command(async)]
-pub fn redo(state: State<AppState>) -> CmdResult<Option<String>> {
+pub fn redo(state: State<AppState>, expected_id: Option<u64>) -> CmdResult<Option<String>> {
     with_db(&state, |db| {
         let mut j = state.lock_undo();
-        j.redo(db.conn())
+        j.redo_if_current(db.conn(), expected_id)
     })
 }
 
@@ -2165,15 +2242,17 @@ pub fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
 
 /// Восстановить из копии; возвращает путь к копии прежних данных.
 #[tauri::command(async)]
-pub fn restore_backup(state: State<AppState>, path: String) -> CmdResult<String> {
+pub fn restore_backup(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<String> {
     let opts = state.open_options();
-    let mut guard = state.lock_db();
-    state.replace_data(&mut guard, |slot| {
-        let db = slot.as_mut().map_err(|e| e.clone())?;
-        let safety = db
-            .restore_from(Path::new(&path), &opts)
-            .map_err(|e| e.to_string())?;
-        Ok(safety.display().to_string())
+    crate::quick_window::during_replacement(&app, &state, || {
+        let mut guard = state.lock_db();
+        state.replace_data(&mut guard, |slot| {
+            let db = slot.as_mut().map_err(|e| e.clone())?;
+            let safety = db
+                .restore_from(Path::new(&path), &opts)
+                .map_err(|e| e.to_string())?;
+            Ok(safety.display().to_string())
+        })
     })
 }
 
@@ -2675,9 +2754,10 @@ pub fn update_transaction_full(
     id: String,
     input: TxnInput,
     extra: TxnExtra,
+    event_change: Option<transactions::EventChange>,
 ) -> CmdResult<()> {
     with_undo(&state, "Изменение операции", |c| {
-        transactions::update_with(c, &id, &input, &extra)
+        transactions::update_with_event(c, &id, &input, &extra, event_change.as_ref())
     })
 }
 

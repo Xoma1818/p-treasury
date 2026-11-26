@@ -720,6 +720,144 @@ mod tests {
     }
 
     #[test]
+    fn history_books_opening_on_its_date_and_preserves_earlier_movements() {
+        let mut db = Storage::open_in_memory().unwrap();
+        let c = db.conn_mut();
+        let mut start = input("Карта", "debit", "RUB", 500_000);
+        start.opening_date = "2026-05-10".into();
+        let card = accounts::create(c, &start).unwrap();
+        let from = crate::time::parse_date("2026-05-09").unwrap();
+        let to = crate::time::parse_date("2026-05-11").unwrap();
+        let days = balances(c, from, to, "2026-05-10").unwrap();
+        assert_eq!(
+            days.iter().map(|d| d.balance).collect::<Vec<_>>(),
+            [Some(0), Some(500_000), None]
+        );
+        assert_eq!(
+            crate::reconciliation::preview(c, &card, "2026-05-09")
+                .unwrap()
+                .balance,
+            500_000
+        );
+
+        // Учитываем покупку до открытия и движение в сам день открытия.
+        // На разреженной сетке начальная сумма всё равно появляется один раз.
+        categories::seed_defaults(c).unwrap();
+        let food = categories::list(c, false)
+            .unwrap()
+            .into_iter()
+            .find(|cat| cat.name == "Питание")
+            .unwrap()
+            .id;
+        for (date, amount) in [("2026-05-08", 2_000), ("2026-05-10", 10_000)] {
+            transactions::create(
+                c,
+                &TxnInput {
+                    kind: "expense".into(),
+                    date: date.into(),
+                    account_id: card.clone(),
+                    amount,
+                    category_id: Some(food.clone()),
+                    to_account_id: None,
+                    to_amount: None,
+                    payee: None,
+                    note: None,
+                },
+            )
+            .unwrap();
+        }
+        let dates = ["2026-05-07", "2026-05-09", "2026-05-12"].map(String::from);
+        let expected = [0, -2_000, 488_000];
+        assert_eq!(accounts::totals_on_days(c, &dates).unwrap(), expected);
+        for (date, total) in dates.iter().zip(expected) {
+            assert_eq!(accounts::totals(c, date).unwrap().total, total);
+            assert_eq!(crate::reports::balances_on(c, date).unwrap().total, total);
+            assert_eq!(crate::explain::balance(c, date).unwrap().total, total);
+            assert_eq!(
+                crate::net_worth::on_date(c, date, &mut vec![])
+                    .unwrap()
+                    .cash,
+                total
+            );
+        }
+        assert_eq!(
+            crate::reconciliation::preview(c, &card, "2026-05-09")
+                .unwrap()
+                .balance,
+            498_000
+        );
+    }
+
+    #[test]
+    fn archiving_after_transfer_preserves_previous_calendar_balances() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let old = accounts::create(c, &input("Старый", "debit", "RUB", 500_000)).unwrap();
+        let new = accounts::create(c, &input("Новый", "debit", "RUB", 0)).unwrap();
+        transactions::create(
+            c,
+            &TxnInput {
+                kind: "transfer".into(),
+                date: "2026-10-08".into(),
+                account_id: old.clone(),
+                to_account_id: Some(new.clone()),
+                amount: 500_000,
+                to_amount: Some(500_000),
+                category_id: None,
+                payee: None,
+                note: None,
+            },
+        )
+        .unwrap();
+        accounts::set_archived(c, &old, true).unwrap();
+        let dates = ["2026-10-07", "2026-10-08", "2026-10-09"].map(String::from);
+        assert_eq!(accounts::totals_on_days(c, &dates).unwrap(), [500_000; 3]);
+        for day in &dates {
+            assert_eq!(crate::reports::balances_on(c, day).unwrap().total, 500_000);
+        }
+        // Закрытие счёта с ненулевой суммой убирает его из действующих счетов,
+        // но сохраняет остаток в истории.
+        accounts::set_archived(c, &new, true).unwrap();
+        assert_eq!(accounts::totals(c, &dates[2]).unwrap().total, 0);
+        assert_eq!(accounts::totals_on_days(c, &dates).unwrap(), [500_000; 3]);
+    }
+
+    #[test]
+    fn investment_history_applies_dated_valuations_and_opening_once() {
+        let db = Storage::open_in_memory().unwrap();
+        let c = db.conn();
+        let mut start = input("Брокер", "investment", "RUB", 40_000);
+        start.opening_date = "2026-05-10".into();
+        let broker = accounts::create(c, &start).unwrap();
+        let dates = ["2026-05-07", "2026-05-09", "2026-05-10", "2026-05-12"].map(String::from);
+        assert_eq!(
+            accounts::totals_on_days(c, &dates).unwrap(),
+            [0, 0, 40_000, 40_000]
+        );
+        crate::invest::set_value(c, &broker, "2026-05-08", 30_000).unwrap();
+        crate::invest::set_value(c, &broker, "2026-05-11", 110_000).unwrap();
+        let expected = [0, 30_000, 30_000, 110_000];
+        assert_eq!(accounts::totals_on_days(c, &dates).unwrap(), expected);
+        for (date, value) in dates.iter().zip(expected) {
+            assert_eq!(accounts::totals(c, date).unwrap().total, value);
+            assert_eq!(
+                crate::net_worth::on_date(c, date, &mut vec![])
+                    .unwrap()
+                    .investments,
+                value
+            );
+        }
+        assert_eq!(
+            crate::invest::invested_on(c, &broker, &dates[1]).unwrap(),
+            0
+        );
+        assert_eq!(
+            crate::invest::invested_on(c, &broker, &dates[2]).unwrap(),
+            40_000
+        );
+    }
+
+    #[test]
     fn year_heat_sums_days_in_base() {
         let db = Storage::open_in_memory().unwrap();
         categories::seed_defaults(db.conn()).unwrap();

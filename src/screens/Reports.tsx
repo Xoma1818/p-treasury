@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
 import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
 import { useModules } from "../lib/modules";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { ExportButton, useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
@@ -24,6 +24,8 @@ import { TagReport } from "../components/Tags";
 import { usePopup } from "../lib/usePopup";
 import { FigureForm } from "../components/Figures";
 import type { Figure, FigurePeriod } from "../lib/api";
+import { shareUnavailable } from "../lib/categoryShares";
+import { ChartStatus, MissingChartRates } from "../components/ChartStatus";
 import "./reportsOverview.css";
 
 const M = BaseMoney;
@@ -464,10 +466,22 @@ function Structure({ period, reportContext, update, openOperations, onDraft }: {
   }, `category-${c.categoryId}`);
   const r = report.data;
   const max = r?.items[0]?.amount ?? 0;
+  const fallback = r && shareUnavailable(r);
+  const [pointed, setPointed] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const showDonut = chart === "donut" && !!r && !fallback && r.items.length > 0;
+  useEffect(() => {
+    const keep = (id: string | null) => showDonut && r?.items.some(c => c.categoryId === id) ? id : null;
+    setPointed(keep);
+    setFocused(keep);
+  }, [r, showDonut]);
   const toggle = (id: string) => update({ expanded: expanded.includes(id) ? expanded.filter((c) => c !== id) : [...expanded, id] });
 
   const row = (c: CategoryItem, parent?: CategoryItem) => (
-    <li key={parent ? `c-${c.categoryId}` : c.categoryId} className={parent ? "cat-row child" : "cat-row"} data-testid={parent ? "cat-child" : "cat-row"} data-category={c.name}>
+    <li key={parent ? `c-${c.categoryId}` : c.categoryId} className={parent ? "cat-row child" : "cat-row"} data-testid={parent ? "cat-child" : "cat-row"} data-category={c.name}
+      onPointerMove={showDonut ? e => { if (pointerMoved(e)) setPointed(parent?.categoryId ?? c.categoryId); } : undefined}
+      onPointerLeave={showDonut ? () => setPointed(null) : undefined}
+      onFocus={showDonut ? () => { setPointed(null); setFocused(parent?.categoryId ?? c.categoryId); } : undefined} onBlur={showDonut ? () => setFocused(null) : undefined}>
       <span className="cat-name">
         {!parent && c.children.length > 0 ? (
           <button className="icon-btn small" aria-label={expanded.includes(c.categoryId) ? "Свернуть" : "Раскрыть"} aria-expanded={expanded.includes(c.categoryId)} onClick={() => toggle(c.categoryId)}>
@@ -485,17 +499,17 @@ function Structure({ period, reportContext, update, openOperations, onDraft }: {
           </button>
         )}
       </span>
-      <span className="cat-bar" title={`${c.name}: ${c.percent} %`}>
+      {!fallback && <><span className="cat-bar" aria-hidden="true">
         <span
           className={kind === "income" ? "bar-fill income" : "bar-fill"}
-          style={{ width: `${max ? Math.max((c.amount / max) * 100, 0.5) : 0}%`, ...(lookOf(c.categoryId, catMap).color ? { background: colorVar(lookOf(c.categoryId, catMap).color!) } : {}) }}
+          style={{ width: `${max ? (c.amount / max) * 100 : 0}%`, ...(lookOf(c.categoryId, catMap).color ? { background: colorVar(lookOf(c.categoryId, catMap).color!) } : {}) }}
         />
       </span>
       <span className="percent" data-testid="share">
         {c.percent} %
-      </span>
+      </span></>}
       <span className="num">
-        <M amount={c.amount} />
+        <M amount={c.amount} currencyCode={r?.baseCurrency} />
       </span>
     </li>
   );
@@ -517,17 +531,19 @@ function Structure({ period, reportContext, update, openOperations, onDraft }: {
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="structure-chart" options={[["bars", "Полосы"], ["donut", "Доли"]]} />
       </div>
-      {report.isPending && <p className="muted reports-status" role="status">Загружаем разбивку по категориям…</p>}
-      {report.error && <p className="error">{String(report.error)}</p>}
-      {r && r.items.length === 0 && <p className="muted">За этот период операций нет.</p>}
+      <ChartStatus query={report} loading="Загружаем разбивку по категориям…" />
+      {r && <MissingChartRates rates={r.missingRates} />}
+      {r && r.items.length === 0 && <p className="muted">{r.missingRates.length ? "Нет операций с известным курсом." : "За этот период операций нет."}</p>}
       {r && r.items.length > 0 && (
         <>
-          {chart === "donut" && <Donut items={r.items} colorOf={(c, i) => { const col = lookOf(c.categoryId, catMap).color; return col ? colorVar(col) : colorVar(CATEGORY_COLORS[i % CATEGORY_COLORS.length]); }} onPick={go} />}
-          <ul className="cat-report" data-testid="structure">
+          {fallback && <p className="muted">{fallback}</p>}
+          {showDonut && <Donut items={r.items} total={r.total} activeId={pointed ?? focused} onPoint={setPointed}
+            colorOf={(c, i) => colorVar(lookOf(c.categoryId, catMap).color ?? CATEGORY_COLORS[i % CATEGORY_COLORS.length])} onPick={go} />}
+          <ul className={fallback ? "cat-report signed-values" : "cat-report"} data-testid="structure">
             {r.items.map((c) => [row(c), ...(expanded.includes(c.categoryId) ? c.children.map((x) => row(x, c)) : [])])}
           </ul>
           <div className="table-foot muted">
-            Итого: <M amount={r.total} />. Категории открывают операции с выбранными счётом и тегом.
+            Итого: <M amount={r.total} currencyCode={r.baseCurrency} />. Категории открывают операции с выбранными счётом и тегом.
           </div>
         </>
       )}
@@ -536,22 +552,26 @@ function Structure({ period, reportContext, update, openOperations, onDraft }: {
 }
 
 /** Р12 «Доли»: кольцо по категориям верхнего уровня; щелчок — операции категории. */
-function Donut({ items: all, colorOf, onPick }: { items: CategoryItem[]; colorOf: (c: CategoryItem, i: number) => string; onPick: (c: CategoryItem) => void }) {
-  const [hover, setHover] = useState<number | null>(null);
-  // Доли — только категорий с тратами больше нуля: возврат без покупки в периоде даёт
-  // отрицательную сумму, и дуга пошла бы назад, перекрыв соседние.
+// Автопрокрутка при Tab может поменять строку под неподвижной мышью.
+function pointerMoved(e: React.PointerEvent) {
+  return e.pointerType !== "touch" && (e.movementX !== 0 || e.movementY !== 0);
+}
+
+function Donut({ items: all, total, activeId, onPoint, colorOf, onPick }: {
+  items: CategoryItem[]; total: number; activeId: string | null; onPoint: (id: string | null) => void;
+  colorOf: (c: CategoryItem, i: number) => string; onPick: (c: CategoryItem) => void;
+}) {
+  // Нулевая категория остаётся в списке с 0 %, у неё нет дуги.
   const items = all.filter((c) => c.amount > 0);
-  const total = items.reduce((s, c) => s + c.amount, 0);
-  const share = (c: CategoryItem) => (total > 0 ? Math.round((c.amount * 100) / total) : 0);
   if (items.length === 0) return null;
   const R = 70;
   const r0 = 44;
   const C = 90;
   let acc = 0;
   const arcs = items.map((c, i) => {
-    const a0 = (acc / (total || 1)) * Math.PI * 2;
+    const a0 = (acc / total) * Math.PI * 2;
     acc += c.amount;
-    const a1 = (acc / (total || 1)) * Math.PI * 2;
+    const a1 = (acc / total) * Math.PI * 2;
     const pt = (a: number, rad: number) => `${(C + rad * Math.sin(a)).toFixed(2)} ${(C - rad * Math.cos(a)).toFixed(2)}`;
     const large = a1 - a0 > Math.PI ? 1 : 0;
     // Полный круг одной категорией — два полукруга.
@@ -561,19 +581,19 @@ function Donut({ items: all, colorOf, onPick }: { items: CategoryItem[]; colorOf
         : `M${pt(a0, R)} A${R} ${R} 0 ${large} 1 ${pt(a1, R)} L${pt(a1, r0)} A${r0} ${r0} 0 ${large} 0 ${pt(a0, r0)}Z`;
     return { c, i, d };
   });
-  const h = hover != null ? items[hover] : null;
+  const h = all.find(c => c.categoryId === activeId);
   return (
-    <div className="share-donut" data-testid="structure-donut" onMouseLeave={() => setHover(null)}>
+    <div className="share-donut" data-testid="structure-donut" onMouseLeave={() => onPoint(null)}>
       <svg viewBox="0 0 180 180" role="img" aria-label="Доли категорий">
         {arcs.map(({ c, i, d }) => (
-          <path key={c.categoryId} d={d} fill={colorOf(c, i)} fillRule="evenodd" className={hover === i ? "donut-arc active" : "donut-arc"} onMouseEnter={() => setHover(i)} onClick={() => onPick(c)}>
+          <path key={c.categoryId} d={d} fill={colorOf(c, i)} fillRule="evenodd" className={activeId === c.categoryId ? "donut-arc active" : "donut-arc"} onPointerMove={e => { if (pointerMoved(e)) onPoint(c.categoryId); }} onClick={() => onPick(c)}>
             <title>
-              {c.name}: {share(c)} %
+              {c.name}: {c.percent} %
             </title>
           </path>
         ))}
         <text x={C} y={C - 2} textAnchor="middle" className="donut-main">
-          {h ? `${share(h)} %` : "100 %"}
+          {h ? `${h.percent} %` : "100 %"}
         </text>
         <text x={C} y={C + 14} textAnchor="middle" className="donut-sub">
           {h ? h.name.slice(0, 16) : "всего"}
@@ -581,8 +601,8 @@ function Donut({ items: all, colorOf, onPick }: { items: CategoryItem[]; colorOf
       </svg>
       <ul className="share-legend">
         {arcs.slice(0, 8).map(({ c, i }) => (
-          <li key={c.categoryId} onMouseEnter={() => setHover(i)}>
-            <i className="swatch" style={{ background: colorOf(c, i) }} /> {c.name} <span className="muted">{share(c)} %</span>
+          <li key={c.categoryId} onPointerMove={e => { if (pointerMoved(e)) onPoint(c.categoryId); }}>
+            <i className="swatch" style={{ background: colorOf(c, i) }} /> {c.name} <span className="muted">{c.percent} %</span>
           </li>
         ))}
         {items.length > 8 && <li className="muted">и ещё {items.length - 8}</li>}
@@ -624,11 +644,10 @@ function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
         <span className="spacer" />
         <ChartKindTabs value={chart} onChange={setChart} testid="months-chart" options={[["bars", "Столбцы"], ["line", "Линия"]]} />
       </div>
-      {report.isPending && <p className="muted reports-status" role="status">Загружаем данные по месяцам…</p>}
-      {report.error && <p className="error">{String(report.error)}</p>}
+      <ChartStatus query={report} loading="Загружаем данные по месяцам…" />
       {r && (
         <>
-          <MonthsChart r={r} line={chart === "line"} />
+          <MonthsChart key={JSON.stringify([from, to, filter.accountId, filter.tagId, r.baseCurrency])} r={r} line={chart === "line"} />
           <table className="table months-table" data-testid="months">
             <thead>
               <tr>
@@ -662,7 +681,7 @@ function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
                       e.stopPropagation();
                       openMonth(m.period, "income");
                     }}>
-                      <M amount={m.income} />
+                      <M amount={m.income} currencyCode={r.baseCurrency} />
                       <span className="sr-only"> — открыть доходы за {monthTitle(m.period.month)}</span>
                     </button>
                   </td>
@@ -671,12 +690,12 @@ function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
                       e.stopPropagation();
                       openMonth(m.period, "expense");
                     }}>
-                      <M amount={m.expense} />
+                      <M amount={m.expense} currencyCode={r.baseCurrency} />
                       <span className="sr-only"> — открыть расходы и возвраты за {monthTitle(m.period.month)}</span>
                     </button>
                   </td>
                   <td className={m.balance < 0 ? "num over" : "num"}>
-                    <M amount={m.balance} signed />
+                    <M amount={m.balance} signed currencyCode={r.baseCurrency} />
                   </td>
                   <td className="num">{m.savingsRate == null ? "—" : `${m.savingsRate} %`}</td>
                 </tr>
@@ -684,13 +703,13 @@ function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
               <tr className="total-row">
                 <td className="main">Итого</td>
                 <td className="num plus">
-                  <M amount={r.income} />
+                  <M amount={r.income} currencyCode={r.baseCurrency} />
                 </td>
                 <td className="num">
-                  <M amount={r.expense} />
+                  <M amount={r.expense} currencyCode={r.baseCurrency} />
                 </td>
                 <td className={r.balance < 0 ? "num over" : "num"}>
-                  <M amount={r.balance} signed />
+                  <M amount={r.balance} signed currencyCode={r.baseCurrency} />
                 </td>
                 <td className="num" data-testid="months-savings-rate">
                   {r.savingsRate == null ? "—" : `${r.savingsRate} %`}
@@ -710,9 +729,14 @@ const PAD_B = 24;
 
 /** Столбцы «доходы / расходы» по месяцам; ось одна, подписи в тексте, подсказка при наведении. */
 export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [pointed, setPointed] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const tipId = useId();
   const settings = useSettings().data;
   const minorUnits = useCurrencies().data?.find(c => c.code === r.baseCurrency)?.minorUnits;
+  if (!r.months.length) return <><MissingChartRates rates={r.missingRates} /><p className="muted">Нет данных за выбранные месяцы.</p></>;
+  const selectedIndex = r.months.findIndex(m => m.period.start === (pointed ?? focused));
+  const selected = r.months[selectedIndex];
   const { min, max, step } = netWorthScale(r.months.flatMap(m => [m.income, m.expense]), 3);
   const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step);
   const short = (v: number) => !settings || settings.hide_amounts === "1" ? "•••" : minorUnits == null ? "—" : axisLabel(v, minorUnits);
@@ -724,7 +748,8 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const y = (v: number) => 12 + plotH - ((v - min) / (max - min)) * plotH;
 
   return (
-    <div className="chart" onMouseLeave={() => setHover(null)}>
+    <div className="chart" onPointerLeave={() => setPointed(null)}>
+      <MissingChartRates rates={r.missingRates} />
       <div className="legend">
         <span>
           <i className="swatch income" /> Доходы
@@ -732,8 +757,9 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         <span>
           <i className="swatch expense" /> Расходы
         </span>
+        <span className="muted">{r.baseCurrency}</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Доходы и расходы по месяцам">
+      <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Доходы и расходы по месяцам">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD_L} x2={W - 8} y1={y(t)} y2={y(t)} className="grid" />
@@ -751,12 +777,21 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         {r.months.map((m, i) => {
           const cx = PAD_L + slot * i + slot / 2;
           return (
-            <g key={m.period.month} onMouseEnter={() => setHover(i)}>
-              <rect x={cx - slot / 2} y={0} width={slot} height={H} className={hover === i ? "hit active" : "hit"} />
+            <g key={m.period.start} tabIndex={0} role="img" aria-label={monthTitle(m.period.month)} aria-describedby={selected === m ? tipId : undefined}
+              onPointerMove={e => { if (pointerMoved(e)) setPointed(m.period.start); }}
+              onPointerDown={e => {
+                if (e.pointerType !== "touch") return;
+                e.preventDefault();
+                setPointed(null);
+                setFocused(previous => previous === m.period.start ? null : m.period.start);
+              }}
+              onFocus={() => { setPointed(null); setFocused(m.period.start); }} onBlur={() => setFocused(null)}
+              onKeyDown={e => { if (e.key === "Escape") { setPointed(null); setFocused(null); } }}>
+              <rect x={cx - slot / 2} y={0} width={slot} height={H} className={selected === m ? "hit active" : "hit"} />
               {!line && <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />}
               {!line && <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i } as React.CSSProperties} />}
-              {line && <circle cx={cx} cy={y(m.income)} r={hover === i ? 4.5 : 3} className="dot-income" />}
-              {line && <circle cx={cx} cy={y(m.expense)} r={hover === i ? 4.5 : 3} className="dot-expense" />}
+              {line && <circle cx={cx} cy={y(m.income)} r={selected === m ? 4.5 : 3} className="dot-income" />}
+              {line && <circle cx={cx} cy={y(m.expense)} r={selected === m ? 4.5 : 3} className="dot-expense" />}
               <text x={cx} y={H - 6} className="axis" textAnchor="middle">
                 {monthTitle(m.period.month).slice(0, 3)}
               </text>
@@ -764,17 +799,17 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
           );
         })}
       </svg>
-      {hover != null && (
-        <div className="tooltip" style={{ left: `${((PAD_L + slot * hover + slot / 2) / W) * 100}%` }}>
-          <div className="main">{monthTitle(r.months[hover].period.month)}</div>
+      {selected && (
+        <div role="tooltip" id={tipId} className="tooltip" style={{ left: `${((PAD_L + slot * selectedIndex + slot / 2) / W) * 100}%` }}>
+          <div className="main">{monthTitle(selected.period.month)}</div>
           <div>
-            <i className="swatch income" /> Доходы <M amount={r.months[hover].income} />
+            <i className="swatch income" /> Доходы <M amount={selected.income} currencyCode={r.baseCurrency} />
           </div>
           <div>
-            <i className="swatch expense" /> Расходы <M amount={r.months[hover].expense} />
+            <i className="swatch expense" /> Расходы <M amount={selected.expense} currencyCode={r.baseCurrency} />
           </div>
           <div className="muted">
-            Сальдо <M amount={r.months[hover].balance} signed />
+            Сальдо <M amount={selected.balance} signed currencyCode={r.baseCurrency} />
           </div>
         </div>
       )}

@@ -31,6 +31,14 @@ after(async () => {
 const pick = (...paths) => browser.execute((p) => (window.__ptPick = p), paths);
 const card = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
+// В Windows системный tar умеет читать ZIP, отдельная утилита unzip необязательна.
+function workbookXml(path) {
+  const entry = "xl/workbook.xml";
+  return process.platform === "win32"
+    ? execFileSync("tar.exe", ["-xOf", path, entry], { encoding: "utf8" })
+    : execFileSync("unzip", ["-p", path, entry], { encoding: "utf8" });
+}
+
 const csv = (rows) => "\uFEFFДата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма;Счёт зачисления\n" + rows.map((r) => r.join(";")).join("\n") + "\n";
 const good = [
   [ru(daysAgo(40)), "Доход", "Карта", "Заработная плата", "", "", "85 000", ""],
@@ -125,7 +133,7 @@ test("сводка в Excel: файл .xlsx с шестью листами", asy
   await click(browser, "Скачать в Excel", '//*[@role="dialog"]');
   await waitText(browser, '[data-testid="export-done"]', /Сохранено: сводка\.xlsx/);
   await browser.keys("Escape");
-  const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
+  const workbook = workbookXml(path);
   const sheets = [...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(sheets, ["Сводка", "По категориям", "Бюджет", "По месяцам", "Долги", "Операции"]);
 });
@@ -189,7 +197,7 @@ test("выгрузка отчёта «По месяцам» в Excel", async () 
   await click(browser, "Выгрузить");
   await click(browser, "Скачать в Excel");
   await waitText(browser, '[data-testid="export-done"]', /Выгружено: по месяцам\.xlsx/);
-  const workbook = execFileSync("unzip", ["-p", path, "xl/workbook.xml"], { encoding: "utf8" });
+  const workbook = workbookXml(path);
   assert.match(workbook, /<sheet name="По месяцам"/);
 });
 
@@ -238,8 +246,8 @@ test("закрытие окна: по умолчанию в трей, с нас�
   assert.equal(readdirSync(join(vault, "Копии")).length, 1);
 
   // «Сворачивать в трей»: окно закрыли, приложение работает и шлёт напоминания.
-  closeLikeUser();
-  await new Promise((r) => setTimeout(r, 1500));
+  closeLikeUser(browser);
+  await browser.waitUntil(async () => !(await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:window|is_visible", { label: "main" }))), { timeout: 5000 });
   assert.ok(appPid(), "приложение осталось в трее");
   assert.equal(readdirSync(join(vault, "Копии")).length, 1, "в трее папку не трогаем");
   await stop(browser);
@@ -258,7 +266,7 @@ test("закрытие окна: по умолчанию в трей, с нас�
   await browser.$("main.quick-window").waitForDisplayed({ timeout: 10000 });
   await browser.execute(() => window.__TAURI_INTERNALS__.invoke("hide_quick", { saved: false }));
   await browser.switchToWindow(main);
-  closeLikeUser();
+  closeLikeUser(browser);
   await browser.waitUntil(async () => !appPid(), { timeout: 15000 });
   const copies = readdirSync(join(vault, "Копии"));
   assert.equal(copies.length, 2, String(copies));
@@ -268,15 +276,19 @@ test("закрытие окна: по умолчанию в трей, с нас�
   browser = null;
 });
 
-test("обновление: при запуске приложение сообщает о новой версии, «Позже» закрывает окно", async () => {
+// Для release-сборки Tauri запрещает HTTP ещё до обращения к учебному серверу.
+const releaseHttpsOnly = process.env.PTREASURY_E2E_RELEASE_HTTPS_ONLY === "1";
+test(releaseHttpsOnly ? "обновление: релизная сборка отклоняет учебный HTTP-адрес и сообщает об ошибке" : "обновление: при запуске приложение сообщает о новой версии, «Позже» закрывает окно", async () => {
   if (browser) {
     await stop(browser);
     browser = null;
   }
   let available = true;
+  let requests = 0;
   let offerReady;
   const waitForSearch = new Promise((resolve) => { offerReady = resolve; });
   const server = createServer(async (req, res) => {
+    requests++;
     await waitForSearch;
     if (!available) {
       res.writeHead(503).end();
@@ -307,6 +319,14 @@ test("обновление: при запуске приложение сооб�
     assert.equal(await search.isFocused(), true);
     assert.equal(await browser.$('[data-testid="update-version"]').isExisting(), false);
     await browser.keys("Escape");
+    if (releaseHttpsOnly) {
+      await openSettings(browser, "about");
+      await click(browser, "Проверить обновления");
+      await waitText(browser, '[data-testid="updates-card"] [role="alert"]', /Не удалось/);
+      assert.equal(await browser.$('[data-testid="update-version"]').isExisting(), false);
+      assert.equal(requests, 0, "Релиз не отправляет запросы на учебный HTTP-адрес");
+      return;
+    }
     await waitText(browser, '[data-testid="update-version"]', /Доступна версия 9\.9\.9 \(у вас \d+\.\d+\.\d+\)/, 15000);
     await waitText(browser, '[role="dialog"] li', /Новые отчёты/);
     await click(browser, "Позже", '//*[@role="dialog"]');
@@ -323,6 +343,8 @@ test("обновление: при запуске приложение сооб�
       await click(browser, "Обновить", '//*[@role="dialog"]');
       await waitText(browser, '[role="dialog"] [role="alert"]', /\S/u);
       await click(browser, "Позже", '//*[@role="dialog"]');
+      await click(browser, "Проверить обновления");
+      await waitText(browser, '[data-testid="updates-card"] [role="alert"]', /\S/u, 20000);
     } finally {
       await browser.execute(() => window.dispatchEvent(new Event("online")));
     }

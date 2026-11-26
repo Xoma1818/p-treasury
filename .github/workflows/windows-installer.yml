@@ -7,6 +7,11 @@ name: Установщик для Windows
 
 on:
   workflow_dispatch:
+    inputs:
+      accept_installer:
+        description: Проверить установку 0.42.8 и переход с 0.42.1 в двух чистых Windows 11
+        type: boolean
+        default: false
   pull_request:
     # PR только с документами не собирает программу: сборка тратит минуты Actions (30–50 на запуск).
     paths-ignore:
@@ -78,3 +83,66 @@ jobs:
         with:
           name: kazna-windows-portable
           path: portable/
+
+  installed-candidate:
+    name: Установленная Kazna · ${{ matrix.mode }}
+    needs: windows
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.accept_installer) ||
+      (github.event_name == 'pull_request' && github.head_ref == 'codex/acceptance-0428')
+    permissions:
+      contents: read
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [clean, upgrade]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: kazna-windows-installer
+          path: ${{ runner.temp }}/kazna-pr-installer
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - if: matrix.mode == 'upgrade'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - run: npm ci
+      - name: Драйвер для WebView2 одноразовой Windows 11
+        shell: pwsh
+        run: ./scripts/setup-windows-test-driver.ps1
+      - name: Установка и проверка данных
+        shell: pwsh
+        env:
+          INSTALL_MODE: ${{ matrix.mode }}
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'kazna-pr-installer/Kazna_0.42.8_x64-setup.exe'
+          $options = @{
+            Mode = $env:INSTALL_MODE
+            CandidateInstaller = (Get-Item -LiteralPath $setup).FullName
+            EvidenceDirectory = (Join-Path $env:RUNNER_TEMP 'kazna-installed-evidence')
+          }
+          if ($env:INSTALL_MODE -eq 'upgrade') {
+            $old = Join-Path $env:RUNNER_TEMP 'Kazna_0.42.1_x64-setup.exe'
+            Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.42.1/Kazna_0.42.1_x64-setup.exe' -OutFile $old
+            if ((Get-FileHash -LiteralPath $old).Hash -ne 'e546c60af79e121677d10536aec1f7ca371a3bb5d8bf956f233c97cccf7d62bf') {
+              throw 'Неверная контрольная сумма установщика 0.42.1'
+            }
+            $options.OldInstaller = $old
+          }
+          ./scripts/windows-installed-candidate.ps1 @options
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: installed-0.42.8-${{ matrix.mode }}
+          path: ${{ runner.temp }}/kazna-installed-evidence
+          retention-days: 14
+          if-no-files-found: warn

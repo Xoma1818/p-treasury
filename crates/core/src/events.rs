@@ -103,16 +103,22 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn ensure_exists(conn: &Connection, id: &str) -> Result<()> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE id = ?1)",
+        [id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(Error::NotFound("событие"));
+    }
+    Ok(())
+}
+
 /// Отнести операции к событию (`None` — снять отметку).
 pub fn assign(conn: &Connection, event_id: Option<&str>, txn_ids: &[String]) -> Result<usize> {
-    if let Some(e) = event_id {
-        let exists: bool =
-            conn.query_row("SELECT count(*) > 0 FROM events WHERE id = ?1", [e], |r| {
-                r.get(0)
-            })?;
-        if !exists {
-            return Err(Error::NotFound("событие"));
-        }
+    if let Some(id) = event_id {
+        ensure_exists(conn, id)?;
     }
     let mut n = 0;
     for id in txn_ids {

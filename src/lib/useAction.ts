@@ -23,7 +23,7 @@ export function useAction<A extends unknown[], P extends Promise<unknown>>(
   const inFlight = useRef<Promise<Awaited<P>> | null>(null);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const m = useMutation({
-    networkMode: opts?.networkMode,
+    ...(opts?.networkMode && { networkMode: opts.networkMode }),
     mutationFn: (args: A) => fn(...args) as Promise<Awaited<P>>,
     onMutate: () => { setError(null); setDone(false); },
     onSuccess: async (result) => {

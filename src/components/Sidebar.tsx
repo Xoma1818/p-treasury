@@ -72,7 +72,7 @@ export function Sidebar() {
     <button type="button" className={item.id === section ? "nav-item active" : "nav-item"}
       aria-current={item.id === section ? "page" : undefined} aria-label={item.title}
       data-section={item.id} data-rail-tip={item.title}
-      style={{ "--rail-color": item.color } as CSSProperties} onClick={() => go(item.id)}>
+      style={{ "--rail-color": item.color } as CSSProperties} onClick={() => { if (item.id !== section) go(item.id); }}>
       <SectionIcon id={item.id} />
       <span className="sr-only">{item.title}</span>
     </button>

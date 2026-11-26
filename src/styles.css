@@ -35,7 +35,11 @@
   color-scheme: light;
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --fast: 120ms;
-  --motion-feedback: 160ms;
+  --motion-press: 80ms;
+  --motion-feedback: 120ms;
+  --motion-layer: 160ms;
+  --ease-leave: cubic-bezier(.4, 0, 1, 1);
+  --ease-selection: cubic-bezier(.2, 0, .2, 1);
   --motion-surface: 200ms;
   --over: #c2410c;
   --radius: 12px;
@@ -183,7 +187,7 @@ input.invalid { border-color: var(--over); }
   transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform 80ms var(--ease), color var(--fast) var(--ease);
 }
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
-.btn:active:not(:disabled) { background: var(--press); transform: translateY(1px) scale(0.985); box-shadow: none; }
+.btn:active:not(:disabled) { background: var(--press); box-shadow: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 1px 2px var(--accent-shadow); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 4px 14px var(--accent-shadow); }
 .btn.primary:active:not(:disabled) { background: var(--accent-press); border-color: var(--accent-press); box-shadow: none; }
@@ -234,10 +238,10 @@ input.invalid { border-color: var(--over); }
 .screen-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .screen-head h1, .screen-head h2 { margin: 0; }
 
-.overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: flex-start; justify-content: center; padding: min(8vh, 64px) 16px 80px; overflow: auto; z-index: 10; animation: fade-in 160ms var(--ease); }
+.overlay { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: min(8vh, 64px) 16px 80px; overflow: auto; z-index: 10; }
 /* Окно всегда помещается: тело прокручивается, кнопки действий прилипают к низу.
    Снизу 80px под плашку «Отменить», чтобы она не закрывала «Сохранить». */
-.modal { background: var(--card); border-radius: var(--radius); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - min(8vh, 64px) - 80px); overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 72px; padding: 20px 24px 0; box-shadow: var(--shadow-lg); border: 1px solid var(--border); animation: pop-in 200ms var(--ease); }
+.modal { background: var(--card); border-radius: var(--radius); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - min(8vh, 64px) - 80px); overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 72px; padding: 20px 24px 0; box-shadow: var(--shadow-lg); border: 1px solid var(--border); }
 .modal::after { content: ""; display: block; height: 20px; }
 .modal form > .actions:last-child, .modal > .actions:last-child { position: sticky; bottom: 0; z-index: 2; background: var(--card); padding: 10px 0; }
 @keyframes fade-in { from { opacity: 0; } }
@@ -764,7 +768,6 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 /* Плавно и коротко, без «пружин» и вспышек: меню откликается фоном и лёгким
    нажатием, раздел появляется с едва заметным подъёмом. */
 .nav-item { transition: background-color 180ms var(--ease), color 180ms var(--ease), transform 120ms var(--ease); }
-.nav-item:active { transform: scale(0.985); }
 .nav-item:hover .icon-tile { transform: scale(1.04); }
 input[type="checkbox"]:checked { animation: none; }
 
@@ -817,27 +820,37 @@ h2 { font-size: 16px; }
 /* Кнопки: заливка вместо рамки и тени; при нажатии лёгкое сжатие (вместо волны). */
 .btn { border-color: transparent; background: var(--fill); box-shadow: none; transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
 .btn:hover:not(:disabled) { background: var(--fill-strong); border-color: transparent; box-shadow: none; }
-.btn:active:not(:disabled) { background: var(--fill-strong); transform: scale(0.97); }
+.btn:active:not(:disabled) { background: var(--fill-strong); }
 .btn.primary, .btn.primary:hover:not(:disabled), :root[data-theme="dark"] .btn.primary:hover:not(:disabled) { box-shadow: none; }
-.btn.primary:active:not(:disabled) { transform: scale(0.97); }
 .btn.danger:hover:not(:disabled) { border-color: transparent; }
 .chip-btn { border-color: transparent; background: var(--fill); }
 .chip-btn:hover { border-color: transparent; background: var(--fill-strong); color: var(--text); }
 .chip-btn.active { border-color: transparent; }
-.chip-btn:active, .tab:active, .template-main:active { transform: scale(0.97); }
 .chip-btn, .tab, .template-main { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
 .btn::after, .chip-btn::after, .tab::after, .template-main::after { display: none; }
 
 /* Короткое появление окон. Время закрытия согласовано с Modal.tsx. */
-.overlay { animation: fade-in var(--motion-feedback) var(--ease); }
-.modal { border-color: transparent; animation: sheet-in var(--motion-surface) var(--ease); }
+/* Только фон меняет прозрачность. Ввод, текст и рамка фокуса видны с первого кадра. */
+.overlay::before, .palette::before, .modal-veil {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: var(--overlay);
+}
+.overlay::before, .palette::before { z-index: -1; animation: fade-in var(--motion-layer) var(--ease); }
+.modal-veil.leaving { z-index: 9; animation: fade-out var(--motion-feedback) var(--ease-leave) forwards; }
+body:has(.overlay) > .modal-veil.leaving { display: none; }
+.modal { border-color: transparent; }
 :root[data-theme="dark"] .modal { border-color: var(--border); }
-@keyframes sheet-in { from { opacity: 0; transform: translateY(6px); } }
 .undo-bar { animation: slide-up var(--motion-surface) var(--ease); }
-.screen { animation: fade-in var(--fast) var(--ease); }
 
-/* Новая сумма проявляется на месте прежней (Money.tsx). */
-.money-swap { display: inline-block; animation: feedback-in var(--motion-feedback) var(--ease); }
+/* Цифры меняются сразу. На краткий миг выделяется только фон суммы. */
+.money-swap { animation: money-highlight var(--motion-feedback) var(--ease); }
+@keyframes money-highlight {
+  from { background-color: var(--accent-soft); }
+  to { background-color: transparent; }
+}
 
 /* При повторном открытии раздела карточки и календарь показываются сразу. */
 :root[data-seen] :is(.fade-up, .heat-cell) { animation: none; }
@@ -857,7 +870,6 @@ h2 { font-size: 16px; }
 :root .view-chip:hover, :root .spend-chip:hover, :root .template:hover { box-shadow: none; background: var(--fill-strong); border-color: transparent; }
 :root .place:hover, :root .qw-row:hover, :root .fc-chip:hover { border-color: transparent; background: var(--fill-strong); }
 :root .fc-chip.active, :root .period-box.p2 { border-color: transparent; background: var(--accent-soft); }
-:root .spend-chip:active, :root .fc-chip:active, :root .place:active, :root .qw-row:active { transform: scale(0.98); }
 :root .spend-chip, :root .fc-chip, :root .place, :root .qw-row { transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), transform 180ms var(--spring); }
 :root .cal-cell { border-color: transparent; background: var(--fill); }
 :root .cal-cell.empty { background: none; }
@@ -866,21 +878,17 @@ h2 { font-size: 16px; }
 /* Вложенные блоки в окнах и карточках (разбивка чека, найденные данные, сценарии, подтверждения): тоже заливка. */
 :root .demo-offer, :root .split, :root .found-row, :root .receipt-split, :root .confirm-box, :root .scenario-row, :root .loan-sub { border-color: transparent; background: var(--fill); }
 /* Всплывающее: поиск Ctrl+K, полоса выделения, подсказки тегов и «?» — та же пружина. */
-:root .palette-box { border-color: transparent; animation: palette-in var(--motion-surface) var(--ease); }
+:root .palette-box { border-color: transparent; }
 :root[data-theme="dark"] .palette-box { border-color: var(--border); }
 :root .sel-bar { border-color: transparent; animation: sel-in var(--motion-surface) var(--ease); }
 :root .tag-hints { border-color: transparent; transform-origin: top; animation: pop-in var(--motion-feedback) var(--ease); }
 :root[data-theme="dark"] .tag-hints, :root[data-theme="dark"] .sel-bar { border-color: var(--border); }
 :root .hint-tip { transition: opacity 180ms var(--ease), transform 260ms var(--spring); }
 /* Без отскока: выключатель и «?» двигаются пружиной, но не «прыгают». */
-:root .switch::after { transition: transform 260ms var(--spring); }
+:root .switch::after { transition: transform var(--motion-feedback) var(--ease-selection); }
 :root .hint-q { transition: opacity var(--fast), background var(--fast), color var(--fast), box-shadow var(--fast), transform 220ms var(--spring); }
 :root .hint-q:hover, :root .hint-q.open, :root .hint-q:focus-visible { transform: scale(1.06); }
-/* Окно уходит мягко (Modal.tsx). */
-.overlay.closing { animation: fade-out var(--motion-feedback) var(--ease) forwards; pointer-events: none; }
-.overlay.closing .modal { animation: sheet-out var(--motion-feedback) var(--ease) forwards; }
 @keyframes fade-out { to { opacity: 0; } }
-@keyframes sheet-out { to { opacity: 0; transform: translateY(4px); } }
 /* Смена темы: цвета перетекают (Sidebar.tsx). */
 .theme-fade, .theme-fade * { transition: background-color 280ms var(--ease), color 280ms var(--ease), border-color 280ms var(--ease), fill 280ms var(--ease), stroke 280ms var(--ease) !important; }
 /* 0.25: Главная, Счета и Цели (бывшие экраны 0.24). */
@@ -937,11 +945,9 @@ h2 { font-size: 16px; }
 .card.empty-line:hover .go { text-decoration: underline; text-underline-offset: 3px; }
 
 /* Р4: операция открывается панелью справа (настройка «Открывать операцию»). */
-.overlay.side { justify-content: flex-end; align-items: stretch; padding: 0; background: color-mix(in srgb, var(--overlay) 45%, transparent); }
-.modal.side { width: 440px; max-width: 100vw; max-height: none; height: 100vh; border-radius: 0; border-width: 0 0 0 1px; animation: side-in var(--motion-surface) var(--ease); }
-.overlay.closing .modal.side { animation: side-out var(--motion-feedback) var(--ease) forwards; }
-@keyframes side-in { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes side-out { to { transform: translateX(12px); opacity: 0; } }
+.overlay.side { justify-content: flex-end; align-items: stretch; padding: 0; }
+.overlay.side::before, .modal-veil.side { background: color-mix(in srgb, var(--overlay) 45%, transparent); }
+.modal.side { width: 440px; max-width: 100vw; max-height: none; height: 100vh; border-radius: 0; border-width: 0 0 0 1px; }
 .similar { margin: 8px 0 4px; border-top: 1px solid var(--border); padding-top: 12px; }
 .similar h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
 .similar ul { list-style: none; margin: 0; padding: 0; }

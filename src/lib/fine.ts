@@ -113,15 +113,14 @@ export function rememberSection(s: SectionId) {
 }
 
 /** Значок валюты → код (для «RUB» вместо «₽»). */
-const CODES: Record<string, string> = { "₽": "RUB", $: "USD", "€": "EUR", "¥": "CNY", "£": "GBP", "₸": "KZT" };
-export const currencyLabel = (symbol: string, f: Fine = current) => (f.code ? (CODES[symbol] ?? symbol) : symbol);
-
-/** Без копеек суммы на экране округляются до целых. */
-export const shownAmount = (amount: number, minorUnits: number, f: Fine = current) => {
-  if (f.kopecks || minorUnits <= 0) return amount;
-  const k = 10 ** minorUnits;
-  return Math.round(amount / k) * k;
-};
+const CODES: Record<string, string> = { "₽": "RUB", $: "USD", "€": "EUR", "£": "GBP", "₸": "KZT", Br: "BYN", "₺": "TRY" };
+export function currencyLabel(symbol: string, minorUnits: number, f: Fine = current): string {
+  if (!f.code) return symbol;
+  // В каталоге Kazna знак ¥ общий. Некоторые отчёты передают только знак и точность.
+  if (symbol === "¥" && minorUnits === 0) return "JPY";
+  if (symbol === "¥" && minorUnits === 2) return "CNY";
+  return CODES[symbol] ?? symbol;
+}
 
 /** Номер дня недели от её начала: 0 — понедельник (или воскресенье). */
 export const weekdayIndex = (jsDay: number, f: Fine = current) => (f.week === "sun" ? jsDay : (jsDay + 6) % 7);
