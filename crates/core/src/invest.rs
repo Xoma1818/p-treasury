@@ -38,13 +38,15 @@ fn last_value(conn: &Connection, account_id: &str, on: &str) -> Result<Option<(S
 /// Стоимость счёта на дату и дата последней оценки. Без оценки стоимость
 /// равна остатку по операциям.
 pub fn value_on(conn: &Connection, account_id: &str, on: &str) -> Result<(i64, Option<String>)> {
-    let balance = accounts::balance(conn, account_id, Some(on))?;
     Ok(match last_value(conn, account_id, on)? {
         Some((date, value)) => {
+            // Оценка уже задаёт полную стоимость. После неё прибавляются
+            // только движения, даже если дата открытия попала между датами.
+            let balance = accounts::balance(conn, account_id, Some(on))?;
             let at_valuation = accounts::balance(conn, account_id, Some(&date))?;
             (value + balance - at_valuation, Some(date))
         }
-        None => (balance, None),
+        None => (accounts::historical_balance(conn, account_id, on)?, None),
     })
 }
 
@@ -52,7 +54,7 @@ pub fn value_on(conn: &Connection, account_id: &str, on: &str) -> Result<(i64, O
 /// расходы внутри счёта — дивиденды, комиссии — это уже результат).
 pub fn invested_on(conn: &Connection, account_id: &str, on: &str) -> Result<i64> {
     conn.query_row(
-        "SELECT a.opening_balance
+        "SELECT CASE WHEN a.opening_date <= ?2 THEN a.opening_balance ELSE 0 END
             + COALESCE((SELECT sum(t.to_amount) FROM transactions t
                         WHERE t.to_account_id = a.id AND t.type = 'transfer'
                           AND t.status = 'cleared' AND t.date <= ?2), 0)

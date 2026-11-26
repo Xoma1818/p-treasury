@@ -10,6 +10,7 @@ export function Money({
   symbol = "₽",
   currencyCode,
   minorUnits = 2,
+  wholeUnits,
   signed,
   className,
   animate,
@@ -18,6 +19,8 @@ export function Money({
   symbol?: string;
   currencyCode?: string;
   minorUnits?: number;
+  /** Компактные годовые итоги всегда показывают целые денежные единицы. */
+  wholeUnits?: boolean;
   /** Показывать «+» у положительных сумм (доходы). */
   signed?: boolean;
   className?: string;
@@ -28,7 +31,7 @@ export function Money({
   const label = useFine().code ? currencyCode ?? symbol : symbol;
   const hidden = !settings || settings.hide_amounts === "1";
   const swap = useSwap(amount, !!animate && !hidden);
-  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(amount, label, minorUnits);
+  const text = hidden ? HIDDEN_AMOUNT : (signed && amount > 0 ? "+" : "") + formatMoney(amount, label, minorUnits, wholeUnits);
   const cls = ["money", className, !hidden && swap > 0 && "money-swap"].filter(Boolean).join(" ");
   return (
     <span key={swap} className={cls}>

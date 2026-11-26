@@ -109,12 +109,27 @@ pub fn save_form(
     Ok(id)
 }
 
-/// Баланс счёта на дату включительно (`None` — на все даты). Учитываются
-/// только проведённые операции.
+/// Остаток для сверки: начальная сумма и проведённые операции на дату
+/// включительно (`None` — на все даты). Сверка учитывает начальную сумму
+/// даже при выборе даты до открытия счёта.
 pub fn balance(conn: &Connection, account_id: &str, on: Option<&str>) -> Result<i64> {
-    let on = on.unwrap_or("9999-12-31");
+    balance_at(conn, account_id, on.unwrap_or("9999-12-31"), true)
+}
+
+/// Исторический остаток: начальная сумма появляется в день открытия счёта.
+/// Проведённые операции до этой даты учитываются своими датами.
+pub(crate) fn historical_balance(conn: &Connection, account_id: &str, on: &str) -> Result<i64> {
+    balance_at(conn, account_id, on, false)
+}
+
+fn balance_at(
+    conn: &Connection,
+    account_id: &str,
+    on: &str,
+    include_opening_early: bool,
+) -> Result<i64> {
     conn.query_row(
-        "SELECT a.opening_balance
+        "SELECT CASE WHEN ?3 OR a.opening_date <= ?2 THEN a.opening_balance ELSE 0 END
             + COALESCE((SELECT sum(CASE t.type WHEN 'income' THEN t.amount
                                               WHEN 'adjustment' THEN t.amount
                                               ELSE -t.amount END)
@@ -124,7 +139,7 @@ pub fn balance(conn: &Connection, account_id: &str, on: Option<&str>) -> Result<
                         WHERE t.to_account_id = a.id AND t.type = 'transfer'
                           AND t.status = 'cleared' AND t.date <= ?2), 0)
          FROM accounts a WHERE a.id = ?1",
-        params![account_id, on],
+        params![account_id, on, include_opening_early],
         |r| r.get(0),
     )
     .optional()?
@@ -597,8 +612,11 @@ pub fn totals(conn: &Connection, on: &str) -> Result<Totals> {
         let bal = if a.kind == "investment" {
             crate::invest::value_on(conn, &a.id, on)?.0
         } else {
-            balance(conn, &a.id, Some(on))?
+            historical_balance(conn, &a.id, on)?
         };
+        if a.opening_date.as_str() > on && bal == 0 {
+            continue;
+        }
         match currencies::convert(conn, bal, &a.currency_code, &base, on)? {
             Some(v) => total += v,
             None if !missing_rates.contains(&a.currency_code) => {
@@ -615,7 +633,9 @@ pub fn totals(conn: &Connection, on: &str) -> Result<Totals> {
     })
 }
 
-/// Общий баланс, как [`totals`], на конец каждой из дат `dates` (по возрастанию).
+/// Исторический баланс на конец каждой из дат `dates` (по возрастанию).
+/// Закрытые счета сохраняют свои прошлые остатки. Как в [`totals`],
+/// инвестиционные счета входят по оценке, исключённые из итога — пропускаются.
 /// Список счетов и баланс на первую дату считаются один раз, дальше к балансу
 /// прибавляются движения по дням: календарь со слоем «Остаток на конец дня»
 /// на 50 000 операций строился 1,2 с (по запросу на каждый день и счёт).
@@ -635,20 +655,20 @@ pub fn totals_on_days(conn: &Connection, dates: &[String]) -> Result<Vec<i64>> {
              UNION ALL
              SELECT t.date, t.to_amount FROM transactions t
              WHERE t.to_account_id = ?1 AND t.type = 'transfer' AND t.status = 'cleared'
-               AND t.date > ?2 AND t.date <= ?3)
+               AND t.date > ?2 AND t.date <= ?3
+             UNION ALL
+             SELECT opening_date, opening_balance FROM accounts
+             WHERE id = ?1 AND opening_date > ?2 AND opening_date <= ?3)
          GROUP BY date",
     )?;
-    for a in list(conn, false)?
-        .into_iter()
-        .filter(|a| a.include_in_total)
-    {
+    for a in list(conn, true)?.into_iter().filter(|a| a.include_in_total) {
         let mut per_day: Vec<i64> = Vec::with_capacity(dates.len());
         if a.kind == "investment" {
             for d in dates {
                 per_day.push(crate::invest::value_on(conn, &a.id, d)?.0);
             }
         } else {
-            let mut bal = balance(conn, &a.id, Some(first))?;
+            let mut bal = historical_balance(conn, &a.id, first)?;
             let delta: std::collections::HashMap<String, i64> = moves
                 .query_map(params![a.id, first, last], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?;

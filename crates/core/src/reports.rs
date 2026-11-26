@@ -409,10 +409,7 @@ pub fn balances_on(conn: &Connection, date: &str) -> Result<BalancesReport> {
     let mut missing_rates = Vec::new();
     for a in accounts::list(conn, true)? {
         let not_yet_open = a.opening_date.as_str() > date;
-        let mut balance = accounts::balance(conn, &a.id, Some(date))?;
-        if not_yet_open {
-            balance -= a.opening_balance;
-        }
+        let balance = accounts::historical_balance(conn, &a.id, date)?;
         if (a.archived || not_yet_open) && balance == 0 {
             continue;
         }

@@ -751,8 +751,7 @@ function YearView({ year, onYear, onMonth }: { year: number; onYear: (y: number)
   // Без копеек, в валюте бюджета этого месяца, с учётом «скрыть суммы».
   const cell = (v: number, i: number) => {
     const minor = y?.minorUnits[i] ?? 2;
-    const unit = 10 ** minor;
-    return <Money amount={Math.round(v / unit) * unit} symbol={y?.symbols[i] ?? "₽"} minorUnits={minor} />;
+    return <Money amount={v} symbol={y?.symbols[i] ?? "₽"} minorUnits={minor} wholeUnits />;
   };
   return (
     <div className="card" data-testid="budget-year">

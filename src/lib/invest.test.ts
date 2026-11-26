@@ -55,6 +55,13 @@ describe("валюта инвестиционного плана", () => {
     expect(rubleContribution(legacy)).toBeNull();
   });
 
+  it("предлагает восполнить снятие и выполнить весь план в его валюте", () => {
+    const afterWithdrawal = { ...month, planned: 2_000_000, saved: -100_000 };
+    expect(contributionPrefill(afterWithdrawal)).toEqual({ amountCurrency: "RUB", amount: 2_100_000 });
+    expect(contributionPrefill({ ...afterWithdrawal, saved: 2_000_000 }).amount).toBeNull();
+    expect(contributionPrefill({ ...month, planned: Number.MAX_SAFE_INTEGER, saved: -2 }).amount).toBeNull();
+  });
+
   it("неполный факт блокирует остаток перевода, а неполный доход затрагивает только процентный план", () => {
     expect(contributionPrefill({ ...month, savedComplete: false }).amount).toBeNull();
     expect(contributionPrefill({ ...month, incomeComplete: false }).amount).toBe(90_000);
@@ -75,7 +82,7 @@ describe("подписи", () => {
   it("сколько осталось отложить", () => {
     expect(leftToSave(20_000_00, 15_000_00)).toBe(5_000_00);
     expect(leftToSave(20_000_00, 25_000_00)).toBe(0);
-    expect(leftToSave(20_000_00, -1_000_00)).toBe(20_000_00);
+    expect(leftToSave(20_000_00, -1_000_00)).toBe(21_000_00);
     expect(leftToSave(null, 0)).toBe(0);
   });
 });

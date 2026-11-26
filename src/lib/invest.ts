@@ -59,7 +59,7 @@ export function tenthsText(tenths: number, signed = false): string {
 
 /** Сколько ещё отложить в этом месяце, чтобы выполнить план. */
 export function leftToSave(planned: number | null, saved: number): number {
-  return planned == null ? 0 : Math.max(planned - Math.max(saved, 0), 0);
+  return planned == null ? 0 : Math.max(planned - saved, 0);
 }
 
 export function needsPlanCurrency(plan: InvestMonth["plan"]): boolean {
@@ -74,9 +74,10 @@ export function progressIssue(m: InvestMonth): string | null {
 }
 
 export function contributionPrefill(m: InvestMonth) {
+  const remaining = leftToSave(m.planned, m.saved);
   return {
     amountCurrency: m.currency.code,
-    amount: progressIssue(m) ? null : leftToSave(m.planned, m.saved) || null,
+    amount: !progressIssue(m) && remaining > 0 && Number.isSafeInteger(remaining) ? remaining : null,
   };
 }
 
