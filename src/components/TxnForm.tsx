@@ -388,7 +388,7 @@ function TxnFormInner({ state, onClose }: { state: Exclude<TxnFormState, null | 
     <>
     <Modal title={title} onClose={cancel} side={side} guardUnsaved dismissDisabled={write.busy}>
       <form
-        className="form"
+        className="form txn-editor"
         ref={write.form}
         onClickCapture={write.blockClick}
         onSubmit={(e) => {

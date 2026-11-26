@@ -1,7 +1,7 @@
 // «Взгляд вперёд» (0.18): прогноз на 12 месяцев, сценарий «что если» и поток денег на настоящем окне.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, waitCount, money } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, clickControl, save, waitText, waitCount, money } from "./app.mjs";
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const now = new Date();
@@ -137,8 +137,7 @@ test("поток денег за месяц: продукты справа, не
   await (await browser.$('button[aria-label="Позже"]')).click();
   await (await browser.$(".flow-details summary")).click();
   const tableCategory = await browser.$('[data-testid="flow-table"] button[aria-label="Показать операции «Питание»"]');
-  await tableCategory.waitForDisplayed();
-  await tableCategory.click();
+  await clickControl(browser, tableCategory, "Показать операции «Питание» в таблице потока");
   await waitText(browser, '[data-testid="txn-count"]', /Показано 1 из 1/);
 });
 

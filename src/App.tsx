@@ -153,7 +153,7 @@ export function App() {
   return (
     <div className="layout">
       <Sidebar />
-      <main className="content">
+      <main className="content" data-section={section}>
         {privacyFailed && <p className="error" role="alert">Не удалось сохранить настройку видимости. Суммы скрыты.</p>}
         <DemoBanner />
         <JournalActionsSlot.Provider value={actionsSlot}>

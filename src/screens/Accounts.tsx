@@ -9,8 +9,8 @@ import { ErrorText, Modal } from "../components/Modal";
 import { Money } from "../components/Money";
 import { ReconcileAccount } from "../components/ReconcileAccount";
 import { ACCOUNT_TYPES, api, INVEST_KINDS, type Account, type AccountGroup, type AccountInput, type AccountType, type InvestKind } from "../lib/api";
-import { CATEGORY_ICONS, isColor, type CategoryColor, type Look } from "../lib/categoryLook";
-import { LookMark } from "../components/CategoryMark";
+import type { CategoryColor } from "../lib/categoryLook";
+import { accountLook, LookMark } from "../components/CategoryMark";
 import { LookPicker } from "../components/LookPicker";
 import { formatDate, today } from "../lib/dates";
 import { parseAmount } from "../lib/money";
@@ -206,11 +206,6 @@ export function Accounts() {
       {groupsOpen && <GroupsForm groups={groups} onClose={() => setGroupsOpen(false)} />}
     </section>
   );
-}
-
-/** Р21: значок и цвет счёта для LookMark. */
-export function accountLook(a: Pick<Account, "icon" | "color">): Look {
-  return { icon: a.icon && CATEGORY_ICONS[a.icon] ? a.icon : null, color: isColor(a.color) ? (a.color as CategoryColor) : null };
 }
 
 /** Р19: свои группы счетов — добавить, переименовать, переставить, удалить. */

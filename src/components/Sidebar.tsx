@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChartColumn, Keyboard, ListFilter, Monitor, Moon, Search, Star, Sun } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import type { Section } from "../lib/sections";
+import { moveRailMarker } from "../lib/motion";
 import { useUi } from "../lib/store";
 import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
 import { Brand } from "./Brand";
@@ -26,20 +27,13 @@ function ThemeSwitch() {
     window.addEventListener(THEME_EVENT, onTheme);
     return () => window.removeEventListener(THEME_EVENT, onTheme);
   }, []);
-  const pick = (value: Theme) => {
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      document.documentElement.classList.add("theme-fade");
-      window.setTimeout(() => document.documentElement.classList.remove("theme-fade"), 300);
-    }
-    applyTheme(value);
-  };
   const current = THEMES[theme];
   return (
     <RailMenu label={`Тема: ${current.label}`} className="foot-btn rail-theme-trigger" testId="theme-switch"
       icon={<DecorativeIcon icon={current.icon} className="foot-icon" size="control" />}
       choices={(Object.keys(THEMES) as Theme[]).map(value => ({
         id: value, name: THEMES[value].label, icon: <DecorativeIcon icon={THEMES[value].icon} size="control" />,
-        checked: theme === value, testId: `theme-${value}`, pick: () => pick(value),
+        checked: theme === value, testId: `theme-${value}`, pick: () => applyTheme(value),
       }))} />
   );
 }
@@ -51,7 +45,7 @@ function NavViews() {
   return (
     <li className="nav-views" data-testid="nav-views">
       <RailMenu label="Мои виды" className="nav-item rail-views-trigger" testId="open-nav-views"
-        icon={<DecorativeIcon icon={Star} />}
+        icon={<><DecorativeIcon icon={Star} /><span className="rail-label">Мои виды</span></>}
         choices={views.map(view => ({
           id: view.id, name: view.name, pick: () => openView(view),
           icon: <DecorativeIcon icon={view.kind === "report" ? ChartColumn : ListFilter} size="control" />,
@@ -65,6 +59,12 @@ export function Sidebar() {
   const { sectionOn } = useModules();
   const { nav } = useNavPrefs();
   const rail = useRef<HTMLElement>(null);
+  const previousMark = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const current = rail.current?.querySelector<HTMLElement>('[aria-current="page"] .rail-mark') ?? null;
+    moveRailMarker(previousMark.current, current);
+    previousMark.current = current;
+  }, [section]);
   const shown = navSections(nav, sectionOn);
   const groups = isDefaultNav(nav);
   const settings = shown.find(item => item.id === "settings");
@@ -72,14 +72,15 @@ export function Sidebar() {
     <button type="button" className={item.id === section ? "nav-item active" : "nav-item"}
       aria-current={item.id === section ? "page" : undefined} aria-label={item.title}
       data-section={item.id} data-rail-tip={item.title}
-      style={{ "--rail-color": item.color } as CSSProperties} onClick={() => { if (item.id !== section) go(item.id); }}>
+      onClick={() => { if (item.id !== section) go(item.id); }}>
       <SectionIcon id={item.id} />
-      <span className="sr-only">{item.title}</span>
+      <span className="rail-label">{item.title}</span>
+      <span className="rail-mark" aria-hidden="true" />
     </button>
   );
   return (
     <nav ref={rail} className="sidebar app-nav" aria-label="Разделы">
-      <Brand iconOnly />
+      <Brand />
       <button type="button" className="nav-search" aria-label="Поиск" data-rail-tip="Поиск"
         onClick={() => setPalette(true)} data-testid="open-palette">
         <DecorativeIcon icon={Search} />

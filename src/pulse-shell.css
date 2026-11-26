@@ -1,0 +1,121 @@
+/* The rail keeps navigation labels, the search trigger and the active stroke in
+   the same locations when privacy, keyboard focus or the budget changes. */
+.layout > .app-nav {
+  --rail-size: 108px;
+  --rail-surface: var(--sidebar);
+  --rail-gap: 3px;
+  border-inline-end: 1px solid var(--border);
+  padding: 14px 5px 9px;
+  background: var(--sidebar);
+}
+.app-nav > .brand { flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.app-nav .brand-logo { width: 30px; height: 30px; }
+.app-nav > .nav-search,
+.app-nav .sidebar-foot .foot-btn {
+  border-color: var(--border);
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: none;
+  color: var(--muted);
+}
+.app-nav > .nav-search { width: 35px; height: 31px; margin-bottom: 8px; }
+.app-nav > .nav-search svg { width: 17px; height: 17px; }
+.app-nav > ul {
+  padding: 4px 2px;
+  scrollbar-gutter: auto;
+  align-items: stretch;
+}
+.app-nav > ul > .nav-break { margin-block-start: 5px; }
+.app-nav .nav-item {
+  --rail-ink: var(--muted);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: auto;
+  min-height: var(--rail-tile);
+  padding: 5px 2px;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  white-space: normal;
+}
+.app-nav .nav-item svg { width: 17px; height: 17px; stroke-width: 1.7; }
+.app-nav .rail-label { font-size: 11.5px; font-weight: 550; line-height: 1.18; overflow-wrap: anywhere; }
+.app-nav .nav-item[data-section]::before { display: none; }
+.app-nav .nav-item[aria-current="page"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: var(--accent-soft);
+}
+.app-nav .rail-mark {
+  position: absolute;
+  inset-inline-start: 0;
+  top: calc(50% - 9px);
+  width: 3px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.app-nav [aria-current="page"] > .rail-mark { visibility: visible; z-index: 1; }
+.app-nav > .nav-settings { margin: 4px 2px 0; padding-block-start: 5px; }
+.app-nav > .sidebar-foot { padding-top: 5px; }
+.rail-popover { border-radius: 9px; }
+.rail-popover-item { border-radius: 5px; }
+.rail-tip { border-radius: 5px; }
+
+/* A small relative offset preserves viewport positioning for fixed overlays,
+   including dialogs opened in the same commit as a new route. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-route-change] .content[data-section] > .screen {
+    position: relative;
+    animation: pulse-section-in 205ms cubic-bezier(.22,.8,.28,1);
+  }
+  @keyframes pulse-section-in { from { top: 6px; } to { top: 0; } }
+  .modal-head::before { animation: pulse-dialog-line var(--motion-layer) var(--ease); }
+  @keyframes pulse-dialog-line { from { transform: scaleY(.35); } }
+}
+.modal-head { gap: 9px; }
+.modal-head::before {
+  content: "";
+  flex: none;
+  width: 3px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.modal-head h2 { flex: 1; min-width: 0; }
+
+@media (max-width: 700px) {
+  .layout > .app-nav {
+    width: 100%;
+    padding: 6px;
+    border-inline-end: 0;
+  }
+  .app-nav > .brand { flex-direction: row; gap: 5px; margin: 0; }
+  .app-nav .brand-logo { width: 24px; height: 24px; }
+  .app-nav > .nav-search,
+  .app-nav > .nav-settings,
+  .app-nav > .sidebar-foot { margin: 0; padding: 0; }
+  .app-nav > .nav-settings .nav-item { width: 30px; min-height: 32px; padding: 4px; }
+  .app-nav > .nav-settings .rail-label { display: none; }
+  .app-nav > ul { padding: 3px 4px; align-items: stretch; }
+  .app-nav > ul .nav-item { min-width: 58px; min-height: 39px; padding: 3px 5px; }
+  .app-nav > ul .rail-label { white-space: nowrap; }
+  .app-nav .rail-mark {
+    inset: auto auto 0 calc(50% - 8px);
+    width: 16px;
+    height: 2px;
+    border-radius: 2px;
+  }
+}
+@media (forced-colors: active) {
+  .app-nav [aria-current="page"] > .rail-mark { background: Highlight; forced-color-adjust: none; }
+  .app-nav .nav-item[aria-current="page"] { border: 2px solid Highlight; }
+}

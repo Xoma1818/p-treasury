@@ -19,6 +19,8 @@ import "./loans.css";
 import "./forecast.css";
 import "./graphite.css";
 import "./components/sidebar-navigation.css";
+import "./pulse-shell.css";
+import "./pulse-screens.css";
 
 applyTheme(savedTheme());
 showLook(savedLook());

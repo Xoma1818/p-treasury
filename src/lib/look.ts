@@ -5,7 +5,7 @@ import { pushPref } from "./uiPrefs";
 export const LOOK_KEY = "kazna.look";
 
 export type Density = "compact" | "normal" | "roomy";
-export type Accent = "mint" | "blue" | "violet" | "amber" | "rose" | "graphite";
+export type Accent = "lime" | "mint" | "blue" | "violet" | "amber" | "rose" | "graphite";
 export type Look = { density: Density; accent: Accent };
 
 export const DENSITIES: { value: Density; label: string }[] = [
@@ -14,8 +14,9 @@ export const DENSITIES: { value: Density; label: string }[] = [
   { value: "roomy", label: "Просторно" },
 ];
 
-/** Акцентные цвета; мятный — фирменный, по умолчанию. */
+/** Фирменный лайм и сохранённые персональные акценты. */
 export const ACCENTS: { value: Accent; label: string; color: string }[] = [
+  { value: "lime", label: "Лайм", color: "#b9f368" },
   { value: "mint", label: "Мятный", color: "#14b88f" },
   { value: "blue", label: "Синий", color: "#3b82f6" },
   { value: "violet", label: "Фиолетовый", color: "#8b5cf6" },
@@ -24,7 +25,7 @@ export const ACCENTS: { value: Accent; label: string; color: string }[] = [
   { value: "graphite", label: "Графит", color: "#64748b" },
 ];
 
-export const DEFAULT_LOOK: Look = { density: "normal", accent: "mint" };
+export const DEFAULT_LOOK: Look = { density: "normal", accent: "lime" };
 
 export function parseLook(raw: string | null | undefined): Look {
   try {
@@ -32,7 +33,7 @@ export function parseLook(raw: string | null | undefined): Look {
     if (!v || typeof v !== "object") return DEFAULT_LOOK;
     return {
       density: DENSITIES.some((d) => d.value === v.density) ? v.density : "normal",
-      accent: ACCENTS.some((a) => a.value === v.accent) ? v.accent : "mint",
+      accent: ACCENTS.some((a) => a.value === v.accent) ? v.accent : DEFAULT_LOOK.accent,
     };
   } catch {
     return DEFAULT_LOOK;
@@ -52,8 +53,7 @@ export function showLook(l: Look) {
   const el = document.documentElement;
   if (l.density === "normal") delete el.dataset.density;
   else el.dataset.density = l.density;
-  if (l.accent === "mint") delete el.dataset.accent;
-  else el.dataset.accent = l.accent;
+  el.dataset.accent = l.accent;
 }
 
 export function applyLook(l: Look) {

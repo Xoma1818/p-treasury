@@ -1,25 +1,23 @@
 // Картинка «Итоги года» для того, чтобы поделиться: 1080×1350 (формат
-// публикации в соцсетях и мессенджерах), тема «Тёмный графит» с мятным
-// акцентом. Рисуется на canvas без сети и без сторонних библиотек.
+// публикации в соцсетях и мессенджерах), в оформлении «Пульс».
+// Рисуется на canvas без сети и без сторонних библиотек.
 // С галочкой «Без сумм» вместо денег остаются только доли и проценты.
 
 import type { YearReview } from "./api";
 import { formatAmount } from "./money";
 import { monthTitle } from "./dates";
 import brandSvg from "../../src-tauri/icons/icon.svg?raw";
-import wordmarkSvg from "../assets/kazna-wordmark.svg?raw";
 
 const CARD_W = 1080;
 const CARD_H = 1350;
 
 const C = {
-  bg: "#12151b",
-  card: "#1a1f28",
-  border: "#2a303c",
-  text: "#e6e9ef",
-  muted: "#9aa1ae",
-  mint: "#2dd4a7",
-  mintSoft: "rgba(45, 212, 167, 0.16)",
+  bg: "#10130f",
+  card: "#1a1e18",
+  border: "#343b30",
+  text: "#f3f5ed",
+  muted: "#b9c2b2",
+  accent: "#b4ef63",
   over: "#fb923c",
 };
 const FONT = '"Segoe UI", "Noto Sans", "DejaVu Sans", sans-serif';
@@ -59,15 +57,15 @@ function fit(g: CanvasRenderingContext2D, text: string, max: number) {
   return t + "…";
 }
 
-/** Контуры марки и названия из тех же SVG, что в меню. Рисуем синхронно перед сохранением PNG. */
-function drawBrandAsset(g: CanvasRenderingContext2D, source: string, x: number, y: number, height: number, color?: string) {
-  const svg = new DOMParser().parseFromString(source, "image/svg+xml").querySelector("svg")!;
+/** Тот же знак, что в меню. Рисуем синхронно перед сохранением PNG. */
+function drawBrand(g: CanvasRenderingContext2D, x: number, y: number, height: number) {
+  const svg = new DOMParser().parseFromString(brandSvg, "image/svg+xml").querySelector("svg")!;
   const scale = height / svg.viewBox.baseVal.height;
   g.save();
   g.translate(x, y);
   g.scale(scale, scale);
   for (const path of svg.querySelectorAll("path")) {
-    g.fillStyle = color ?? path.getAttribute("fill")!;
+    g.fillStyle = path.getAttribute("fill")!;
     g.fill(new Path2D(path.getAttribute("d")!), path.getAttribute("fill-rule") === "evenodd" ? "evenodd" : "nonzero");
   }
   g.restore();
@@ -84,16 +82,21 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
 
   g.fillStyle = C.bg;
   g.fillRect(0, 0, CARD_W, CARD_H);
-  // Мягкое мятное свечение в углу.
+  // Оливковый свет над верхним рядом, как в основной панели.
   const glow = g.createRadialGradient(CARD_W - 120, 120, 20, CARD_W - 120, 120, 620);
-  glow.addColorStop(0, "rgba(45, 212, 167, 0.22)");
-  glow.addColorStop(1, "rgba(45, 212, 167, 0)");
+  glow.addColorStop(0, "rgba(180, 239, 99, 0.12)");
+  glow.addColorStop(1, "rgba(180, 239, 99, 0)");
   g.fillStyle = glow;
   g.fillRect(0, 0, CARD_W, CARD_H);
 
   // Шапка.
-  drawBrandAsset(g, brandSvg, pad, 64, 64);
-  drawBrandAsset(g, wordmarkSvg, pad + 84, 82, 28, C.text);
+  drawBrand(g, pad, 64, 64);
+  g.save();
+  g.font = '650 40px "Segoe UI Variable Text", ' + FONT;
+  g.letterSpacing = "-3px";
+  g.fillStyle = C.text;
+  g.fillText("Kazna", pad + 80, 110);
+  g.restore();
   g.textBaseline = "alphabetic";
   g.fillStyle = C.text;
   g.font = `700 76px ${FONT}`;
@@ -108,7 +111,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   const tiles: [string, string, string][] = [
     ["Заработали", money(r.income), C.text],
     ["Потратили", money(r.expense), C.text],
-    ["Отложили", r.savingsRate != null ? `${r.savingsRate} %` : money(saved), C.mint],
+    ["Отложили", r.savingsRate != null ? `${r.savingsRate} %` : money(saved), C.accent],
   ];
   const tw = (CARD_W - pad * 2 - 2 * 24) / 3;
   tiles.forEach(([label, value, color], i) => {
@@ -147,7 +150,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
     const h = v > 0 ? Math.max(12, ((base - top) * v) / max) : 4;
     const x = pad + 28 + i * slot + slot * 0.2;
     const key = `${r.year}-${String(i + 1).padStart(2, "0")}`;
-    g.fillStyle = key === r.costliestMonth ? C.over : v > 0 ? C.mint : C.border;
+    g.fillStyle = key === r.costliestMonth ? C.over : v > 0 ? C.accent : C.border;
     roundRect(g, x, base - h, slot * 0.6, h, Math.min(10, h / 2, slot * 0.3));
     g.fill();
     g.fillStyle = C.muted;
@@ -178,7 +181,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
     g.fillStyle = C.card;
     roundRect(g, x, y, fw, 146, 24);
     g.fill();
-    g.fillStyle = C.mint;
+    g.fillStyle = C.accent;
     roundRect(g, x, y + 28, 6, 90, 3);
     g.fill();
     g.fillStyle = C.muted;

@@ -365,6 +365,8 @@ test("вид: компактно и синий акцент сразу видн�
   await openSettings(browser, "appearance");
   await browser.$('[data-testid="accent-pick"]').waitForExist({ timeout: 5000 });
   const attr = (name) => browser.execute((n) => document.documentElement.dataset[n] ?? "", name);
+  const initialAccent = await attr("accent");
+  const initialDensity = await attr("density");
   try {
     await tap('[data-testid="accent-pick"] [data-accent="blue"]');
     await browser.waitUntil(async () => (await attr("accent")) === "blue", { timeout: 5000, timeoutMsg: "акцент не сменился" });
@@ -372,9 +374,11 @@ test("вид: компактно и синий акцент сразу видн�
     await browser.waitUntil(async () => (await attr("density")) === "compact", { timeout: 5000, timeoutMsg: "плотность не сменилась" });
   } finally {
     await tap('[data-testid="accent-pick"] [data-accent="mint"]');
-    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", "normal");
+    await browser.waitUntil(async () => (await attr("accent")) === "mint", { timeout: 5000 });
+    await tap(`[data-testid="accent-pick"] [data-accent="${initialAccent}"]`);
+    await (await browser.$('[name="uiDensity"]')).selectByAttribute("value", initialDensity || "normal");
   }
-  await browser.waitUntil(async () => (await attr("accent")) === "" && (await attr("density")) === "", { timeout: 5000, timeoutMsg: "вид не вернулся" });
+  await browser.waitUntil(async () => (await attr("accent")) === initialAccent && (await attr("density")) === initialDensity, { timeout: 5000, timeoutMsg: "вид не вернулся" });
 });
 
 test("Главная: карточка в половину ширины и обратно (0.32)", async () => {

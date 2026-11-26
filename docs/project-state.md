@@ -4,6 +4,8 @@
 
 | Где | Что подтверждено |
 |---|---|
+| Рабочая версия «Пульса» | Открыт [PR №133 с редизайном Kazna 0.43.0](https://github.com/Xoma1818/p-treasury/pull/133) по [задаче №132](https://github.com/Xoma1818/p-treasury/issues/132). На итоговой сборке в Windows 11 прошли 24 сценария приёмки и 28 штатных оконных тестов. [Отчёт и три снимка экранов](testing/pulse-0.43.0.md) · [Проверки PR](https://github.com/Xoma1818/p-treasury/pull/133/checks). |
+| Текущий выпуск и основная ветка | [Kazna 0.42.8](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.42.8) опубликована и вошла в `main`. На Windows 11 подтверждено [обновление с 0.42.1 до 0.42.8](https://github.com/Xoma1818/p-treasury/actions/runs/45745769803). |
 | Опубликованные версии | Актуальный установщик и файлы обновления — на [странице последнего выпуска](https://github.com/Xoma1818/p-treasury-releases/releases/latest). Для [0.41.4](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.41.4) проверены четыре опубликованных файла, подпись установщика и адреса обновления Windows. |
 | Основная ветка | Изменения программы 0.42.0 вошли в `main` 24 ноября. [Повторный запуск №117](https://github.com/Xoma1818/p-treasury/pull/117) · [Исправления №119](https://github.com/Xoma1818/p-treasury/pull/119) · [Оформление №120](https://github.com/Xoma1818/p-treasury/pull/120) · [Коммит программы](https://github.com/Xoma1818/p-treasury/commit/8ff093f68f28ddd0db6705595d896e36c82da589). Состав семи ролей и правила передачи проекта — в [№118](https://github.com/Xoma1818/p-treasury/pull/118). |
 | Исправление повторного запуска | [№117, версия 0.41.5](https://github.com/Xoma1818/p-treasury/pull/117). Код приложения проверен на дереве [469f05a1](https://github.com/Xoma1818/p-treasury/commit/469f05a1d0e8d8a4a2544068f5f8d342a6db44cc). На Windows 11 прошли восемь сценариев запуска. Зелёные [проверки ядра и интерфейса](https://github.com/Xoma1818/p-treasury/actions/runs/45246301903), [Linux E2E](https://github.com/Xoma1818/p-treasury/actions/runs/45246301921) и [сборка установщика](https://github.com/Xoma1818/p-treasury/actions/runs/45246301898). Результаты проверки функций в одном окне — в [отдельном отчёте](testing/manual-0.41.5.md). Исправление вошло в общий состав 0.42.0. |
@@ -11,6 +13,10 @@
 | Новый знак и ярлык | В [№120](https://github.com/Xoma1818/p-treasury/pull/120) новый знак встроен в приложение и проверен у ярлыка Windows. Девять размеров знака сверены в готовых файлах приложения, установки и удаления. [Архив установщика](https://github.com/Xoma1818/p-treasury/actions/runs/45296059303/artifacts/14877684348). Отдельно подтверждено скрытие дохода и расхода в сохранённой карточке года. В [макете](https://github.com/Xoma1818/p-treasury/blob/b66a8c9cd7cb7560c230ce175c8bef6de697a7bd/docs/design/kazna-balance-preview.html) предложены шрифт, названия и расположение действий на Главной и в операциях. [Сборки №120](https://github.com/Xoma1818/p-treasury/pull/120/checks) |
 
 ## Ближайшая работа
+
+OTTO проверяет внешний вид и движение в переносной сборке 0.43.0. После решения владельца о слиянии применяется [порядок выпуска](releasing.md).
+
+## История приёмки 0.42
 
 В [№125](https://github.com/Xoma1818/p-treasury/pull/125) кандидат 0.42.8 получил выбор месяца в отчёте «Чистые активы». Tab переводит фокус с кнопок периода на график, стрелки меняют месяц, Home и End выбирают крайние месяцы. Новый [оконный тест](../e2e/wave7.test.mjs) сравнивает всю разбивку при наведении и выборе с клавиатуры. Целевая ветка — [№124](https://github.com/Xoma1818/p-treasury/pull/124).
 

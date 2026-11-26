@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { Category } from "../lib/api";
-import { CATEGORY_ICONS, colorVar, lookOf, type Look } from "../lib/categoryLook";
+import type { Account, Category } from "../lib/api";
+import { CATEGORY_ICONS, colorVar, isColor, lookOf, type Look } from "../lib/categoryLook";
 import { useCategories } from "../lib/queries";
 
 /** Карта категорий по id для значков (общий кэш запроса категорий). */
@@ -24,4 +24,8 @@ export function LookMark({ look, size = 18 }: { look: Look; size?: number }) {
 export function CategoryMark({ id, size }: { id: string | null | undefined; size?: number }) {
   const map = useCategoryMap();
   return <LookMark look={lookOf(id, map)} size={size} />;
+}
+
+export function accountLook(a: Pick<Account, "icon" | "color">): Look {
+  return { icon: a.icon && CATEGORY_ICONS[a.icon] ? a.icon : null, color: isColor(a.color) ? a.color : null };
 }

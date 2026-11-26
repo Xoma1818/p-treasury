@@ -1,28 +1,162 @@
-/* Shared surfaces and interaction states for the Graphite and Mint design. */
+/* Пульс. Общие цвета оболочки, финансовых экранов и отдельного окна ввода. */
 :root {
-  --motion-selection: var(--motion-layer);
-  --page-gutter: clamp(16px, 3vw, 36px);
+  --bg: #eff1eb;
+  --sidebar: #e5e8de;
+  --card: #fcfdf8;
+  --text: #20251c;
+  --muted: #53604c;
+  --border: #ced5c7;
+  --border-strong: #8a9780;
+  --fill: #edf0e7;
+  --fill-strong: #e1e7d9;
+  --hover: #e5ebdd;
+  --press: #d8e3ce;
+  --tab-hover: var(--hover);
+  --toast: #283021;
+  --toast-link: #c1ef86;
+  --series-income: #527c27;
+  --series-expense: #a34827;
+  --radius: 9px;
+  --control-radius: 6px;
+  --ease-selection: cubic-bezier(.22,.8,.28,1);
+  --spring: var(--ease-selection);
+  --motion-selection: 185ms;
+  --page-gutter: clamp(12px, 2.1vw, 28px);
+  --action: var(--accent);
+  --action-ink: var(--on-accent);
+  --action-hover: var(--accent-hover);
+  --action-press: var(--accent-press);
+  --grid-rule: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
 :root[data-theme="dark"] {
-  --bg: #14171c;
-  --sidebar: #191d23;
-  --card: #1e232b;
-  --text: #eff2f5;
-  --muted: #aeb8c5;
-  --border: #343b46;
-  --border-strong: #505a68;
-  --hover: #282f39;
-  --press: #242a33;
+  --bg: #10130f;
+  --sidebar: #151912;
+  --card: #1b1f18;
+  --text: #f1f4e9;
+  --muted: #afb8a5;
+  --border: #353d2e;
+  --border-strong: #65715b;
+  --fill: #24291f;
+  --fill-strong: #30382a;
+  --hover: #2b3325;
+  --press: #343e2d;
+  --tab-hover: var(--hover);
+  --toast: #252d20;
+  --toast-link: #c1ef86;
+  --ok: #a3d87d;
+  --series-income: #a3d87d;
+  --series-expense: #f3a37c;
 }
 
-/* Preserve the accent choices in Appearance. */
-:root[data-theme="dark"]:is(:not([data-accent]), [data-accent="mint"]) {
+:root:not([data-theme="dark"]):is(:not([data-accent]), [data-accent="lime"]) {
+  --accent: #456718;
+  --accent-soft: #e1edce;
+  --accent-hover: #375510;
+  --accent-press: #2a410b;
+  --on-accent: white;
+  --accent-shadow: transparent;
+  --action: #b9ed77;
+  --action-ink: #19260d;
+  --action-hover: #aee266;
+  --action-press: #9bc85f;
+}
+:root[data-theme="dark"]:is(:not([data-accent]), [data-accent="lime"]) {
+  --accent: #b9f368;
+  --accent-soft: #303f24;
+  --accent-hover: #c9fa88;
+  --accent-press: #a5d95e;
+  --on-accent: #18230f;
+  --accent-shadow: transparent;
+}
+:root[data-theme="dark"][data-accent="mint"] {
   --accent: #8ce5be;
   --accent-soft: rgba(140, 229, 190, .14);
   --accent-hover: #a3efd0;
   --accent-press: #73cfa7;
   --on-accent: #142d24;
+}
+
+.screen h1, .wizard h1, .settings-heading {
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: clamp(1.7rem, 2.6vw, 2.5rem);
+  font-weight: 620;
+  line-height: 1.1;
+  letter-spacing: -.045em;
+  overflow-wrap: anywhere;
+}
+.screen h2, .modal h2, .wizard h2 { letter-spacing: -.025em; }
+:root .card, :root[data-theme="dark"] .card {
+  border-color: var(--border);
+  border-radius: var(--radius);
+}
+.btn, .chip-btn, .tab, .icon-btn, .menu-item, .theme-switch button {
+  border-radius: var(--control-radius);
+}
+:root .btn:not(.primary):not(.danger) {
+  border-color: var(--border);
+  background-color: var(--fill);
+}
+:root .btn:not(.primary):not(.danger):hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background-color: var(--hover);
+}
+:root .btn.primary {
+  background-color: var(--action);
+  border-color: var(--action);
+  color: var(--action-ink);
+  font-weight: 650;
+}
+:root .btn.primary:hover:not(:disabled) { background-color: var(--action-hover); border-color: var(--action-hover); }
+:root .btn.primary:active:not(:disabled) { background-color: var(--action-press); border-color: var(--action-press); }
+:root .tabs, :root .theme-switch {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--control-radius) + 2px);
+}
+:root .tab.active:not(:disabled), :root .chip-btn.active {
+  color: var(--text);
+  background-color: var(--accent-soft);
+}
+:root :is(input:not([type="checkbox"],[type="radio"],[type="range"],[type="color"]),select,textarea) {
+  border-radius: var(--control-radius);
+}
+.field input:not(:disabled), .field select:not(:disabled), .field textarea:not(:disabled) {
+  background-color: var(--bg);
+}
+.field > label, .field > .label, .table th { font-weight: 600; }
+:root .modal, :root .palette-box, :root .menu-pop {
+  border-color: var(--border-strong);
+  background-color: var(--card);
+}
+.modal-head, .palette-foot { border-block-end: 1px solid var(--border); }
+.modal-head { padding-block-end: .65rem; gap: .65rem; }
+.modal-head .icon-btn { background: var(--fill); }
+.modal.side { border-inline-start-color: var(--border-strong); }
+.menu-item:focus-visible, .menu-item:hover { background-color: var(--hover); }
+.modal .actions, .form-footer { flex-wrap: wrap; }
+.wizard {
+  background: radial-gradient(ellipse at 50% 0%, var(--fill-strong), transparent 65%), var(--bg);
+}
+.wizard .wizard-card { border-top: 3px solid var(--accent); }
+.quick-window { background: var(--bg); }
+.quick-window .quick-card { border-inline-start: 3px solid var(--accent); }
+.settings-heading { color: var(--text); }
+.settings-topics { gap: .3rem; }
+.settings-topics > button { border: 1px solid var(--border); border-radius: var(--control-radius); }
+.settings-topics > button[aria-selected="true"] {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-ink);
+}
+.settings-section > h2 { padding-block-end: .65rem; border-block-end: 1px solid var(--border); }
+.updates-overview .updates-installed strong { color: var(--accent); }
+@media (forced-colors: none) {
+  .switch::after { background-color: var(--card); }
+  :is([aria-checked="true"], .updates-control:has(input:checked)) .switch::after { background-color: var(--on-accent); }
+}
+.goal-card-reached .ring-value, :root[data-theme="dark"] .goal-card-reached .ring-value { stroke: var(--ok); }
+@media (forced-colors: active) {
+  .settings-topics > button[aria-selected="true"], .btn.primary { border-color: Highlight; }
 }
 
 .layout > .sidebar { border-inline-end: 1px solid var(--border); }

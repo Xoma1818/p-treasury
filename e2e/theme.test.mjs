@@ -2,6 +2,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { start, stop, onboard, openSection, selectTheme } from "./app.mjs";
+import { assertReadableInThemes } from "./contrast.mjs";
 
 let app;
 before(async () => {
@@ -14,14 +15,6 @@ after(async () => {
 });
 
 const theme = (b) => b.execute(() => document.documentElement.dataset.theme);
-
-function luminance(color) {
-  const [r, g, b] = color.match(/[\d.]+/g).slice(0, 3).map(Number).map((channel) => {
-    const s = channel / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
 
 test("по умолчанию тёмная тема, переключатель в меню выбирает светлую и обратно", async () => {
   const { browser } = app;
@@ -75,18 +68,29 @@ test("основные разделы видны в меню, Настройки
 test("текст основной кнопки читается в светлой и тёмной темах", async () => {
   const { browser } = app;
   await openSection(browser, "Счета");
-  const primary = await browser.$("main .btn.primary");
-  await primary.waitForDisplayed();
-  for (const mode of ["light", "dark"]) {
-    await selectTheme(browser, mode);
-    await browser.waitUntil(() => browser.execute((mode) =>
-      document.documentElement.dataset.theme === mode && !document.documentElement.classList.contains("theme-fade"), mode));
-    const colors = await browser.execute((button) => {
-      const style = getComputedStyle(button);
-      return [style.color, style.backgroundColor];
-    }, primary);
-    const [lighter, darker] = colors.map(luminance).sort((a, b) => b - a);
-    const contrast = (lighter + 0.05) / (darker + 0.05);
-    assert.ok(contrast >= 4.5, `${mode}: контраст подписи основной кнопки ${contrast.toFixed(2)}:1`);
-  }
+  await assertReadableInThemes(browser, "подпись основной кнопки", "main .btn.primary");
+});
+
+test("быстрая смена разделов «Пульса» оставляет один экран и один видимый штрих меню", async () => {
+  const { browser } = app;
+  await openSection(browser, "Главная");
+  const navigation = await browser.executeAsync((done) => {
+    const buttons = [...document.querySelectorAll(".app-nav button[data-section]")];
+    const select = id => buttons.find(button => button.dataset.section === id).click();
+    select("budget");
+    setTimeout(() => select("calendar"), 20);
+    setTimeout(() => select("transactions"), 40);
+    setTimeout(() => {
+      const active = document.querySelector(".app-nav [aria-current=page]");
+      const strokes = [...document.querySelectorAll(".rail-mark")];
+      done({
+        section: document.querySelector("main.content").dataset.section,
+        screens: document.querySelectorAll("main.content > .screen").length,
+        label: active.querySelector(".rail-label").innerText,
+        visible: strokes.filter(el => getComputedStyle(el).visibility === "visible").length,
+        running: strokes.some(el => el.getAnimations().length > 0),
+      });
+    }, 350);
+  });
+  assert.deepEqual(navigation, { section: "transactions", screens: 1, label: "Операции", visible: 1, running: false });
 });
