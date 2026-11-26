@@ -2,6 +2,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, rateHistory } from "./app.mjs";
+import { assertReadableInThemes } from "./contrast.mjs";
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
@@ -124,6 +125,7 @@ test("«Можно тратить сегодня»: остаток лимито�
   const hint = await waitText(browser, '.home-budget-today', /Дневной лимит по бюджету/);
   const end = new Date(now.getFullYear(), now.getMonth(), last);
   assert.ok(hint.includes(`с ${dmy(now)} по ${dmy(end)} включительно`));
+  assert.doesNotMatch(hint, /Часть расходов не учтена/);
   await waitText(browser, '[data-testid="home-budget"]', /Общепит\s*105 %/);
   // Лимит переезжает к следующей видимой карточке и возвращается при включении плиток.
   const limit = '[data-testid="home-safe-to-spend"]';
@@ -140,8 +142,8 @@ test("«Можно тратить сегодня»: остаток лимито�
   await onlyIn("plans");
   await toggle("plans", "Скрыть");
   await onlyIn("summary");
-  const summaryLimit = await browser.$(`[data-block="summary"] ${limit}`);
-  assert.equal(await browser.execute((el) => getComputedStyle(el).color === getComputedStyle(document.body).color, summaryLimit), true, "сумма лимита окрашена основным цветом текста");
+  const summary = '[data-block="summary"] .home-budget-today';
+  await assertReadableInThemes(browser, "дневной лимит", `${summary} ${limit} .money`, summary);
   await toggle("summary", "Скрыть");
   await browser.$(limit).waitForExist({ reverse: true });
   await toggle("summary", "Показать");
