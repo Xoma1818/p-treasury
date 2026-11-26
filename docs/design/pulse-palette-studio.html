@@ -1,0 +1,258 @@
+﻿<meta charset="utf-8">
+<div id="kazna-palette-studio" lang="ru" data-palette="petrol" data-theme="dark">
+  <svg width="0" height="0" aria-hidden="true" focusable="false" class="ks-defs"><defs>
+    <symbol id="kz-vault" viewBox="0 0 64 64">
+      <path fill="currentColor" d="M6 53V34C6 18 16 9 32 6C48 9 58 18 58 34V53H46V35C46 27 40 21 32 18C24 21 18 27 18 35V53Z"/>
+      <path fill="currentColor" d="M23 48C23 42 27 38 32 35C37 38 41 42 41 48V53H23Z"/>
+    </symbol>
+    <symbol id="kz-edge" viewBox="0 0 64 64">
+      <g fill="currentColor" transform="rotate(-24 32 32)">
+        <path fill-rule="evenodd" d="M5 25C5 16 17 10 32 10C47 10 59 16 59 25C59 33 47 39 32 39C17 39 5 33 5 25ZM17 24C23 20 32 18 42 19L47 21C38 21 28 24 21 28Z"/>
+        <path d="M5 34C10 40 20 44 32 44C44 44 54 40 59 34V40C59 45 55 49 49 52V46L44 48V54C41 55 38 55.5 34 56V50L29 50V56C16 55 5 49 5 40Z"/>
+      </g>
+    </symbol>
+    <symbol id="kz-leaves" viewBox="0 0 64 64">
+      <g fill="currentColor">
+        <path d="M6 17Q6 12 12 12H35C50 12 58 21 58 37V39C49 30 39 27 29 28C17 29 9 26 6 17Z"/>
+        <path d="M58 47Q58 52 52 52H29C14 52 6 43 6 27V25C15 34 25 37 35 36C47 35 55 38 58 47Z"/>
+      </g>
+    </symbol>
+    <symbol id="kz-current" viewBox="0 0 64 64">
+      <path fill="currentColor" d="M3 40C12 43 18 38 22 29C27 18 34 11 45 11C51 11 57 13 61 17L57 25C50 21 44 23 40 29C36 35 35 42 29 48C22 55 12 55 3 49C8 49 12 47 15 44C10 45 6 44 3 42Z"/>
+    </symbol>
+  </defs></svg>
+  <section class="ks-workbench" aria-label="Сравнение оформления">
+    <fieldset class="ks-palettes">
+      <legend>Палитра</legend>
+      <button type="button" data-choose="palette" value="petrol" aria-pressed="true"><i class="ks-swatch petrol" aria-hidden="true"></i>Петроль и фарфор</button>
+      <button type="button" data-choose="palette" value="plum" aria-pressed="false"><i class="ks-swatch plum" aria-hidden="true"></i>Слива и шампань</button>
+      <button type="button" data-choose="palette" value="cobalt" aria-pressed="false"><i class="ks-swatch cobalt" aria-hidden="true"></i>Кобальт и мел</button>
+    </fieldset>
+    <div class="ks-options">
+      <fieldset class="ks-logos">
+        <legend>Знак</legend>
+        <button type="button" data-choose="logo" value="vault" aria-pressed="true"><svg aria-hidden="true"><use href="#kz-vault"/></svg>Свод</button>
+        <button type="button" data-choose="logo" value="edge" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-edge"/></svg>Гурт</button>
+        <button type="button" data-choose="logo" value="leaves" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-leaves"/></svg>Створки</button>
+        <button type="button" data-choose="logo" value="current" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-current"/></svg>Русло</button>
+      </fieldset>
+      <fieldset class="ks-tones">
+        <legend>Тема</legend>
+        <button type="button" data-choose="theme" value="dark" aria-pressed="true">Тёмная</button>
+        <button type="button" data-choose="theme" value="light" aria-pressed="false">Светлая</button>
+      </fieldset>
+    </div>
+  </section>
+  <div class="ks-app">
+    <aside class="ks-rail">
+      <div class="ks-brand"><svg aria-hidden="true"><use data-brand href="#kz-vault"/></svg><b>Kazna</b></div>
+      <nav aria-label="Разделы Kazna">
+        <button type="button" data-route="home" aria-current="page"><i data-lucide="house" aria-hidden="true">⌂</i>Главная</button>
+        <button type="button" data-route="journal"><i data-lucide="arrow-left-right" aria-hidden="true">⇄</i>Операции</button>
+        <button type="button" data-route="accounts"><i data-lucide="wallet-cards" aria-hidden="true">▤</i>Счета</button>
+      </nav>
+    </aside>
+    <main class="ks-main">
+      <header class="ks-header"><h1>Главная</h1><span class="ks-date">10 ноя — 9 дек 2026</span></header>
+      <div data-page="home" class="ks-page">
+        <div class="ks-deck">
+          <section class="ks-balance">
+            <div class="ks-etch" aria-hidden="true"></div>
+            <svg aria-hidden="true" class="ks-hero-mark"><use data-brand href="#kz-vault"/></svg>
+            <div class="ks-hero-content">
+              <h2>Общий баланс</h2><div class="ks-total">25 364<span>,17</span><small> ₽</small></div>
+              <div class="ks-metrics"><div><span>↙ Доходы</span><strong>1 234,56 ₽</strong></div><div><span>↗ Расходы</span><strong>470,39 ₽</strong></div></div>
+            </div>
+          </section>
+          <section class="ks-accounts">
+            <div class="ks-heading"><h2>Счета</h2><button class="ks-circle" type="button" data-open="accounts" aria-label="Открыть счета">↗</button></div>
+            <div class="ks-account-list"></div>
+          </section>
+        </div>
+        <section class="ks-ledger">
+          <div class="ks-heading"><h2>Последние операции</h2><button type="button" class="ks-primary" data-open="journal">Все операции <span aria-hidden="true">→</span></button></div>
+          <div class="ks-rows" data-rows="recent"></div>
+        </section>
+      </div>
+      <section data-page="journal" class="ks-page ks-ledger" hidden>
+        <div class="ks-heading"><h2>Журнал</h2><span class="ks-caption">7 операций</span></div>
+        <div class="ks-rows" data-rows="all"></div>
+      </section>
+      <section data-page="accounts" class="ks-page ks-ledger" hidden>
+        <div class="ks-heading"><h2>Остатки по счетам</h2><span class="ks-caption">RUB · USD</span></div>
+        <div class="ks-account-list"></div>
+      </section>
+    </main>
+  </div>
+  <section class="ks-specimen" aria-label="Знак и образцы цвета">
+    <div class="ks-scale" aria-label="Знак в трёх размерах">
+      <span class="ks-sample"><svg width="16" height="16" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>16 px</small></span>
+      <span class="ks-sample"><svg width="32" height="32" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>32 px</small></span>
+      <span class="ks-sample"><svg width="48" height="48" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>48 px</small></span>
+    </div>
+    <div class="ks-chips">
+      <div class="ks-color" data-swatch="base"><i aria-hidden="true"></i><span>Фон</span><b></b></div>
+      <div class="ks-color" data-swatch="panel"><i aria-hidden="true"></i><span>Карточка</span><b></b></div>
+      <div class="ks-color" data-swatch="accent"><i aria-hidden="true"></i><span>Акцент</span><b></b></div>
+    </div>
+  </section>
+</div>
+<style>
+#kazna-palette-studio {font-family:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;font-size:14px;font-variant-numeric:lining-nums tabular-nums;container-type:inline-size;color:var(--text);max-width:1152px;margin-inline:auto;line-height:1.35;--type-display:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif}
+#kazna-palette-studio[data-palette="petrol"][data-theme="dark"] {--base:#101D22;--panel:#192A30;--rail:#15252A;--raised:#264047;--rule:#394F55;--hero:#234650;--edge:#172F37;--text:#F0F5F1;--sub:#B5C9C9;--accent:#9EDBE4;--on-accent:#092F39;--pos:#ADE0B9;--other:#CAB5DD;color-scheme:dark}
+#kazna-palette-studio[data-palette="petrol"][data-theme="light"] {--base:#E9F0EF;--panel:#FCFBF6;--rail:#F5F8F4;--raised:#D6E7E7;--rule:#C0CECB;--hero:#C6DFE0;--edge:#E2EEEA;--text:#13333A;--sub:#415E61;--accent:#246373;--on-accent:#FFFFFF;--pos:#306344;--other:#755780;color-scheme:light}
+#kazna-palette-studio[data-palette="plum"][data-theme="dark"] {--base:#261C29;--panel:#342938;--rail:#2D2230;--raised:#46374A;--rule:#594758;--hero:#50384B;--edge:#372B3B;--text:#FFF3EA;--sub:#D2C0CC;--accent:#E3C791;--on-accent:#332511;--pos:#AEDDAD;--other:#C5B8E0;color-scheme:dark}
+#kazna-palette-studio[data-palette="plum"][data-theme="light"] {--base:#F0E8E8;--panel:#FFF9EF;--rail:#F9F2F0;--raised:#E8DCE1;--rule:#D3C5C9;--hero:#E8D7D9;--edge:#F0E4DB;--text:#392939;--sub:#695563;--accent:#74551D;--on-accent:#FFF9EB;--pos:#3D6447;--other:#735E89;color-scheme:light}
+#kazna-palette-studio[data-palette="cobalt"][data-theme="dark"] {--base:#171D34;--panel:#222B46;--rail:#1D2540;--raised:#303D61;--rule:#414F70;--hero:#344878;--edge:#242E50;--text:#F4F5FF;--sub:#C4CAE1;--accent:#AEBFFF;--on-accent:#182854;--pos:#ACE0C1;--other:#DFBAD8;color-scheme:dark}
+#kazna-palette-studio[data-palette="cobalt"][data-theme="light"] {--base:#EBEEF7;--panel:#FCFCFA;--rail:#F6F7FB;--raised:#DFE4F5;--rule:#CBD0E0;--hero:#D3DDF4;--edge:#E4E7F4;--text:#242C48;--sub:#515E78;--accent:#405DB2;--on-accent:#FFFFFF;--pos:#336247;--other:#7D5C7B;color-scheme:light}
+#kazna-palette-studio * {box-sizing:border-box}
+#kazna-palette-studio .ks-defs {position:absolute;pointer-events:none}
+#kazna-palette-studio [hidden] {display:none!important}
+#kazna-palette-studio .ks-workbench,#kazna-palette-studio .ks-specimen {background:var(--panel);color:var(--text);border:1px solid var(--rule);border-radius:18px}
+#kazna-palette-studio .ks-workbench {padding:10px 15px 12px;display:grid;gap:8px;margin-bottom:9px}
+#kazna-palette-studio fieldset {padding:0;border:0;margin:0;min-width:0;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+#kazna-palette-studio legend {float:left;font-size:12px;color:var(--sub);padding:0;margin:0 8px 0 0;font-weight:550;min-width:50px}
+#kazna-palette-studio .ks-options {display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#kazna-palette-studio button {font-family:inherit;line-height:1.2;cursor:pointer;appearance:none;letter-spacing:normal}
+#kazna-palette-studio .ks-workbench button {border:1px solid transparent;border-radius:11px;background:transparent;color:var(--sub);font-size:12px;font-weight:550;display:inline-flex;align-items:center;gap:8px;padding:6px 10px;min-height:33px}
+#kazna-palette-studio .ks-workbench button[aria-pressed="true"] {background:var(--raised);color:var(--text);border-color:var(--rule)}
+#kazna-palette-studio .ks-workbench button:hover {background:var(--raised);color:var(--text)}
+#kazna-palette-studio button:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+#kazna-palette-studio .ks-swatch {width:28px;height:13px;display:block;flex:none;border-radius:6px;border:1px solid currentColor}
+#kazna-palette-studio .ks-swatch.petrol {background:linear-gradient(90deg,#101D22 0 34%,#9EDBE4 34% 69%,#FCFBF6 69%)}
+#kazna-palette-studio .ks-swatch.plum {background:linear-gradient(90deg,#261C29 0 34%,#E3C791 34% 69%,#FFF9EF 69%)}
+#kazna-palette-studio .ks-swatch.cobalt {background:linear-gradient(90deg,#171D34 0 34%,#AEBFFF 34% 69%,#FCFCFA 69%)}
+#kazna-palette-studio .ks-logos svg {width:19px;height:19px;flex:none}
+#kazna-palette-studio .ks-app {background:var(--base);border-radius:26px;display:grid;grid-template-columns:80px minmax(0,1fr);gap:clamp(12px,2cqw,25px);padding:13px clamp(12px,2.3cqw,30px) 13px 12px}
+#kazna-palette-studio .ks-rail {background:var(--rail);border-radius:20px;display:flex;align-items:center;flex-direction:column;padding:15px 5px;gap:23px}
+#kazna-palette-studio .ks-brand {display:flex;align-items:center;flex-direction:column;gap:4px}
+#kazna-palette-studio .ks-brand svg {width:33px;height:33px;color:var(--accent)}
+#kazna-palette-studio .ks-brand b {font-family:var(--type-display);font-size:16px;line-height:1;font-weight:650;letter-spacing:-.5px}
+#kazna-palette-studio nav {display:grid;width:100%;gap:5px}
+#kazna-palette-studio nav button {position:relative;display:grid;align-content:center;justify-items:center;gap:4px;min-height:47px;padding:4px 2px;border-radius:12px;border:0;background:transparent;color:var(--sub);font-size:11px;font-weight:550}
+#kazna-palette-studio nav button[aria-current] {background:var(--raised);color:var(--accent)}
+#kazna-palette-studio nav button[aria-current]:before {content:"";position:absolute;left:0;top:calc(50% - 8px);height:16px;width:3px;border-radius:4px;background:var(--accent)}
+#kazna-palette-studio nav :is(i,svg) {height:20px;width:20px;line-height:20px;text-align:center;font-size:21px;font-weight:400;font-style:normal;stroke-width:1.65}
+#kazna-palette-studio .ks-main {min-width:0;padding:7px 0}
+#kazna-palette-studio :is(h1,h2){font-family:var(--type-display);margin:0;line-height:1.14;color:inherit;font-weight:570}
+#kazna-palette-studio h1 {font-size:clamp(26px,3.6cqw,38px);letter-spacing:-.055em}
+#kazna-palette-studio h2 {font-size:17px;letter-spacing:-.025em}
+#kazna-palette-studio .ks-header,#kazna-palette-studio .ks-heading {display:flex;align-items:center;justify-content:space-between;gap:10px}
+#kazna-palette-studio .ks-header {margin:2px 0 15px;flex-wrap:wrap}
+#kazna-palette-studio .ks-date {font-size:12px;color:var(--sub);border:1px solid var(--rule);border-radius:99px;white-space:nowrap;padding:6px 10px}
+#kazna-palette-studio .ks-deck {display:grid;grid-template-columns:1.32fr 1fr;gap:10px}
+#kazna-palette-studio .ks-balance {position:relative;isolation:isolate;overflow:hidden;border-radius:24px;min-height:176px;display:flex;background:linear-gradient(115deg,var(--hero) 0%,var(--edge) 90%);padding:clamp(15px,2.4cqw,28px)}
+#kazna-palette-studio .ks-etch {position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;mask-image:linear-gradient(95deg,transparent 38%,#000 85%)}
+#kazna-palette-studio .ks-etch:after {content:"";position:absolute;inset:-45% -65% -125% 18%;transform:rotate(-25deg);background:repeating-radial-gradient(ellipse closest-side,transparent 0 6px,color-mix(in srgb,var(--accent) 20%,transparent) 6.4px 7px,transparent 7.5px 10px)}
+#kazna-palette-studio .ks-hero-mark {position:absolute;right:9%;top:17%;width:clamp(44px,6cqw,76px);height:clamp(44px,6cqw,76px);color:var(--accent);opacity:.74;z-index:-1}
+#kazna-palette-studio .ks-hero-content {display:flex;flex-direction:column;align-items:flex-start;width:100%}
+#kazna-palette-studio .ks-balance h2 {font-family:inherit;font-size:14px;color:var(--sub);letter-spacing:0}
+#kazna-palette-studio .ks-total {font-family:var(--type-display);font-size:clamp(32px,4.65cqw,54px);font-weight:540;letter-spacing:-.055em;line-height:1.05;white-space:nowrap;margin:6px 0 20px}
+#kazna-palette-studio .ks-total span {font-weight:400}
+#kazna-palette-studio .ks-total small {font-size:.64em;font-weight:450;color:var(--sub)}
+#kazna-palette-studio .ks-metrics {display:flex;flex-wrap:wrap;gap:9px 25px;margin-top:auto}
+#kazna-palette-studio .ks-metrics>div {display:grid;gap:1px}
+#kazna-palette-studio .ks-metrics span,#kazna-palette-studio .ks-caption {font-size:12px;color:var(--sub)}
+#kazna-palette-studio .ks-metrics strong {font-size:16px;font-weight:550;letter-spacing:-.025em}
+#kazna-palette-studio .ks-accounts,#kazna-palette-studio .ks-ledger {background:var(--panel);border-radius:20px;padding:16px clamp(12px,2cqw,23px)}
+#kazna-palette-studio .ks-ledger {margin-top:10px}
+#kazna-palette-studio .ks-circle {display:grid;place-items:center;width:29px;height:29px;border-radius:50%;border:1px solid var(--rule);background:transparent;color:var(--text);font-size:16px}
+#kazna-palette-studio .ks-account-list,#kazna-palette-studio .ks-rows {margin-top:7px}
+#kazna-palette-studio .ks-account {display:grid;align-items:center;grid-template-columns:6px minmax(0,1fr) auto;gap:9px;font-size:13px;padding:9px 0}
+#kazna-palette-studio .ks-account:before {content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+#kazna-palette-studio .ks-account:nth-child(2):before {background:var(--pos)}
+#kazna-palette-studio .ks-account:nth-child(3):before {background:var(--other)}
+#kazna-palette-studio .ks-account strong,#kazna-palette-studio .ks-row strong {white-space:nowrap;font-weight:550}
+#kazna-palette-studio .ks-account+.ks-account,#kazna-palette-studio .ks-row+.ks-row {border-top:1px solid var(--rule)}
+#kazna-palette-studio .ks-primary {padding:8px 12px;border:0;border-radius:100px;background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:650;white-space:nowrap}
+#kazna-palette-studio .ks-primary:active {transform:translateY(1px)}
+#kazna-palette-studio .ks-row {display:grid;grid-template-columns:49px minmax(0,1.3fr) minmax(0,1fr) auto;align-items:center;gap:8px;min-height:39px;font-size:13px}
+#kazna-palette-studio .ks-row :is(time,small) {font-size:12px;color:var(--sub)}
+#kazna-palette-studio .ks-row strong[data-in] {color:var(--pos)}
+#kazna-palette-studio .ks-specimen {margin-top:9px;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+#kazna-palette-studio .ks-scale {display:flex;align-items:flex-end;gap:15px;color:var(--text)}
+#kazna-palette-studio .ks-sample {display:grid;justify-items:center;gap:2px}
+#kazna-palette-studio .ks-sample small {font-size:11px;color:var(--sub)}
+#kazna-palette-studio .ks-chips {display:flex;flex-wrap:wrap;gap:10px 19px}
+#kazna-palette-studio .ks-color {display:grid;grid-template-columns:21px auto;grid-template-rows:auto auto;align-items:center;gap:0 7px}
+#kazna-palette-studio .ks-color i {grid-row:1/3;width:21px;height:30px;border-radius:6px;border:1px solid var(--rule)}
+#kazna-palette-studio .ks-color span {font-size:11px;color:var(--sub)}
+#kazna-palette-studio .ks-color b {font-size:12px;font-weight:550}
+@media(prefers-reduced-motion:no-preference){#kazna-palette-studio .ks-page:not([hidden]){animation:ks-page-in .16s ease-out}@keyframes ks-page-in{from{opacity:.6;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}}
+@container(max-width:760px){#kazna-palette-studio .ks-app{grid-template-columns:62px minmax(0,1fr);padding:10px;gap:10px}#kazna-palette-studio .ks-rail{padding:12px 3px}#kazna-palette-studio .ks-deck{grid-template-columns:1.08fr 1fr}#kazna-palette-studio .ks-hero-mark{right:4%;top:11%;width:37px;height:37px}#kazna-palette-studio .ks-workbench{padding:9px 10px}#kazna-palette-studio .ks-workbench button{padding:6px 7px}#kazna-palette-studio legend{min-width:auto;margin-right:4px}}
+@container(max-width:565px){#kazna-palette-studio .ks-workbench fieldset{gap:3px}#kazna-palette-studio .ks-workbench legend{float:none;margin-bottom:3px}#kazna-palette-studio .ks-workbench button{font-size:12px;min-height:35px}#kazna-palette-studio .ks-app{display:block}#kazna-palette-studio .ks-rail{flex-direction:row;justify-content:space-between;gap:6px;padding:4px 8px;border-radius:15px}#kazna-palette-studio .ks-brand{flex-direction:row}#kazna-palette-studio .ks-brand svg{width:25px;height:25px}#kazna-palette-studio .ks-brand b{display:none}#kazna-palette-studio nav{display:flex;width:auto;gap:3px}#kazna-palette-studio nav button{min-width:53px;padding:4px 7px;min-height:40px;gap:1px}#kazna-palette-studio nav button[aria-current]:before{display:none}#kazna-palette-studio .ks-main{padding:12px 0 0}#kazna-palette-studio .ks-header{margin:0 3px 12px}#kazna-palette-studio .ks-deck{grid-template-columns:1fr;gap:8px}#kazna-palette-studio .ks-balance{min-height:153px}#kazna-palette-studio .ks-total{font-size:36px;margin:6px 0 15px}#kazna-palette-studio .ks-hero-mark{width:45px;height:45px;right:5%;top:15%}#kazna-palette-studio .ks-row{grid-template-columns:minmax(0,1fr) auto;gap:0 6px;padding:6px 0}#kazna-palette-studio .ks-row time{grid-column:1;grid-row:2}#kazna-palette-studio .ks-row .ks-what{grid-column:1;grid-row:1}#kazna-palette-studio .ks-row small{display:none}#kazna-palette-studio .ks-row strong{grid-column:2;grid-row:1/3}#kazna-palette-studio .ks-specimen{padding:12px;gap:10px}#kazna-palette-studio .ks-chips{gap:8px 12px}#kazna-palette-studio .ks-color{grid-template-columns:14px auto;gap:0 4px}#kazna-palette-studio .ks-color i{width:14px}#kazna-palette-studio .ks-color b{font-size:11px}#kazna-palette-studio .ks-primary{padding:8px;font-size:11px}#kazna-palette-studio .ks-heading{gap:5px}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('kazna-palette-studio');
+  const labels = {
+    palette:{petrol:'Петроль и фарфор',plum:'Слива и шампань',cobalt:'Кобальт и мел'},
+    logo:{vault:'Свод',edge:'Гурт',leaves:'Створки',current:'Русло'},
+    theme:{dark:'Тёмная',light:'Светлая'},
+    page:{home:'Главная',journal:'Операции',accounts:'Счета'}
+  };
+  const state = {palette:'petrol',logo:'vault',theme:'dark',page:'home'};
+  const accounts = [['Карта Рубин','19 734,56 ₽'],['Наличные','432,11 ₽'],['Долларовый счёт','57,75 $']];
+  const rows = [
+    ['18','Учебный каталог','Долларовый счёт','−2,25 $'],
+    ['17','Учебный рынок','Наличные','−67,89 ₽'],
+    ['16','Перевод в наличные','Карта Рубин','400 ₽'],
+    ['15','Обмен валюты','Карта Рубин','900 ₽ → 10 $'],
+    ['14','Возврат покупки','Карта Рубин','+34,56 ₽'],
+    ['13','Учебная мастерская','Карта Рубин','−234,56 ₽'],
+    ['12','Учебный проект','Карта Рубин','+1 234,56 ₽']
+  ];
+  for (const list of root.querySelectorAll('.ks-account-list')) {
+    list.innerHTML = accounts.map(([name,sum]) => '<div class="ks-account"><span>'+name+'</span><strong>'+sum+'</strong></div>').join('');
+  }
+  for (const list of root.querySelectorAll('[data-rows]')) {
+    const subset = list.dataset.rows==='recent' ? rows.slice(0,3) : rows;
+    list.innerHTML = subset.map(([day,name,account,sum]) =>
+      '<div class="ks-row"><time datetime="2026-11-'+day+'">'+day+' ноя</time><span class="ks-what">'+name+'</span><small>'+account+'</small><strong'+(sum.startsWith('+')?' data-in':'')+'>'+sum+'</strong></div>'
+    ).join('');
+  }
+  function render() {
+    root.dataset.theme = state.theme;
+    root.dataset.palette = state.palette;
+    root.dataset.logo = state.logo;
+    root.querySelector('h1').textContent = labels.page[state.page];
+    for (const use of root.querySelectorAll('[data-brand]')) use.setAttribute('href','#kz-'+state.logo);
+    for (const button of root.querySelectorAll('[data-choose]')) button.setAttribute('aria-pressed',String(state[button.dataset.choose]===button.value));
+    for (const button of root.querySelectorAll('[data-route]')) {
+      if (button.dataset.route===state.page) button.setAttribute('aria-current','page');
+      else button.removeAttribute('aria-current');
+    }
+    for (const section of root.querySelectorAll('[data-page]')) section.hidden = section.dataset.page!==state.page;
+    const css = getComputedStyle(root);
+    for (const swatch of root.querySelectorAll('[data-swatch]')) {
+      const color = css.getPropertyValue('--'+swatch.dataset.swatch).trim();
+      swatch.querySelector('i').style.background = color;
+      swatch.querySelector('b').textContent = color.toUpperCase();
+    }
+  }
+  function restore(snapshot) {
+    const saved = snapshot?.privateContent;
+    for (const key of Object.keys(state)) {
+      if (Object.hasOwn(labels[key],saved?.[key])) state[key] = saved[key];
+    }
+    render();
+  }
+  function save() {
+    const modelContent = {палитра:labels.palette[state.palette],знак:labels.logo[state.logo],тема:labels.theme[state.theme],экран:labels.page[state.page]};
+    window.openai?.setWidgetState?.({modelContent,privateContent:{...state}})?.catch(()=>{});
+  }
+  root.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button || !root.contains(button)) return;
+    const key = button.dataset.choose || 'page';
+    const value = button.dataset.choose ? button.value : button.dataset.route || button.dataset.open;
+    if (!Object.hasOwn(labels,key) || !Object.hasOwn(labels[key],value) || state[key]===value) return;
+    state[key] = value;
+    render();
+    save();
+    if (button.dataset.open) root.querySelector('[aria-current="page"]').focus({preventScroll:true});
+  });
+  restore(window.openai?.widgetState);
+  window.addEventListener('openai:set_globals', event => {if (event.detail?.globals?.widgetState) restore(event.detail.globals.widgetState);});
+})();
+</script>
