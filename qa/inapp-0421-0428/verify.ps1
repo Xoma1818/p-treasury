@@ -17,7 +17,9 @@ $dataDir = Join-Path $env:APPDATA 'app.kazna.desktop'
 $db = Join-Path $dataDir 'budget.db'
 $releaseBase = 'https://github.com/Xoma1818/p-treasury-releases/releases'
 $oldInstallerSha = 'e546c60af79e121677d10536aec1f7ca371a3bb5d8bf956f233c97cccf7d62bf'
-$releasedExeSha = '13314aa0575da96ee759e931fc6b7afbdf31052638bb901d2b1395adf1eb324d'
+$signedInstallerSha = '6aec9defa8e7279505265bcf4416ed557880ac30ced5473427295f1ba985368d'
+# 7z e Kazna_0.42.8_x64-setup.exe Kazna.exe — файл из этого NSIS, 32 457 216 байт, ProductVersion 0.42.8.
+$nsisPayloadSha = '2bb95713b91fbd64047bbaee99b829af8ea4b808c3b90cd2f42ab962cebbd513'
 
 function Get-Registration([string]$Name = 'Kazna') {
     foreach ($view in [Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32) {
@@ -107,6 +109,10 @@ if ($Stage -eq 'prepare') {
     if ($manifestSha -ne '6ad8978199e23e0f6fbbe576a07b09ca97d6a5b617e82e135fb897c1b5200d73') {
         throw "Общедоступный манифест отличается от проверенного выпуска 0.42.8: $manifestSha."
     }
+    $signedPackage = Join-Path $scratch 'official-0.42.8.nsis'
+    Invoke-WebRequest -Uri $target -OutFile $signedPackage -TimeoutSec 120
+    $downloadedPackageSha = (Get-FileHash -LiteralPath $signedPackage).Hash
+    if ($downloadedPackageSha -ne $signedInstallerSha) { throw "SHA-256 подписанного установщика 0.42.8: $downloadedPackageSha." }
     $setup = Join-Path $scratch 'Kazna_0.42.1_x64-setup.exe'
     Invoke-WebRequest -Uri "$releaseBase/download/v0.42.1/Kazna_0.42.1_x64-setup.exe" -OutFile $setup -TimeoutSec 120
     if ((Get-FileHash -LiteralPath $setup).Hash -ne $oldInstallerSha) { throw 'SHA-256 установщика 0.42.1.' }
@@ -120,6 +126,7 @@ if ($Stage -eq 'prepare') {
         workflowCommit = $env:GITHUB_SHA; registration = $reg; exe = $exe; officialInstallerSha256 = $oldInstallerSha
         oldExeSha256 = (Get-FileHash -LiteralPath $exe).Hash; endpoint = $channel
         offeredByChannel = $manifest.version; targetUrl = $target; manifestSha256 = $manifestSha
+        signedTargetInstallerSha256 = $downloadedPackageSha; expectedNsisPayloadSha256 = $nsisPayloadSha
     })
     return
 }
@@ -149,7 +156,7 @@ if ($Stage -eq 'restart') {
     $restarted = $fresh[0]
     if ((Get-Executable $registration '0.42.8') -ne $exe) { throw 'Поменялся путь установки.' }
     $hash = (Get-FileHash -LiteralPath $exe).Hash
-    if ($hash -ne $releasedExeSha) { throw "SHA-256 перезапущенного файла $hash." }
+    if ($hash -ne $nsisPayloadSha) { throw "SHA-256 перезапущенного файла $hash отличается от Kazna.exe из NSIS." }
     Write-Report 'restart' ([ordered]@{
         automaticRelaunch = $true; oldPid = $oldPid; newPid = $restarted.Id; registeredVersion = $registration.version
         installedExe = $exe; installedExeSha256 = $hash; windowTitle = $restarted.MainWindowTitle
