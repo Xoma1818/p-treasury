@@ -85,7 +85,7 @@ public static class WindowsWebView {
         throw new InvalidOperationException("Unexpected WebView2 window geometry: " + detail);
     }
 
-    private static IntPtr MainWindow(Process app, bool allowMinimized = false) {
+    public static IntPtr GetMainWindow(Process app, bool allowMinimized = false) {
         app.Refresh();
         var matches = new List<IntPtr>();
         foreach (ProcessThread thread in app.Threads) {
@@ -105,12 +105,12 @@ public static class WindowsWebView {
     }
 
     public static void CloseMain(Process app) {
-        if (!PostMessage(MainWindow(app), 0x10 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero))
+        if (!PostMessage(GetMainWindow(app), 0x10 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero))
             throw new Win32Exception();
     }
 
     public static void SetMinimized(Process app, bool minimize) {
-        IntPtr h = MainWindow(app, true);
+        IntPtr h = GetMainWindow(app, true);
         // WM_SYSCOMMAND with SC_MINIMIZE or SC_RESTORE, like the title-bar buttons.
         if (!PostMessage(h, 0x0112, new IntPtr(minimize ? 0xF020 : 0xF120), IntPtr.Zero))
             throw new Win32Exception();
@@ -124,7 +124,7 @@ public static class WindowsWebView {
 
     // A zero size only reads and verifies the current client. Width and height are DIPs.
     public static int[] MeasureOrResize(Process app, int width, int height) {
-        IntPtr window = MainWindow(app);
+        IntPtr window = GetMainWindow(app);
         IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4)); // PER_MONITOR_AWARE_V2
         if (previous == IntPtr.Zero) throw new Win32Exception();
         try {
