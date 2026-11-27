@@ -83,6 +83,9 @@ jobs:
         with:
           name: kazna-windows-portable
           path: portable/
+      - name: Ярлыки и значки установленной Kazna
+        shell: pwsh
+        run: ./scripts/windows-brand-assets.ps1
 
   installed-candidate:
     name: Установленная Kazna · ${{ matrix.mode }}
