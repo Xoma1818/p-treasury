@@ -7,7 +7,8 @@ import { useState } from "react";
 import { api, type Figure, type FigureMeasure, type FigurePeriod, type FigureValue, type HomeRange, type TxnType } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
 import { useFine } from "../lib/fine";
-import { parseLayout, toSetting } from "../lib/homeLayout";
+import { parseLayout, toggleBlock, toSetting } from "../lib/homeLayout";
+import { currentBudgetGeneration, withBudgetWrite } from "../lib/uiPrefs";
 import { useAccounts, useCategories, useSettings } from "../lib/queries";
 import { useUi } from "../lib/store";
 import { useAction } from "../lib/useAction";
@@ -48,6 +49,20 @@ export const parseFigures = (raw: string | undefined): Figure[] => {
     return [];
   }
 };
+
+/** Один бюджет и одна очередь для изменения списка показателей и его карточки. */
+export function writeHomeFigures(generation: number | null, change: (current: Figure[]) => Figure[], reveal: boolean) {
+  return withBudgetWrite(generation, async () => {
+    const settings = await api.getSettings();
+    const current = parseFigures(settings.home_figures);
+    const next = change(current);
+    if (next !== current) await api.saveFigures(next);
+    const layout = parseLayout(settings.home_layout);
+    if (reveal && layout.hidden.includes("figures")) {
+      await api.setSetting("home_layout", toSetting(toggleBlock(layout, "figures")));
+    }
+  });
+}
 
 export function useFigureValues() {
   const week = useFine().week;
@@ -107,9 +122,11 @@ export function FiguresCard() {
 
 /** Окно цифры: новая (по образцу `draft`, например из отчёта) или изменение. */
 export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: Figure | null; draft?: Partial<Figure>; note?: string; onClose: () => void; onSaved?: () => void }) {
-  const settings = useSettings().data;
-  const all = parseFigures(settings?.home_figures);
+  const savedFigures = parseFigures(useSettings().data?.home_figures);
+  const position = savedFigures.findIndex(item => item.id === figure?.id);
   const start = figure ?? draft ?? {};
+  const [generation] = useState(currentBudgetGeneration);
+  const [figureId] = useState(() => figure?.id ?? `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const [title, setTitle] = useState(start.title ?? "");
   const [measure, setMeasure] = useState<FigureMeasure>(start.measure ?? "expense");
   const [period, setPeriod] = useState<FigurePeriod>(start.period ?? "month");
@@ -124,20 +141,16 @@ export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: 
   const balance = measure === "balance";
   const kind = measure === "income" ? "income" : measure === "expense" ? "expense" : undefined;
   const save = useAction(
-    async (list: Figure[]) => {
-      await api.saveFigures(list);
-      // Цифра должна быть видна: карточка «Свои цифры» показывается на Главной.
-      const layout = parseLayout(settings?.home_layout);
-      if (layout.hidden.includes("figures")) await api.setSetting("home_layout", toSetting({ ...layout, hidden: layout.hidden.filter((b) => b !== "figures") }));
-    },
+    (change: (current: Figure[]) => Figure[], reveal: boolean = false) => writeHomeFigures(generation, change, reveal),
     () => {
       onSaved?.();
       onClose();
     },
+    { singleSubmit: true, networkMode: "always" },
   );
   const submit = () => {
     const f: Figure = {
-      id: figure?.id ?? `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      id: figureId,
       title: title.trim() || autoTitle(),
       measure,
       // У остатка периода нет; «свои даты» без дат ядро не примет.
@@ -147,7 +160,7 @@ export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: 
       tagId: balance ? null : tagId || null,
       ...(period === "custom" && !balance ? { from: from || null, to: to || null } : {}),
     };
-    save.run(figure ? all.map((x) => (x.id === f.id ? f : x)) : [...all, f]);
+    save.run(all => all.some(x => x.id === f.id) ? all.map(x => x.id === f.id ? f : x) : [...all, f], !figure);
   };
   const autoTitle = () => {
     const cat = categories.find((c) => c.id === categoryId)?.name;
@@ -159,15 +172,17 @@ export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: 
   };
   const move = (delta: number) => {
     if (!figure) return;
-    const i = all.findIndex((x) => x.id === figure.id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= all.length) return;
-    const next = [...all];
-    [next[i], next[j]] = [next[j], next[i]];
-    save.run(next);
+    save.run(all => {
+      const i = all.findIndex(x => x.id === figure.id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= all.length) return all;
+      const next = [...all];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
   };
   return (
-    <Modal title={figure ? `Цифра «${figure.title}»` : "Своя цифра"} onClose={onClose}>
+    <Modal title={figure ? `Цифра «${figure.title}»` : "Своя цифра"} onClose={onClose} dismissDisabled={save.busy}>
       <form className="form" onSubmit={(e) => (e.preventDefault(), submit())} data-testid="figure-form">
         {note && (
           <p className="hint warn" data-testid="figure-note">
@@ -233,19 +248,19 @@ export function FigureForm({ figure, draft, note, onClose, onSaved }: { figure: 
         <div className="actions">
           {figure && (
             <>
-              <button type="button" className="link danger" onClick={() => save.run(all.filter((x) => x.id !== figure.id))}>
+              <button type="button" className="link danger" disabled={save.busy} onClick={() => save.run(all => all.filter(x => x.id !== figure.id))}>
                 Убрать с Главной
               </button>
-              <button type="button" className="link" onClick={() => move(-1)} aria-label="Левее">
+              <button type="button" className="link" disabled={save.busy || position <= 0} onClick={() => move(-1)} aria-label="Левее">
                 ←
               </button>
-              <button type="button" className="link" onClick={() => move(1)} aria-label="Правее">
+              <button type="button" className="link" disabled={save.busy || position < 0 || position >= savedFigures.length - 1} onClick={() => move(1)} aria-label="Правее">
                 →
               </button>
             </>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn" disabled={save.busy} onClick={onClose}>
             Отмена
           </button>
           <button type="submit" className="btn primary" aria-busy={save.busy} disabled={save.busy}>

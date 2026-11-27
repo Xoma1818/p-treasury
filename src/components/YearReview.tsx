@@ -12,9 +12,11 @@ import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
 import { BaseMoney } from "./Money";
 import { MonthsChart } from "../screens/Reports";
+import type { ChartFrame } from "./monthlyChartMotion";
 
 /** «Итоги года»: главное о годе в нескольких карточках. */
 export function YearReviewReport() {
+  const monthChartHistory = useRef<ChartFrame | null>(null);
   const now = new Date().getFullYear();
   const [year, setYear] = useState(now);
   const [sharing, setSharing] = useState(false);
@@ -84,7 +86,7 @@ export function YearReviewReport() {
               </span>
             </div>
           </div>
-          {r.months.length > 1 && <MonthsChart r={{ months: r.months, income: r.income, expense: r.expense, balance: saved, savingsRate: r.savingsRate, missingRates: r.missingRates, baseCurrency: r.baseCurrency }} />}
+          {r.months.length > 1 && <MonthsChart key={year} history={monthChartHistory} r={{ months: r.months, income: r.income, expense: r.expense, balance: saved, savingsRate: r.savingsRate, missingRates: r.missingRates, baseCurrency: r.baseCurrency }} />}
           <div className="year-facts">
             {r.bestMonth && (
               <Fact eyebrow="Лучший месяц" title={monthTitle(r.bestMonth)}>

@@ -110,10 +110,14 @@ test("три палитры меняют оформление в обеих те
   });
   const original = await appearance();
   try {
+    const themeSelect = await browser.$('[name="uiTheme"]');
+    await themeSelect.selectByAttribute("value", "system");
+    assert.match(await browser.$('[data-testid="theme-switch"]').getAttribute("aria-label"), /Как в системе/);
     await (await accent("palette")).click();
     const cards = new Set();
     for (const themeName of ["light", "dark"]) {
       await selectTheme(browser, themeName);
+      assert.equal(await themeSelect.getValue(), themeName);
       const actions = new Set();
       for (const palette of ["petrol", "plum", "cobalt"]) {
         await (await select()).selectByAttribute("value", palette);

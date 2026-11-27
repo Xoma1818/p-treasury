@@ -35,6 +35,14 @@ export function watchBudgetGeneration(listener: () => void) {
 
 export const uiPrefsReadRevision = () => (pending || replacing ? null : revision);
 
+/** Черновик принадлежит бюджету, в котором его открыли. Смена файла ждёт принятых записей. */
+export function withBudgetWrite(generation: number | null, write: () => Promise<void>): Promise<void> {
+  if (generation === null || generation !== currentBudgetGeneration()) return Promise.reject(new Error("Открыт другой бюджет."));
+  const result = writeQueue.then(write);
+  writeQueue = result.catch(() => {});
+  return result;
+}
+
 /** Команды смены базы ждут сохранения настроек в прежнем бюджете. */
 export async function afterUiPrefsSaved<T>(replace: () => Promise<T>): Promise<T> {
   replacing++;

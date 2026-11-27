@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LookMark, useCategoryMap } from "../components/CategoryMark";
 import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
 import { useModules } from "../lib/modules";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { ExportButton, useExport } from "../components/DataTools";
 import { Compare } from "./Compare";
@@ -26,6 +26,8 @@ import { FigureForm } from "../components/Figures";
 import type { Figure, FigurePeriod } from "../lib/api";
 import { shareUnavailable } from "../lib/categoryShares";
 import { ChartStatus, MissingChartRates } from "../components/ChartStatus";
+import { animateMonthlySeries, type ChartFrame, type ChartHistory } from "../components/monthlyChartMotion";
+import { currentBudgetGeneration } from "../lib/uiPrefs";
 import "./reportsOverview.css";
 
 const M = BaseMoney;
@@ -122,6 +124,7 @@ function periodTitle(kind: Kind, p: Period) {
 
 /** Экран «Отчёты»: структура, по месяцам, остатки. */
 export function Reports() {
+  const monthChartHistory = useRef<ChartFrame | null>(null);
   const currentMonth = useMonthOf(today());
   const current = currentMonth.data;
   const [report, setReport] = useState<ReportContext>(() => {
@@ -366,7 +369,7 @@ export function Reports() {
         <ReportTabs tab={tab} onPick={pickTab} />
 
         {period && tab === "structure" && <Structure period={period} reportContext={report} update={update} openOperations={openOperations} onDraft={setCtx} />}
-        {period && tab === "months" && <Months period={period} kind={kind} filter={report.filter} onFilter={(filter) => update({ filter })} openOperations={openOperations} onDraft={setCtx} />}
+        {period && tab === "months" && <Months period={period} kind={kind} filter={report.filter} onFilter={(filter) => update({ filter })} openOperations={openOperations} onDraft={setCtx} history={monthChartHistory} />}
         {period && tab === "balances" && <Balances period={period} date={report.balancesDate} onDate={(balancesDate) => update({ balancesDate })} />}
         {tab === "compare" && <Compare restored={report.comparison} openOperations={(filter, source, comparison) =>
           showTransactions(filter, { ...report, anchor: month ?? null, comparison, source })} />}
@@ -622,9 +625,9 @@ function monthsRange(kind: Kind, period: Period): [string, string] {
   return [from, shiftMonth(from, months - 1)];
 }
 
-function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
+function Months({ period, kind, filter, onFilter, openOperations, onDraft, history }: {
   period: Period; kind: Kind; filter: ReportFilter; onFilter: (filter: ReportFilter) => void;
-  openOperations: OpenOperations; onDraft: (d: Partial<Figure>) => void;
+  openOperations: OpenOperations; onDraft: (d: Partial<Figure>) => void; history: ChartHistory;
 }) {
   const [from, to] = monthsRange(kind, period);
   useEffect(() => onDraft?.({ accountId: filter.accountId ?? null, tagId: filter.tagId ?? null }), [filter, onDraft]);
@@ -647,7 +650,8 @@ function Months({ period, kind, filter, onFilter, openOperations, onDraft }: {
       <ChartStatus query={report} loading="Загружаем данные по месяцам…" />
       {r && (
         <>
-          <MonthsChart key={JSON.stringify([from, to, filter.accountId, filter.tagId, r.baseCurrency])} r={r} line={chart === "line"} />
+          <MonthsChart key={JSON.stringify([from, to, filter.accountId, filter.tagId, r.baseCurrency])} r={r} line={chart === "line"}
+            history={history} scope={JSON.stringify([kind, filter.accountId, filter.tagId])} />
           <table className="table months-table" data-testid="months">
             <thead>
               <tr>
@@ -728,14 +732,15 @@ const H = 220;
 const PAD_B = 24;
 
 /** Столбцы «доходы / расходы» по месяцам; ось одна, подписи в тексте, подсказка при наведении. */
-export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
+export function MonthsChart({ r, line = false, history, scope = "" }: { r: MonthsReport; line?: boolean; history: ChartHistory; scope?: string }) {
   const [pointed, setPointed] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  const [tabMonth, setTabMonth] = useState<string | null>(null);
+  const svg = useRef<SVGSVGElement>(null);
   const tipId = useId();
   const expensePattern = useId();
   const settings = useSettings().data;
   const minorUnits = useCurrencies().data?.find(c => c.code === r.baseCurrency)?.minorUnits;
-  if (!r.months.length) return <><MissingChartRates rates={r.missingRates} /><p className="muted">Нет данных за выбранные месяцы.</p></>;
   const selectedIndex = r.months.findIndex(m => m.period.start === (pointed ?? focused));
   const selected = r.months[selectedIndex];
   const { min, max, step } = netWorthScale(r.months.flatMap(m => [m.income, m.expense]), 3);
@@ -744,12 +749,20 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
   const PAD_L = axisPad(ticks.map(short));
   const plotW = W - PAD_L - 8;
   const plotH = H - PAD_B - 12;
-  const slot = plotW / r.months.length;
+  const slot = plotW / Math.max(1, r.months.length);
   const barW = Math.min(18, slot * 0.38);
   const y = (v: number) => 12 + plotH - ((v - min) / (max - min)) * plotH;
+  const generation = currentBudgetGeneration();
+  // Долгий произвольный диапазон сразу показывает весь ряд, без сотен одновременных анимаций.
+  const comparable = settings && settings.hide_amounts !== "1" && minorUnits != null && generation != null &&
+    !r.missingRates.length && r.months.length <= 36;
+  const domain = comparable ? JSON.stringify([generation, scope, line, r.baseCurrency, minorUnits, min, max, step, PAD_L, r.months.length]) : null;
+  useLayoutEffect(() => animateMonthlySeries(svg.current, domain, history), [r.months, domain, history]);
+  if (!r.months.length) return <><MissingChartRates rates={r.missingRates} /><p className="muted">Нет данных за выбранные месяцы.</p></>;
+  const tabIndex = Math.max(0, r.months.findIndex(m => m.period.start === tabMonth));
 
   return (
-    <div className={line ? "chart" : "chart monthly-bars"} onPointerLeave={() => setPointed(null)}>
+    <div className={line ? "chart monthly-chart" : "chart monthly-chart monthly-bars"} onPointerLeave={() => setPointed(null)}>
       <MissingChartRates rates={r.missingRates} />
       <div className="legend">
         <span>
@@ -760,7 +773,7 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         </span>
         <span className="muted">{r.baseCurrency}</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Доходы и расходы по месяцам">
+      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Доходы и расходы по месяцам">
         {!line && <defs>
           <pattern id={expensePattern} patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(35)">
             <rect width="5" height="5" fill="var(--series-expense)" />
@@ -769,7 +782,7 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         </defs>}
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={PAD_L} x2={W - 8} y1={y(t)} y2={y(t)} className="grid" />
+            <line x1={PAD_L} x2={W - 8} y1={y(t)} y2={y(t)} className={t === 0 ? "grid zero" : "grid"} />
             <text x={PAD_L - 8} y={y(t) + 4} className="axis" textAnchor="end">
               {short(t)}
             </text>
@@ -777,14 +790,14 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
         ))}
         {line && (
           <>
-            <path d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.income).toFixed(1)}`).join(" ")} className="line-income" data-testid="months-line" />
-            <path d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.expense).toFixed(1)}`).join(" ")} className="line-expense" />
+            <path data-series="" d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.income).toFixed(1)}`).join(" ")} className="line-income" data-testid="months-line" />
+            <path data-series="" d={r.months.map((m, i) => `${i ? "L" : "M"}${(PAD_L + slot * i + slot / 2).toFixed(1)} ${y(m.expense).toFixed(1)}`).join(" ")} className="line-expense" />
           </>
         )}
         {r.months.map((m, i) => {
           const cx = PAD_L + slot * i + slot / 2;
           return (
-            <g key={m.period.start} tabIndex={0} role="img" aria-label={monthTitle(m.period.month)} aria-describedby={selected === m ? tipId : undefined}
+            <g key={m.period.start} tabIndex={tabIndex === i ? 0 : -1} role="img" aria-label={monthTitle(m.period.month)} aria-describedby={selected === m ? tipId : undefined}
               onPointerMove={e => { if (pointerMoved(e)) setPointed(m.period.start); }}
               onPointerDown={e => {
                 if (e.pointerType !== "touch") return;
@@ -792,13 +805,28 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
                 setPointed(null);
                 setFocused(previous => previous === m.period.start ? null : m.period.start);
               }}
-              onFocus={() => { setPointed(null); setFocused(m.period.start); }} onBlur={() => setFocused(null)}
-              onKeyDown={e => { if (e.key === "Escape") { setPointed(null); setFocused(null); } }}>
+              onFocus={() => { setPointed(null); setFocused(m.period.start); setTabMonth(m.period.start); }} onBlur={() => setFocused(null)}
+              onKeyDown={e => {
+                if (e.key === "Escape") { setPointed(null); setFocused(null); return; }
+                let next: number;
+                switch (e.key) {
+                  case "ArrowLeft": next = Math.max(0, i - 1); break;
+                  case "ArrowRight": next = Math.min(r.months.length - 1, i + 1); break;
+                  case "Home": next = 0; break;
+                  case "End": next = r.months.length - 1; break;
+                  default: return;
+                }
+                e.preventDefault();
+                setPointed(null);
+                setFocused(r.months[next].period.start);
+                setTabMonth(r.months[next].period.start);
+                svg.current?.querySelectorAll<SVGGElement>("g[tabindex]")[next]?.focus();
+              }}>
               <rect x={cx - slot / 2} y={0} width={slot} height={H} className={selected === m ? "hit active" : "hit"} />
-              {!line && <path d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" style={{ "--i": i } as React.CSSProperties} />}
-              {!line && <path d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ "--i": i, fill: `url(#${expensePattern})` } as React.CSSProperties} />}
-              {line && <circle cx={cx} cy={y(m.income)} r={selected === m ? 4.5 : 3} className="dot-income" />}
-              {line && <circle cx={cx} cy={y(m.expense)} r={selected === m ? 4.5 : 3} className="dot-expense" />}
+              {!line && <path data-series="" d={bar(cx - barW - 1, barW, y(m.income), y(0))} className="bar-income" />}
+              {!line && <path data-series="" d={bar(cx + 1, barW, y(m.expense), y(0))} className="bar-expense" style={{ fill: `url(#${expensePattern})` }} />}
+              {line && <circle data-series="" cx={cx} cy={y(m.income)} r={selected === m ? 4.5 : 3} className="dot-income" />}
+              {line && <circle data-series="" cx={cx} cy={y(m.expense)} r={selected === m ? 4.5 : 3} className="dot-expense" />}
               <text x={cx} y={H - 6} className="axis" textAnchor="middle">
                 {monthTitle(m.period.month).slice(0, 3)}
               </text>
@@ -827,7 +855,6 @@ export function MonthsChart({ r, line }: { r: MonthsReport; line?: boolean }) {
 /** Свободный конец столбца скруглён по обе стороны нулевой оси. */
 function bar(x: number, w: number, top: number, base: number) {
   const h = base - top;
-  if (h === 0) return "";
   const rr = Math.min(4, w / 2, Math.abs(h));
   const corner = top + Math.sign(h) * rr;
   return `M${x},${base}V${corner}Q${x},${top} ${x + rr},${top}H${x + w - rr}Q${x + w},${top} ${x + w},${corner}V${base}Z`;

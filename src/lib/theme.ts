@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { pushPref } from "./uiPrefs";
 
 export type Theme = "dark" | "light" | "system";
@@ -6,6 +7,16 @@ export const THEME_KEY = "p-treasury-theme";
 export const THEME_EVENT = "kazna:theme";
 let currentTheme: Theme = "dark";
 let systemDark: MediaQueryList | undefined;
+
+export const THEME_LABELS = { light: "Светлая", dark: "Тёмная", system: "Как в системе" } as const;
+const selectedTheme = () => currentTheme;
+function watchTheme(change: () => void) {
+  window.addEventListener(THEME_EVENT, change);
+  return () => window.removeEventListener(THEME_EVENT, change);
+}
+export function useTheme(): Theme {
+  return useSyncExternalStore(watchTheme, selectedTheme);
+}
 
 export function savedTheme(): Theme {
   try {

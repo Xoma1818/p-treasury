@@ -1,5 +1,5 @@
 import { KeysCard } from "../components/KeysCard";
-import { FineCard } from "../components/FineCard";
+import { FineCard, StartScreenField } from "../components/FineCard";
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
 import { TxnFormCard } from "../components/TxnFormCard";
 import { NavCard } from "../components/NavCard";
@@ -16,6 +16,7 @@ import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
 import { ACCENTS, applyLook, DENSITIES, PALETTES, useLook, type Density, type UiPalette } from "../lib/look";
 import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
+import { applyTheme, THEME_LABELS, useTheme, type Theme } from "../lib/theme";
 import { useUi } from "../lib/store";
 import { ModulesCard } from "../components/ModulesCard";
 import { api, type ScanResult } from "../lib/api";
@@ -37,6 +38,7 @@ export function Settings() {
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
   const look = useLook();
+  const theme = useTheme();
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
   const [topic, setTopic] = useState<TopicId>("general");
   const jump = useUi((s) => s.settingsJump);
@@ -64,7 +66,8 @@ export function Settings() {
     if (jump.dialog) {
       setDialog(jump.dialog);
     } else if (target) {
-      if (target instanceof HTMLDetailsElement) target.open = true;
+      const details = target.closest("details");
+      if (details) details.open = true;
       const focusTarget = target instanceof HTMLDetailsElement ? target.querySelector("summary") ?? target : target;
       focusTarget.scrollIntoView({ block: "nearest" });
       focusTarget.focus({ preventScroll: true });
@@ -127,6 +130,7 @@ export function Settings() {
         <div id="set-rates" className="settings-section" tabIndex={-1}>
           <Rates base={base} />
         </div>
+        <FineCard />
       </SettingsPanel>
 
       <SettingsPanel topic="notifications" selected={topic}>
@@ -214,6 +218,15 @@ export function Settings() {
         <div id="set-appearance" className="settings-section card" tabIndex={-1}>
           <h2>Вид интерфейса</h2>
           <div className="settings-list">
+            <Field label="Тема">
+              {(id) => (
+                <select id={id} name="uiTheme" value={theme} onChange={(e) => applyTheme(e.target.value as Theme)}>
+                  {Object.entries(THEME_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              )}
+            </Field>
             <Field label="Палитра" hint="Цвета фона и карточек в светлой и тёмной теме.">
               {(id) => (
                 <select id={id} name="uiPalette" value={look.palette} onChange={(e) => applyLook({ ...look, palette: e.target.value as UiPalette })}>
@@ -292,9 +305,6 @@ export function Settings() {
             </Field>
           </div>
         </div>
-        <div id="set-fine" className="settings-section" tabIndex={-1}>
-          <FineCard />
-        </div>
         <div id="set-home" className="settings-section" tabIndex={-1}>
           <HomeCardsCard />
         </div>
@@ -304,6 +314,7 @@ export function Settings() {
         <div id="set-controls" className="settings-section card" tabIndex={-1}>
           <h2>Окно и ввод операций</h2>
           <div className="settings-list">
+            <StartScreenField />
             <Field label="Открывать операцию" hint="В боковой панели видны список и похожие операции.">
               {(id) => (
                 <select
@@ -399,7 +410,7 @@ export function Settings() {
 const TOPICS = [
   ["general", "Бюджет и валюта"],
   ["notifications", "Уведомления"],
-  ["appearance", "Оформление"],
+  ["appearance", "Оформление и Главная"],
   ["controls", "Меню и ввод"],
   ["data", "Данные и копии"],
   ["about", "О программе"],

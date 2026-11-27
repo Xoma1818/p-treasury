@@ -1,6 +1,7 @@
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
 import { weekdayIndex } from "../lib/fine";
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 import { api, type MonthsReport, type Period } from "../lib/api";
 import { addDays, monthTitle, shiftMonth, today } from "../lib/dates";
 import { useMonthOf, useSettings } from "../lib/queries";
@@ -12,6 +13,7 @@ import { homeShares, shareUnavailable } from "../lib/categoryShares";
 import { CATEGORY_COLORS, colorVar, lookOf } from "../lib/categoryLook";
 import { useCategoryMap } from "./CategoryMark";
 import "./chartMotion.css";
+import type { ChartFrame } from "./monthlyChartMotion";
 
 /** Данные дашборда Главной: полгода по месяцам и те же дни прошлого месяца. */
 export function useDashboard(period: Period | undefined) {
@@ -175,6 +177,7 @@ export function plural(n: number, one: string, few: string, many: string) {
 
 /** «Полгода» и «Куда ушли деньги»: столбцы по месяцам и кольцо категорий. */
 export function TrendCard({ period }: { period: Period }) {
+  const history = useRef<ChartFrame | null>(null);
   const { months, monthsQuery } = useDashboard(period);
   const categoryMap = useCategoryMap();
   const categoryQuery = useQuery({ queryKey: ["byCategory", "expense", period.start, period.end], queryFn: () => api.reportByCategory("expense", period.start, period.end) });
@@ -193,7 +196,7 @@ export function TrendCard({ period }: { period: Period }) {
           <Hint of="home.trend" />
         </h2>
         <ChartStatus query={monthsQuery} loading="Загружаем данные за полгода…" />
-        {months && <MonthsChart key={period.month} r={months} />}
+        {months && <MonthsChart key={period.month} r={months} history={history} />}
       </div>
       <div className="card" data-testid="home-donut">
         <h2>Куда ушли деньги</h2>

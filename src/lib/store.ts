@@ -72,6 +72,9 @@ interface UiState {
   /** Растёт при каждом переходе из меню: повторное нажатие пункта открывает раздел с начала. */
   visit: number;
   go: (section: SectionId) => void;
+  homeEditorRequested: boolean;
+  openHomeEditor: () => void;
+  clearHomeEditorRequest: () => void;
   /** Переход в «Операции» с фильтром (из Главной, Счетов, Категорий). */
   txnFilter: TxnJump | null;
   showTransactions: (f: TxnJump, reportOrigin?: ReportContext) => void;
@@ -112,10 +115,16 @@ export interface SettingsJump {
   dialog?: "summary" | "import" | "history";
 }
 
-export const useUi = create<UiState>((set) => ({
+export const useUi = create<UiState>((set, get) => ({
   section: startSection(),
   visit: 0,
-  go: (section) => set((s) => ({ section, visit: s.visit + 1, operationReview: false, reconciliationAccount: null, reportOrigin: null })),
+  go: (section) => set((s) => ({ section, visit: s.visit + 1, homeEditorRequested: false, operationReview: false, reconciliationAccount: null, reportOrigin: null })),
+  homeEditorRequested: false,
+  openHomeEditor: () => set((s) => ({
+    section: "home", visit: s.section === "home" ? s.visit : s.visit + 1,
+    homeEditorRequested: true, settingsJump: null, reportOrigin: null,
+  })),
+  clearHomeEditorRequest: () => set({ homeEditorRequested: false }),
   txnFilter: null,
   showTransactions: (txnFilter, reportOrigin) => set({ txnFilter, section: "transactions", operationReview: false, reportOrigin: reportOrigin ?? null }),
   reportOrigin: null,
@@ -139,12 +148,19 @@ export const useUi = create<UiState>((set) => ({
   help: false,
   setHelp: (help) => set({ help }),
   settingsJump: null,
-  openSettings: (settingsJump) => set((s) => ({
-    settingsJump,
-    section: "settings",
-    visit: s.section === "settings" ? s.visit : s.visit + 1,
-  })),
+  openSettings: (settingsJump) => {
+    if (settingsJump.section === "home") return get().openHomeEditor();
+    set((s) => ({
+      settingsJump,
+      section: "settings",
+      visit: s.section === "settings" ? s.visit : s.visit + 1,
+    }));
+  },
 }));
 
 // Г12: «Экран при запуске — где закончили» помнит последний раздел, как бы в него ни пришли.
-useUi.subscribe((s, prev) => s.section !== prev.section && rememberSection(s.section as SectionId));
+useUi.subscribe((s, prev) => {
+  if (s.section === prev.section) return;
+  rememberSection(s.section);
+  if (s.section !== "home" && s.homeEditorRequested) s.clearHomeEditorRequest();
+});

@@ -3,12 +3,19 @@
   transition: fill var(--motion-feedback) var(--ease);
 }
 
-.chart > svg :is(.nw-dot, .fc-dot) {
+.chart > svg :is(.nw-dot, .fc-dot, .dot-income, .dot-expense) {
   transition: r var(--motion-feedback) var(--ease), fill var(--motion-feedback) var(--ease), stroke var(--motion-feedback) var(--ease);
 }
 
 .ring > svg .ring-value {
-  transition: stroke var(--motion-feedback) var(--ease);
+  transition: stroke-dasharray 200ms var(--ease), stroke var(--motion-feedback) var(--ease);
+}
+
+.monthly-chart > svg .grid.zero { stroke: var(--border-strong); stroke-dasharray: none; }
+.monthly-chart > svg .hit.active { fill: color-mix(in srgb, var(--text) 7%, transparent); }
+.monthly-chart { container-type: inline-size; }
+@container (max-width: 32rem) {
+  .monthly-chart .tooltip { position: static; transform: none; width: fit-content; max-width: 100%; white-space: normal; }
 }
 
 .donut > svg .donut-seg {
@@ -38,7 +45,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chart > svg :is(.hit, .nw-dot, .fc-dot),
+  .chart > svg :is(.hit, .nw-dot, .fc-dot, .dot-income, .dot-expense),
   .ring > svg .ring-value,
   .donut > svg .donut-seg,
   .heat .heat-cell,

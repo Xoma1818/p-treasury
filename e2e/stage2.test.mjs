@@ -1,7 +1,7 @@
 // Приёмочные тесты этапа 2 «Бюджеты»: сценарии из product/mvp-features.md, раздел 5.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, rateHistory } from "./app.mjs";
+import { start, stop, openSection, onboard, fill, choose, click, save, waitText, money, rateHistory, addHomeCard, saveHomeEditor } from "./app.mjs";
 import { assertReadableInThemes } from "./contrast.mjs";
 
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
@@ -146,12 +146,12 @@ test("«Можно тратить сегодня»: остаток лимито�
   await assertReadableInThemes(browser, "дневной лимит", `${summary} ${limit} .money`, summary);
   await toggle("summary", "Скрыть");
   await browser.$(limit).waitForExist({ reverse: true });
-  await toggle("summary", "Показать");
+  await addHomeCard(browser, "summary");
   await onlyIn("summary");
-  await toggle("plans", "Показать");
+  await addHomeCard(browser, "plans");
   await onlyIn("plans");
-  await toggle("tiles", "Показать");
-  await click(browser, "Готово");
+  await addHomeCard(browser, "tiles");
+  await saveHomeEditor(browser);
   await onlyIn("tiles");
 });
 
