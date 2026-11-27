@@ -132,18 +132,26 @@ test("Ctrl+K: поиск находит цель, счёт и операцию; 
 
 test("значок «?»: под мышкой подсказка, в Настройках все подсказки выключаются", async () => {
   await openSection(browser, "Главная");
-  const q = await browser.$('[data-testid="total-balance"] [data-testid="hint"]');
+  const q = await browser.$('[data-testid="total-balance"] [aria-label="Подсказка: Общий баланс"]');
   await q.moveTo();
-  await waitText(browser, '[data-testid="hint-tip"]', /Общий баланс[\s\S]*в основной валюте/);
-  const tip = await browser.$('[role="tooltip"]');
+  const tipId = await browser.waitUntil(() => q.getAttribute("aria-describedby"), {
+    timeout: 5000, timeoutMsg: "у значка баланса не появилось описание",
+  });
+  const tipSelector = `[role="tooltip"][id="${tipId}"]`;
+  await waitText(browser, tipSelector, /Общий баланс[\s\S]*в основной валюте/);
+  const tip = await browser.$(tipSelector);
   await tip.moveTo();
-  assert.ok(await browser.execute(() => document.querySelector('[role="tooltip"]')?.matches(':hover')), "пояснение доступно под указателем");
+  assert.ok(await browser.execute((el) => el.matches(":hover"), tip), "пояснение доступно под указателем");
   await browser.keys("Escape");
   await tip.waitForExist({ reverse: true });
-  await (await browser.$("main h1")).moveTo();
-  await browser.execute((el) => el.focus(), q);
+  assert.equal(await q.getAttribute("aria-describedby"), null);
+  const amount = await browser.$('[data-testid="explain-balance"]');
+  await amount.moveTo();
+  await browser.execute((el) => el.focus(), amount);
+  await browser.keys(["Shift", "Tab"]);
+  assert.ok(await q.isFocused(), "Shift+Tab с суммы переводит фокус на значок баланса");
   await tip.waitForDisplayed();
-  assert.equal(await q.getAttribute("aria-describedby"), await tip.getAttribute("id"));
+  assert.equal(await q.getAttribute("aria-describedby"), tipId);
   const oldTop = await browser.execute((el) => {
     const top = el.getBoundingClientRect().top;
     window.scrollBy(0, window.scrollY > 20 ? -16 : 16);
@@ -158,7 +166,9 @@ test("значок «?»: под мышкой подсказка, в Настр�
     return Math.abs(anchor.top - previousTop) > 8 && Math.abs(gap - 10) < 2;
   }, q, oldTop), { timeout: 3000, timeoutMsg: "после прокрутки подсказка следует за значком" });
   await browser.keys("Tab");
+  assert.ok(await amount.isFocused(), "Tab возвращает фокус на сумму");
   await tip.waitForExist({ reverse: true });
+  assert.equal(await q.getAttribute("aria-describedby"), null);
   // Знак «?» не попадает в текст карточки.
   assert.doesNotMatch(await browser.$('[data-testid="total-balance"] .tile-label').getText(), /\?/);
   await openSettings(browser, "appearance");
@@ -169,6 +179,8 @@ test("значок «?»: под мышкой подсказка, в Настр�
   assert.equal(await browser.$('[data-testid="hint"]').isExisting(), false);
   await openSettings(browser, "appearance");
   await (await browser.$('select[name="hints"]')).selectByVisibleText("Показывать");
+  await openSection(browser, "Главная");
+  await q.waitForDisplayed();
 });
 
 test("из достигнутой ручной цели можно взять деньги без операции по счёту", async () => {

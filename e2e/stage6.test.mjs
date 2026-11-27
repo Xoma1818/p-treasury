@@ -31,11 +31,11 @@ after(async () => {
 const pick = (...paths) => browser.execute((p) => (window.__ptPick = p), paths);
 const card = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
-// В Windows системный tar умеет читать ZIP, отдельная утилита unzip необязательна.
+// В Git Bash первым в PATH бывает GNU tar. ZIP читает штатный bsdtar Windows.
 function workbookXml(path) {
   const entry = "xl/workbook.xml";
   return process.platform === "win32"
-    ? execFileSync("tar.exe", ["-xOf", path, entry], { encoding: "utf8" })
+    ? execFileSync(join(process.env.SystemRoot, "System32", "tar.exe"), ["-xOf", path, entry], { encoding: "utf8" })
     : execFileSync("unzip", ["-p", path, entry], { encoding: "utf8" });
 }
 
