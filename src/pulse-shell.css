@@ -13,7 +13,7 @@
 .app-nav > .nav-search,
 .app-nav .sidebar-foot .foot-btn {
   border-color: var(--border);
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   background: var(--fill);
   box-shadow: none;
   color: var(--muted);
@@ -38,13 +38,13 @@
   padding: 5px 2px;
   color: var(--muted);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 14px;
   background: transparent;
   box-shadow: none;
   text-align: center;
   white-space: normal;
 }
-.app-nav .nav-item svg { width: 17px; height: 17px; stroke-width: 1.7; }
+.app-nav .nav-item svg { width: 20px; height: 20px; stroke-width: 1.7; }
 .app-nav .rail-label { font-size: 11.5px; font-weight: 550; line-height: 1.18; overflow-wrap: anywhere; }
 .app-nav .nav-item[data-section]::before { display: none; }
 .app-nav .nav-item[aria-current="page"] {

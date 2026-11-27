@@ -46,6 +46,7 @@ const SETTINGS: { key: string; title: string; words: string; section: string; fi
   { key: "vault", title: "Резервные копии", words: "копия бэкап backup сохранность восстановить данные и копии", section: "vault" },
   { key: "notify", title: "Уведомления", words: "напоминания сроки предупреждения", section: "notifications" },
   { key: "appearance", title: "Оформление", words: "интерфейс внешний вид", section: "appearance" },
+  { key: "uiPalette", title: "Палитра оформления", words: "цвет карточек петроль фарфор слива шампань кобальт мел", section: "appearance", field: "uiPalette" },
   { key: "fine", title: "Формат и правила", words: "тонкие настройки копейки неделя пороги", section: "fine" },
   { key: "updates", title: "Обновления", words: "обновить версия", section: "updates" },
   { key: "releaseNotes", title: "Что нового", words: "история версий изменения выпуска", section: "updates", field: "releaseNotes" },

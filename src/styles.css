@@ -278,7 +278,7 @@ input.invalid { border-color: var(--over); }
 .clickable:active { background: var(--press); }
 .archived { opacity: 0.55; }
 .row-actions { text-align: right; white-space: nowrap; }
-.plus { color: var(--accent); }
+.plus { color: var(--ok); }
 .table-foot { padding-top: 10px; font-size: 13px; }
 
 .filters { display: flex; flex-direction: column; gap: 8px; }
@@ -654,11 +654,10 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 }
 .hint-tip.above::after { bottom: auto; top: 100%; }
 .hint-tip b { font-size: 13px; font-weight: 600; }
-.hint-example { color: #5eead4; }
+.hint-example { color: var(--toast-link); }
 .hint-keys { display: flex; gap: 4px; flex-wrap: wrap; }
 .hint-tip kbd { font: inherit; font-size: 11px; font-weight: 600; border: 1px solid #6b7380; border-radius: 4px; padding: 0 5px; }
-:root[data-theme="dark"] .hint-tip { background: #232a35; border-color: #3b4352; }
-:root:not([data-theme="dark"]) .hint-example { color: #5eead4; }
+:root[data-theme="dark"] .hint-tip { border-color: var(--border-strong); }
 
 /* Кто попросил систему меньше анимации, тот её не видит. */
 @media (prefers-reduced-motion: reduce) {
@@ -711,7 +710,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
 :root[data-theme="dark"] .card { box-shadow: none; }
 :root[data-theme="dark"] .tile:hover { border-color: var(--border-strong); }
 :root[data-theme="dark"] .undo-bar { border: 1px solid var(--border-strong); }
-:root[data-theme="dark"] h1 { color: #fff; }
+:root[data-theme="dark"] h1 { color: var(--text); }
 /* В светлой теме значки темнее, чтобы читались на белом. */
 :root:not([data-theme="dark"]) .icon-tile { color: color-mix(in srgb, var(--c) 62%, #000); }
 :root:not([data-theme="dark"]) .nav-item.active .icon-tile { color: #fff; background: color-mix(in srgb, var(--c) 70%, #000); }
@@ -753,7 +752,7 @@ input[type="checkbox"]:checked { animation: check-pop-box 260ms cubic-bezier(0.3
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
-.settings-list > .field > label { grid-area: label; align-self: end; font-size: 14px; font-weight: 500; color: var(--text); }
+.settings-list > .field > :is(label, .label) { grid-area: label; align-self: end; font-size: 14px; font-weight: 500; color: var(--text); }
 .settings-list > .field > select, .settings-list > .field > input { grid-area: control; width: 100%; }
 .settings-list > .field > .hint { grid-area: hint; align-self: start; line-height: 1.4; }
 .settings-list > .field:not(:has(.hint)) > label { grid-row: 1 / 3; align-self: center; }
@@ -1010,6 +1009,18 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .accent-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; transition: transform var(--fast) var(--ease); }
 .accent-dot:hover { transform: scale(1.08); }
 .accent-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
+.palette-accent-button::before {
+  content: "";
+  width: .9em;
+  height: .9em;
+  border-radius: 50%;
+  background: var(--palette-accent);
+}
+.palette-accent-button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
+@media (forced-colors: active) {
+  .accent-pick [aria-pressed="true"] { outline: 2px solid Highlight; }
+  .accent-pick :focus-visible { outline-offset: 3px; }
+}
 .keys-table .btn.active { border-color: var(--accent); color: var(--accent); }
 .keys-table td.num { text-align: right; white-space: nowrap; }
 

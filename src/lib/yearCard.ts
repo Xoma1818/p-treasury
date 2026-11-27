@@ -11,16 +11,8 @@ import brandSvg from "../../src-tauri/icons/icon.svg?raw";
 const CARD_W = 1080;
 const CARD_H = 1350;
 
-const C = {
-  bg: "#10130f",
-  card: "#1a1e18",
-  border: "#343b30",
-  text: "#f3f5ed",
-  muted: "#b9c2b2",
-  accent: "#b4ef63",
-  over: "#fb923c",
-};
-const FONT = '"Segoe UI", "Noto Sans", "DejaVu Sans", sans-serif';
+const FONT = '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
+const DISPLAY_FONT = '"Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
 const SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
 export interface CardOptions {
@@ -76,30 +68,39 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const g = canvas.getContext("2d")!;
+  const style = getComputedStyle(canvas);
+  const color = (name: string) => style.getPropertyValue("--" + name).trim();
+  const C = {
+    bg: color("bg"), card: color("card"), border: color("border"),
+    text: color("text"), muted: color("muted"), accent: color("accent"), over: color("over"),
+  };
   // На картинке копейки только мешают: суммы округляются до целых.
   const money = (v: number) => (o.hideAmounts ? "•••" : `${formatAmount(v, o.minorUnits, true, true)} ${o.symbol}`);
   const pad = 72;
 
   g.fillStyle = C.bg;
   g.fillRect(0, 0, CARD_W, CARD_H);
-  // Оливковый свет над верхним рядом, как в основной панели.
+  // Мягкий свет выбранного акцента над верхним рядом.
   const glow = g.createRadialGradient(CARD_W - 120, 120, 20, CARD_W - 120, 120, 620);
-  glow.addColorStop(0, "rgba(180, 239, 99, 0.12)");
-  glow.addColorStop(1, "rgba(180, 239, 99, 0)");
+  glow.addColorStop(0, C.accent);
+  glow.addColorStop(1, "transparent");
+  g.save();
+  g.globalAlpha = .12;
   g.fillStyle = glow;
   g.fillRect(0, 0, CARD_W, CARD_H);
+  g.restore();
 
   // Шапка.
   drawBrand(g, pad, 64, 64);
   g.save();
-  g.font = '650 40px "Segoe UI Variable Text", ' + FONT;
+  g.font = `650 40px ${FONT}`;
   g.letterSpacing = "-3px";
   g.fillStyle = C.text;
   g.fillText("Kazna", pad + 80, 110);
   g.restore();
   g.textBaseline = "alphabetic";
   g.fillStyle = C.text;
-  g.font = `700 76px ${FONT}`;
+  g.font = `700 76px ${DISPLAY_FONT}`;
   g.fillText(`Мой ${r.year} год`, pad, 236);
   g.fillStyle = C.muted;
   g.font = `400 30px ${FONT}`;

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Знак Kazna · четыре эскиза</title>
+<style>
+  :root { color-scheme:light; --paper:#f3f2ee; --white:#fffefa; --ink:#22282a; --faint:#545b5d; --rule:#d7d7d1; font-family:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",sans-serif }
+  * { box-sizing:border-box }
+  body { margin:0;background:var(--paper);color:var(--ink) }
+  body[data-palette=petrol] { --dark:#101d22; --d-panel:#192a30; --d-accent:#9edbe4; --d-text:#f0f5f1; --light:#e9f0ef; --l-panel:#fcfbf6; --l-accent:#246373; --l-text:#13333a }
+  body[data-palette=plum] { --dark:#261c29; --d-panel:#342938; --d-accent:#e3c791; --d-text:#fff3ea; --light:#f0e8e8; --l-panel:#fff9ef; --l-accent:#74551d; --l-text:#392939 }
+  body[data-palette=cobalt] { --dark:#171d34; --d-panel:#222b46; --d-accent:#aebfff; --d-text:#f4f5ff; --light:#ebeef7; --l-panel:#fcfcfa; --l-accent:#405db2; --l-text:#242c48 }
+  body[data-theme=dark] { --app:var(--dark); --panel:var(--d-panel); --accent:var(--d-accent); --text:var(--d-text) }
+  body[data-theme=light] { --app:var(--light); --panel:var(--l-panel); --accent:var(--l-accent); --text:var(--l-text) }
+  button,select { font:inherit;color:inherit }
+  button { cursor:pointer }
+  button:focus-visible,select:focus-visible { outline:3px solid #216b99;outline-offset:3px }
+  h1,h2,h3,p,fieldset { margin:0 }
+  main { width:min(100%,1536px);padding:clamp(15px,3.15vw,52px);margin:0 auto }
+  header { display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:0 0 20px;border-bottom:1px solid var(--rule) }
+  h1,h2,h3 { font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif }
+  h1 { font-size:clamp(38px,4.7vw,66px);font-weight:570;line-height:1;letter-spacing:-.055em }
+  h2 { font-size:clamp(21px,2vw,30px);font-weight:560;line-height:1.12;letter-spacing:-.035em }
+  h3 { font-size:23px;font-weight:580;letter-spacing:-.03em }
+  .kicker { margin:0 0 9px;color:var(--faint);font-size:15px;font-weight:560 }
+  .toolbar {display:flex;align-items:end;gap:17px;flex-wrap:wrap }
+  .field,legend {font-size:12px;color:var(--faint)}
+  .field {display:grid;gap:5px}
+  select,.tone {border:1px solid var(--rule);border-radius:10px;background:var(--white);font-size:14px;color:var(--ink)}
+  select {min-height:36px;padding:5px 9px}
+  fieldset {border:0;padding:0}
+  legend {padding:0 0 5px}
+  .tone {display:flex;gap:2px;padding:2px}
+  .tone button {padding:5px 12px;border:0;border-radius:8px;background:transparent;line-height:20px}
+  .tone [aria-pressed=true] {color:var(--app);background:var(--text)}
+  .marks {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}
+  .candidate {appearance:none;display:flex;flex-direction:column;min-width:0;background:var(--white);border:1px solid var(--rule);border-radius:18px;padding:8px;text-align:left}
+  .candidate[aria-pressed=true] {border-color:var(--l-accent);box-shadow:0 0 0 1px var(--l-accent)}
+  .duo {display:grid;grid-template-columns:1fr 1fr;border-radius:12px;overflow:hidden;width:100%}
+  .duo .print {height:118px;display:grid;place-items:center}
+  .print.dark {color:var(--d-accent);background:var(--d-panel)}
+  .print.light {color:var(--l-accent);background:var(--light)}
+  .candidate .title {display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 8px 3px;font-size:23px;font-weight:580;letter-spacing:-.04em}
+  .candidate .radio {display:inline-grid;place-items:center;width:16px;height:16px;border:1px solid #8c9391;border-radius:50%}
+  .candidate[aria-pressed=true] .radio:after {content:"";width:8px;height:8px;border-radius:50%;background:var(--l-accent)}
+  .candidate .desc {color:var(--faint);font-size:14px;line-height:1.35;margin:0 8px 15px;max-width:31ch;min-height:2.7em}
+  .scales {margin:auto 8px 2px;padding:12px 0 5px;border-top:1px solid var(--rule);display:flex;align-items:end;justify-content:space-around;align-self:stretch;color:var(--ink)}
+  .scale {display:grid;justify-items:center;gap:4px}
+  .scale small {color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .symbol {display:block;flex-shrink:0;max-width:100%}
+  .preview-row {display:grid;grid-template-columns:minmax(0,1.9fr) minmax(0,1fr);gap:14px}
+  .context,.reference {min-width:0;border-radius:18px}
+  .context {display:grid;grid-template-columns:85px minmax(0,1fr);padding:8px;gap:14px;background:var(--app);color:var(--text)}
+  .rail {background:var(--panel);border-radius:13px;display:grid;align-content:start;justify-items:center;padding:15px 3px 11px}
+  .rail .symbol {color:var(--accent)} .rail b {font-size:15px;letter-spacing:-.06em;margin-top:2px}
+  .rail small {display:grid;justify-items:center;width:100%;gap:4px;line-height:1.2;color:var(--accent);padding:6px 0;margin-top:17px;background:color-mix(in srgb,var(--accent) 10%,var(--panel));border-radius:8px;font-size:11px}
+  .content {padding:7px 6px 4px 0}
+  .content h2 {font-size:22px;margin:0 0 10px}
+  .balance {display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:14px;padding:14px 20px;background:var(--panel);min-height:87px}
+  .balance small {font-size:12px}
+  .balance b {display:block;margin-top:4px;font-size:clamp(23px,2.9vw,40px);font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-weight:510;letter-spacing:-.05em;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .balance>.symbol {color:var(--accent)}
+  .reference {border:1px solid var(--rule);display:flex;flex-direction:column;justify-content:space-between;padding:17px 21px;background:var(--white)}
+  .ref-label {font-size:13px;color:var(--faint)}
+  .compares {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+  .compares div {display:grid;align-content:end;justify-items:center;gap:5px}
+  .compares div+div {border-left:1px solid var(--rule)}
+  .compares span {font-size:14px;font-weight:540}
+  @media(max-width:960px){.marks{gap:9px}.duo .print{height:88px}.duo svg{width:49px;height:49px}.candidate .title{font-size:20px;margin-inline:4px}.candidate .desc{margin-inline:4px;font-size:13px}.context{grid-template-columns:65px minmax(0,1fr);gap:8px}.balance{padding:12px}}
+  @media(max-width:740px){header{align-items:start;flex-direction:column;gap:15px}.marks{grid-template-columns:repeat(2,minmax(0,1fr))}.preview-row{grid-template-columns:1fr}.reference{display:grid;grid-template-columns:1fr 1.3fr;align-items:center}.compares{margin:0}.scales{margin-inline:3px}}
+  @media(max-width:450px){main{padding:12px}.toolbar{gap:8px}.tone button{padding-inline:6px}.candidate{padding:5px}.marks{margin:15px 0}.duo svg{width:38px;height:38px}.duo .print{height:63px}.candidate .title{font-size:18px}.scale:last-child{display:none}.scales{padding-top:8px}.balance>.symbol{width:33px;height:33px}.context{gap:6px}.balance{padding:8px}.reference{padding:12px}}
+  @media(prefers-reduced-motion:no-preference){.candidate,.tone button{transition:background-color .14s ease,border-color .14s ease}}
+</style>
+</head>
+<body data-palette="petrol" data-theme="dark">
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs>
+  <symbol id="jar" viewBox="0 0 64 64">
+    <ellipse cx="32" cy="12" rx="11" ry="4.8" transform="rotate(-24 32 12)"/>
+    <path d="M16 24Q15 21 19 21H45Q49 21 48 24L43 31C45 33 53 37 55 43C59 53 49 59 32 59C15 59 5 53 9 43C11 37 19 33 21 31Z"/>
+  </symbol>
+  <symbol id="ledger" viewBox="0 0 64 64">
+    <path d="M11 15C11 12 13 10 17 9L47 4V41L20 46C18 46.5 17 47.5 17 49C17 51 19 52 22 51.5L50 46V51L21 57C14 58 9 54 9 49V19Q9 16 11 15Z"/>
+    <path d="M50 9L55 8V43L50 44Z"/>
+    <path fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" d="M24 42L43 38"/>
+  </symbol>
+  <symbol id="weave" viewBox="0 0 64 64">
+    <path d="M5 30L26 9Q32 3 38 9L50 21L43 28L33 18Q32 17 31 18L12 37Z"/>
+    <path d="M16 42L23 35L32 44Q33 45 34 44L52 26L59 33L40 52Q33 59 26 52Z"/>
+    <path d="M16 27L23 20L44 41L37 48Z"/>
+  </symbol>
+  <symbol id="mint" viewBox="0 0 64 64">
+    <path fill-rule="evenodd" d="M18 5H41L58 21V43L44 58H22L6 44V19ZM32 16L45 29L32 46L19 33Z"/>
+  </symbol>
+  <symbol id="edge" viewBox="0 0 64 64">
+    <g transform="rotate(-24 32 32)"><path fill-rule="evenodd" d="M5 25C5 16 17 10 32 10C47 10 59 16 59 25C59 33 47 39 32 39C17 39 5 33 5 25ZM17 24C23 20 32 18 42 19L47 21C38 21 28 24 21 28Z"/><path d="M5 34C10 40 20 44 32 44C44 44 54 40 59 34V40C59 45 55 49 49 52V46L44 48V54C41 55 38 55.5 34 56V50L29 50V56C16 55 5 49 5 40Z"/></g>
+  </symbol>
+</defs></svg>
+<main>
+  <header>
+    <div><p class="kicker">Kazna · Пульс</p><h1>Знак Kazna</h1></div>
+    <div class="toolbar">
+      <label class="field">Палитра<select id="palette"><option value="petrol">Петроль и фарфор</option><option value="plum">Слива и шампань</option><option value="cobalt">Кобальт и мел</option></select></label>
+      <fieldset><legend>Тема меню</legend><div class="tone"><button type="button" data-tone="dark" aria-pressed="true">Тёмная</button><button type="button" data-tone="light" aria-pressed="false">Светлая</button></div></fieldset>
+    </div>
+  </header>
+  <section class="marks" aria-label="Знаки для примерки"></section>
+  <div class="preview-row">
+    <section class="context" aria-label="Пример выбранного знака на Главной">
+      <div class="rail"><svg class="symbol" width="32" height="32" aria-hidden="true" fill="currentColor"><use data-selected href="#jar"/></svg><b>Kazna</b><small><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m3 10 9-7 9 7v10h-7v-7h-4v7H3Z"/></svg>Главная</small></div>
+      <div class="content"><h2>Главная</h2><div class="balance"><div><small>Общий баланс</small><b>25 364,17 ₽</b></div><svg class="symbol" width="54" height="54" aria-hidden="true" fill="currentColor"><use data-selected href="#jar"/></svg></div></div>
+    </section>
+    <section class="reference" aria-label="Сравнение с Гуртом">
+      <div class="ref-label">Сравнение с предыдущим эскизом</div>
+      <div class="compares"><div><svg class="symbol" width="42" height="42" aria-hidden="true" fill="currentColor"><use data-selected href="#jar"/></svg><span id="current" aria-live="polite">Кубышка</span></div>
+      <div><svg class="symbol" width="42" height="42" aria-hidden="true" fill="currentColor"><use href="#edge"/></svg><span>Гурт</span></div></div>
+    </section>
+  </div>
+</main>
+<script>
+  const candidates = [
+    {id:'jar', name:'Кубышка', desc:'Монета опускается в горлышко глиняного сосуда.'},
+    {id:'ledger', name:'Корешок', desc:'Закрытая книга учёта с выступающим блоком страниц.'},
+    {id:'weave', name:'Переплёт', desc:'Две диагональные ленты сходятся в плотное плетение.'},
+    {id:'mint', name:'Чекан', desc:'Гранёная печать с ромбовидным оттиском в центре.'},
+  ];
+  const svg = (id, size) => '<svg aria-hidden="true" class="symbol" width="'+size+'" height="'+size+'" fill="currentColor"><use href="#'+id+'"/></svg>';
+  const board = document.querySelector('.marks');
+  for (const [i,mark] of candidates.entries()) {
+    const button=document.createElement('button');
+    button.className='candidate';
+    button.type='button';
+    button.dataset.id=mark.id;
+    button.setAttribute('aria-label','Примерить знак «'+mark.name+'»');
+    button.setAttribute('aria-pressed',String(i===0));
+    button.innerHTML='<span class="duo"><span class="print dark">'+svg(mark.id,64)+'</span><span class="print light">'+svg(mark.id,64)+'</span></span>'
+      +'<span class="title">'+mark.name+'<i class="radio" aria-hidden="true"></i></span><span class="desc">'+mark.desc+'</span>'
+      +'<span class="scales">'+[16,32,64].map(s=>'<span class="scale">'+svg(mark.id,s)+'<small>'+s+' px</small></span>').join('')+'</span>';
+    button.addEventListener('click', ()=>{
+      for (const option of board.children) option.setAttribute('aria-pressed', String(option===button));
+      document.querySelectorAll('[data-selected]').forEach(markUse=>markUse.setAttribute('href','#'+mark.id));
+      document.getElementById('current').textContent=mark.name;
+    });
+    board.appendChild(button);
+  }
+  document.getElementById('palette').addEventListener('change',e=>{ document.body.dataset.palette=e.target.value; });
+  for (const button of document.querySelectorAll('[data-tone]')) {
+    button.addEventListener('click',()=>{
+      document.body.dataset.theme=button.dataset.tone;
+      document.querySelectorAll('[data-tone]').forEach(t=>t.setAttribute('aria-pressed',String(t===button)));
+    });
+  }
+</script>
+</body>
+</html>

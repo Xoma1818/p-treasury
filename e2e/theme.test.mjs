@@ -1,7 +1,7 @@
 // Оформление 0.9: тёмная тема по умолчанию, светлая по кнопке; меню по группам.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, onboard, openSection, selectTheme } from "./app.mjs";
+import { start, stop, onboard, openSection, openSettings, selectTheme } from "./app.mjs";
 import { assertReadableInThemes } from "./contrast.mjs";
 
 let app;
@@ -93,4 +93,58 @@ test("быстрая смена разделов «Пульса» оставля
     }, 350);
   });
   assert.deepEqual(navigation, { section: "transactions", screens: 1, label: "Операции", visible: 1, running: false });
+});
+
+test("три палитры меняют оформление в обеих темах и сохраняют личный акцент", async () => {
+  const { browser } = app;
+  await openSettings(browser, "appearance");
+  const select = () => browser.$('[name="uiPalette"]');
+  const accent = (value) => browser.$(`[data-testid="accent-pick"] [data-accent="${value}"]`);
+  const appearance = () => browser.execute(() => {
+    const root = document.documentElement;
+    const style = getComputedStyle(root);
+    return {
+      theme: root.dataset.theme, palette: root.dataset.palette, accent: root.dataset.accent,
+      card: style.getPropertyValue("--card").trim(), action: style.getPropertyValue("--accent").trim(),
+    };
+  });
+  const original = await appearance();
+  try {
+    await (await accent("palette")).click();
+    const cards = new Set();
+    for (const themeName of ["light", "dark"]) {
+      await selectTheme(browser, themeName);
+      const actions = new Set();
+      for (const palette of ["petrol", "plum", "cobalt"]) {
+        await (await select()).selectByAttribute("value", palette);
+        const look = await appearance();
+        assert.equal(look.theme, themeName);
+        assert.equal(look.palette, palette);
+        assert.equal(look.accent, "palette");
+        assert.ok(look.card && look.action);
+        cards.add(look.card);
+        actions.add(look.action);
+      }
+      assert.equal(actions.size, 3);
+    }
+    assert.equal(cards.size, 6);
+    await (await accent("mint")).click();
+    await browser.$("#accent-label").click();
+    const custom = await appearance();
+    assert.equal(custom.accent, "mint");
+    await (await select()).selectByAttribute("value", "plum");
+    const chosen = await appearance();
+    assert.notEqual(chosen.card, custom.card);
+    assert.equal(chosen.action, custom.action);
+    await browser.refresh();
+    await openSettings(browser, "appearance");
+    assert.deepEqual(await appearance(), chosen);
+    assert.equal(await (await select()).getValue(), "plum");
+    await (await accent("palette")).click();
+    assert.notEqual((await appearance()).action, chosen.action);
+  } finally {
+    await (await select()).selectByAttribute("value", original.palette);
+    await (await accent(original.accent)).click();
+    await selectTheme(browser, original.theme);
+  }
 });

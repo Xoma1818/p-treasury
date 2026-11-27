@@ -14,7 +14,7 @@ import { BudgetFilesCard } from "../components/BudgetFiles";
 import { Field } from "../components/Fields";
 import { ErrorText } from "../components/Modal";
 import { applyScale, savedScale, SCALES, type Scale } from "../lib/scale";
-import { ACCENTS, applyLook, DENSITIES, savedLook, type Density, type Look } from "../lib/look";
+import { ACCENTS, applyLook, DENSITIES, PALETTES, useLook, type Density, type UiPalette } from "../lib/look";
 import { savedTxnOpen, saveTxnOpen, type TxnOpen } from "../lib/txnOpen";
 import { useUi } from "../lib/store";
 import { ModulesCard } from "../components/ModulesCard";
@@ -36,8 +36,7 @@ export function Settings() {
   const base = settings?.base_currency ?? "RUB";
   const [dialog, setDialog] = useState<"summary" | "import" | "history" | null>(null);
   const [scale, setScale] = useState<Scale>(savedScale);
-  const [look, setLook] = useState<Look>(savedLook);
-  const setLookNow = (l: Look) => (setLook(l), applyLook(l));
+  const look = useLook();
   const [txnOpen, setTxnOpen] = useState<TxnOpen>(savedTxnOpen);
   const [topic, setTopic] = useState<TopicId>("general");
   const jump = useUi((s) => s.settingsJump);
@@ -215,6 +214,15 @@ export function Settings() {
         <div id="set-appearance" className="settings-section card" tabIndex={-1}>
           <h2>Вид интерфейса</h2>
           <div className="settings-list">
+            <Field label="Палитра" hint="Цвета фона и карточек в светлой и тёмной теме.">
+              {(id) => (
+                <select id={id} name="uiPalette" value={look.palette} onChange={(e) => applyLook({ ...look, palette: e.target.value as UiPalette })}>
+                  {PALETTES.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              )}
+            </Field>
             <Field label="Масштаб интерфейса" hint="«Авто» подбирает размер текста и кнопок по ширине окна.">
               {(id) => (
                 <select
@@ -237,7 +245,7 @@ export function Settings() {
             </Field>
             <Field label="Плотность">
               {(id) => (
-                <select id={id} name="uiDensity" value={look.density} onChange={(e) => setLookNow({ ...look, density: e.target.value as Density })}>
+                <select id={id} name="uiDensity" value={look.density} onChange={(e) => applyLook({ ...look, density: e.target.value as Density })}>
                   {DENSITIES.map((d) => (
                     <option key={d.value} value={d.value}>
                       {d.label}
@@ -246,25 +254,34 @@ export function Settings() {
                 </select>
               )}
             </Field>
-            <Field label="Цвет акцента" hint="Цвет выделения, ссылок и основных кнопок.">
-              {() => (
-                <div className="accent-pick" role="group" aria-label="Цвет акцента" data-testid="accent-pick">
-                  {ACCENTS.map((a) => (
-                    <button
-                      key={a.value}
-                      type="button"
-                      className="accent-dot"
-                      style={{ background: a.color }}
-                      aria-label={a.label}
-                      title={a.label}
-                      aria-pressed={look.accent === a.value}
-                      data-accent={a.value}
-                      onClick={() => setLookNow({ ...look, accent: a.value })}
-                    />
-                  ))}
-                </div>
-              )}
-            </Field>
+            <div className="field">
+              <span id="accent-label" className="label">Цвет акцента</span>
+              <div className="accent-pick" role="group" aria-labelledby="accent-label" aria-describedby="accent-hint" data-testid="accent-pick">
+                <button
+                  type="button"
+                  className="btn small palette-accent-button"
+                  data-accent="palette"
+                  aria-pressed={look.accent === "palette"}
+                  onClick={() => applyLook({ ...look, accent: "palette" })}
+                >
+                  Цвет палитры
+                </button>
+                {ACCENTS.map((a) => (
+                  <button
+                    key={a.value}
+                    type="button"
+                    className="accent-dot"
+                    style={{ background: a.color }}
+                    aria-label={a.label}
+                    title={a.label}
+                    aria-pressed={look.accent === a.value}
+                    data-accent={a.value}
+                    onClick={() => applyLook({ ...look, accent: a.value })}
+                  />
+                ))}
+              </div>
+              <div id="accent-hint" className="hint">Цвет выделения, ссылок и основных кнопок.</div>
+            </div>
             <Field label="Подсказки «?»" hint="Пояснения рядом с названиями и полями.">
               {(id) => (
                 <select id={id} name="hints" value={settings?.hints ?? "1"} onChange={(e) => setSetting.run("hints", e.target.value)}>

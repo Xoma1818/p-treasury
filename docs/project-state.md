@@ -15,7 +15,7 @@
 
 ## Ближайшая работа
 
-В [№135](https://github.com/Xoma1818/p-treasury/issues/135) запланирована 0.44.0, развитие «Пульса». Исполнитель — Codex. OTTO выбрал Segoe UI Variable. Подготовлены [план и критерии приёмки](design/pulse-coral-plan.md) и [сравнение трёх палитр и четырёх знаков](design/pulse-palette-studio.html). Следующий шаг — выбрать палитру и знак, затем собрать Главную, журнал и отчёт в обеих темах в настоящем окне.
+В [черновике PR №136](https://github.com/Xoma1818/p-treasury/pull/136) для 0.44.0 раздел «Настройки → Оформление» предлагает три палитры. Каждая работает со светлой, тёмной и системной темой, сохраняет личный акцент и использует Segoe UI Variable. Для нового профиля выбрана «Петроль и фарфор». OTTO выбирает знак по [интерактивной примерке](design/pulse-mark-exploration.html) или [листу эскизов](design/screens/pulse-mark-exploration.png). Дальнейшие этапы по Главной, настройкам и движению описаны в [плане](design/pulse-coral-plan.md) и [задаче №135](https://github.com/Xoma1818/p-treasury/issues/135).
 
 Задача [№132 «Пульс»](https://github.com/Xoma1818/p-treasury/issues/132) закрыта при слиянии PR №133. Текущая очередь ведётся в [открытых задачах проекта](https://github.com/Xoma1818/p-treasury/issues?q=is%3Aissue+is%3Aopen).
 

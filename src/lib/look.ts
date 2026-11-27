@@ -1,12 +1,18 @@
-// Г11: вид — плотность и акцентный цвет. Как тема и масштаб: хранится в окне,
-// копия уходит в базу (uiPrefs) и возвращается с резервной копией.
+// Палитра, плотность и акцент хранятся в окне и в копии настроек бюджета.
+import { create } from "zustand";
 import { pushPref } from "./uiPrefs";
 
 export const LOOK_KEY = "kazna.look";
 
 export type Density = "compact" | "normal" | "roomy";
-export type Accent = "lime" | "mint" | "blue" | "violet" | "amber" | "rose" | "graphite";
-export type Look = { density: Density; accent: Accent };
+export const PALETTES = [
+  { value: "petrol", label: "Петроль и фарфор" },
+  { value: "plum", label: "Слива и шампань" },
+  { value: "cobalt", label: "Кобальт и мел" },
+] as const;
+export type UiPalette = typeof PALETTES[number]["value"];
+export type Accent = "palette" | "lime" | "mint" | "blue" | "violet" | "amber" | "rose" | "graphite";
+export type Look = { palette: UiPalette; density: Density; accent: Accent };
 
 export const DENSITIES: { value: Density; label: string }[] = [
   { value: "compact", label: "Компактно" },
@@ -14,7 +20,7 @@ export const DENSITIES: { value: Density; label: string }[] = [
   { value: "roomy", label: "Просторно" },
 ];
 
-/** Фирменный лайм и сохранённые персональные акценты. */
+/** Персональные акценты, включая значения из прежних версий Kazna. */
 export const ACCENTS: { value: Accent; label: string; color: string }[] = [
   { value: "lime", label: "Лайм", color: "#b9f368" },
   { value: "mint", label: "Мятный", color: "#14b88f" },
@@ -25,13 +31,15 @@ export const ACCENTS: { value: Accent; label: string; color: string }[] = [
   { value: "graphite", label: "Графит", color: "#64748b" },
 ];
 
-export const DEFAULT_LOOK: Look = { density: "normal", accent: "lime" };
+export const DEFAULT_LOOK: Look = { palette: "petrol", density: "normal", accent: "palette" };
+export const useLook = create<Look>(() => DEFAULT_LOOK);
 
 export function parseLook(raw: string | null | undefined): Look {
   try {
     const v = JSON.parse(raw || "{}");
     if (!v || typeof v !== "object") return DEFAULT_LOOK;
     return {
+      palette: PALETTES.find((p) => p.value === v.palette)?.value ?? DEFAULT_LOOK.palette,
       density: DENSITIES.some((d) => d.value === v.density) ? v.density : "normal",
       accent: ACCENTS.some((a) => a.value === v.accent) ? v.accent : DEFAULT_LOOK.accent,
     };
@@ -53,7 +61,9 @@ export function showLook(l: Look) {
   const el = document.documentElement;
   if (l.density === "normal") delete el.dataset.density;
   else el.dataset.density = l.density;
+  el.dataset.palette = l.palette;
   el.dataset.accent = l.accent;
+  useLook.setState(l, true);
 }
 
 export function applyLook(l: Look) {

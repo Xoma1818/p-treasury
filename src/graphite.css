@@ -1,23 +1,20 @@
-/* Пульс. Общие цвета оболочки, финансовых экранов и отдельного окна ввода. */
+/* «Петроль и фарфор» служит также начальным оформлением до загрузки предпочтений. */
 :root {
-  --bg: #eff1eb;
-  --sidebar: #e5e8de;
-  --card: #fcfdf8;
-  --text: #20251c;
-  --muted: #53604c;
-  --border: #ced5c7;
-  --border-strong: #8a9780;
-  --fill: #edf0e7;
-  --fill-strong: #e1e7d9;
-  --hover: #e5ebdd;
-  --press: #d8e3ce;
-  --tab-hover: var(--hover);
-  --toast: #283021;
-  --toast-link: #c1ef86;
-  --series-income: #527c27;
-  --series-expense: #a34827;
-  --radius: 9px;
-  --control-radius: 6px;
+  --bg: #e9f0ef;
+  --sidebar: #f5f8f4;
+  --card: #fcfbf6;
+  --text: #13333a;
+  --muted: #415e61;
+  --border: #c0cecb;
+  --fill-strong: #d6e7e7;
+  --balance-start: #c6dfe0;
+  --balance-end: #e2eeea;
+  --palette-accent: #246373;
+  --palette-on-accent: #ffffff;
+  --ok: #306344;
+  --series-expense: #755780;
+  --radius: 20px;
+  --control-radius: 10px;
   --ease-selection: cubic-bezier(.22,.8,.28,1);
   --spring: var(--ease-selection);
   --motion-selection: 185ms;
@@ -30,23 +27,106 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #10130f;
-  --sidebar: #151912;
-  --card: #1b1f18;
-  --text: #f1f4e9;
-  --muted: #afb8a5;
-  --border: #353d2e;
-  --border-strong: #65715b;
-  --fill: #24291f;
-  --fill-strong: #30382a;
-  --hover: #2b3325;
-  --press: #343e2d;
+  --bg: #101d22;
+  --sidebar: #15252a;
+  --card: #192a30;
+  --text: #f0f5f1;
+  --muted: #b5c9c9;
+  --border: #394f55;
+  --fill-strong: #264047;
+  --balance-start: #234650;
+  --balance-end: #172f37;
+  --palette-accent: #9edbe4;
+  --palette-on-accent: #092f39;
+  --ok: #ade0b9;
+  --series-expense: #cab5dd;
+}
+:root[data-palette="plum"] {
+  --bg: #f0e8e8;
+  --sidebar: #f9f2f0;
+  --card: #fff9ef;
+  --text: #392939;
+  --muted: #695563;
+  --border: #d3c5c9;
+  --fill-strong: #e8dce1;
+  --balance-start: #e8d7d9;
+  --balance-end: #f0e4db;
+  --palette-accent: #74551d;
+  --palette-on-accent: #fff9eb;
+  --ok: #3d6447;
+  --series-expense: #735e89;
+}
+:root[data-palette="plum"][data-theme="dark"] {
+  --bg: #261c29;
+  --sidebar: #2d2230;
+  --card: #342938;
+  --text: #fff3ea;
+  --muted: #d2c0cc;
+  --border: #594758;
+  --fill-strong: #46374a;
+  --balance-start: #50384b;
+  --balance-end: #372b3b;
+  --palette-accent: #e3c791;
+  --palette-on-accent: #332511;
+  --ok: #aeddad;
+  --series-expense: #c5b8e0;
+}
+:root[data-palette="cobalt"] {
+  --bg: #ebeef7;
+  --sidebar: #f6f7fb;
+  --card: #fcfcfa;
+  --text: #242c48;
+  --muted: #515e78;
+  --border: #cbd0e0;
+  --fill-strong: #dfe4f5;
+  --balance-start: #d3ddf4;
+  --balance-end: #e4e7f4;
+  --palette-accent: #405db2;
+  --palette-on-accent: #ffffff;
+  --ok: #336247;
+  --series-expense: #7d5c7b;
+}
+:root[data-palette="cobalt"][data-theme="dark"] {
+  --bg: #171d34;
+  --sidebar: #1d2540;
+  --card: #222b46;
+  --text: #f4f5ff;
+  --muted: #c4cae1;
+  --border: #414f70;
+  --fill-strong: #303d61;
+  --balance-start: #344878;
+  --balance-end: #242e50;
+  --palette-accent: #aebfff;
+  --palette-on-accent: #182854;
+  --ok: #ace0c1;
+  --series-expense: #dfbad8;
+}
+
+/* Рабочие поверхности зависят от палитры даже при личном акцентном цвете. */
+:root[data-palette] {
+  --fill: color-mix(in srgb, var(--fill-strong) 55%, var(--card));
+  --hover: var(--fill-strong);
+  --press: color-mix(in srgb, var(--text) 8%, var(--hover));
+  --border-strong: color-mix(in srgb, var(--text) 40%, var(--border));
   --tab-hover: var(--hover);
-  --toast: #252d20;
-  --toast-link: #c1ef86;
-  --ok: #a3d87d;
-  --series-income: #a3d87d;
-  --series-expense: #f3a37c;
+  --tag-bg: var(--fill-strong);
+  --tag-text: var(--text);
+  --sel-row: color-mix(in srgb, var(--accent) 12%, var(--card));
+  --series-income: var(--ok);
+  --toast: var(--text);
+  --toast-link: color-mix(in srgb, var(--palette-accent) 35%, white);
+}
+:root[data-palette][data-theme="dark"] {
+  --toast: var(--fill-strong);
+  --toast-link: var(--palette-accent);
+}
+:root[data-accent="palette"] {
+  --accent: var(--palette-accent);
+  --on-accent: var(--palette-on-accent);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--card));
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, var(--text));
+  --accent-press: color-mix(in srgb, var(--accent) 78%, var(--text));
+  --accent-shadow: transparent;
 }
 
 :root:not([data-theme="dark"]):is(:not([data-accent]), [data-accent="lime"]) {

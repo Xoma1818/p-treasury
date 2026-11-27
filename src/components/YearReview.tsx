@@ -137,9 +137,17 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   const drawing = useRef({ revision: 0, masked: true });
   const sharing = useRef(false);
   useLayoutEffect(() => {
-    if (!canvas.current) return;
-    drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
-    drawing.current = { revision: drawing.current.revision + 1, masked: hide };
+    const preview = canvas.current;
+    if (!preview) return;
+    const draw = () => {
+      drawYearCard(preview, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
+      drawing.current = { revision: drawing.current.revision + 1, masked: hide };
+    };
+    draw();
+    // В открытом предпросмотре может измениться системная тема или оформление другого окна.
+    const observer = new MutationObserver(draw);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-accent"] });
+    return () => observer.disconnect();
   }, [r, base, hide]);
 
   const share = async (action: "save" | "copy") => {
