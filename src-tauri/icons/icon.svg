@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 33 33">
-  <path fill="#b4ef63" d="M0 0h33v24.75L24.75 33H0Z"/>
-  <path fill="#14210a" d="M7 7h4v6.92L19.96 6H25l-8.26 11h-.94l7.2 9h-5.28L11 19.52V26H7Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64">
+  <path id="plate" fill="#ff9979" d="M15 2h34q13 0 13 13v29L44 62H15Q2 62 2 49V15Q2 2 15 2Z"/>
+  <path id="fold" fill="#351b19" d="M14 18l8-5v14l15-14h12L23 37v10l-9 5Zm12 19 7-7 14 16-8 4Z"/>
 </svg>

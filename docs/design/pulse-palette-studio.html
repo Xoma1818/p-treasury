@@ -1,6 +1,10 @@
-﻿<meta charset="utf-8">
+<meta charset="utf-8">
 <div id="kazna-palette-studio" lang="ru" data-palette="petrol" data-theme="dark">
   <svg width="0" height="0" aria-hidden="true" focusable="false" class="ks-defs"><defs>
+    <symbol id="kz-fold" viewBox="0 0 64 64">
+      <path fill="var(--accent)" d="M15 2h34q13 0 13 13v29L44 62H15Q2 62 2 49V15Q2 2 15 2Z"/>
+      <path fill="var(--on-accent)" d="M14 18l8-5v14l15-14h12L23 37v10l-9 5Zm12 19 7-7 14 16-8 4Z"/>
+    </symbol>
     <symbol id="kz-vault" viewBox="0 0 64 64">
       <path fill="currentColor" d="M6 53V34C6 18 16 9 32 6C48 9 58 18 58 34V53H46V35C46 27 40 21 32 18C24 21 18 27 18 35V53Z"/>
       <path fill="currentColor" d="M23 48C23 42 27 38 32 35C37 38 41 42 41 48V53H23Z"/>
@@ -31,7 +35,8 @@
     <div class="ks-options">
       <fieldset class="ks-logos">
         <legend>Знак</legend>
-        <button type="button" data-choose="logo" value="vault" aria-pressed="true"><svg aria-hidden="true"><use href="#kz-vault"/></svg>Свод</button>
+        <button type="button" data-choose="logo" value="fold" aria-pressed="true"><svg aria-hidden="true"><use href="#kz-fold"/></svg>Сгиб</button>
+        <button type="button" data-choose="logo" value="vault" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-vault"/></svg>Свод</button>
         <button type="button" data-choose="logo" value="edge" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-edge"/></svg>Гурт</button>
         <button type="button" data-choose="logo" value="leaves" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-leaves"/></svg>Створки</button>
         <button type="button" data-choose="logo" value="current" aria-pressed="false"><svg aria-hidden="true"><use href="#kz-current"/></svg>Русло</button>
@@ -45,7 +50,7 @@
   </section>
   <div class="ks-app">
     <aside class="ks-rail">
-      <div class="ks-brand"><svg aria-hidden="true"><use data-brand href="#kz-vault"/></svg><b>Kazna</b></div>
+      <div class="ks-brand"><svg aria-hidden="true"><use data-brand href="#kz-fold"/></svg><b>Kazna</b></div>
       <nav aria-label="Разделы Kazna">
         <button type="button" data-route="home" aria-current="page"><i data-lucide="house" aria-hidden="true">⌂</i>Главная</button>
         <button type="button" data-route="journal"><i data-lucide="arrow-left-right" aria-hidden="true">⇄</i>Операции</button>
@@ -58,7 +63,7 @@
         <div class="ks-deck">
           <section class="ks-balance">
             <div class="ks-etch" aria-hidden="true"></div>
-            <svg aria-hidden="true" class="ks-hero-mark"><use data-brand href="#kz-vault"/></svg>
+            <svg aria-hidden="true" class="ks-hero-mark"><use data-brand href="#kz-fold"/></svg>
             <div class="ks-hero-content">
               <h2>Общий баланс</h2><div class="ks-total">25 364<span>,17</span><small> ₽</small></div>
               <div class="ks-metrics"><div><span>↙ Доходы</span><strong>1 234,56 ₽</strong></div><div><span>↗ Расходы</span><strong>470,39 ₽</strong></div></div>
@@ -86,9 +91,9 @@
   </div>
   <section class="ks-specimen" aria-label="Знак и образцы цвета">
     <div class="ks-scale" aria-label="Знак в трёх размерах">
-      <span class="ks-sample"><svg width="16" height="16" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>16 px</small></span>
-      <span class="ks-sample"><svg width="32" height="32" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>32 px</small></span>
-      <span class="ks-sample"><svg width="48" height="48" aria-hidden="true"><use data-brand href="#kz-vault"/></svg><small>48 px</small></span>
+      <span class="ks-sample"><svg width="16" height="16" aria-hidden="true"><use data-brand href="#kz-fold"/></svg><small>16 px</small></span>
+      <span class="ks-sample"><svg width="32" height="32" aria-hidden="true"><use data-brand href="#kz-fold"/></svg><small>32 px</small></span>
+      <span class="ks-sample"><svg width="48" height="48" aria-hidden="true"><use data-brand href="#kz-fold"/></svg><small>48 px</small></span>
     </div>
     <div class="ks-chips">
       <div class="ks-color" data-swatch="base"><i aria-hidden="true"></i><span>Фон</span><b></b></div>
@@ -187,11 +192,11 @@
   const root = document.getElementById('kazna-palette-studio');
   const labels = {
     palette:{petrol:'Петроль и фарфор',plum:'Слива и шампань',cobalt:'Кобальт и мел'},
-    logo:{vault:'Свод',edge:'Гурт',leaves:'Створки',current:'Русло'},
+    logo:{fold:'Сгиб',vault:'Свод',edge:'Гурт',leaves:'Створки',current:'Русло'},
     theme:{dark:'Тёмная',light:'Светлая'},
     page:{home:'Главная',journal:'Операции',accounts:'Счета'}
   };
-  const state = {palette:'petrol',logo:'vault',theme:'dark',page:'home'};
+  const state = {palette:'petrol',logo:'fold',theme:'dark',page:'home'};
   const accounts = [['Карта Рубин','19 734,56 ₽'],['Наличные','432,11 ₽'],['Долларовый счёт','57,75 $']];
   const rows = [
     ['18','Учебный каталог','Долларовый счёт','−2,25 $'],

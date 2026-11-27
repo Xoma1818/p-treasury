@@ -6,7 +6,7 @@
 import type { YearReview } from "./api";
 import { formatAmount } from "./money";
 import { monthTitle } from "./dates";
-import brandSvg from "../../src-tauri/icons/icon.svg?raw";
+import { brandMark } from "./brandMark";
 
 const CARD_W = 1080;
 const CARD_H = 1350;
@@ -50,16 +50,16 @@ function fit(g: CanvasRenderingContext2D, text: string, max: number) {
 }
 
 /** Тот же знак, что в меню. Рисуем синхронно перед сохранением PNG. */
-function drawBrand(g: CanvasRenderingContext2D, x: number, y: number, height: number) {
-  const svg = new DOMParser().parseFromString(brandSvg, "image/svg+xml").querySelector("svg")!;
-  const scale = height / svg.viewBox.baseVal.height;
+function drawBrand(g: CanvasRenderingContext2D, x: number, y: number, height: number, plate: string, fold: string) {
+  const mark = brandMark();
+  const scale = height / mark.size;
   g.save();
   g.translate(x, y);
   g.scale(scale, scale);
-  for (const path of svg.querySelectorAll("path")) {
-    g.fillStyle = path.getAttribute("fill")!;
-    g.fill(new Path2D(path.getAttribute("d")!), path.getAttribute("fill-rule") === "evenodd" ? "evenodd" : "nonzero");
-  }
+  g.fillStyle = plate;
+  g.fill(new Path2D(mark.plate));
+  g.fillStyle = fold;
+  g.fill(new Path2D(mark.fold));
   g.restore();
 }
 
@@ -91,7 +91,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   g.restore();
 
   // Шапка.
-  drawBrand(g, pad, 64, 64);
+  drawBrand(g, pad, 64, 64, color("palette-accent"), color("palette-on-accent"));
   g.save();
   g.font = `650 40px ${FONT}`;
   g.letterSpacing = "-3px";
