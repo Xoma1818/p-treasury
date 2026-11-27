@@ -98,9 +98,15 @@ $folder = Join-Path $env:RUNNER_TEMP ('kazna-brand-' + [guid]::NewGuid().ToStrin
 $process = Start-Process -FilePath $setup[0].FullName -ArgumentList '/S', "/D=$folder" -WindowStyle Hidden -Wait -PassThru
 if ($process.ExitCode) { throw "Код установщика $($process.ExitCode)." }
 $exe = (Get-Item -LiteralPath (Join-Path $folder "$($config.mainBinaryName).exe")).FullName
-$built = Join-Path $repo "target/release/$($config.mainBinaryName).exe"
-if ((Get-FileHash $exe).Hash -ne (Get-FileHash $built).Hash) { throw 'Установленный файл отличается от переносного EXE этой сборки.' }
-Assert-Icon $exe
+$portableExe = Join-Path $repo "portable/$product.exe"
+# Tauri помечает EXE внутри установщика типом NSIS. Сверяем версию и изображения обеих сборок.
+foreach ($binary in $exe, $portableExe) {
+    $version = (Get-Item -LiteralPath $binary).VersionInfo
+    if ($version.ProductName -ne $product -or $version.ProductVersion -ne $config.version) {
+        throw "Неверное имя или версия в $binary — $($version.ProductName) $($version.ProductVersion)."
+    }
+    Assert-Icon $binary
+}
 Assert-Icon (Join-Path $folder 'uninstall.exe')
 
 $shell = New-Object -ComObject WScript.Shell
