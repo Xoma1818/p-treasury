@@ -77,6 +77,7 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
   const [announcement, setAnnouncement] = useState("");
   const openButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
   const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const settings = useSettings().data;
@@ -427,7 +428,7 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
           <div className="home-actions">
             <button type="button" className="btn" ref={cancelButton} disabled={save.busy} data-testid="home-cancel"
               onClick={() => finishEditing("Изменения отменены.")}>Отмена</button>
-            <button type="button" className="btn primary" disabled={save.busy} aria-busy={save.busy} data-testid="home-save"
+            <button type="button" className="btn primary" ref={saveButton} disabled={save.busy} aria-busy={save.busy} data-testid="home-save"
               onClick={() => save.run(draft.layout, draft.baseline)}>{save.busy ? "Сохраняем…" : "Сохранить"}</button>
           </div>
         ) : (
@@ -440,7 +441,7 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
         )}
       </div>
 
-      {edit && <HomeLayoutTools layout={layout} edit={edit} />}
+      {edit && <HomeLayoutTools layout={layout} edit={edit} saveButton={saveButton} />}
       {editing && <ErrorText error={save.error} />}
       <span className="sr-only" role="status" data-testid="move-result" aria-atomic="true">{announcement}</span>
       {!editing && <MonthReviewBanner />}

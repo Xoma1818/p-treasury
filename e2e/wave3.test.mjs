@@ -469,6 +469,9 @@ test("своя Главная: скрыть карточку, перестави
   await click(browser, "Настроить Главную");
   await tap('[data-testid="home-catalog-open"]');
   await tap('[data-testid="home-cards-all"]');
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-save"]')).isFocused(), {
+    timeout: 5000, timeoutMsg: "после добавления всех карточек фокус остаётся в редакторе на кнопке сохранения",
+  });
   await saveHomeEditor(browser);
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
 });

@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, GripVertical, Plus } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { HOME_BLOCKS, moveBlock, placeBefore, resetLayout, toggleBlock, toggleHalf, withOverspendSlot, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { homeBlock } from "../lib/directDrag";
 import { useModules } from "../lib/modules";
@@ -26,11 +26,19 @@ type EditCards = {
   update: (next: HomeLayout, announcement: string) => void;
 };
 
-export function HomeLayoutTools({ layout, edit }: { layout: HomeLayout; edit: EditCards }) {
+export function HomeLayoutTools({ layout, edit, saveButton }: {
+  layout: HomeLayout; edit: EditCards; saveButton: RefObject<HTMLButtonElement | null>;
+}) {
   const [catalog, setCatalog] = useState(false);
+  const catalogWasOpen = useRef(false);
   const modules = useModules();
   const enabled = layout.order.filter(modules.blockOn);
   const available = enabled.filter(block => layout.hidden.includes(block));
+  useLayoutEffect(() => {
+    // Кнопка открытия каталога отключается после добавления последней карточки.
+    if (catalogWasOpen.current && !catalog && available.length === 0) saveButton.current?.focus();
+    catalogWasOpen.current = catalog;
+  }, [catalog, available.length, saveButton]);
   return (
     <div className="home-layout-tools" data-testid="home-editor">
       <div>
