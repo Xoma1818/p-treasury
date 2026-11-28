@@ -170,8 +170,11 @@ async function backup() {
   const invalid=join(work,"unrelated.db");
   writeFileSync(invalid,"Учебный файл без базы Kazna");
   await pick("Проверить файл копии…","open",invalid,vaultScope);
-  await waitText(b,'[data-testid="backup-verify-error"]',/Последняя проверка не прошла/);
-  v("301:8","Проверить неподходящий файл","Сообщение об ошибке, исходные данные целы",same(original,a,"rejected foreign file"));
+  await waitText(b,'[data-testid="backup-card"] [role="alert"]',/не файл данных Kazna/);
+  assert.match(read(original,"SELECT value FROM settings WHERE key='backup_verify_error'")[0].value,/не файл данных Kazna/);
+  await shot("invalid-copy-rejected");
+  v("301:8","Проверить неподходящий файл","Пользователь видит причину; исходные данные целы",
+    "Предупреждение «это не файл данных Kazna» отображено и записано в SQLite; "+same(original,a,"rejected foreign file"));
   // Give the verifier a different path from the auto-verification performed
   // immediately after saving, so the original status cannot satisfy the check.
   const verified=join(work,"separate-verification.db");
@@ -179,6 +182,7 @@ async function backup() {
   await pick("Проверить файл копии…","open",verified,vaultScope);
   await waitText(b,'[data-testid="backup-verified"] .file-path',/separate-verification\.db/i);
   await gone('[data-testid="backup-verify-error"]');
+  assert.equal(read(original,"SELECT value FROM settings WHERE key='backup_verify_error'")[0].value,"");
   v("301:8","Проверить выбранный файл","Путь в статусе изменился; предыдущая ошибка сброшена",
     same(verified,a,"verified source copy")+"; "+same(original,a,"verified live budget"));
   await seedExpense(original,777,"Учебная покупка B"); await command("set_setting",{key:"month_start_day",value:"21"});
