@@ -68,7 +68,7 @@ export function NavCard() {
             </option>
           ))}
         </select>
-        <span className="sub muted">Остальное открывается стрелкой ▾ рядом.</span>
+        <span className="sub muted">Остальные действия открываются стрелкой рядом с кнопкой.</span>
       </div>
       {custom && (
         <button

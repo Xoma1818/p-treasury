@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api, type TxnChange } from "../lib/api";
 import { formatDate, formatDateTime, isoDateTime } from "../lib/dates";
@@ -35,7 +36,7 @@ export function TxnHistory({ id, splitId }: { id: string; splitId?: string | nul
         <span className="muted">{added}</span>
       ) : (
         <button type="button" className="link more-toggle" data-testid="txn-history-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {added} · изменена {times(n)} {open ? "▾" : "▸"}
+          {added} · изменена {times(n)} <ChevronRight className="disclosure-chevron" size="1em" aria-hidden="true" />
         </button>
       )}
       {open && n > 0 && (

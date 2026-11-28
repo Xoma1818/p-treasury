@@ -15,6 +15,22 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 public static class KaznaIconGroup {
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    struct ShellFileInfo {
+        public IntPtr icon;
+        public int index;
+        public uint attributes;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=260)] public string display;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=80)] public string type;
+    }
+    [DllImport("shell32", CharSet=CharSet.Unicode)] static extern IntPtr SHGetFileInfo(string path, uint attributes, out ShellFileInfo info, uint size, uint flags);
+    [DllImport("user32")] public static extern bool DestroyIcon(IntPtr icon);
+    public static IntPtr FromShell(string path) {
+        ShellFileInfo info;
+        if (SHGetFileInfo(path, 0, out info, (uint)Marshal.SizeOf(typeof(ShellFileInfo)), 0x100) == IntPtr.Zero || info.icon == IntPtr.Zero)
+            throw new IOException("No shell icon for " + path);
+        return info.icon;
+    }
     delegate bool EnumName(IntPtr module, IntPtr type, IntPtr name, IntPtr param);
     [DllImport("kernel32", CharSet=CharSet.Unicode)] static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
     [DllImport("kernel32")] static extern bool FreeLibrary(IntPtr module);
@@ -95,8 +111,68 @@ $setup = @(Get-ChildItem (Join-Path $repo 'target/release/bundle/nsis') -File -F
 if ($setup.Count -ne 1) { throw "Ожидался один установщик $product $($config.version), найдено $($setup.Count)." }
 Assert-Icon $setup[0].FullName
 $folder = Join-Path $env:RUNNER_TEMP ('kazna-brand-' + [guid]::NewGuid().ToString('N'))
-$process = Start-Process -FilePath $setup[0].FullName -ArgumentList '/S', "/D=$folder" -WindowStyle Hidden -Wait -PassThru
-if ($process.ExitCode) { throw "Код установщика $($process.ExitCode)." }
+function Install-BrandBuild([string]$installer, [string[]]$options) {
+    $process = Start-Process -FilePath $installer -ArgumentList ($options + "/D=$folder") -WindowStyle Hidden -Wait -PassThru
+    if ($process.ExitCode) { throw "Код установщика $($process.ExitCode)." }
+}
+$shell = New-Object -ComObject WScript.Shell
+$explorer = New-Object -ComObject Shell.Application
+function Read-AppId([string]$path) {
+    return [string]$explorer.NameSpace((Split-Path $path)).ParseName((Split-Path -Leaf $path)).ExtendedProperty('System.AppUserModel.ID')
+}
+$links = @{}
+$evidence = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'kazna-shell-icons') -Force
+foreach ($place in 'Programs','DesktopDirectory') {
+    $links[$place] = Join-Path ([Environment]::GetFolderPath($place)) "$product.lnk"
+}
+# Check the Shell's rendered pixels, including its cache, not just the source file's resources.
+function Assert-ShellArtwork([string]$linkPath, [ValidateSet('before', 'after', 'fresh')][string]$phase) {
+    $until = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $icon = [KaznaIconGroup]::FromShell($linkPath)
+        try {
+            $image = [Windows.Interop.Imaging]::CreateBitmapSourceFromHIcon($icon, [Windows.Int32Rect]::Empty,
+                [Windows.Media.Imaging.BitmapSizeOptions]::FromEmptyOptions())
+            $bitmap = [Windows.Media.Imaging.FormatConvertedBitmap]::new($image, [Windows.Media.PixelFormats]::Bgra32, $null, 0)
+            $stride = 4 * $bitmap.PixelWidth
+            $pixels = [byte[]]::new($stride * $bitmap.PixelHeight)
+            $bitmap.CopyPixels($pixels, $stride, 0)
+            $matchesColor = 0
+            for ($i = 0; $i -lt $pixels.Length; $i += 4) {
+                $b, $g, $r, $a = $pixels[$i..($i+3)]
+                if ($a -ge 245 -and (($phase -eq 'before' -and $g -gt 200 -and $r -lt 205 -and $b -lt 140) -or
+                    ($phase -in 'after','fresh' -and $r -gt 230 -and $g -ge 125 -and $g -lt 185 -and $b -le 150))) { $matchesColor++ }
+            }
+        } finally { [void][KaznaIconGroup]::DestroyIcon($icon) }
+        if ($matchesColor -gt $bitmap.PixelWidth * $bitmap.PixelHeight / 5) {
+            $place = if ($linkPath -eq $links.DesktopDirectory) { 'desktop' } else { 'start' }
+            $encoder = [Windows.Media.Imaging.PngBitmapEncoder]::new()
+            $encoder.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
+            $stream = [IO.File]::Create((Join-Path $evidence.FullName "$phase-$place.png"))
+            try { $encoder.Save($stream) } finally { $stream.Dispose() }
+            Write-Output "PASS Shell $phase $linkPath — $matchesColor пикселей марки"
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $until)
+    throw "Оболочка не показала ожидаемый значок $phase у $linkPath"
+}
+
+# Reproduce the old lime default icon, read it through the Shell, then use the
+# same NSIS update flags as Kazna's updater. Do not invoke the new app during QA.
+$old = Join-Path $env:RUNNER_TEMP 'Kazna_0.43.0_x64-setup.exe'
+Invoke-WebRequest -Uri 'https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.43.0/Kazna_0.43.0_x64-setup.exe' -OutFile $old
+if ((Get-FileHash $old).Hash -ne '600BF54566D3288B55D248935D8EEE58F4B0D3DAE5B05B3AB94314240EE9ADCA') { throw 'Изменился контрольный установщик 0.43.0' }
+Install-BrandBuild $old @('/S')
+foreach ($path in $links.Values) { Assert-ShellArtwork $path 'before' }
+$link = $shell.CreateShortcut($links.DesktopDirectory)
+$link.Arguments = '--test-type=webdriver'
+$link.Description = 'Kazna link test'
+$link.Save()
+$oldIds = @{}
+foreach ($place in $links.Keys) { $oldIds[$place] = Read-AppId $links[$place] }
+if ($oldIds.Programs -ne $config.identifier) { throw 'В исходном ярлыке Пуска отсутствует AppUserModelID Kazna.' }
+Install-BrandBuild $setup[0].FullName @('/P','/UPDATE')
 $exe = (Get-Item -LiteralPath (Join-Path $folder "$($config.mainBinaryName).exe")).FullName
 $portableExe = Join-Path $repo "portable/$product.exe"
 # Tauri помечает EXE внутри установщика типом NSIS. Сверяем версию и изображения обеих сборок.
@@ -109,17 +185,45 @@ foreach ($binary in $exe, $portableExe) {
 }
 Assert-Icon (Join-Path $folder 'uninstall.exe')
 
-$shell = New-Object -ComObject WScript.Shell
+$iconFile = Join-Path $folder 'kazna-fold.ico'
+if ((Get-FileHash $iconFile).Hash -ne (Get-FileHash (Join-Path $repo 'src-tauri/icons/icon.ico')).Hash) {
+    throw 'Установленный ICO отличается от исходного Сгиба.'
+}
 foreach ($place in 'Programs','DesktopDirectory') {
-    $parent = [Environment]::GetFolderPath($place)
-    $linkPath = (Get-Item -LiteralPath (Join-Path $parent "$product.lnk")).FullName
+    $linkPath = (Get-Item -LiteralPath $links[$place]).FullName
     $link = $shell.CreateShortcut($linkPath)
-    if ($link.TargetPath -ne $exe -or $link.Arguments) { throw "Неверная команда ярлыка $linkPath — $($link.TargetPath) $($link.Arguments)" }
-    $icon = $link.IconLocation
-    if ($icon) {
-        if ($icon -notmatch '^(.*),\s*0$') { throw "Неверный индекс значка ярлыка $linkPath — $icon" }
-        $iconFile = [Environment]::ExpandEnvironmentVariables($Matches[1].Trim().Trim('"'))
-        if ($iconFile -and [IO.Path]::GetFullPath($iconFile) -ne $exe) { throw "Неверный источник значка ярлыка $linkPath — $icon" }
+    if ((Read-AppId $linkPath) -ne $oldIds[$place]) { throw "Изменился AppUserModelID ярлыка $place." }
+    if ($link.TargetPath -ne $exe -or $link.IconLocation -ne "$iconFile,0") { throw "Неверный ярлык $linkPath — $($link.IconLocation)" }
+    if ($place -eq 'DesktopDirectory') {
+        if ($link.Arguments -ne '--test-type=webdriver' -or $link.Description -ne 'Kazna link test') { throw 'Утрачены свойства ярлыка.' }
+    } elseif ($link.Arguments) {
+        throw 'Изменилась команда ярлыка Пуск.'
     }
-    Write-Output "PASS $linkPath → $exe (значок 0)"
+    Assert-ShellArtwork $linkPath 'after'
+}
+
+# A repeated in-app update respects a renamed desktop shortcut and a custom icon.
+$renamed = Join-Path (Split-Path $links.DesktopDirectory) 'Personal Kazna.lnk'
+Rename-Item -LiteralPath $links.DesktopDirectory -NewName (Split-Path -Leaf $renamed)
+$custom = "$env:SystemRoot\System32\shell32.dll,4"
+$link = $shell.CreateShortcut($links.Programs)
+$link.IconLocation = $custom
+$link.Save()
+$custom = $shell.CreateShortcut($links.Programs).IconLocation
+Install-BrandBuild $setup[0].FullName @('/P','/UPDATE')
+if ((Test-Path -LiteralPath $links.DesktopDirectory) -or !(Test-Path -LiteralPath $renamed) -or
+    $shell.CreateShortcut($links.Programs).IconLocation -ne $custom) { throw 'Утрачены личные настройки ярлыков.' }
+Write-Output 'PASS повторное обновление сохраняет переименование и личный значок'
+
+# Retain coverage of the fresh silent installation path, too.
+Rename-Item -LiteralPath $renamed -NewName (Split-Path -Leaf $links.DesktopDirectory)
+$process = Start-Process (Join-Path $folder 'uninstall.exe') -ArgumentList '/S', "_?=$folder" -WindowStyle Hidden -Wait -PassThru
+if ($process.ExitCode -or (Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $iconFile)) { throw 'Не удалось удалить тестовую установку.' }
+Install-BrandBuild $setup[0].FullName @('/S')
+foreach ($path in $links.Values) {
+    $link = $shell.CreateShortcut($path)
+    if ($link.TargetPath -ne $exe -or $link.Arguments -or $link.IconLocation -ne "$iconFile,0") {
+        throw "Неверные свойства нового ярлыка $path"
+    }
+    Assert-ShellArtwork $path 'fresh'
 }

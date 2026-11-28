@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { KeysCard } from "../components/KeysCard";
 import { FineCard, StartScreenField } from "../components/FineCard";
 import { LeadDaysPicker, parseLead } from "../components/Reminders";
@@ -578,7 +579,7 @@ function Rates({ base }: { base: string }) {
       {list.length > 0 && (
         <div className="rates-block">
           <button type="button" className="link" data-testid="rates-history-toggle" aria-expanded={history} onClick={() => setHistory(!history)}>
-            {history ? "▾" : "▸"} История курсов ({list.length})
+            <ChevronRight className="disclosure-chevron" size="1em" aria-hidden="true" /> История курсов ({list.length})
           </button>
           {history && (
             <>

@@ -112,6 +112,12 @@ jobs:
         if: matrix.runner == 'windows-11-arm'
         shell: pwsh
         run: ./scripts/windows-brand-assets.ps1
+      - uses: actions/upload-artifact@v5
+        if: always() && matrix.runner == 'windows-11-arm'
+        with:
+          name: kazna-shortcut-icons
+          path: ${{ runner.temp }}/kazna-shell-icons/*.png
+          if-no-files-found: warn
 
   installed-candidate:
     name: Установленная Kazna · ${{ matrix.mode }}

@@ -178,8 +178,8 @@ export function UpdatesCard({ active }: { active: boolean }) {
         {info ? (
           <dl className="facts">
             <dt>Версия данных</dt><dd>{info.schemaVersion} из {info.supportedSchemaVersion}</dd>
-            <dt>Файл данных</dt><dd className="mono">{info.dbPath}</dd>
-            {info.preMigrationBackup && <><dt>Копия перед обновлением</dt><dd className="mono">{info.preMigrationBackup}</dd></>}
+            <dt>Файл данных</dt><dd className="file-path">{info.dbPath}</dd>
+            {info.preMigrationBackup && <><dt>Копия перед обновлением</dt><dd className="file-path">{info.preMigrationBackup}</dd></>}
           </dl>
         ) : appInfo.isPending && <p className="hint" role="status">Загружаем сведения…</p>}
       </details>
