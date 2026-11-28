@@ -18,7 +18,7 @@
   text-underline-offset: 3px;
 }
 .home-overview .home-balance .tile-explain {
-  font-family: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: clamp(1.9rem, 4.2cqi, 3.25rem);
   line-height: 1.12;
   letter-spacing: -.055em;

@@ -34,7 +34,7 @@ function FoundRow({ f, onPick }: { f: VaultFound; onPick: (f: VaultFound) => voi
           {contents(f)}
           {f.savedAt && `; сохранено ${formatDate(f.savedAt.slice(0, 10))} ${f.savedAt.slice(11)}`}
         </div>
-        <div className="hint mono">{f.path}</div>
+        <div className="hint file-path">{f.path}</div>
       </div>
       <button className="btn primary" onClick={() => onPick(f)}>
         Перенести
@@ -157,7 +157,7 @@ function PlaceDialog({ current, onClose }: { current: string; onClose: () => voi
           <li key={p.path}>
             <button className={p.path === current ? "place active" : "place"} onClick={() => set.run(i === 0 ? null : p.path)} data-testid="vault-place">
               <b>{p.label}</b>
-              <span className="hint mono">{p.path}</span>
+              <span className="hint file-path">{p.path}</span>
             </button>
           </li>
         ))}
@@ -228,7 +228,7 @@ export function VaultCard({ active }: { active: boolean }) {
           Папка
           <Hint of="vaultPlace" />
         </dt>
-        <dd className="mono" data-testid="vault-dir">
+        <dd className="file-path" data-testid="vault-dir">
           {s?.dir}
         </dd>
         <dt>Обновлена</dt>
@@ -246,7 +246,7 @@ export function VaultCard({ active }: { active: boolean }) {
                 ✓
               </span>{" "}
               {localWhen(s.verified.checkedAt)}: восстановление проходит, {contents(s.verified)}
-              <div className="hint mono">{s.verified.path}</div>
+              <div className="hint file-path">{s.verified.path}</div>
             </>
           ) : (
             "ещё не проверялась"

@@ -1,3 +1,4 @@
+import { RotateCw } from "lucide-react";
 import { useState } from "react";
 import { api, type CbrImport } from "../lib/api";
 import { formatDate, today } from "../lib/dates";
@@ -31,9 +32,7 @@ export function CbrButton({
         disabled={load.busy}
         onClick={() => (setResult(null), onLoaded?.(), load.run(date ?? today()))}
       >
-        <span className="btn-icon" aria-hidden="true">
-          ↻
-        </span>
+        <RotateCw className="btn-icon" size="1em" aria-hidden="true" />
         {load.busy ? "Загружаю…" : label}
       </button>
       {message && (

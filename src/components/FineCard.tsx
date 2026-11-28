@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import { DEFAULT_FINE, saveFine, useFine, type Fine } from "../lib/fine";
 import { useSettings } from "../lib/queries";
@@ -40,7 +41,7 @@ export function FineCard() {
   return (
     <details id="set-fine" className="card fine-card settings-section" data-testid="fine-card" open={custom || undefined}>
       <summary>
-        <h2>Формат и правила</h2>
+        <h2>Формат и правила <ChevronRight className="disclosure-chevron" size="1em" aria-hidden="true" /></h2>
         <span className="muted">Неделя, копейки, обозначение валюты и пороги подсказок</span>
       </summary>
       <div className="settings-list">

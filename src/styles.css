@@ -46,8 +46,9 @@
   /* Серии графиков (проверены на различимость, в том числе при нарушениях цветового зрения). */
   --series-income: #0e9f7a;
   --series-expense: #ea580c;
-  /* Шрифт Windows по просьбе владельца (0.9); на других системах — системный. */
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  --font-text: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
+  font-family: var(--font-text);
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
@@ -78,7 +79,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 @media (forced-colors: active) {
   .brand-logo { --palette-accent: CanvasText; --palette-on-accent: Canvas; forced-color-adjust: none; }
 }
-.brand-wordmark { color: var(--text); font: 650 20px/1.1 "Segoe UI Variable Text", "Segoe UI", sans-serif; letter-spacing: -.075em; }
+.brand-wordmark { color: var(--text); font: 650 20px/1.1 var(--font-text); letter-spacing: -.075em; }
 .brand.big .brand-wordmark { font-size: 28px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .sidebar li + li { margin-top: 2px; }
@@ -133,8 +134,9 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 
 .muted { color: var(--muted); }
 .error { color: var(--over); }
-.mono, .money { font-variant-numeric: tabular-nums; }
-.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; word-break: break-all; }
+.file-path, .money { font-variant-numeric: tabular-nums; }
+.file-path { font-size: 13px; word-break: break-all; }
+code, pre { font-family: inherit; }
 
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .facts dt { color: var(--muted); }
@@ -196,6 +198,9 @@ input.invalid { border-color: var(--over); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 .btn-icon { display: inline-block; line-height: 1; }
+.disclosure-chevron { vertical-align: -.15em; }
+button[aria-expanded="true"] > .disclosure-chevron,
+.fine-card[open] > summary .disclosure-chevron { transform: rotate(90deg); }
 /* Идёт действие: кнопка не гаснет, а показывает вращающийся значок. */
 .btn[aria-busy="true"] { opacity: 1; cursor: progress; }
 .btn[aria-busy="true"]::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.7s linear infinite; }
@@ -523,7 +528,7 @@ tr.dup td { color: var(--muted); }
 .undo-bar .link { color: var(--toast-link); font-weight: 600; }
 .undo-bar .icon-btn { color: #c9cfd8; background: none; }
 .undo-bar.error { background: #7c2d12; }
-kbd { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+kbd { font-family: inherit; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
 .hotkeys td:first-child { width: 1%; padding-right: 16px; }
 
 /* Сравнение периодов */
@@ -1048,8 +1053,7 @@ tr:hover .row-actions .link, .row-actions .link:focus-visible { color: var(--acc
 .fine-card > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .fine-card > summary::-webkit-details-marker { display: none; }
 .fine-card > summary h2 { margin: 0; }
-.fine-card > summary h2::after { content: " ▸"; color: var(--muted); font-weight: 400; }
-.fine-card[open] > summary h2::after { content: " ▾"; }
+.fine-card > summary .disclosure-chevron { color: var(--muted); }
 .fine-card[open] > summary { margin-bottom: 12px; }
 
 /* Р22: значок и цвет категории */

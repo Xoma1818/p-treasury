@@ -11,8 +11,6 @@ import { brandMark } from "./brandMark";
 const CARD_W = 1080;
 const CARD_H = 1350;
 
-const FONT = '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
-const DISPLAY_FONT = '"Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
 const SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
 export interface CardOptions {
@@ -69,6 +67,8 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   canvas.height = CARD_H;
   const g = canvas.getContext("2d")!;
   const style = getComputedStyle(canvas);
+  const textFont = style.fontFamily;
+  const displayFont = style.getPropertyValue("--font-display").trim();
   const color = (name: string) => style.getPropertyValue("--" + name).trim();
   const C = {
     bg: color("bg"), card: color("card"), border: color("border"),
@@ -93,17 +93,17 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   // Шапка.
   drawBrand(g, pad, 64, 64, color("palette-accent"), color("palette-on-accent"));
   g.save();
-  g.font = `650 40px ${FONT}`;
+  g.font = `650 40px ${textFont}`;
   g.letterSpacing = "-3px";
   g.fillStyle = C.text;
   g.fillText("Kazna", pad + 80, 110);
   g.restore();
   g.textBaseline = "alphabetic";
   g.fillStyle = C.text;
-  g.font = `700 76px ${DISPLAY_FONT}`;
+  g.font = `700 76px ${displayFont}`;
   g.fillText(`Мой ${r.year} год`, pad, 236);
   g.fillStyle = C.muted;
-  g.font = `400 30px ${FONT}`;
+  g.font = `400 30px ${textFont}`;
   const ops = `${r.transactionCount} ${plural(r.transactionCount, "операция", "операции", "операций")}`;
   g.fillText(`${ops} · ${r.days} ${plural(r.days, "день", "дня", "дней")} учёта`, pad, 286);
 
@@ -121,12 +121,12 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
     roundRect(g, x, 336, tw, 168, 24);
     g.fill();
     g.fillStyle = C.muted;
-    g.font = `400 26px ${FONT}`;
+    g.font = `400 26px ${textFont}`;
     g.fillText(label, x + 28, 386);
     g.fillStyle = color;
     let size = 46;
-    g.font = `700 ${size}px ${FONT}`;
-    while (size > 28 && g.measureText(value).width > tw - 56) g.font = `700 ${(size -= 2)}px ${FONT}`;
+    g.font = `700 ${size}px ${textFont}`;
+    while (size > 28 && g.measureText(value).width > tw - 56) g.font = `700 ${(size -= 2)}px ${textFont}`;
     g.fillText(value, x + 28, 462);
   });
 
@@ -137,7 +137,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
   roundRect(g, pad, chartY, CARD_W - pad * 2, chartH, 28);
   g.fill();
   g.fillStyle = C.muted;
-  g.font = `400 26px ${FONT}`;
+  g.font = `400 26px ${textFont}`;
   g.fillText("Расходы по месяцам", pad + 28, chartY + 50);
   const months = Array.from({ length: 12 }, (_, i) => {
     const key = `${r.year}-${String(i + 1).padStart(2, "0")}`;
@@ -155,7 +155,7 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
     roundRect(g, x, base - h, slot * 0.6, h, Math.min(10, h / 2, slot * 0.3));
     g.fill();
     g.fillStyle = C.muted;
-    g.font = `400 20px ${FONT}`;
+    g.font = `400 20px ${textFont}`;
     g.textAlign = "center";
     g.fillText(SHORT[i], x + slot * 0.3, base + 34);
     g.textAlign = "left";
@@ -186,19 +186,19 @@ export function drawYearCard(canvas: HTMLCanvasElement, r: YearReview, o: CardOp
     roundRect(g, x, y + 28, 6, 90, 3);
     g.fill();
     g.fillStyle = C.muted;
-    g.font = `400 22px ${FONT}`;
+    g.font = `400 22px ${textFont}`;
     g.fillText(eyebrow, x + 30, y + 44);
     g.fillStyle = C.text;
-    g.font = `700 34px ${FONT}`;
+    g.font = `700 34px ${textFont}`;
     g.fillText(fit(g, title, fw - 56), x + 30, y + 90);
     g.fillStyle = C.muted;
-    g.font = `400 24px ${FONT}`;
+    g.font = `400 24px ${textFont}`;
     g.fillText(fit(g, sub, fw - 56), x + 30, y + 124);
   });
 
   // Подвал.
   g.fillStyle = C.muted;
-  g.font = `400 22px ${FONT}`;
+  g.font = `400 22px ${textFont}`;
   g.fillText("Личный бюджет в Kazna", pad, CARD_H - 52);
   g.textAlign = "right";
   g.fillText(r.year === new Date().getFullYear() ? "год ещё идёт" : `${r.year}`, CARD_W - pad, CARD_H - 52);

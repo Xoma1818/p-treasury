@@ -1,7 +1,7 @@
 // Оформление 0.9: тёмная тема по умолчанию, светлая по кнопке; меню по группам.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, onboard, openSection, openSettings, selectTheme } from "./app.mjs";
+import { start, stop, onboard, openSection, openSettings, selectTheme, clickControl } from "./app.mjs";
 import { assertReadableInThemes } from "./contrast.mjs";
 
 let app;
@@ -63,6 +63,26 @@ test("основные разделы видны в меню, Настройки
   const tip = await browser.$('.rail-tip[role="tooltip"]');
   await tip.waitForDisplayed();
   assert.equal(await tip.getText(), "Бюджет");
+});
+
+test("шрифт интерфейса применяется к заголовку, балансу, пути базы и клавишам поиска", async () => {
+  const { browser } = app;
+  async function firstFamily(selector) {
+    const element = await browser.$(selector);
+    await element.waitForDisplayed();
+    return browser.execute(node => getComputedStyle(node).fontFamily.split(",")[0].replace(/["']/g, "").trim(), element);
+  }
+  await openSection(browser, "Главная");
+  assert.equal(await firstFamily(".brand-wordmark"), "Segoe UI Variable Text");
+  assert.equal(await firstFamily("main h1"), "Segoe UI Variable Display");
+  assert.equal(await firstFamily('[data-testid="explain-balance"] .money'), "Segoe UI Variable Display");
+
+  await openSettings(browser, "about");
+  await clickControl(browser, await browser.$('[data-testid="about-details"] summary'), "Технические сведения");
+  assert.equal(await firstFamily('//dt[normalize-space()="Файл данных"]/following-sibling::dd[1]'), "Segoe UI Variable Text");
+  await clickControl(browser, await browser.$('button[aria-label="Поиск"]'), "Поиск");
+  assert.equal(await firstFamily(".palette-foot kbd"), "Segoe UI Variable Text");
+  await browser.keys("Escape");
 });
 
 test("текст основной кнопки читается в светлой и тёмной темах", async () => {
