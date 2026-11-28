@@ -161,28 +161,36 @@ async function backup() {
   await pick("Сделать копию","cancel",null,vaultScope);
   assert.equal(existsSync(manual),false); same(original,a,"cancel copy");
   v("297:8","Отмена сохранения файла","Бюджет прежний","Выбор отменён; файл не появился");
-  await pick("Сделать копию","save",manual,vaultScope);
+  await pick("Сделать копию","proposed",manual,vaultScope);
   await waitText(b,'[data-testid="backup-msg"]',/Копия сохранена и проверена/);
-  v("297:8","Сделать копию в файл","Создана самодостаточная копия с исходными данными",same(manual,a,"saved backup"));
-  await pick("Проверить файл копии…","open",manual,vaultScope);
-  await waitText(b,'[data-testid="backup-verified"]',/manual\.db/i);
-  v("301:8","Проверить выбранный файл","Сообщение указывает на manual.db","Подтверждён путь к файлу; "+same(original,a,"verified source"));
+  const saved=await b.$('[data-testid="backup-verified"] .file-path').getText();
+  assert.ok(existsSync(saved) && saved.endsWith(".db"));
+  if (picker==="native") assert.match(saved,/p-treasury-\d+-\d+\.db$/i);
+  v("297:8","Сохранить копию с предложенным именем","Создана самодостаточная копия с исходными данными",saved+"; "+same(saved,a,"saved backup"));
+  await pick("Проверить файл копии…","open",saved,vaultScope);
+  const verified=await b.$('[data-testid="backup-verified"] .file-path').getText();
+  assert.equal(verified,saved);
+  v("301:8","Проверить выбранный файл","Сообщение указывает на выбранную базу","Подтверждён путь к файлу; "+same(original,a,"verified source"));
   await seedExpense(original,777,"Учебная покупка B"); await command("set_setting",{key:"month_start_day",value:"21"});
   const changed=snapshot(original); remembered("before-replacement",changed); assert.equal(changed.operations.length,2);
   await pick("Восстановить из копии","cancel",null,vaultScope);
   same(original,changed,"cancel picker"); await gone('[role="dialog"]');
-  await pick("Восстановить из копии","open",manual,vaultScope);
+  await pick("Восстановить из копии","open",saved,vaultScope);
   await waitText(b,'[role="dialog"]',/счетов 1, операций 1/); await shot("restore-preview");
   v("342:6","Выбрать файл восстановления","Предпросмотр: 1 счёт, 1 операция; рабочие 2 операции не тронуты",same(original,changed,"preview"));
   await click(b,"Отмена",modal); await gone('[role="dialog"]');
   v("356:12","Отмена восстановления","Две операции и прежние настройки в активной БД",same(original,changed,"cancel restore"));
-  await pick("Восстановить из копии","open",manual,vaultScope); await has('[role="dialog"]');
+  await pick("Восстановить из копии","open",saved,vaultScope); await has('[role="dialog"]');
   await click(b,"Восстановить",modal);
   await waitText(b,'[data-testid="backup-msg"]',/Данные восстановлены/);
   const safety=priorSnapshot(changed);
   v("359:12","Подтвердить восстановление","Исходная копия активна, прежние 2 операции в аварийной копии",
     same(original,a,"restore applied")+"; отдельная копия "+safety.join(", "));
   await shot("restored-budget");
+  const custom=join(work,"chosen-name.db");
+  await pick("Сделать копию","save",custom,vaultScope);
+  await waitText(b,'[data-testid="backup-msg"]',/chosen-name\.db/i);
+  v("297:8","Сохранить копию с новым именем","Пользовательский путь и полная база",same(custom,a,"custom name"));
 }
 async function transfer() {
   const a=snapshot(original); remembered("baseline",a);

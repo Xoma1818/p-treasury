@@ -12,6 +12,10 @@ public static class KaznaDialogWindows {
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern IntPtr SendMessageTimeout(
         IntPtr hwnd,uint msg,IntPtr wParam,string lParam,uint flags,uint timeout,out IntPtr result);
+    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")] private static extern IntPtr SendMessageNumber(
+        IntPtr hwnd,uint msg,IntPtr wParam,IntPtr lParam,uint flags,uint timeout,out IntPtr result);
+    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] private static extern IntPtr SendMessageText(
+        IntPtr hwnd,uint msg,IntPtr wParam,StringBuilder lParam,uint flags,uint timeout,out IntPtr result);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint id);
@@ -60,8 +64,20 @@ public static class KaznaDialogWindows {
         foreach(var child in children) if(child.ClassName=="Edit" && child.ID==1001) return child.Handle;
         return IntPtr.Zero;
     }
-    public static bool TypeName(IntPtr edit, string path) {
-        IntPtr accepted; return SendMessageTimeout(edit,0x000C,IntPtr.Zero,path,2,2000,out accepted)!=IntPtr.Zero && accepted!=IntPtr.Zero;
+    public static bool TypeName(IntPtr edit, string path, bool replaceSelection) {
+        IntPtr accepted;
+        if(replaceSelection) {
+            SendMessageNumber(edit,0x00B1,IntPtr.Zero,new IntPtr(-1),2,2000,out accepted);
+            SendMessageTimeout(edit,0x00C2,new IntPtr(1),path,2,2000,out accepted);
+        } else {
+            SendMessageTimeout(edit,0x000C,IntPtr.Zero,path,2,2000,out accepted);
+        }
+        return Value(edit)==path;
+    }
+    public static string Value(IntPtr edit) {
+        var text=new StringBuilder(1024); IntPtr length;
+        SendMessageText(edit,0x000D,new IntPtr(text.Capacity),text,2,2000,out length);
+        return text.ToString();
     }
     public static void Action(IntPtr dialog, int id, bool clickButton) {
         IntPtr button=IntPtr.Zero;
