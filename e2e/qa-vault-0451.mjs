@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { click, clickControl, fill, onboard, openSettings, start, stop, waitText } from "./app.mjs";
@@ -167,10 +167,20 @@ async function backup() {
   assert.ok(existsSync(saved) && saved.endsWith(".db"));
   if (picker==="native") assert.match(saved,/p-treasury-\d+-\d+\.db$/i);
   v("297:8","Сохранить копию с предложенным именем","Создана самодостаточная копия с исходными данными",saved+"; "+same(saved,a,"saved backup"));
-  await pick("Проверить файл копии…","open",saved,vaultScope);
-  const verified=await b.$('[data-testid="backup-verified"] .file-path').getText();
-  assert.equal(verified,saved);
-  v("301:8","Проверить выбранный файл","Сообщение указывает на выбранную базу","Подтверждён путь к файлу; "+same(original,a,"verified source"));
+  const invalid=join(work,"unrelated.db");
+  writeFileSync(invalid,"Учебный файл без базы Kazna");
+  await pick("Проверить файл копии…","open",invalid,vaultScope);
+  await waitText(b,'[data-testid="backup-verify-error"]',/Последняя проверка не прошла/);
+  v("301:8","Проверить неподходящий файл","Сообщение об ошибке, исходные данные целы",same(original,a,"rejected foreign file"));
+  // Give the verifier a different path from the auto-verification performed
+  // immediately after saving, so the original status cannot satisfy the check.
+  const verified=join(work,"separate-verification.db");
+  copyFileSync(saved,verified);
+  await pick("Проверить файл копии…","open",verified,vaultScope);
+  await waitText(b,'[data-testid="backup-verified"] .file-path',/separate-verification\.db/i);
+  await gone('[data-testid="backup-verify-error"]');
+  v("301:8","Проверить выбранный файл","Путь в статусе изменился; предыдущая ошибка сброшена",
+    same(verified,a,"verified source copy")+"; "+same(original,a,"verified live budget"));
   await seedExpense(original,777,"Учебная покупка B"); await command("set_setting",{key:"month_start_day",value:"21"});
   const changed=snapshot(original); remembered("before-replacement",changed); assert.equal(changed.operations.length,2);
   await pick("Восстановить из копии","cancel",null,vaultScope);
