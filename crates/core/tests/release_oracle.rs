@@ -171,7 +171,7 @@ fn available_money_budget_and_nonfinancial_screens() {
  let month=calendar::month(c,"2026-11","2026-11-15").unwrap();check("calendar/planned income from reminders",46543,month.planned_income);check("calendar/planned expense from reminders",21234,month.planned_expense);check("calendar/factual expense",7312,month.expense);
  let n=budget_core::notes::create(c,&budget_core::notes::NoteInput{body:"Числовой контроль".into(),date:Some("2026-11-15".into()),transaction_id:Some(spent),..Default::default()}).unwrap();
  check("notes/linked entry present",1,budget_core::notes::list(c,&Default::default()).unwrap().iter().filter(|x|x.id==n).count() as i64);
- settings::set(c,"home_layout",r#"{"v":3,"preset":"overview"}"#).unwrap();
+ settings::set(c,"home_layout",r#"{"order":["tiles","accounts","recent"],"hidden":[],"composition":"overview"}"#).unwrap();
  check("settings and notes/no monetary journal mutation",227255,accounts::balance(c,&card,None).unwrap());
 }
 #[test]
@@ -193,4 +193,60 @@ fn three_payment_amortization_by_hand() {
       balance-=principal;check(&format!("loan/{model}/{ix}/closing"),balance,row.balance_after);
    }
  }
+}
+
+#[test]
+fn shared_spending_repayment_and_household_statistics() {
+    use budget_core::{compare, split, wealth};
+    let mut db = Storage::open_in_memory().unwrap();
+    let c = db.conn();
+    categories::seed_defaults(c).unwrap();
+    let wallet = account(c, "Кошелёк", "cash", "RUB", 200000);
+    let meals = cat(c, "Питание");
+    post(c, "expense", "2026-01-11", &wallet, 1000, Some(&meals), None, "Покупка");
+    post(c, "expense", "2026-02-11", &wallet, 2000, Some(&meals), None, "Покупка");
+    let input = split::SplitInput {
+        date: "2026-03-11".into(), account_id: wallet.clone(), category_id: meals,
+        payee: Some("Ужин".into()), note: None, total: 10001, my_share: 3335,
+        friends: vec![
+            split::Share { name: "Мария".into(), amount: 3333 },
+            split::Share { name: "Павел".into(), amount: 3333 },
+        ],
+    };
+    // Inject an ordinary write failure after the user's expense and first
+    // friend's debt would already exist inside the outer SQLite transaction.
+    c.execute_batch("CREATE TEMP TRIGGER fail_second_friend BEFORE INSERT ON debts WHEN NEW.counterparty='Павел' BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END").unwrap();
+    check("split/rejected second debt", 1, split::create(db.conn_mut(), &input).is_err() as i64);
+    let c = db.conn();
+    check("split/rollback retained cash", 197000, accounts::balance(c, &wallet, None).unwrap());
+    check("split/rollback retained journal rows", 2, transactions::list(c, &Default::default()).unwrap().total as i64);
+    check("split/rollback retained debt rows", 0, debts::list(c, "2026-03-12").unwrap().len() as i64);
+    c.execute_batch("DROP TRIGGER fail_second_friend").unwrap();
+    let (my_share, each_friend) = split::even(10001, 3);
+    check("split/rounding own share", 3335, my_share);
+    check("split/rounding friends each", 3333, each_friend);
+    let created = split::create(db.conn_mut(), &input).unwrap();
+    check("split/created debts", 2, created.debt_ids.len() as i64);
+    debts::pay(db.conn_mut(), &created.debt_ids[0], &debts::PaymentInput {
+        principal: 3333, interest: 0, account_id: wallet.clone(),
+        date: "2026-04-01".into(), schedule_id: None, recalc_mode: None,
+    }).unwrap();
+    let c = db.conn();
+    let net = net_worth::on_date(c, "2026-04-01", &mut vec![]).unwrap();
+    check("split/cash after full reimbursement from one friend", 190332, net.cash);
+    check("split/receivable still owed by second friend", 3333, net.owed_to_me);
+    check("split/net worth after reimbursement", 193665, net.net);
+    let april = reports::by_month(c, "2026-04", "2026-04").unwrap();
+    check("split/reimbursement booked outside income", 0, april.income);
+    for axis in ["category", "account", "payee"] {
+        let result = compare::compare(c, "expense", axis,
+            "2026-02-01", "2026-02-28", "2026-03-01", "2026-03-31").unwrap();
+        check(&format!("compare/{axis}/february"), 2000, result.total_a);
+        check(&format!("compare/{axis}/march"), 3335, result.total_b);
+        check(&format!("compare/{axis}/delta"), 1335, result.diff);
+    }
+    let cushion = wealth::cushion(c, "2026-04-01").unwrap();
+    check("cushion/prior full months", 3, cushion.months_counted);
+    check("cushion/average spending", (1000+2000+3335)/3, cushion.avg_monthly_expense.unwrap());
+    check("cushion/liquid money", 190332, cushion.liquid);
 }
