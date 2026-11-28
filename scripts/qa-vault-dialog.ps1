@@ -48,28 +48,29 @@ if (!$dlg) {
     throw 'No File Dialog belonging to Kazna on the desktop'
 }
 Write-Output ("Native {0}: {1}" -f $Mode,$dlg.Current.Name)
-$confirm = Find-Id $dlg '1'
-$cancel = Find-Id $dlg '2'
+if ($raw.ProcessId -notin $processIds -and $raw.OwnerId -notin $processIds) {throw 'Dialog not owned by the test executable'}
+[void][KaznaDialogWindows]::SetForegroundWindow($raw.Handle)
+$actionId = if ($Mode -eq 'cancel') {2} else {1}
 if ($Mode -eq 'cancel') {
-    $cancel.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    exit 0
-}
-if ($Mode -eq 'folder') {
-    [void][KaznaDialogWindows]::SetForegroundWindow($raw.Handle)
-    [System.Windows.Forms.SendKeys]::SendWait('^l')
-    Start-Sleep -Milliseconds 120
-    [System.Windows.Forms.Clipboard]::SetText($PathValue)
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Start-Sleep -Milliseconds 450
+    [KaznaDialogWindows]::Action($raw.Handle,2,$false)
 } else {
-    $entry=Find-Id $dlg '1148'
-    if (!$entry) { $entry = Find-Id $dlg '1001' }
-    if (!$entry) { throw 'File name entry not found' }
-    $entry.SetFocus()
-    [System.Windows.Forms.Clipboard]::SetText($PathValue)
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 120
+    $end = (Get-Date).AddSeconds(4)
+    do {
+        $entry=[KaznaDialogWindows]::FileNameEntry($raw.Handle)
+        if ($entry -ne [IntPtr]::Zero) {break}
+        Start-Sleep -Milliseconds 120
+    } until ((Get-Date) -gt $end)
+    if ($entry -eq [IntPtr]::Zero -or ![KaznaDialogWindows]::TypeName($entry,$PathValue)) {
+        [KaznaDialogWindows]::Controls($raw.Handle) | Select-Object ID,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+        throw 'Native filename textbox could not accept value'
+    }
+    Start-Sleep -Milliseconds 180
+    [KaznaDialogWindows]::Action($raw.Handle,1,$false)
 }
-$confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+for ($attempt=0; $attempt -lt 4; $attempt++) {
+    Start-Sleep -Milliseconds 550
+    if (![KaznaDialogWindows]::IsWindowVisible($raw.Handle)) { Write-Output 'Dialog closed'; exit 0 }
+    [KaznaDialogWindows]::Action($raw.Handle,$actionId,$true)
+}
+[KaznaDialogWindows]::Controls($raw.Handle) | Select-Object ID,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+throw 'Native Common Item Dialog remained open'
