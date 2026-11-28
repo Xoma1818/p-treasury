@@ -1,7 +1,7 @@
 name: Расчётные разделы Kazna 0.45.1 — проверка действий
 on:
   push:
-    branches: [codex/qa-0451-finance-controls]
+    branches: [codex/qa-0451-oracle-screen-actions]
 permissions:
   contents: read
 jobs:
