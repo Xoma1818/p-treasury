@@ -1,0 +1,355 @@
+{
+  "log": [
+    {
+      "id": "src/screens/Settings.tsx:101:16",
+      "action": "baseCurrency",
+      "expected": "USD",
+      "actual": "USD",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:101:16",
+      "action": "baseCurrency",
+      "expected": "RUB",
+      "actual": "RUB",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:112:16",
+      "action": "monthStartDay",
+      "expected": "25",
+      "actual": "25",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:123:16",
+      "action": "dateFormat",
+      "expected": "YYYY-MM-DD",
+      "actual": "YYYY-MM-DD",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:553:10",
+      "action": "Включить курсы",
+      "expected": "1",
+      "actual": "1",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:553:10",
+      "action": "Выключить курсы",
+      "expected": "0",
+      "actual": "0",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:559:8",
+      "action": "Ввести ручной курс EUR 98,76",
+      "expected": "98.76",
+      "actual": "98.76",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:562:10",
+      "action": "Ввести ручной курс EUR 98,76",
+      "expected": "98.76",
+      "actual": "98.76",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:572:10",
+      "action": "Ввести ручной курс EUR 98,76",
+      "expected": "98.76",
+      "actual": "98.76",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:581:10",
+      "action": "Открыть историю",
+      "expected": 12,
+      "actual": 12,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:609:16",
+      "action": "Показать все курсы",
+      "expected": 15,
+      "actual": 15,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:609:16",
+      "action": "Свернуть историю",
+      "expected": 12,
+      "actual": 12,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:599:26",
+      "action": "Удалить ручной курс",
+      "expected": null,
+      "actual": null,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:143:16",
+      "action": "debtReminderDays",
+      "expected": "10",
+      "actual": "10",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:169:16",
+      "action": "fundsDays",
+      "expected": "7",
+      "actual": "7",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:208:16",
+      "action": "subsRemind",
+      "expected": "0",
+      "actual": "0",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:192:16",
+      "action": "Предупреждения",
+      "expected": "0",
+      "actual": "0",
+      "status": "pass"
+    },
+    {
+      "id": "src/components/Reminders.tsx:47:8",
+      "action": "За 2 недели",
+      "expected": "true",
+      "actual": "true",
+      "status": "pass"
+    },
+    {
+      "id": "src/components/Reminders.tsx:52:8",
+      "action": "Убрать свой срок из уведомлений",
+      "expected": false,
+      "actual": false,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:224:16",
+      "action": "uiTheme",
+      "expected": "light",
+      "actual": "light",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:224:16",
+      "action": "uiTheme",
+      "expected": "dark",
+      "actual": "dark",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:233:16",
+      "action": "uiPalette",
+      "expected": "plum",
+      "actual": "plum",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:233:16",
+      "action": "uiPalette",
+      "expected": "cobalt",
+      "actual": "cobalt",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:233:16",
+      "action": "uiPalette",
+      "expected": "petrol",
+      "actual": "petrol",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:242:16",
+      "action": "uiScale",
+      "expected": "100",
+      "actual": "100",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:242:16",
+      "action": "uiScale",
+      "expected": "90",
+      "actual": "90",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:242:16",
+      "action": "uiScale",
+      "expected": "125",
+      "actual": "125",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:242:16",
+      "action": "uiScale",
+      "expected": "100",
+      "actual": "100",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:262:16",
+      "action": "uiDensity",
+      "expected": "roomy",
+      "actual": "roomy",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:262:16",
+      "action": "uiDensity",
+      "expected": "normal",
+      "actual": "normal",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:262:16",
+      "action": "uiDensity",
+      "expected": "compact",
+      "actual": "compact",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет lime",
+      "expected": "lime",
+      "actual": "lime",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет mint",
+      "expected": "mint",
+      "actual": "mint",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет blue",
+      "expected": "blue",
+      "actual": "blue",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет violet",
+      "expected": "violet",
+      "actual": "violet",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет amber",
+      "expected": "amber",
+      "actual": "amber",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет rose",
+      "expected": "rose",
+      "actual": "rose",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:284:18",
+      "action": "Цвет graphite",
+      "expected": "graphite",
+      "actual": "graphite",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:274:16",
+      "action": "Цвет palette",
+      "expected": "palette",
+      "actual": "palette",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:301:16",
+      "action": "hints",
+      "expected": "0",
+      "actual": "0",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:321:16",
+      "action": "txnOpen",
+      "expected": "panel",
+      "actual": "panel",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:338:16",
+      "action": "closeToTray",
+      "expected": "1",
+      "actual": "1",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:338:16",
+      "action": "closeToTray",
+      "expected": "0",
+      "actual": "0",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:346:16",
+      "action": "quickHotkey",
+      "expected": "Ctrl+Alt+N",
+      "actual": "Ctrl+Alt+N",
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/Settings.tsx:346:16",
+      "action": "quickHotkey",
+      "expected": "",
+      "actual": "",
+      "status": "pass"
+    }
+  ],
+  "reopened": [
+    "base_currency",
+    "month_start_day",
+    "date_format",
+    "rates_auto",
+    "debt_reminder_days_before",
+    "reminder_funds_days",
+    "subs_remind",
+    "budget_alerts",
+    "hints",
+    "close_to_tray",
+    "quick_hotkey",
+    "p-treasury-theme",
+    "kazna.look",
+    "p-treasury-scale",
+    "kazna.txnOpen"
+  ],
+  "plain": {
+    "base_currency": "RUB",
+    "month_start_day": "25",
+    "date_format": "YYYY-MM-DD",
+    "rates_auto": "0",
+    "debt_reminder_days_before": "10",
+    "reminder_funds_days": "7",
+    "subs_remind": "0",
+    "budget_alerts": "0",
+    "hints": "0",
+    "close_to_tray": "0",
+    "quick_hotkey": ""
+  },
+  "preferences": {
+    "p-treasury-theme": "dark",
+    "kazna.look": "{\"palette\":\"petrol\",\"density\":\"compact\",\"accent\":\"palette\"}",
+    "p-treasury-scale": "100",
+    "kazna.txnOpen": "panel"
+  }
+}

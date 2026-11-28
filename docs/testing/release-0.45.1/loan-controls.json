@@ -1,0 +1,316 @@
+{
+  "log": [
+    {
+      "id": "src/screens/debts/LoanTools.tsx:230:10",
+      "action": "Отменить изменённую сумму",
+      "expected": 30000000,
+      "actual": 30000000,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:154:6",
+      "action": "Сохранить новые условия и график",
+      "expected": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "actual": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:173:14",
+      "action": "Сохранить новые условия и график",
+      "expected": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "actual": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:190:20",
+      "action": "Сохранить новые условия и график",
+      "expected": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "actual": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:214:14",
+      "action": "Сохранить новые условия и график",
+      "expected": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "actual": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:233:10",
+      "action": "Сохранить новые условия и график",
+      "expected": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "actual": [
+        31250000,
+        24,
+        "monthly",
+        "differentiated",
+        24
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:272:10",
+      "action": "Отменить новую ставку",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:256:6",
+      "action": "Сохранить 11 % со своей даты",
+      "expected": [
+        1100,
+        "2026-11-30"
+      ],
+      "actual": [
+        1100,
+        "2026-11-30"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:275:10",
+      "action": "Сохранить 11 % со своей даты",
+      "expected": [
+        1100,
+        "2026-11-30"
+      ],
+      "actual": [
+        1100,
+        "2026-11-30"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:372:12",
+      "action": "Удалить изменение ставки",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:343:10",
+      "action": "Отменить каникулы",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:298:6",
+      "action": "Два месяца переноса со второго платежа",
+      "expected": [
+        "shift",
+        2,
+        2
+      ],
+      "actual": [
+        "shift",
+        2,
+        2
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:302:12",
+      "action": "Два месяца переноса со второго платежа",
+      "expected": [
+        "shift",
+        2,
+        2
+      ],
+      "actual": [
+        "shift",
+        2,
+        2
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:314:14",
+      "action": "Два месяца переноса со второго платежа",
+      "expected": [
+        "shift",
+        2,
+        2
+      ],
+      "actual": [
+        "shift",
+        2,
+        2
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:325:14",
+      "action": "Два месяца переноса со второго платежа",
+      "expected": [
+        "shift",
+        2,
+        2
+      ],
+      "actual": [
+        "shift",
+        2,
+        2
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:346:10",
+      "action": "Два месяца переноса со второго платежа",
+      "expected": [
+        "shift",
+        2,
+        2
+      ],
+      "actual": [
+        "shift",
+        2,
+        2
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:382:12",
+      "action": "Удалить каникулы",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:679:10",
+      "action": "Отменить ручную сумму строки",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:652:6",
+      "action": "Сохранить 50 000 ₽ в первой строке",
+      "expected": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "actual": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:662:14",
+      "action": "Сохранить 50 000 ₽ в первой строке",
+      "expected": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "actual": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:682:10",
+      "action": "Сохранить 50 000 ₽ в первой строке",
+      "expected": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "actual": [
+        1,
+        5000000,
+        "reduce_payment"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:674:12",
+      "action": "Вернуть сумму по графику",
+      "expected": 0,
+      "actual": 0,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:424:10",
+      "action": "Сохранить досрочный платёж в плане",
+      "expected": 1000000,
+      "actual": 1000000,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:505:14",
+      "action": "Посчитать сценарий reduce_payment без записи в заём",
+      "expected": 30000000,
+      "actual": 30000000,
+      "status": "pass"
+    },
+    {
+      "id": "src/screens/debts/LoanTools.tsx:505:14",
+      "action": "Посчитать сценарий reduce_term без записи в заём",
+      "expected": 30000000,
+      "actual": 30000000,
+      "status": "pass"
+    }
+  ],
+  "failures": []
+}

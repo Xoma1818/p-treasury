@@ -1,0 +1,47 @@
+{
+  "baselineCommit": "c3db9597faa46d58546c39224984793cc6b1e2c1",
+  "candidate": "7c09bcdb073f1092ed303ee6b6cfb82231ed2b7c",
+  "portableMarkerBytes": 0,
+  "observedUtc": "2026-11-28T11:26:33.1371644+00:00",
+  "release": "https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.45.1",
+  "publishedUtc": "2026-11-28T11:23:52Z",
+  "sourceCommit": "2d95a4027172c71fdf23b565b564956708e20643",
+  "channel": "https://github.com/Xoma1818/p-treasury-releases/releases/latest/download/latest.json",
+  "channelTargets": [
+    "windows-x86_64",
+    "windows-x86_64-nsis"
+  ],
+  "setupVersion": "0.45.1",
+  "portableVersion": "0.45.1",
+  "portableArch": "x86_64",
+  "portableExeSHA256": "d7883b36e2c8cb45780414e5b190d7808f1fbe0ba0e490607dd262b496953f7d",
+  "signature": {
+    "algorithm": "ED",
+    "keyId": "248128c22ad8f54b",
+    "payloadValid": true,
+    "metadataValid": true,
+    "trustedComment": "timestamp:1795865031\tfile:Kazna_0.45.1_x64-setup.exe\tversion:0.45.1"
+  },
+  "assets": {
+    "Kazna_0.45.1_x64-setup.exe": {
+      "sha256": "9bc3bbc973284aba9fd45b9f7806c412fa49100a09667babb9c942e6ab106a1f",
+      "bytes": 8364344,
+      "url": "https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.45.1/Kazna_0.45.1_x64-setup.exe"
+    },
+    "Kazna_0.45.1_x64-setup.exe.sig": {
+      "sha256": "25665a02fb3f96e0f7a7a2afaf7b61995c5790f75774b60b784c52d1294b9835",
+      "bytes": 436,
+      "url": "https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.45.1/Kazna_0.45.1_x64-setup.exe.sig"
+    },
+    "Kazna_0.45.1_x64-portable.zip": {
+      "sha256": "140e9d6be8d3029da4f0c44aeb602f92b27951126883aea197620a3240392986",
+      "bytes": 11434502,
+      "url": "https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.45.1/Kazna_0.45.1_x64-portable.zip"
+    },
+    "latest.json": {
+      "sha256": "b8e208853aa9166006742274c815c4a2c00c964c636fd27966b73a59eb9cb6da",
+      "bytes": 2194,
+      "url": "https://github.com/Xoma1818/p-treasury-releases/releases/download/v0.45.1/latest.json"
+    }
+  }
+}

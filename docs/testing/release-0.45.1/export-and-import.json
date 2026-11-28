@@ -1,0 +1,23 @@
+{
+  "xlsxSheets": [
+    "Сводка",
+    "По категориям",
+    "Бюджет",
+    "По месяцам",
+    "Долги",
+    "Операции"
+  ],
+  "csvIncomeMinor": 123456,
+  "csvExpenseMinor": 47039,
+  "xlsxIncomeMinor": 123456,
+  "xlsxExpenseMinor": 47039,
+  "pdfPages": 1,
+  "pdfNames": true,
+  "imported": [
+    [
+      1234,
+      "expense"
+    ]
+  ],
+  "journalCount": 8
+}

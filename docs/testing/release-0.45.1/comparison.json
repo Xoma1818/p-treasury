@@ -1,0 +1,30 @@
+{
+  "schemaBefore": 32,
+  "schemaAfter": 32,
+  "tables": 53,
+  "settings": 48,
+  "transactions": 7,
+  "accounts": {
+    "Учебная карта Рубин": {
+      "currency": "RUB",
+      "openingMinor": 2000000,
+      "balanceMinor": 1973456
+    },
+    "Учебные наличные": {
+      "currency": "RUB",
+      "openingMinor": 10000,
+      "balanceMinor": 43211
+    },
+    "Учебный доллар": {
+      "currency": "USD",
+      "openingMinor": 5000,
+      "balanceMinor": 5775
+    }
+  },
+  "totalBalanceRubMinor": 2536417,
+  "incomeRubMinor": 123456,
+  "expenseRubMinor": 47039,
+  "appBackup": "C:\\Users\\runneradmin\\AppData\\Roaming\\app.kazna.desktop\\backups\\before-app-update-20261128-033854.db",
+  "appBackupRowsMatch": true,
+  "automaticRestartRowsMatch": true
+}

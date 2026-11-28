@@ -1,0 +1,20 @@
+{
+  "DesktopDirectory": {
+    "target": "C:\\Users\\runneradmin\\AppData\\Local\\Kazna\\Kazna.exe",
+    "iconLocation": "C:\\Users\\runneradmin\\AppData\\Local\\Kazna\\kazna-fold.ico,0",
+    "arguments": "",
+    "appId": "app.kazna.desktop",
+    "coral": 515,
+    "lime": 0,
+    "imageSha256": "1AD9573A0F94C8A106AFF8AF978478C39D408418D4694D15FE565757C1D884D5"
+  },
+  "Programs": {
+    "target": "C:\\Users\\runneradmin\\AppData\\Local\\Kazna\\Kazna.exe",
+    "iconLocation": "C:\\Users\\runneradmin\\AppData\\Local\\Kazna\\kazna-fold.ico,0",
+    "arguments": "",
+    "appId": "app.kazna.desktop",
+    "coral": 515,
+    "lime": 0,
+    "imageSha256": "1AD9573A0F94C8A106AFF8AF978478C39D408418D4694D15FE565757C1D884D5"
+  }
+}
