@@ -29,9 +29,11 @@ async function invoke(command, args = {}) {
 }
 
 test("единый редактор Главной: предпросмотр, отмена, сохранение и возврат к основным карточкам", async () => {
-  await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "не пять карточек" });
-  const blocks = await browser.execute(() => [...document.querySelectorAll("main .home-block")].map((b) => b.dataset.block));
-  assert.deepEqual(blocks, ["quick", "tiles", "checks", "main", "plans"]);
+  const ids = () => browser.execute(() => [...document.querySelectorAll(".home-grid > [data-block]")].map((node) => node.dataset.block));
+  await browser.$('[data-testid="total-balance"] [data-testid="month-income"]').waitForExist();
+  const defaults = await ids();
+  assert.deepEqual(defaults.slice(0, 3), ["tiles", "accounts", "recent"]);
+  assert.ok(await browser.$('[data-testid="total-balance"] [data-testid="month-expense"]').isExisting());
   await openSettings(browser, "appearance");
   const layout = async () => (await invoke("get_settings")).home_layout;
   const original = await layout();
@@ -47,7 +49,7 @@ test("единый редактор Главной: предпросмотр, о
   await clickControl(browser, await browser.$('[data-block="recent"] [data-testid="home-half"]'), "Ширина последних операций");
   await saveHomeEditor(browser);
   await browser.$('[data-testid="home-ahead"]').waitForDisplayed({ timeout: 5000 });
-  assert.deepEqual(JSON.parse(await layout()).half, ["recent"]);
+  assert.deepEqual(new Set(JSON.parse(await layout()).half), new Set(["tiles", "accounts", "recent"]));
   await browser.refresh();
   await browser.$('main .home-block.half[data-block="recent"]').waitForExist();
   assert.equal(await browser.$('main .home-block[data-block="accounts"]').isExisting(), true);
@@ -55,6 +57,35 @@ test("единый редактор Главной: предпросмотр, о
   await clickControl(browser, await browser.$('[data-testid="home-cards-default"]'), "Вернуть по умолчанию");
   await saveHomeEditor(browser);
   await browser.waitUntil(async () => !(await browser.$('[data-testid="home-ahead"]').isExisting()), { timeout: 5000, timeoutMsg: "карточка не скрылась" });
+  assert.deepEqual(await ids(), defaults);
+});
+
+test("сравнение сохраняет только выбранный вариант и не меняет старую раскладку при отмене", async () => {
+  const readLayout = async () => (await invoke("get_settings")).home_layout;
+  const tap = async (id) => clickControl(browser, await browser.$(`[data-testid="${id}"]`), id);
+  const legacy = JSON.stringify({ v: 2, order: ["main", "tiles", "quick"], half: ["main"], hidden: ["quick"] });
+  await invoke("set_setting", { key: "home_layout", value: legacy });
+  await browser.refresh();
+  await browser.$('.home-grid > [data-block="main"].half').waitForExist();
+  await tap("home-customize");
+  await tap("home-preview-open");
+  await tap("home-preview-overview");
+  const preview = '.home-grid[data-preview="overview"]';
+  await browser.$(preview + ' [data-testid="total-balance"] [data-testid="month-income"]').waitForExist();
+  assert.equal(await readLayout(), legacy);
+  assert.equal(await browser.execute((selector) => document.querySelector(selector).closest("[inert]") !== null, preview), true);
+  await tap("home-preview-mine");
+  await browser.$('.home-grid[data-preview="mine"] > [data-block="main"].half').waitForExist();
+  await tap("home-cancel");
+  assert.equal(await readLayout(), legacy);
+  await tap("home-customize");
+  await tap("home-preview-open");
+  await tap("home-preview-overview");
+  await saveHomeEditor(browser);
+  assert.equal(JSON.parse(await readLayout()).composition, "overview");
+  await browser.refresh();
+  await browser.$('.home-grid > [data-block="tiles"].half [data-testid="month-expense"]').waitForDisplayed();
+  assert.ok(await browser.$('.home-grid > [data-block="accounts"].half').isExisting());
 });
 
 test("предупреждение бюджета объясняет причину и ведёт к операциям и плану", async () => {

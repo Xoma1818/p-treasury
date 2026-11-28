@@ -18,6 +18,15 @@ pub fn is_done(conn: &rusqlite::Connection) -> Result<bool> {
     Ok(settings::get(conn, "onboarding_done")?.as_deref() == Some("1"))
 }
 
+/// Выбор стартового вида относится только к впервые настроенному бюджету.
+/// Открытие или восстановление прежнего файла оставляет его раскладку нетронутой.
+pub(crate) fn mark_done(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+    if settings::get(tx, "home_layout")?.as_deref() == Some("") {
+        settings::set(tx, "home_layout", r#"{"v":3,"preset":"overview"}"#)?;
+    }
+    settings::set(tx, "onboarding_done", "1")
+}
+
 /// Применить мастер целиком в одной транзакции: если хоть один счёт
 /// не прошёл проверку, ничего не записывается.
 pub fn finish(conn: &mut rusqlite::Connection, setup: &Setup) -> Result<()> {
@@ -33,7 +42,7 @@ pub fn finish(conn: &mut rusqlite::Connection, setup: &Setup) -> Result<()> {
     if setup.default_categories {
         categories::seed_defaults(&tx)?;
     }
-    settings::set(&tx, "onboarding_done", "1")?;
+    mark_done(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -64,6 +73,10 @@ mod tests {
         assert_eq!(accounts::totals(c, "2026-10-20").unwrap().total, 35_730_000);
         assert!(!categories::list(c, false).unwrap().is_empty());
         assert!(finish(db.conn_mut(), &setup).is_err(), "второй раз нельзя");
+        assert_eq!(
+            settings::get(db.conn(), "home_layout").unwrap().as_deref(),
+            Some(r#"{"v":3,"preset":"overview"}"#)
+        );
     }
 
     #[test]

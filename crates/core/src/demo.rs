@@ -294,7 +294,7 @@ pub fn seed(conn: &mut Connection, today: &str) -> Result<()> {
             "Сбер (дивиденды)",
         ),
     )?;
-    settings::set(&tx, "onboarding_done", "1")?;
+    onboarding::mark_done(&tx)?;
     settings::set(&tx, "demo_data", "1")?;
     // В примере не напоминаем о резервной копии: беречь пока нечего.
     tx.execute(

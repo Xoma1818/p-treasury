@@ -22,6 +22,8 @@ export interface TableSelection {
   onToggle: (key: string, mods: { shift: boolean; ctrl: boolean }) => void;
 }
 
+const OVERVIEW_COLS: Col[] = ["date", "what", "account", "amount"];
+
 /** Запрашиваем связь только для открытого меню, а не для всех строк журнала. */
 function RepeatMenuLabel({ id }: { id: string }) {
   return useRepeatPlan(id).data ? "Открыть запланированный повтор" : "Запланировать повтор…";
@@ -40,7 +42,7 @@ export function TxnTable({
   isBudgetPeriod = false,
 }: {
   items: Txn[];
-  compact?: boolean;
+  compact?: boolean | "overview";
   draggable?: boolean;
   selection?: TableSelection;
   /** Г8: столбцы, группы и порядок; без него — как всегда. */
@@ -97,7 +99,8 @@ export function TxnTable({
   if (items.length === 0) return <p className="muted">Операций нет.</p>;
   const view = layout ?? DEFAULT_TABLE;
   // По дням дата уже в заголовке группы — в строках она не повторяется.
-  const cols: Col[] = compact ? COMPACT_COLS : view.group === "day" ? view.cols.filter((c) => c !== "date") : view.cols;
+  const compactCols = compact === "overview" ? OVERVIEW_COLS : COMPACT_COLS;
+  const cols: Col[] = compact ? compactCols : view.group === "day" ? view.cols.filter((c) => c !== "date") : view.cols;
   const groups = groupRows(items, compact ? "none" : view.group);
   const toggleOpen = (key: string) =>
     setExpanded((cur) => {
@@ -109,6 +112,7 @@ export function TxnTable({
 
   const renderRow = (r: TxnRow) => {
     const t = r.kind === "txn" ? r.txn : r.parts[0];
+    const overviewPayee = compact === "overview" && (t.type === "expense" || t.type === "income") ? t.payee : null;
     const movable = draggable && canMove(t);
     const selected = selection ? isRowSelected(selection.sel, { key: r.key, ids: rowIds(r) }) : false;
     const isOpen = r.kind === "receipt" && expanded.has(r.key);
@@ -139,7 +143,7 @@ export function TxnTable({
           contextRow.current = e.currentTarget;
           openContextMenu(e, menuFor(t, e.currentTarget, r.kind === "receipt"));
         }}
-        tabIndex={movable ? 0 : -1}
+        tabIndex={movable || compact === "overview" ? 0 : -1}
         className={["clickable", movable && "draggable", selected && "selected", r.kind === "receipt" && "receipt"].filter(Boolean).join(" ")}
         data-testid="txn-row"
         data-receipt={r.kind === "receipt" ? r.parts.length : undefined}
@@ -182,7 +186,7 @@ export function TxnTable({
                     ) : (
                       <>
                         {(t.type === "expense" || t.type === "income") && <LookMark look={lookOf(t.categoryId, catMap)} />}
-                        {describe(t)}
+                        {overviewPayee || describe(t)}
                       </>
                     )}
                     {t.refund && (
@@ -206,6 +210,7 @@ export function TxnTable({
                       </span>
                     ))}
                   </div>
+                  {overviewPayee && r.kind === "txn" && <div className="sub">{describe(t)}</div>}
                   {!compact && r.kind === "txn" && subLine(t, cols) && <div className="sub">{subLine(t, cols)}</div>}
                   {!compact && r.kind === "receipt" && <div className="sub">{r.parts.map((p) => p.categoryName).join(", ")}</div>}
                 </td>

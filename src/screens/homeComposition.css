@@ -1,0 +1,161 @@
+/* Первый ряд Главной держит баланс и счета на одной линии при разной длине списков. */
+.home-grid > .home-block:has(> :is(.home-composed-balance, .home-composed-accounts)) {
+  display: grid;
+  align-self: stretch;
+}
+.home-screen :is(.home-composed-balance, .home-composed-accounts, .home-composed-recent) {
+  min-width: 0;
+  padding: clamp(16px, 2vw, 26px);
+  container-type: inline-size;
+}
+.home-screen .home-composed-balance {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  background:
+    linear-gradient(97deg, var(--balance-start) 18%, transparent 92%),
+    repeating-radial-gradient(ellipse 185% 215% at -19% 145%, transparent 0 7px,
+      color-mix(in srgb, var(--text) 7%, transparent) 7px 8px),
+    linear-gradient(115deg, var(--balance-start), var(--balance-end));
+}
+.home-composed-balance .home-balance-main {
+  min-width: 0;
+}
+.home-composed-balance .home-balance-main:has(.home-balance-chart) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(32px, 21%);
+  align-items: end;
+  column-gap: 8px;
+}
+.home-composed-balance .home-balance-main > .tile-label {
+  grid-column: 1 / -1;
+  color: var(--text);
+  font-size: .9rem;
+}
+.home-screen .home-composed-balance .home-balance-main .tile-value.tile-explain {
+  min-width: 0;
+  font-family: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-size: clamp(1.8rem, 9cqi, 3.25rem);
+  line-height: 1.12;
+  letter-spacing: -.045em;
+}
+.home-composed-balance .home-balance-chart {
+  margin: 0;
+  background: transparent;
+}
+.home-composed-balance .home-balance-chart .spark { height: 28px; }
+.home-composed-balance .home-balance-chart path:not(.spark-area) { stroke: var(--accent); }
+.home-composed-balance .home-balance-chart .spark-area { fill: var(--accent); opacity: .13; stroke: none; }
+.home-composed-balance .tile-value,
+.home-composed-balance .money,
+.home-composed-accounts .money {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.home-composed-balance .home-period {
+  gap: 4px 8px;
+  margin: 0;
+}
+.home-composed-balance .home-period .tabs {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.home-flows,
+.home-composed-balance .home-balance-support {
+  display: grid;
+  gap: 8px 14px;
+}
+.home-flows { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.home-flows .home-flow { min-width: 0; }
+.home-flow .tile-label { flex-wrap: wrap; gap: 3px 5px; }
+.home-flow .tile-label .delta { margin-inline-start: 0; }
+.home-composed-balance .home-flow .tile-value.tile-explain {
+  margin-block: 2px;
+  min-height: 0;
+  font-size: clamp(1rem, 4.9cqi, 1.5rem);
+  line-height: 1.2;
+}
+.home-flow > .spark { height: 12px; margin: 2px 0; }
+.home-flow .home-period-operations,
+.home-composed-balance .home-calculation-link {
+  color: var(--text);
+  font-size: .8rem;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+  text-decoration-color: var(--border-strong);
+}
+.home-composed-balance .home-balance-support {
+  gap: 6px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--border-strong);
+}
+.home-balance-support:empty { display: none; }
+.home-composed-balance .home-free-explain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+.home-composed-balance .home-free-explain strong,
+.home-composed-balance .home-budget-today > b { font-size: 1rem; letter-spacing: normal; }
+.home-composed-balance .home-budget-today {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 6px 8px;
+}
+.home-composed-balance .home-budget-today .hint { flex-basis: 100%; }
+.home-balance-details > summary {
+  width: fit-content;
+  color: var(--text);
+  font-size: .82rem;
+  cursor: pointer;
+}
+.home-balance-details[open] > .home-flow { margin-block-start: 6px; }
+.home-composed-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 10px;
+  margin-block-end: 10px;
+}
+.home-composed-heading h2 { margin: 0; }
+.home-composed-heading .btn { display: inline-flex; align-items: center; gap: 6px; }
+.home-composed-heading .home-open-accounts {
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+}
+.home-composed-accounts .home-account-list {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+.home-composed-accounts .home-account-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(min-content, max-content) auto;
+  gap: 6px;
+  min-height: 46px;
+}
+.home-composed-accounts .home-account-name { overflow-wrap: anywhere; }
+.home-composed-recent .txn-table { table-layout: fixed; }
+.home-composed-recent .txn-table td { overflow-wrap: anywhere; }
+.home-composed-recent .txn-table .num,
+.home-composed-recent .txn-table .money { white-space: normal; }
+.home-composed-recent .txn-table tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@container (max-width: 480px) {
+  .home-composed-recent .txn-table .date { width: 7ch; white-space: normal; }
+  .home-composed-recent .txn-table td { padding-inline: 3px; }
+}
+@container (max-width: 270px) {
+  .home-flows { grid-template-columns: 1fr; }
+  .home-composed-accounts .home-account-list > li { grid-template-columns: minmax(0, 1fr) auto; }
+  .home-composed-accounts .home-account-list .money { grid-column: 1; }
+  .home-composed-accounts .home-account-list .icon-btn { grid-column: 2; grid-row: 1 / span 2; }
+}

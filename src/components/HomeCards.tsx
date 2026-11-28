@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GripVertical, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Columns2, GripVertical, Plus } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { HOME_BLOCKS, moveBlock, placeBefore, resetLayout, toggleBlock, toggleHalf, withOverspendSlot, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
 import { homeBlock } from "../lib/directDrag";
@@ -26,11 +26,22 @@ type EditCards = {
   update: (next: HomeLayout, announcement: string) => void;
 };
 
-export function HomeLayoutTools({ layout, edit, saveButton }: {
-  layout: HomeLayout; edit: EditCards; saveButton: RefObject<HTMLButtonElement | null>;
+export type HomeVariant = "mine" | "overview";
+const variantLabels: Record<HomeVariant, string> = { mine: "Моя раскладка", overview: "По макету" };
+
+export function HomeLayoutTools({ layout, edit, saveButton, variant, preview, sameLayout, onSelect, onPreview }: {
+  layout: HomeLayout;
+  edit: EditCards;
+  saveButton: RefObject<HTMLButtonElement | null>;
+  variant: HomeVariant;
+  preview: boolean;
+  sameLayout: boolean;
+  onSelect: (variant: HomeVariant) => void;
+  onPreview: (show: boolean) => void;
 }) {
   const [catalog, setCatalog] = useState(false);
   const catalogWasOpen = useRef(false);
+  const selectedVariant = useRef<HTMLButtonElement>(null);
   const modules = useModules();
   const enabled = layout.order.filter(modules.blockOn);
   const available = enabled.filter(block => layout.hidden.includes(block));
@@ -39,21 +50,46 @@ export function HomeLayoutTools({ layout, edit, saveButton }: {
     if (catalogWasOpen.current && !catalog && available.length === 0) saveButton.current?.focus();
     catalogWasOpen.current = catalog;
   }, [catalog, available.length, saveButton]);
+  useLayoutEffect(() => {
+    if (preview) selectedVariant.current?.focus({ preventScroll: true });
+  }, [preview]);
   return (
     <div className="home-layout-tools" data-testid="home-editor">
       <div>
-        <h2>Раскладка Главной</h2>
-        <p className="hint">Карточки можно перетаскивать или двигать стрелками. Изменения видны сразу.</p>
+        <h2>{preview ? "Предпросмотр Главной" : variant === "overview" ? "Раскладка по макету" : "Раскладка Главной"}</h2>
+        <p className="hint">{preview
+          ? sameLayout ? "Обе раскладки совпадают." : "«Сохранить» применит выбранный вариант к этому бюджету."
+          : "Карточки можно перетаскивать или двигать стрелками."}</p>
       </div>
       <div className="home-layout-actions">
-        <button type="button" className="btn" data-testid="home-catalog-open" disabled={edit.busy || !available.length}
-          aria-haspopup="dialog" onClick={() => setCatalog(true)}>
-          <Plus size={16} aria-hidden="true" /> Добавить карточку
+        {preview && (
+          <div className="tabs small motion-segments" role="group" aria-label="Сравнить раскладки">
+            {(["mine", "overview"] as const).map(option => (
+              <button key={option} type="button" className={variant === option ? "tab active" : "tab"}
+                ref={variant === option ? selectedVariant : undefined}
+                aria-pressed={variant === option} disabled={edit.busy}
+                data-testid={`home-preview-${option}`} onClick={() => onSelect(option)}>
+                {variantLabels[option]}
+              </button>
+            ))}
+          </div>
+        )}
+        <button type="button" className="btn" data-testid={preview ? "home-preview-edit" : "home-preview-open"}
+          disabled={edit.busy} onClick={() => onPreview(!preview)}>
+          <Columns2 size={16} aria-hidden="true" /> {preview ? "К редактированию" : "Сравнить раскладки"}
         </button>
-        <button type="button" className="link" data-testid="home-cards-default" disabled={edit.busy}
-          onClick={() => edit.update(resetLayout(layout, enabled), "Восстановлено стандартное расположение. Сохраните его или отмените изменения.")}>
-          Вернуть по умолчанию
-        </button>
+        {!preview && (
+          <>
+            <button type="button" className="btn" data-testid="home-catalog-open" disabled={edit.busy || !available.length}
+              aria-haspopup="dialog" onClick={() => setCatalog(true)}>
+              <Plus size={16} aria-hidden="true" /> Добавить карточку
+            </button>
+            <button type="button" className="link" data-testid="home-cards-default" disabled={edit.busy}
+              onClick={() => edit.update(resetLayout(layout, enabled), "Восстановлено стандартное расположение. Сохраните его или отмените изменения.")}>
+              Вернуть по умолчанию
+            </button>
+          </>
+        )}
       </div>
       {catalog && (
         <Modal title="Добавить карточку" onClose={() => setCatalog(false)}>
@@ -81,17 +117,18 @@ export function HomeLayoutTools({ layout, edit, saveButton }: {
   );
 }
 
-export function HomeCardGrid({ layout, childrenByBlock, overspendRef, edit }: {
+export function HomeCardGrid({ layout, childrenByBlock, overspendRef, edit, preview }: {
   layout: HomeLayout;
   childrenByBlock: Record<HomeBlock, ReactNode>;
   overspendRef: (slot: HTMLDivElement | null) => void;
   edit: EditCards | null;
+  preview?: HomeVariant;
 }) {
   const modules = useModules();
   const visible = layout.order.filter(b => modules.blockOn(b) && !layout.hidden.includes(b));
   const isHalf = (block: HomeBlock) => !!layout.half?.includes(block);
   const grouped = layout.groupedMain && visible.includes("accounts") && visible.includes("recent");
-  const grid = withOverspendSlot(visible);
+  const grid = withOverspendSlot(visible, layout.composition);
 
   // После распаковки прежней пары карточек React заменяет их родительский узел.
   // Вернём фокус действию, с которого пользователь изменил раскладку.
@@ -154,24 +191,31 @@ export function HomeCardGrid({ layout, childrenByBlock, overspendRef, edit }: {
   }
 
   return (
-    <div className="home-grid">
-      {grid.map(block => {
-        if (block === "overspend") return <div key={block} className="home-overspend-slot" ref={overspendRef} inert={edit ? true : undefined} />;
-        if (grouped && block === "recent") return null;
-        if (grouped && block === "accounts") return (
-          <div key="main" className={isHalf(block) ? "home-block half" : "home-block"} data-block="main">
-            <div className="columns home">{renderBlock("accounts", true)}{renderBlock("recent", true)}</div>
-          </div>
-        );
-        return renderBlock(block);
-      })}
-      {edit && visible.length > 1 && (
-        <div className="home-drop-end" aria-hidden="true"
-          {...homeBlock.target(block => !edit.busy && visible.includes(block) && visible.at(-1) !== block,
-            block => move(block, moveBlock(layout, block, visible.length, visible)))}>
-          Переместить в конец
-        </div>
+    <>
+      {preview && (
+        <p className="sr-only" role="status" aria-atomic="true">
+          {variantLabels[preview]}. {visible.length ? visible.map(block => `${HOME_BLOCKS[block]} (${isHalf(block) ? "половина строки" : "вся строка"})`).join(". ") : "Все карточки скрыты."}
+        </p>
       )}
-    </div>
+      <div className="home-grid" inert={preview ? true : undefined} data-preview={preview}>
+        {grid.map(block => {
+          if (block === "overspend") return <div key={block} className="home-overspend-slot" ref={overspendRef} inert={edit ? true : undefined} />;
+          if (grouped && block === "recent") return null;
+          if (grouped && block === "accounts") return (
+            <div key="main" className={isHalf(block) ? "home-block half" : "home-block"} data-block="main">
+              <div className="columns home">{renderBlock("accounts", true)}{renderBlock("recent", true)}</div>
+            </div>
+          );
+          return renderBlock(block);
+        })}
+        {edit && visible.length > 1 && (
+          <div className="home-drop-end" aria-hidden="true"
+            {...homeBlock.target(block => !edit.busy && visible.includes(block) && visible.at(-1) !== block,
+              block => move(block, moveBlock(layout, block, visible.length, visible)))}>
+            Переместить в конец
+          </div>
+        )}
+      </div>
+    </>
   );
 }

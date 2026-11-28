@@ -1,5 +1,5 @@
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
-import { ChevronRight } from "lucide-react";
+import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
@@ -19,8 +19,8 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { addDays, formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { parseLayout, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
-import { HomeCardGrid, HomeLayoutTools } from "../components/HomeCards";
+import { overviewLayout, parseLayout, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { HomeCardGrid, HomeLayoutTools, type HomeVariant } from "../components/HomeCards";
 import { currentBudgetGeneration, withBudgetWrite, watchBudgetGeneration } from "../lib/uiPrefs";
 import { useAction } from "../lib/useAction";
 import { SpendCard } from "../components/SpendCard";
@@ -39,6 +39,15 @@ import { FiguresCard } from "../components/Figures";
 import { useFine } from "../lib/fine";
 import type { HomePeriodKind } from "../lib/api";
 import "./homeOverview.css";
+import "./homeComposition.css";
+
+type HomeDraft = {
+  mine: HomeLayout;
+  overview?: HomeLayout;
+  variant: HomeVariant;
+  preview: boolean;
+  baseline: string;
+};
 
 export function Home() {
   const generation = useSyncExternalStore(watchBudgetGeneration, currentBudgetGeneration);
@@ -72,7 +81,7 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }), staleTime: AGGREGATE_STALE_MS });
   const accounts = useAccounts().data ?? [];
   const { showTransactions, go, openSettings, homeEditorRequested, clearHomeEditorRequest } = useUi();
-  const [draft, setDraft] = useState<{ layout: HomeLayout; baseline: string } | null>(null);
+  const [draft, setDraft] = useState<HomeDraft | null>(null);
   const editing = draft !== null;
   const [announcement, setAnnouncement] = useState("");
   const openButton = useRef<HTMLButtonElement>(null);
@@ -81,7 +90,11 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
   const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const settings = useSettings().data;
-  const layout = draft?.layout ?? parseLayout(settings?.home_layout);
+  const personal = draft?.mine ?? parseLayout(settings?.home_layout);
+  const model = draft?.overview ?? (draft?.preview || draft?.variant === "overview"
+    ? overviewLayout(personal, personal.order.filter(modules.blockOn))
+    : undefined);
+  const layout = draft?.variant === "overview" && model ? model : personal;
   // Р2: плитки доходов и расходов — за месяц, неделю или с зарплаты.
   const homeKind: HomePeriodKind = settings?.home_period === "week" || settings?.home_period === "payday" ? settings.home_period : "month";
   const week = useFine().week;
@@ -117,14 +130,14 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
     await api.setSetting("home_layout", toSetting(l));
   }), () => finishEditing("Раскладка Главной сохранена."), { singleSubmit: true, networkMode: "always" });
   const updateDraft = (next: HomeLayout, message: string) => {
-    setDraft(current => current && { ...current, layout: next });
+    setDraft(current => current && { ...current, [current.variant]: next });
     save.setError(null);
     setAnnouncement(message);
   };
   const startEditing = () => {
     if (!settings || currentBudgetGeneration() !== generation) return;
     const current = parseLayout(settings.home_layout);
-    setDraft({ layout: current, baseline: toSetting(current) });
+    setDraft({ mine: current, variant: "mine", preview: false, baseline: toSetting(current) });
     save.setError(null);
     setAnnouncement("");
   };
@@ -172,6 +185,124 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
   const sparks = homeKind === "month";
   const hasBalanceChart = spark.balance.length > 1;
 
+  const overview = layout.composition === "overview";
+  const balanceMain = (
+    <div className="home-balance-main">
+      <div className="tile-label">
+        Общий баланс
+        <Hint of="home.balance" />
+        <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
+      </div>
+      <button type="button" className="tile-value tile-explain" title="Как посчитан общий баланс" aria-haspopup="dialog" data-testid="explain-balance" onClick={() => setExplain("balance")}>
+        <span className="sr-only">Как посчитан общий баланс. </span>
+        {totals.data ? <BaseMoney amount={totals.data.total} currencyCode={totals.data.baseCurrency} animate /> : "—"}
+      </button>
+      {hasBalanceChart && (
+        <div className="home-balance-chart" role="img" aria-label="Динамика общего баланса по месяцам" title="Динамика общего баланса по месяцам">
+          <Sparkline values={spark.balance} area />
+        </div>
+      )}
+    </div>
+  );
+  const freeBalance = free && (
+    <div className="home-free-detail">
+      <button type="button" className="home-free-explain" data-testid="home-free" onClick={() => setExplain("free")} aria-haspopup="dialog">
+        <span className="tile-label">{free.income ? `Свободно до дохода ${formatDate(free.until)}` : `Свободно до конца бюджетного месяца · по ${formatDate(addDays(free.until, -1))}`}</span>
+        <strong><BaseMoney amount={free.free} currencyCode={free.baseCurrency} /></strong>
+        <span className="home-calculation-link">Как посчитано</span>
+      </button>
+      {free.missingRates.length > 0 && <span className="hint warn">Неполный расчёт. Нет курса для {free.missingRates.join(", ")}.</span>}
+    </div>
+  );
+  const balanceNotes = (
+    <>
+      {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
+        // После загрузки подсказка остаётся, чтобы было видно итог.
+        <div className={totals.data.missingRates.length > 0 ? "hint warn home-balance-detail" : "hint home-balance-detail"} data-testid="home-missing-rates">
+          {totals.data.missingRates.length > 0 && <>Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли.</>}
+          <CbrButton small label="Загрузить курс ЦБ" onLoaded={() => setCbrUsed(true)} />
+        </div>
+      )}
+      {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0 || debts.assets !== 0) && (
+        <div className="hint home-balance-detail home-net-worth" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
+          <span>Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <BaseMoney amount={debts.netWorth} currencyCode={debts.baseCurrency} /></span>
+          <NetWorthSpark />
+        </div>
+      )}
+    </>
+  );
+  const periodPicker = (
+    <div className="home-period">
+      <div className="tabs small motion-segments" role="group" aria-label="Период плиток" data-testid="home-period">
+        {(
+          [
+            ["month", "Месяц"],
+            ["week", "Неделя"],
+            ["payday", "От зарплаты"],
+          ] as const
+        ).map(([k, label]) => (
+          <button key={k} type="button" className={homeKind === k ? "tab active" : "tab"} aria-pressed={homeKind === k} onClick={() => setSetting.run("home_period", k)} data-testid={`home-period-${k}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <Hint of="home.period" />
+      {custom && (
+        <span className="muted small" data-testid="home-period-range">
+          {custom.kind === "payday" && !custom.payday ? "Крупного дохода за 45 дней нет — считаем месяц" : `${formatDate(custom.from)} – ${formatDate(custom.to)}`}
+        </span>
+      )}
+    </div>
+  );
+  const incomeTile = (
+    <div className={overview ? "home-flow" : "card tile"} data-testid="month-income">
+      <div className="tile-label">
+        Доходы, {tileWhen}
+        <Hint of="home.income" />
+        {shown && <Delta pct={change(shown.income, prev?.income)} hint={prevHint} />}
+      </div>
+      <button type="button" className="tile-value tile-explain plus" title="Как посчитано" data-testid="explain-income" onClick={() => setExplain("income")}>{shown && <BaseMoney amount={shown.income} currencyCode={shown.baseCurrency} animate />}</button>
+      {sparks && <Sparkline values={spark.income} className="income" />}
+      {shown?.savingsRate != null && (
+        <div className="hint" data-testid="home-savings-rate">
+          Норма сбережений {shown.savingsRate} %
+        </div>
+      )}
+      {shown && tileFrom && tileTo && (
+        <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("income")}>
+          Открыть доходы за период
+        </button>
+      )}
+    </div>
+  );
+  const expenseTile = (
+    <div className={overview ? "home-flow" : "card tile"} data-testid="month-expense">
+      <div className="tile-label">
+        Расходы, {tileWhen}
+        <Hint of="home.expense" />
+        {shown && <Delta pct={change(shown.expense, prev?.expense)} lowerIsBetter hint={prevHint} />}
+      </div>
+      <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{shown && <BaseMoney amount={shown.expense} currencyCode={shown.baseCurrency} animate />}</button>
+      {sparks && <Sparkline values={spark.expense} className="expense" />}
+      {shown && tileFrom && tileTo && (
+        <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("expense")}>
+          Открыть расходы и возвраты
+        </button>
+      )}
+    </div>
+  );
+  const saldoTile = (
+    <div className={overview ? "home-flow" : "card tile"}>
+      <div className="tile-label">
+        {homeKind === "month" ? "Сальдо месяца" : `Сальдо, ${tileWhen}`}
+        <Hint of="home.saldo" />
+        {shown && prev && <Delta pct={change(shown.income - shown.expense, prev.income - prev.expense)} hint={prevHint} />}
+      </div>
+      <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-saldo" onClick={() => setExplain("saldo")}>{shown && <BaseMoney amount={shown.income - shown.expense} currencyCode={shown.baseCurrency} signed animate />}</button>
+      {sparks && <Sparkline values={spark.saldo} />}
+    </div>
+  );
+
   const blocks: Record<HomeBlock, React.ReactNode> = {
     quick: (
           <div className="card quick-card">
@@ -187,116 +318,39 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
     days: <DaysCard />,
     goals: <GoalsCard />,
     subs: <SubscriptionsCard />,
-    tiles: (
-          <div className="tiles home-overview">
-            <div className="card tile home-balance" data-testid="total-balance">
-              <div className="home-balance-metrics">
-                <div className="home-balance-main">
-                  <div className="tile-label">
-                    Общий баланс
-                    <Hint of="home.balance" />
-                    <Delta pct={spark.balance.length ? change(spark.balance[spark.balance.length - 1], spark.balance[0]) : null} hint="за полгода" />
-                  </div>
-                  <button type="button" className="tile-value tile-explain" title="Как посчитан общий баланс" aria-haspopup="dialog" data-testid="explain-balance" onClick={() => setExplain("balance")}>
-                    <span className="sr-only">Как посчитан общий баланс. </span>
-                    {totals.data ? <BaseMoney amount={totals.data.total} currencyCode={totals.data.baseCurrency} animate /> : "—"}
-                  </button>
-                  {hasBalanceChart && (
-                    <div className="home-balance-chart" role="img" aria-label="Динамика общего баланса по месяцам" title="Динамика общего баланса по месяцам">
-                      <Sparkline values={spark.balance} area />
-                    </div>
-                  )}
-                </div>
-                {free && (
-                  <div className="home-free-detail">
-                    <button type="button" className="home-free-explain" data-testid="home-free" onClick={() => setExplain("free")} aria-haspopup="dialog">
-                      <span className="tile-label">{free.income ? `Свободно до дохода ${formatDate(free.until)}` : `Свободно до конца бюджетного месяца · по ${formatDate(addDays(free.until, -1))}`}</span>
-                      <strong><BaseMoney amount={free.free} currencyCode={free.baseCurrency} /></strong>
-                      <span className="home-calculation-link">Как посчитано</span>
-                    </button>
-                    {free.missingRates.length > 0 && <span className="hint warn">Неполный расчёт. Нет курса для {free.missingRates.join(", ")}.</span>}
-                  </div>
-                )}
-                {limitBlock === "tiles" && budgetToday}
-              </div>
-              {totals.data && (totals.data.missingRates.length > 0 || cbrUsed) && (
-                // После загрузки подсказка остаётся, чтобы было видно итог.
-                <div className={totals.data.missingRates.length > 0 ? "hint warn home-balance-detail" : "hint home-balance-detail"} data-testid="home-missing-rates">
-                  {totals.data.missingRates.length > 0 && <>Нет курса для {totals.data.missingRates.join(", ")}: такие счета не вошли.</>}
-                  <CbrButton small label="Загрузить курс ЦБ" onLoaded={() => setCbrUsed(true)} />
-                </div>
-              )}
-              {debts && (debts.owedToMe !== 0 || debts.iOwe !== 0 || debts.assets !== 0) && (
-                <div className="hint home-balance-detail home-net-worth" data-testid="home-net-worth" title="Счета + имущество + должны мне − должен я">
-                  <span>Чистые активы{debts.assets !== 0 ? " с имуществом и долгами" : " с долгами"}: <BaseMoney amount={debts.netWorth} currencyCode={debts.baseCurrency} /></span>
-                  <NetWorthSpark />
-                </div>
-              )}
-            </div>
-            <div className="home-period">
-              <div className="tabs small motion-segments" role="group" aria-label="Период плиток" data-testid="home-period">
-                {(
-                  [
-                    ["month", "Месяц"],
-                    ["week", "Неделя"],
-                    ["payday", "От зарплаты"],
-                  ] as const
-                ).map(([k, label]) => (
-                  <button key={k} type="button" className={homeKind === k ? "tab active" : "tab"} aria-pressed={homeKind === k} onClick={() => setSetting.run("home_period", k)} data-testid={`home-period-${k}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <Hint of="home.period" />
-              {custom && (
-                <span className="muted small" data-testid="home-period-range">
-                  {custom.kind === "payday" && !custom.payday ? "Крупного дохода за 45 дней нет — считаем месяц" : `${formatDate(custom.from)} – ${formatDate(custom.to)}`}
-                </span>
-              )}
-            </div>
-            <div className="card tile" data-testid="month-income">
-              <div className="tile-label">
-                Доходы, {tileWhen}
-                <Hint of="home.income" />
-                {shown && <Delta pct={change(shown.income, prev?.income)} hint={prevHint} />}
-              </div>
-              <button type="button" className="tile-value tile-explain plus" title="Как посчитано" data-testid="explain-income" onClick={() => setExplain("income")}>{shown && <BaseMoney amount={shown.income} currencyCode={shown.baseCurrency} animate />}</button>
-              {sparks && <Sparkline values={spark.income} className="income" />}
-              {shown?.savingsRate != null && (
-                <div className="hint" data-testid="home-savings-rate">
-                  Норма сбережений {shown.savingsRate} %
-                </div>
-              )}
-              {shown && tileFrom && tileTo && (
-                <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("income")}>
-                  Открыть доходы за период
-                </button>
-              )}
-            </div>
-            <div className="card tile" data-testid="month-expense">
-              <div className="tile-label">
-                Расходы, {tileWhen}
-                <Hint of="home.expense" />
-                {shown && <Delta pct={change(shown.expense, prev?.expense)} lowerIsBetter hint={prevHint} />}
-              </div>
-              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-expense" onClick={() => setExplain("expense")}>{shown && <BaseMoney amount={shown.expense} currencyCode={shown.baseCurrency} animate />}</button>
-              {sparks && <Sparkline values={spark.expense} className="expense" />}
-              {shown && tileFrom && tileTo && (
-                <button type="button" className="link home-period-operations" onClick={() => openPeriodOperations("expense")}>
-                  Открыть расходы и возвраты
-                </button>
-              )}
-            </div>
-            <div className="card tile">
-              <div className="tile-label">
-                {homeKind === "month" ? "Сальдо месяца" : `Сальдо, ${tileWhen}`}
-                <Hint of="home.saldo" />
-                {shown && prev && <Delta pct={change(shown.income - shown.expense, prev.income - prev.expense)} hint={prevHint} />}
-              </div>
-              <button type="button" className="tile-value tile-explain" title="Как посчитано" data-testid="explain-saldo" onClick={() => setExplain("saldo")}>{shown && <BaseMoney amount={shown.income - shown.expense} currencyCode={shown.baseCurrency} signed animate />}</button>
-              {sparks && <Sparkline values={spark.saldo} />}
-            </div>
+    tiles: overview ? (
+      <section className="card home-composed-balance" data-testid="total-balance" aria-label="Баланс и движение денег">
+        {balanceMain}
+        {periodPicker}
+        <div className="home-flows">
+          {incomeTile}
+          {expenseTile}
+        </div>
+        <div className="home-balance-support">
+          {freeBalance}
+          {limitBlock === "tiles" && budgetToday}
+          {balanceNotes}
+        </div>
+        <details className="home-balance-details" data-testid="home-balance-details">
+          <summary>Сальдо за период</summary>
+          {saldoTile}
+        </details>
+      </section>
+    ) : (
+      <div className="tiles home-overview">
+        <div className="card tile home-balance" data-testid="total-balance">
+          <div className="home-balance-metrics">
+            {balanceMain}
+            {freeBalance}
+            {limitBlock === "tiles" && budgetToday}
           </div>
+          {balanceNotes}
+        </div>
+        {periodPicker}
+        {incomeTile}
+        {expenseTile}
+        {saldoTile}
+      </div>
     ),
     checks: <ChecksCard budget={budget} overspendSlot={overspendSlot} />,
     unusual: <UnusualCard />,
@@ -306,11 +360,17 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
     templates: <TemplatesCard />,
     spend: <SpendCard />,
     accounts: (
-            <div className="card">
-              <h2>
+            <div className={overview ? "card home-composed-accounts" : "card"}>
+              <div className={overview ? "home-composed-heading" : undefined}>
+                <h2>
                 Счета
                 <Hint of="home.accounts" />
-              </h2>
+                </h2>
+                {overview && <button type="button" className="icon-btn home-open-accounts" data-testid="home-all-accounts"
+                  aria-label="Все счета" title="Все счета" onClick={() => go("accounts")}>
+                  <ArrowUpRight size={18} aria-hidden="true" />
+                </button>}
+              </div>
               {accounts.length === 0 && <p className="muted">Счетов нет.</p>}
               <ul className="account-list home-account-list">
                 {accounts.map((a) => (
@@ -336,12 +396,16 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
             </div>
     ),
     recent: (
-            <div className="card">
-              <h2 data-txn-focus tabIndex={-1}>
-                Последние операции
-                <Hint of="home.recent" />
-              </h2>
-              {recent.data && <TxnTable items={recent.data.items} compact />}
+            <div className={overview ? "card home-composed-recent" : "card"}>
+              <div className={overview ? "home-composed-heading" : undefined}>
+                <h2 data-txn-focus tabIndex={-1}>
+                  Последние операции
+                  <Hint of="home.recent" />
+                </h2>
+                {overview && <button type="button" className="btn small primary" data-testid="home-all-transactions"
+                  onClick={() => showTransactions({})}>Все операции <ArrowUpRight size={15} aria-hidden="true" /></button>}
+              </div>
+              {recent.data && <TxnTable items={recent.data.items} compact={overview ? "overview" : true} />}
             </div>
     ),
     plans: (
@@ -429,7 +493,7 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
             <button type="button" className="btn" ref={cancelButton} disabled={save.busy} data-testid="home-cancel"
               onClick={() => finishEditing("Изменения отменены.")}>Отмена</button>
             <button type="button" className="btn primary" ref={saveButton} disabled={save.busy} aria-busy={save.busy} data-testid="home-save"
-              onClick={() => save.run(draft.layout, draft.baseline)}>{save.busy ? "Сохраняем…" : "Сохранить"}</button>
+              onClick={() => save.run(layout, draft.baseline)}>{save.busy ? "Сохраняем…" : "Сохранить"}</button>
           </div>
         ) : (
           <div className="home-actions">
@@ -441,7 +505,12 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
         )}
       </div>
 
-      {edit && <HomeLayoutTools layout={layout} edit={edit} saveButton={saveButton} />}
+      {draft && edit && (
+        <HomeLayoutTools layout={layout} edit={edit} saveButton={saveButton}
+          variant={draft.variant} preview={draft.preview} sameLayout={draft.preview && !!model && toSetting(personal) === toSetting(model)}
+          onSelect={variant => setDraft(current => current && { ...current, variant })}
+          onPreview={preview => setDraft(current => current && { ...current, preview })} />
+      )}
       {editing && <ErrorText error={save.error} />}
       <span className="sr-only" role="status" data-testid="move-result" aria-atomic="true">{announcement}</span>
       {!editing && <MonthReviewBanner />}
@@ -483,7 +552,8 @@ function BudgetHome({ generation, replacing }: { generation: number; replacing: 
         </div>
       )}
 
-      <HomeCardGrid layout={layout} childrenByBlock={blocks} overspendRef={setOverspendSlot} edit={edit} />
+      <HomeCardGrid layout={layout} childrenByBlock={blocks} overspendRef={setOverspendSlot}
+        edit={draft?.preview ? null : edit} preview={draft?.preview ? draft.variant : undefined} />
       {explain && (explain === "free" || explain === "balance" || (tileFrom && tileTo)) && (
         <ExplainDialog kind={explain} on={date} from={tileFrom ?? date} to={tileTo ?? date} onClose={() => setExplain(null)} />
       )}
