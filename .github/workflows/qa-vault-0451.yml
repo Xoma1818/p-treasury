@@ -38,6 +38,12 @@ jobs:
           "PTREASURY_BIN=$exe" | Out-File -Append $env:GITHUB_ENV
           Write-Host "$($asset.digest), EXE $((Get-FileHash $exe).Hash), Windows $([Environment]::OSVersion.Version)"
       - name: Кнопки, системные диалоги и содержимое SQLite
+        id: native
+        run: node e2e/qa-vault-0451.mjs ${{ matrix.group }}
+      - name: При сбое автоматизации Windows — ветки приложения с поданным путём
+        if: failure() && steps.native.outcome == 'failure'
+        env:
+          KAZNA_QA_PICKER: fixture
         run: node e2e/qa-vault-0451.mjs ${{ matrix.group }}
       - if: always()
         uses: actions/upload-artifact@v5

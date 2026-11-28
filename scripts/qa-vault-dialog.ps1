@@ -27,16 +27,26 @@ if ($Mode -eq 'explorer') {
     } until ((Get-Date) -gt $deadline)
     throw 'Explorer did not show the requested vault'
 }
-$filter = [System.Windows.Automation.PropertyCondition]::new($ae::ClassNameProperty,'#32770')
+Add-Type -Path (Join-Path $PSScriptRoot 'QaDialogWindows.cs')
+$processIds = @(Get-Process Kazna -ErrorAction Stop | ForEach-Object Id)
 $deadline=(Get-Date).AddSeconds(22)
 do {
-    $dlg = $root.FindAll($tree::Children,$filter) | Where-Object {
-        (Get-Process -Id $_.Current.ProcessId -ErrorAction SilentlyContinue).ProcessName -eq 'Kazna'
+    $windows = @([KaznaDialogWindows]::All())
+    $raw = $windows | Where-Object {
+        $_.ClassName -eq '#32770' -and ($_.ProcessId -in $processIds -or $_.OwnerId -in $processIds -or $_.Title -match 'Open|Save|Folder|Select|Browse')
     } | Select-Object -First 1
-    if ($dlg) { break }
+    if ($raw) {
+        $dlg=$ae::FromHandle($raw.Handle)
+        Write-Output ("Win32 dialog PID {0}, owner {1}, title {2}" -f $raw.ProcessId,$raw.OwnerId,$raw.Title)
+        break
+    }
     Start-Sleep -Milliseconds 130
 } until ((Get-Date) -gt $deadline)
-if (!$dlg) {throw 'No File Dialog belonging to Kazna on the desktop'}
+if (!$dlg) {
+    $windows | Select-Object ProcessId,OwnerId,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+    $root.FindAll($tree::Children,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current | Select-Object ProcessId,ClassName,Name } | ConvertTo-Json -Compress | Write-Output
+    throw 'No File Dialog belonging to Kazna on the desktop'
+}
 Write-Output ("Native {0}: {1}" -f $Mode,$dlg.Current.Name)
 $confirm = Find-Id $dlg '1'
 $cancel = Find-Id $dlg '2'
@@ -45,7 +55,7 @@ if ($Mode -eq 'cancel') {
     exit 0
 }
 if ($Mode -eq 'folder') {
-    $dlg.SetFocus()
+    [void][KaznaDialogWindows]::SetForegroundWindow($raw.Handle)
     [System.Windows.Forms.SendKeys]::SendWait('^l')
     Start-Sleep -Milliseconds 120
     [System.Windows.Forms.Clipboard]::SetText($PathValue)

@@ -12,7 +12,8 @@ assert.equal(process.platform, "win32");
 assert.ok(["files", "backup", "transfer", "places"].includes(group));
 const temp = process.env.RUNNER_TEMP;
 const work = mkdtempSync(join(temp, "vault-fixture-"));
-const evidence = join(temp, "vault-evidence");
+const picker = process.env.KAZNA_QA_PICKER === "fixture" ? "fixture-path" : "native";
+const evidence = join(temp, "vault-evidence", picker);
 mkdirSync(evidence, { recursive: true });
 const data = join(work, "data");
 const vault = join(data, "Kazna");
@@ -24,13 +25,12 @@ const vaultScope = '//*[@data-testid="backup-card"]';
 const fileScope = '//*[@data-testid="budget-files"]';
 const original = join(data, "budget.db");
 const manual = join(work, "manual.db");
-const external = join(work, "external.db");
 let b, activeStep = "start";
 
 function logRecord(component, ids, action, expected, actual) {
   for (const location of ids.split(" ")) {
     records.push({ id: "src/components/" + component + ".tsx:" + location, action, expected,
-      actual, status: "pass", evidence: runUrl });
+      actual, status: "pass", picker, evidence: runUrl });
   }
   writeFileSync(join(evidence, "actions.json"), JSON.stringify(records, null, 2));
   console.log("PASS", component, ids, action, actual);
@@ -92,6 +92,11 @@ function native(mode, value = "") {
 }
 async function pick(name, mode, path, scope = "") {
   activeStep = name + " / " + mode;
+  if (picker === "fixture-path") {
+    await b.execute((value) => {window.__ptPick=[value];}, mode==="cancel" ? null : path);
+    await click(b,name,scope);
+    return;
+  }
   await Promise.all([native(mode,path),click(b,name,scope)]);
 }
 function priorSnapshot(expected) {
@@ -145,7 +150,7 @@ async function files() {
   f("78:16","Убрать из списка","Строка исчезает, файл остаётся на диске",same(alt,altSnap,"removed item preserved"));
   await pick("Открыть файл…","cancel",null,fileScope);
   same((await command("app_info")).dbPath,a,"open cancelled");
-  f("91:10","Отмена в системном окне открытия","Текущий файл и числа прежние","Системный диалог отменён; "+same(original,a,"open cancel"));
+  f("91:10","Отмена выбора файла","Текущий файл и числа прежние","Выбор отменён; "+same(original,a,"open cancel"));
   await pick("Открыть файл…","open",alt,fileScope); await home();
   const info=await command("app_info"); assert.equal(resolve(info.dbPath).toLowerCase(),resolve(alt).toLowerCase());
   f("91:10","Открыть ранее исключённый файл","Активный бюджет из выбранного файла",same(info.dbPath,altSnap,"native open"));
@@ -155,7 +160,7 @@ async function backup() {
   const a=snapshot(original); remembered("baseline",a);
   await pick("Сделать копию","cancel",null,vaultScope);
   assert.equal(existsSync(manual),false); same(original,a,"cancel copy");
-  v("297:8","Отмена сохранения файла","Бюджет прежний","Системное окно отменено; файл не появился");
+  v("297:8","Отмена сохранения файла","Бюджет прежний","Выбор отменён; файл не появился");
   await pick("Сделать копию","save",manual,vaultScope);
   await waitText(b,'[data-testid="backup-msg"]',/Копия сохранена и проверена/);
   v("297:8","Сделать копию в файл","Создана самодостаточная копия с исходными данными",same(manual,a,"saved backup"));
