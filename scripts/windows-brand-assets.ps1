@@ -126,7 +126,7 @@ foreach ($place in 'Programs','DesktopDirectory') {
     $links[$place] = Join-Path ([Environment]::GetFolderPath($place)) "$product.lnk"
 }
 # Check the Shell's rendered pixels, including its cache, not just the source file's resources.
-function Assert-ShellArtwork([string]$linkPath, [string]$phase) {
+function Assert-ShellArtwork([string]$linkPath, [ValidateSet('before', 'after', 'fresh')][string]$phase) {
     $until = [DateTime]::UtcNow.AddSeconds(10)
     do {
         $icon = [KaznaIconGroup]::FromShell($linkPath)
@@ -141,7 +141,7 @@ function Assert-ShellArtwork([string]$linkPath, [string]$phase) {
             for ($i = 0; $i -lt $pixels.Length; $i += 4) {
                 $b, $g, $r, $a = $pixels[$i..($i+3)]
                 if ($a -ge 245 -and (($phase -eq 'before' -and $g -gt 200 -and $r -lt 205 -and $b -lt 140) -or
-                    ($phase -eq 'after' -and $r -gt 230 -and $g -ge 125 -and $g -lt 185 -and $b -le 150))) { $matchesColor++ }
+                    ($phase -in 'after','fresh' -and $r -gt 230 -and $g -ge 125 -and $g -lt 185 -and $b -le 150))) { $matchesColor++ }
             }
         } finally { [void][KaznaIconGroup]::DestroyIcon($icon) }
         if ($matchesColor -gt $bitmap.PixelWidth * $bitmap.PixelHeight / 5) {
