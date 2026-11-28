@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import {spawn} from "node:child_process";
+import {spawn,execFileSync} from "node:child_process";
 import fs from "node:fs";
-import {join,relative} from "node:path";
+import {join,relative,basename,extname} from "node:path";
 import {start,stop,appPid,click,clickControl,openSettings,openSection,waitText,fill,choose,setDate,money} from "./app.mjs";
 const [dir,out]=process.argv.slice(2);
 const data={actions:[],picker:[],success:false};const dialog='//*[@role="dialog"]';
@@ -20,6 +20,21 @@ async function countExpected(total){
  const n=await b.executeAsync(done=>window.__TAURI_INTERNALS__.invoke("list_transactions",{filter:{limit:1}}).then(p=>done(p.total),e=>done(String(e))));
  assert.equal(n,total);
 }
+async function savedCopy(selector,file){
+ const ext=extname(file);
+ await waitText(b,selector,new RegExp(ext.replace(".","\\.")+"$","i"));
+ const status=await b.$(selector).getText(),name=status.slice(status.indexOf(":")+1).trim();
+ assert.equal(basename(name),name);
+ const docs=execFileSync("powershell",["-NoProfile","-Command","[Environment]::GetFolderPath('MyDocuments')"],{encoding:"utf8"}).trim();
+ const roots=[out,docs,join(process.env.USERPROFILE,"Downloads"),dir,process.cwd()];
+ const original=roots.map(root=>join(root,name)).find(p=>fs.existsSync(p)&&fs.statSync(p).isFile());
+ assert.ok(original,"Сохранённый учебный файл "+name+" в "+JSON.stringify(roots));
+ const dest=join(out,file);
+ if(relative(original,dest)!=="")fs.copyFileSync(original,dest);
+ data.picker.at(-1).savedName=name;
+ data.picker.at(-1).originalFolder=roots.find(root=>join(root,name)===original);
+ return dest;
+}
 try{
  ({browser:b}=await start(dir,{homeDefaults:true,verboseDriver:false}));
  owner=String(appPid(dir));assert.match(owner,/^\d+$/);
@@ -34,10 +49,10 @@ try{
  await setDate(b,"summaryFrom","2026-11-10");await setDate(b,"summaryTo","2026-12-09");
  await native("Скачать в CSV","cancelled.csv","cancel");assert.ok(!fs.existsSync(join(out,"cancelled.csv")));assert.ok(await b.$(dialog).isDisplayed());mark("Отмена системного выбора","файл отсутствует, сводка открыта");
  for(const [label,file] of [["Скачать в CSV","summary.csv"],["Скачать в Excel","summary.xlsx"]]){
-   await native(label,file);await waitText(b,'[data-testid="export-done"]',new RegExp(file));assert.ok(fs.statSync(join(out,file)).size>200);mark(label,file);
+   await native(label,file,"proposed");assert.ok(fs.statSync(await savedCopy('[data-testid="export-done"]',file)).size>200);mark(label,file);
  }
  await click(b,"Закрыть",dialog);assert.equal(await b.$(dialog).isExisting(),false);mark("Закрыть сводку","диалог закрыт");
- await click(b,"Импорт выписки или CSV");await native("Скачать шаблон CSV","template.csv");await b.waitUntil(()=>fs.existsSync(join(out,"template.csv")));
+ await click(b,"Импорт выписки или CSV");await native("Скачать шаблон CSV","template.csv","proposed");await savedCopy('[data-testid="template-saved"]',"template.csv");
  const header=fs.readFileSync(join(out,"template.csv"),"utf8").split(/\r?\n/)[0];
  assert.ok(header.includes("Валюта")&&header.includes("Дата"));mark("Скачать шаблон CSV","записан заголовок шаблона");
  const values=["2026-11-18","Расход","Учебная карта Рубин","Учебные покупки","Учебный приёмочный чек","Реальный выбор файла","-12,34","RUB","","","",""];
@@ -51,7 +66,7 @@ try{
  await setDate(b,"issueDate","2026-10-15");await setDate(b,"firstPayment","2026-11-15");
  await waitText(b,'[data-testid="loan-payment"]',money("14 122,04 ₽"));await click(b,"PDF для подписи");
  await fill(b,"lenderName","Учебный Кредитор");await fill(b,"borrowerName","Учебный Заёмщик");
- await native("Сохранить файл","loan.pdf");await waitText(b,'[data-testid="export-status"]',/loan\.pdf/);
+ await native("Сохранить файл","loan.pdf","proposed");await savedCopy('[data-testid="export-status"]',"loan.pdf");
  const pdf=fs.readFileSync(join(out,"loan.pdf"));assert.equal(pdf.subarray(0,4).toString(),"%PDF");assert.ok(pdf.length>1000);mark("Сохранить файл","подписной график PDF записан");
  data.success=true;
 }catch(e){data.error=String(e.stack);if(b){try{data.screen=(await b.$("body").getText()).slice(-2500);await b.saveScreenshot(join(out,"error.png"));}catch{}}throw e;}

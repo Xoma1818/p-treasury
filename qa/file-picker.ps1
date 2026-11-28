@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][int]$OwnerPid,[Parameter(Mandatory)][string]$Path,[ValidateSet("accept","cancel")][string]$Mode="accept")
+param([Parameter(Mandatory)][int]$OwnerPid,[Parameter(Mandatory)][string]$Path,[ValidateSet("accept","cancel","proposed")][string]$Mode="accept")
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Disposable runner required'}
 $rootFolder=[IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP 'kazna-file-output')) + [IO.Path]::DirectorySeparatorChar
@@ -36,6 +36,9 @@ if ($raw.ProcessId -notin $processIds -and $raw.OwnerId -notin $processIds) {thr
 $actionId = if ($Mode -eq 'cancel') {2} else {1}
 if ($Mode -eq 'cancel') {
     [KaznaDialogWindows]::Action($raw.Handle,2,$false)
+} elseif ($Mode -eq 'proposed') {
+    Start-Sleep -Milliseconds 550
+    [KaznaDialogWindows]::Action($raw.Handle,1,$false)
 } else {
     $end = (Get-Date).AddSeconds(4)
     do {
@@ -43,11 +46,16 @@ if ($Mode -eq 'cancel') {
         if ($entry -ne [IntPtr]::Zero) {break}
         Start-Sleep -Milliseconds 120
     } until ((Get-Date) -gt $end)
-    if ($entry -eq [IntPtr]::Zero -or ![KaznaDialogWindows]::TypeName($entry,$PathValue)) {
+    Start-Sleep -Milliseconds 620
+    if ($entry -eq [IntPtr]::Zero -or ![KaznaDialogWindows]::TypeName($entry,$PathValue,($Mode -eq 'save'))) {
         [KaznaDialogWindows]::Controls($raw.Handle) | Select-Object ID,ClassName,Title | ConvertTo-Json -Compress | Write-Output
         throw 'Native filename textbox could not accept value'
     }
-    Start-Sleep -Milliseconds 180
+    Start-Sleep -Milliseconds 250
+    if ([KaznaDialogWindows]::Value($entry) -ne $PathValue) {
+        throw 'The dialog replaced the typed filename before confirmation'
+    }
+    Write-Output ('Filename in visible Edit: ' + [KaznaDialogWindows]::Value($entry))
     [KaznaDialogWindows]::Action($raw.Handle,1,$false)
 }
 for ($attempt=0; $attempt -lt 4; $attempt++) {
