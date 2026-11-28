@@ -1,0 +1,42 @@
+name: Независимая сверка расчётов 0.45.1
+on:
+  push:
+    branches: [codex/qa-0451-independent-calculations]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Подтвердить идентичность ядра и миграций выпуску
+        run: |
+          git fetch --depth=1 origin 2d95a4027172c71fdf23b565b564956708e20643
+          git diff --exit-code FETCH_HEAD HEAD -- crates/core/src crates/core/migrations Cargo.lock crates/core/Cargo.toml
+      - name: Независимые контрольные числа и 116960 проводок
+        env:
+          KAZNA_NUM_PROOF: ${{ runner.temp }}/money-oracle.jsonl
+        run: |
+          cargo test --release --locked -p budget-core --test release_oracle -- --nocapture --test-threads=1
+          python - <<'PY'
+          import json, os
+          from collections import Counter
+          rows = [json.loads(s) for s in open(os.environ['KAZNA_NUM_PROOF'])]
+          print('VALUES', len(rows), 'MISMATCHES', sum(not r['pass'] for r in rows))
+          print(Counter(r['metric'].split('/')[0] for r in rows))
+          for row in rows:
+              if not row['pass']: print(row)
+          assert len(rows) > 1600 and all(r['pass'] for r in rows)
+          PY
+      - name: Остальные числовые и регрессионные проверки ядра
+        if: always()
+        run: cargo test --release -p budget-core --locked --lib --test calc_new --test calc_import --test combos_37 --test review_regressions --test export_roundtrip
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: per-metric-expectations-0.45.1
+          path: ${{ runner.temp }}/money-oracle.jsonl
+
