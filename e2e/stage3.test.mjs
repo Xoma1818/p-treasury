@@ -136,6 +136,15 @@ test("Р12: доли кольцом, линия по месяцам и отбо�
   await browser.$('[data-testid="months-line"]').waitForExist({ timeout: 5000 });
   await browser.execute(() => document.querySelector('.chart svg g[tabindex]').focus());
   await waitText(browser, '.chart [role="tooltip"]', /Доходы/);
+  const months = await browser.$$('.monthly-chart svg g[tabindex]');
+  const tip = '.monthly-chart [role="tooltip"]';
+  assert.equal((await browser.$$('.monthly-chart svg g[tabindex="0"]')).length, 1);
+  await browser.keys("End");
+  await waitText(browser, tip, new RegExp(await months.at(-1).getAttribute("aria-label")));
+  await browser.keys("ArrowLeft");
+  await waitText(browser, tip, new RegExp(await months.at(-2).getAttribute("aria-label")));
+  await browser.keys("Home");
+  await waitText(browser, tip, new RegExp(await months[0].getAttribute("aria-label")));
   await browser.keys("Escape");
   await waitCount(browser, '.chart [role="tooltip"]', 0);
   await waitCount(browser, ".chart path.bar-income", 0);

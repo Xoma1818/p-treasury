@@ -40,7 +40,7 @@ function Test-OnboardingFrame([Drawing.Bitmap]$image) {
 function Save-ClientImage($app, [string]$phase) {
     if (!$CaptureDirectory) { return }
     if ($app.HasExited) { throw "Kazna closed before capturing $phase." }
-    $hwnd = $app.MainWindowHandle
+    $hwnd = [WindowsWebView]::GetMainWindow($app, $false)
     $bounds = [KaznaTest.WindowCapture+ClientBounds]::new()
     if (![KaznaTest.WindowCapture]::GetClientRect($hwnd, [ref]$bounds) -or $bounds.right -le 25 -or $bounds.bottom -le 25) {
         throw "Cannot capture client bounds for $phase."
@@ -66,6 +66,35 @@ function Save-ClientImage($app, [string]$phase) {
     } finally { $image.Dispose() }
 }
 
+function Write-WebViewDiagnostics($app) {
+    $clientKey = 'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+    $registered = foreach ($root in 'HKLM:\SOFTWARE\WOW6432Node', 'HKLM:\SOFTWARE', 'HKCU:\SOFTWARE') {
+        Get-ItemPropertyValue -LiteralPath "$root\$clientKey" -Name pv -ErrorAction SilentlyContinue
+    }
+    if (!$registered) { $registered = 'unknown' }
+    Write-Warning "Registered WebView2 version(s): $($registered -join ', ')."
+    $tree = @{}
+    foreach ($proc in (Get-CimInstance Win32_Process -Property Name,ProcessId,ParentProcessId,CreationDate)) {
+        $tree[[int]$proc.ProcessId] = $proc
+    }
+    $children = foreach ($edge in $tree.Values) {
+        if ($edge.Name -ne 'msedgewebview2.exe') { continue }
+        $node = $edge
+        while ($parent = $tree[[int]$node.ParentProcessId]) {
+            if ($parent.ProcessId -eq $node.ProcessId -or $parent.CreationDate -gt $node.CreationDate) { break }
+            if ($parent.ProcessId -eq $app.Id) {
+                $version = (Get-Process -Id $edge.ProcessId -ErrorAction SilentlyContinue).ProductVersion
+                if (!$version) { $version = 'unknown' }
+                "PID $($edge.ProcessId) (version $version)"
+                break
+            }
+            $node = $parent
+        }
+    }
+    if (!$children) { $children = 'none' }
+    Write-Warning "Live msedgewebview2 descendants: $($children -join ', ')."
+}
+
 $info = [Diagnostics.ProcessStartInfo]::new($exe)
 $info.UseShellExecute = $false
 $info.WorkingDirectory = Split-Path -Parent $exe
@@ -74,6 +103,8 @@ $info.EnvironmentVariables['PTREASURY_VAULT_DIR'] = Join-Path $profileDir 'vault
 $info.EnvironmentVariables['WEBVIEW2_USER_DATA_FOLDER'] = Join-Path $profileDir 'webview'
 $info.EnvironmentVariables.Remove('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS')
 $process = [Diagnostics.Process]::Start($info)
+$stage = 'initial geometry'
+$layoutFailed = $false
 try {
     # The Chromium child can appear after the native window, especially on a fresh runner.
     $deadline = [Diagnostics.Stopwatch]::StartNew()
@@ -88,23 +119,35 @@ try {
         }
     } while ($true)
     Write-Output "Initial client and WebView aligned: $($initial[0]) x $($initial[1]) DIPs."
+    $stage = 'initial image'
     Save-ClientImage $process 'initial'
+    $stage = 'resized geometry'
     $small = [WindowsWebView]::MeasureOrResize($process, 1120, 720)
     Write-Output "Resized client and WebView aligned: $($small[0]) x $($small[1]) DIPs."
+    $stage = 'resized image'
     Save-ClientImage $process 'resized'
+    $stage = 'restored geometry'
     $restored = [WindowsWebView]::MeasureOrResize($process, $initial[0], $initial[1])
     Write-Output "Restored client and WebView aligned: $($restored[0]) x $($restored[1]) DIPs."
+    $stage = 'restored image'
     Save-ClientImage $process 'restored'
 } catch {
+    $layoutFailed = $true
+    Write-Warning "Failed at $stage after $($deadline.ElapsedMilliseconds) ms (Kazna PID $($process.Id))."
+    try { Write-WebViewDiagnostics $process } catch { Write-Warning 'WebView2 diagnostics unavailable.' }
     try { Save-ClientImage $process 'failure' } catch { Write-Warning "Could not capture failure: $_" }
     throw
 } finally {
-    if (!$process.HasExited) {
-        $null = $process.CloseMainWindow()
-        if (!$process.WaitForExit(5000)) {
-            $process.Kill()
-            $process.WaitForExit()
+    try {
+        if (!$process.HasExited) {
+            try { [WindowsWebView]::CloseMain($process) } catch { Write-Warning "Could not close the main window: $_" }
+            if (!$process.WaitForExit(5000)) {
+                $process.Kill()
+                $process.WaitForExit()
+            }
         }
-    }
-    $process.Dispose()
+    } catch {
+        if (!$layoutFailed) { throw }
+        Write-Warning "Could not stop Kazna PID $($process.Id): $_"
+    } finally { $process.Dispose() }
 }

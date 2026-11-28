@@ -31,8 +31,8 @@ function Write-Panel($Name, $Width, $Height, $Background, $Text, $IconBox, $Font
 }
 
 try {
-    Write-Panel 'header' 150 57 '#ffffff' '#14210a' @(17, 11, 35) 22 @(56, 0, 79, 57)
-    Write-Panel 'sidebar' 164 314 '#141810' '#f3f5ed' @(50, 104, 64) 27 @(0, 171, 164, 44)
+    Write-Panel 'header' 150 57 '#fcf9f4' '#28232b' @(17, 11, 35) 22 @(56, 0, 79, 57)
+    Write-Panel 'sidebar' 164 314 '#202230' '#f6f0eb' @(50, 104, 64) 27 @(0, 171, 164, 44)
 } finally {
     $icon.Dispose()
 }

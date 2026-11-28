@@ -2,7 +2,7 @@
 // причиной и действием, «было → станет» у займов, проверка восстановления копии.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, openSection, openSettings, onboard, fill, click, clickControl, choose, save, waitText } from "./app.mjs";
+import { start, stop, openSection, openSettings, onboard, fill, click, clickControl, choose, save, waitText, addHomeCard, saveHomeEditor } from "./app.mjs";
 
 let browser;
 const today = new Date().toISOString().slice(0, 10);
@@ -28,17 +28,32 @@ async function invoke(command, args = {}) {
   return result.value;
 }
 
-test("Главная по умолчанию: пять основных карточек, остальные включаются в Настройках", async () => {
+test("единый редактор Главной: предпросмотр, отмена, сохранение и возврат к основным карточкам", async () => {
   await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "не пять карточек" });
   const blocks = await browser.execute(() => [...document.querySelectorAll("main .home-block")].map((b) => b.dataset.block));
   assert.deepEqual(blocks, ["quick", "tiles", "checks", "main", "plans"]);
   await openSettings(browser, "appearance");
-  await clickControl(browser, await browser.$('[name="homeCard-ahead"]'), "Карточка прогноза");
-  await openSection(browser, "Главная");
+  const layout = async () => (await invoke("get_settings")).home_layout;
+  const original = await layout();
+  await click(browser, "Настроить Главную");
+  await addHomeCard(browser, "ahead");
+  await browser.$('[data-testid="home-ahead"]').waitForDisplayed();
+  assert.equal(await layout(), original, "предпросмотр не записывает раскладку");
+  await clickControl(browser, await browser.$('[data-testid="home-cancel"]'), "Отмена");
+  await browser.$('[data-testid="home-ahead"]').waitForExist({ reverse: true });
+  assert.equal(await layout(), original);
+  await click(browser, "Настроить Главную");
+  await addHomeCard(browser, "ahead");
+  await clickControl(browser, await browser.$('[data-block="recent"] [data-testid="home-half"]'), "Ширина последних операций");
+  await saveHomeEditor(browser);
   await browser.$('[data-testid="home-ahead"]').waitForDisplayed({ timeout: 5000 });
-  await openSettings(browser, "appearance");
-  await click(browser, "Только основные");
-  await openSection(browser, "Главная");
+  assert.deepEqual(JSON.parse(await layout()).half, ["recent"]);
+  await browser.refresh();
+  await browser.$('main .home-block.half[data-block="recent"]').waitForExist();
+  assert.equal(await browser.$('main .home-block[data-block="accounts"]').isExisting(), true);
+  await click(browser, "Настроить Главную");
+  await clickControl(browser, await browser.$('[data-testid="home-cards-default"]'), "Вернуть по умолчанию");
+  await saveHomeEditor(browser);
   await browser.waitUntil(async () => !(await browser.$('[data-testid="home-ahead"]').isExisting()), { timeout: 5000, timeoutMsg: "карточка не скрылась" });
 });
 

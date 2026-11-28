@@ -105,12 +105,9 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .spend-chip:hover { border-color: var(--accent); box-shadow: var(--shadow-md); }
 .home-block + .home-block { margin-top: 0; }
 .home-block > .card, .home-block > .tiles, .home-block > .columns { margin-bottom: 16px; }
-.home-block.editing { border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 8px 10px 0; margin-bottom: 12px; cursor: grab; }
-.home-block.editing.hidden-block { opacity: 0.55; padding-bottom: 8px; }
 .home-block-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
 .home-block-bar .grip { color: var(--muted); font-size: 16px; }
 .home-block-body { pointer-events: none; }
-.home-edit-hint { margin-bottom: 12px; }
 .split-foot .warn, .habit-big .warn { color: var(--over); }
 
 /* Файлы бюджета */
@@ -380,8 +377,6 @@ tr:hover .row-action, .row-action:focus-visible { visibility: visible; }
 .match-side { display: grid; gap: 2px; min-width: 0; }
 .match .actions { margin-top: 10px; }
 .ok-mark { color: var(--ok); font-weight: 600; }
-.home-cards-list { list-style: none; margin: 8px 0 12px; padding: 0; columns: 2 220px; column-gap: 24px; }
-.home-cards-list li { break-inside: avoid; padding: 2px 0; }
 .budget-table tr.focus-row td { background: var(--accent-soft); transition: background-color 1.2s var(--ease); }
 
 /* 0.27 «Свободно до дохода и резервы». */

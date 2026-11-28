@@ -1,38 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChartColumn, Keyboard, ListFilter, Monitor, Moon, Search, Star, Sun } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { isDefaultNav, navSections, useNavPrefs } from "../lib/navLayout";
 import type { Section } from "../lib/sections";
 import { moveRailMarker } from "../lib/motion";
 import { useUi } from "../lib/store";
-import { applyTheme, savedTheme, THEME_EVENT, type Theme } from "../lib/theme";
+import { applyTheme, THEME_LABELS, useTheme, type Theme } from "../lib/theme";
 import { Brand } from "./Brand";
 import { HideAmountsSwitch } from "./Convenience";
 import { DecorativeIcon } from "./DecorativeIcon";
 import { RailMenu, RailTooltip } from "./RailOverlays";
 import { SectionIcon } from "./SectionIcon";
 
-const THEMES = {
-  light: { label: "Светлая", icon: Sun },
-  dark: { label: "Тёмная", icon: Moon },
-  system: { label: "Как в системе", icon: Monitor },
-} as const;
+const themeIcons = { light: Sun, dark: Moon, system: Monitor } as const;
 
 function ThemeSwitch() {
-  const [theme, setTheme] = useState<Theme>(savedTheme);
-  useEffect(() => {
-    const onTheme = (event: Event) => setTheme((event as CustomEvent<Theme>).detail);
-    window.addEventListener(THEME_EVENT, onTheme);
-    return () => window.removeEventListener(THEME_EVENT, onTheme);
-  }, []);
-  const current = THEMES[theme];
+  const theme = useTheme();
   return (
-    <RailMenu label={`Тема: ${current.label}`} className="foot-btn rail-theme-trigger" testId="theme-switch"
-      icon={<DecorativeIcon icon={current.icon} className="foot-icon" size="control" />}
-      choices={(Object.keys(THEMES) as Theme[]).map(value => ({
-        id: value, name: THEMES[value].label, icon: <DecorativeIcon icon={THEMES[value].icon} size="control" />,
+    <RailMenu label={`Тема: ${THEME_LABELS[theme]}`} className="foot-btn rail-theme-trigger" testId="theme-switch"
+      icon={<DecorativeIcon icon={themeIcons[theme]} className="foot-icon" size="control" />}
+      choices={(Object.keys(THEME_LABELS) as Theme[]).map(value => ({
+        id: value, name: THEME_LABELS[value], icon: <DecorativeIcon icon={themeIcons[value]} size="control" />,
         checked: theme === value, testId: `theme-${value}`, pick: () => applyTheme(value),
       }))} />
   );

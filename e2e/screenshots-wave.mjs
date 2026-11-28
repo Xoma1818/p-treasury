@@ -67,7 +67,7 @@ try {
   await click(browser, "Настроить Главную");
   await browser.pause(400);
   await shot(browser, "home-edit");
-  await click(browser, "Готово");
+  await click(browser, "Отмена");
   await click(browser, "+ Расход");
   await browser.$('[name="amount"]').setValue("3000");
   await (await browser.$('[data-testid="txn-more"]')).click();

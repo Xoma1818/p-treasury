@@ -76,7 +76,7 @@
   column-gap: clamp(1rem, 3cqw, 2.5rem);
 }
 
-.settings-panel .settings-list > .field > :not(label, .hint) {
+.settings-panel .settings-list > .field > :not(label, .label, .hint) {
   grid-area: control;
   min-width: 0;
   justify-self: start;
@@ -121,7 +121,7 @@
     grid-row: 1;
   }
 
-  .settings-panel .settings-list > .field > :not(label, .hint) {
+  .settings-panel .settings-list > .field > :not(label, .label, .hint) {
     margin-block-start: .25rem;
   }
 

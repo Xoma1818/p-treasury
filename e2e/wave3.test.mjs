@@ -2,7 +2,7 @@
 // и итог недели, своя Главная, перетаскивание. Сценарии из docs/product/mvp-features.md («Версия 0.10»).
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { start, stop, resizeAppWindow, openSection, openSettings, selectTheme, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore } from "./app.mjs";
+import { start, stop, resizeAppWindow, openSection, openSettings, selectTheme, fill, choose, chooseLike, click, save, waitText, waitContent, money, openMore, addHomeCard, saveHomeEditor } from "./app.mjs";
 import { pointerDrag } from "./pointer-drag.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -234,6 +234,12 @@ test("Ctrl+K находит настройку и действие, правая
   await browser.waitUntil(async () => (await browser.$('[name="uiScale"]')).isFocused());
   await tap('[data-testid="settings-tab-general"]');
   assert.equal(await browser.$('[name="rate"]').getValue(), "97,25", "поиск не сбросил несохранённый курс");
+  await browser.keys(["Control", "k"]);
+  await fill(browser, "paletteQuery", "начало недели");
+  await waitContent(browser, '[data-testid="palette"]', /Начало недели/);
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => (await browser.$('[name="fineWeek"]')).isFocused());
+  assert.equal(await browser.$('[data-testid="settings-tab-general"]').getAttribute("aria-selected"), "true");
   const before = await browser.execute(() => document.documentElement.dataset.theme);
   await browser.keys(["Control", "k"]);
   await browser.$('[data-testid="palette"]').waitForDisplayed({ timeout: 3000 });
@@ -390,13 +396,13 @@ test("Главная: карточка в половину ширины и об�
   try {
     await tap(`${tiles} [data-testid="home-half"]`);
     await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "карточка не стала половинной" });
-    await tap('[data-testid="home-customize"]');
-    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "после «Готово» карточка во всю ширину" });
+    await saveHomeEditor(browser);
+    await browser.waitUntil(isHalf, { timeout: 5000, timeoutMsg: "после сохранения карточка во всю ширину" });
     await click(browser, "Настроить Главную");
   } finally {
     if (await isHalf()) await tap(`${tiles} [data-testid="home-half"]`);
     await browser.waitUntil(async () => !(await isHalf()), { timeout: 5000, timeoutMsg: "половина не снялась" });
-    await tap('[data-testid="home-customize"]');
+    await saveHomeEditor(browser);
   }
 });
 
@@ -429,8 +435,7 @@ test("своя Главная: скрыть карточку, перестави
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
   await click(browser, "Настроить Главную");
   await browser.$('//*[@data-block="templates"]//button[normalize-space()="Скрыть"]').click();
-  // Щёлкаем «Ниже», когда скрытие уже применилось (кнопка сменилась на «Показать»).
-  await browser.$('//*[@data-block="templates"]//button[normalize-space()="Показать"]').waitForExist({ timeout: 5000 });
+  await browser.$('[data-block="templates"]').waitForExist({ reverse: true, timeout: 5000 });
   const lower = await browser.$('button[aria-label="Ниже: Быстрый ввод"]');
   await lower.waitForClickable({ timeout: 5000 });
   await lower.click();
@@ -441,27 +446,33 @@ test("своя Главная: скрыть карточку, перестави
   // Перетаскивание карточки: «Напоминания» — в самый верх.
   await pointerDrag(browser, '[data-block="reminders"] .home-block-bar', '[data-block="summary"] .home-block-bar');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "reminders", { timeout: 5000 });
-  await click(browser, "Готово");
+  await saveHomeEditor(browser);
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false, "шаблоны скрыты");
   // Настройка сохраняется: после перезагрузки порядок тот же.
   await browser.refresh();
   await browser.$('//main//h1[normalize-space()="Главная"]').waitForDisplayed({ timeout: 10000 });
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
   await click(browser, "Настроить Главную");
-  await click(browser, "Вернуть по умолчанию");
+  await tap('[data-testid="home-cards-default"]');
   await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
-  await click(browser, "Готово");
+  await saveHomeEditor(browser);
   // По умолчанию (0.21) — пять основных карточек; шаблонов среди них нет.
   await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "по умолчанию не пять карточек" });
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false);
-  // Остальные включаются в Настройках.
+  // Настройки открывают тот же редактор и каталог.
   await openSettings(browser, "appearance");
-  await browser.$('[name="homeCard-templates"]').click();
-  await openSection(browser, "Главная");
+  await click(browser, "Настроить Главную");
+  await addHomeCard(browser, "templates");
+  await saveHomeEditor(browser);
   await browser.$('//main//h2[normalize-space()="Шаблоны"]').waitForDisplayed({ timeout: 5000 });
   await openSettings(browser, "appearance");
-  await browser.$('[data-testid="home-cards-all"]').click();
-  await openSection(browser, "Главная");
+  await click(browser, "Настроить Главную");
+  await tap('[data-testid="home-catalog-open"]');
+  await tap('[data-testid="home-cards-all"]');
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-save"]')).isFocused(), {
+    timeout: 5000, timeoutMsg: "после добавления всех карточек фокус остаётся в редакторе на кнопке сохранения",
+  });
+  await saveHomeEditor(browser);
   await browser.$('[data-testid="home-spend"]').waitForDisplayed({ timeout: 5000 });
 });
 
@@ -520,7 +531,7 @@ test("таблица операций: столбец «Получатель», 
 });
 
 test("тонкие настройки: суммы кодом валюты, неделя с воскресенья, как было (0.32)", async () => {
-  await openSettings(browser, "appearance");
+  await openSettings(browser, "general");
   const card = await browser.$('[data-testid="fine-card"]');
   await card.waitForExist({ timeout: 5000 });
   try {
@@ -532,7 +543,7 @@ test("тонкие настройки: суммы кодом валюты, не�
     await openSection(browser, "Календарь");
     await waitContent(browser, '[data-testid="calendar"] .cal-weekday', /^Вс$/);
   } finally {
-    await openSettings(browser, "appearance");
+    await openSettings(browser, "general");
     if (!(await browser.execute(() => document.querySelector('[data-testid="fine-card"]').open))) await tap('[data-testid="fine-card"] summary');
     const reset = await browser.$('[data-testid="fine-reset"]');
     if (await reset.isExisting()) await reset.click();

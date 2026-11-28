@@ -9,7 +9,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $exe = (Get-Item -LiteralPath $AppPath).FullName
-$pythonExe = (Get-Command $Python -CommandType Application).Source
+$pythonExe = (Get-Command $Python -CommandType Application | Select-Object -First 1).Source
 & $pythonExe -c 'import sqlite3'
 if ($LASTEXITCODE -ne 0) { throw 'Python 3 with sqlite3 is required.' }
 $directory = Join-Path $OutputDirectory ('kazna-instance-' + [guid]::NewGuid().ToString('N'))

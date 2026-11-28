@@ -4,9 +4,9 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { start, stop, openSection, openSettings, onboard, choose, click, waitText, money, appPid, closeLikeUser, openFilters } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -31,12 +31,25 @@ after(async () => {
 const pick = (...paths) => browser.execute((p) => (window.__ptPick = p), paths);
 const card = (name) => `//tr[@data-testid="account-row"][.//div[@class="main" and normalize-space()="${name}"]]`;
 
-// В Windows системный tar умеет читать ZIP, отдельная утилита unzip необязательна.
 function workbookXml(path) {
+  const names = readdirSync(dirname(path));
+  assert.ok(names.includes(basename(path)), `Нет файла ${path}. Содержимое папки: ${JSON.stringify(names)}`);
   const entry = "xl/workbook.xml";
-  return process.platform === "win32"
-    ? execFileSync("tar.exe", ["-xOf", path, entry], { encoding: "utf8" })
-    : execFileSync("unzip", ["-p", path, entry], { encoding: "utf8" });
+  if (process.platform !== "win32") return execFileSync("unzip", ["-p", path, entry], { encoding: "utf8" });
+
+  // Штатный bsdtar получает открытый файл через stdin: путь остаётся в Unicode у Node,
+  // а архиватор может перейти к оглавлению ZIP в конце файла.
+  const fd = openSync(path, "r");
+  try {
+    const signature = Buffer.alloc(4);
+    readSync(fd, signature, 0, signature.length, 0);
+    assert.equal(signature.toString("hex"), "504b0304", `Ожидался ZIP-заголовок в ${path}`);
+    return execFileSync(join(process.env.SystemRoot, "System32", "tar.exe"), ["-xOf", "-", entry], {
+      stdio: [fd, "pipe", "pipe"], encoding: "utf8",
+    });
+  } finally {
+    closeSync(fd);
+  }
 }
 
 const csv = (rows) => "\uFEFFДата;Тип;Счёт;Категория;Получатель;Комментарий;Сумма;Счёт зачисления\n" + rows.map((r) => r.join(";")).join("\n") + "\n";

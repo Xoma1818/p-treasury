@@ -12,9 +12,11 @@ import { Hint } from "./Hint";
 import { ErrorText, Modal } from "./Modal";
 import { BaseMoney } from "./Money";
 import { MonthsChart } from "../screens/Reports";
+import type { ChartFrame } from "./monthlyChartMotion";
 
 /** «Итоги года»: главное о годе в нескольких карточках. */
 export function YearReviewReport() {
+  const monthChartHistory = useRef<ChartFrame | null>(null);
   const now = new Date().getFullYear();
   const [year, setYear] = useState(now);
   const [sharing, setSharing] = useState(false);
@@ -84,7 +86,7 @@ export function YearReviewReport() {
               </span>
             </div>
           </div>
-          {r.months.length > 1 && <MonthsChart r={{ months: r.months, income: r.income, expense: r.expense, balance: saved, savingsRate: r.savingsRate, missingRates: r.missingRates, baseCurrency: r.baseCurrency }} />}
+          {r.months.length > 1 && <MonthsChart key={year} history={monthChartHistory} r={{ months: r.months, income: r.income, expense: r.expense, balance: saved, savingsRate: r.savingsRate, missingRates: r.missingRates, baseCurrency: r.baseCurrency }} />}
           <div className="year-facts">
             {r.bestMonth && (
               <Fact eyebrow="Лучший месяц" title={monthTitle(r.bestMonth)}>
@@ -137,9 +139,17 @@ function ShareDialog({ r, onClose }: { r: YearReview; onClose: () => void }) {
   const drawing = useRef({ revision: 0, masked: true });
   const sharing = useRef(false);
   useLayoutEffect(() => {
-    if (!canvas.current) return;
-    drawYearCard(canvas.current, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
-    drawing.current = { revision: drawing.current.revision + 1, masked: hide };
+    const preview = canvas.current;
+    if (!preview) return;
+    const draw = () => {
+      drawYearCard(preview, r, { symbol: base?.symbol ?? "₽", minorUnits: base?.minorUnits ?? 2, hideAmounts: hide });
+      drawing.current = { revision: drawing.current.revision + 1, masked: hide };
+    };
+    draw();
+    // В открытом предпросмотре может измениться системная тема или оформление другого окна.
+    const observer = new MutationObserver(draw);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-accent"] });
+    return () => observer.disconnect();
   }, [r, base, hide]);
 
   const share = async (action: "save" | "copy") => {

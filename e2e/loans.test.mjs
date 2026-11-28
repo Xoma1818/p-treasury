@@ -294,13 +294,13 @@ test("остаток на день обычного и досрочного пл
 });
 
 test("сохранённая иена верно подписана, при смене RUB на JPY калькулятор ждёт новый расчёт", async (t) => {
-  await openSettings(browser, "appearance");
+  await openSettings(browser, "general");
   const fineCard = await browser.$('[data-testid="fine-card"]');
   await fineCard.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fineCard))) await (await fineCard.$("summary")).click();
   const previousCodeMode = await (await browser.$('[name="fineCode"]')).getValue();
   t.after(async () => {
-    await openSettings(browser, "appearance");
+    await openSettings(browser, "general");
     const card = await browser.$('[data-testid="fine-card"]');
     await card.waitForExist({ timeout: 5000 });
     if (!(await browser.execute((el) => el.open, card))) await (await card.$("summary")).click();

@@ -9,32 +9,41 @@ import { ErrorText } from "./Modal";
 const UNUSUAL = ["15", "25", "40", "60"];
 const CHECK_DAYS = ["7", "14", "30", "60", "90"];
 
-/** Г12: «Тонкие настройки» — свёрнутый раздел для тех, кому важны мелочи. */
+export function StartScreenField() {
+  const f = useFine();
+  return (
+    <Field label="Экран при запуске">
+      {(id) => (
+        <select id={id} name="fineStart" value={f.start} onChange={(e) => saveFine({ ...f, start: e.target.value as Fine["start"] })}>
+          <option value="last">Где закончили</option>
+          {SECTIONS.filter((s) => s.id !== "settings").map((s) => (
+            <option key={s.id} value={s.id}>{s.title}</option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
 export function FineCard() {
   const f = useFine();
   const settings = useSettings().data;
   const set = useAction(api.setSetting);
   const put = (patch: Partial<Fine>) => saveFine({ ...f, ...patch });
-  const custom = JSON.stringify(f) !== JSON.stringify(DEFAULT_FINE) || (settings?.unusual_percent ?? "25") !== "25" || (settings?.checks_days ?? "30") !== "30";
+  const custom = f.week !== DEFAULT_FINE.week || f.code !== DEFAULT_FINE.code || f.kopecks !== DEFAULT_FINE.kopecks
+    || (settings?.unusual_percent ?? "25") !== "25" || (settings?.checks_days ?? "30") !== "30";
+  const reset = useAction(async () => {
+    put({ week: DEFAULT_FINE.week, code: DEFAULT_FINE.code, kopecks: DEFAULT_FINE.kopecks });
+    await api.setSetting("unusual_percent", "25");
+    await api.setSetting("checks_days", "30");
+  });
   return (
-    <details className="card fine-card" data-testid="fine-card" open={custom || undefined}>
+    <details id="set-fine" className="card fine-card settings-section" data-testid="fine-card" open={custom || undefined}>
       <summary>
         <h2>Формат и правила</h2>
-        <span className="muted">Экран при запуске, неделя, копейки, пороги подсказок</span>
+        <span className="muted">Неделя, копейки, обозначение валюты и пороги подсказок</span>
       </summary>
       <div className="settings-list">
-        <Field label="Экран при запуске">
-          {(id) => (
-            <select id={id} name="fineStart" value={f.start} onChange={(e) => put({ start: e.target.value as Fine["start"] })}>
-              <option value="last">Где закончили</option>
-              {SECTIONS.filter((s) => s.id !== "settings").map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
         <Field label="Неделя начинается" hint="Для календаря и недельного вида.">
           {(id) => (
             <select id={id} name="fineWeek" value={f.week} onChange={(e) => put({ week: e.target.value as Fine["week"] })}>
@@ -86,15 +95,13 @@ export function FineCard() {
         <button
           className="link"
           data-testid="fine-reset"
-          onClick={() => {
-            saveFine(DEFAULT_FINE);
-            api.setSetting("unusual_percent", "25").then(() => set.run("checks_days", "30"));
-          }}
+          disabled={reset.busy}
+          onClick={() => reset.run()}
         >
           Как было
         </button>
       )}
-      <ErrorText error={set.error} />
+      <ErrorText error={set.error ?? reset.error} />
     </details>
   );
 }

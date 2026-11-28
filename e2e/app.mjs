@@ -324,6 +324,17 @@ export async function openSettings(browser, topic) {
   await browser.waitUntil(async () => (await tab.getAttribute("aria-selected")) === "true");
 }
 
+export async function addHomeCard(browser, block) {
+  await clickControl(browser, await browser.$('[data-testid="home-catalog-open"]'), "Добавить карточку");
+  await clickControl(browser, await browser.$(`[role="dialog"] [data-add-block="${block}"]`), "Карточка " + block);
+  await browser.$('[role="dialog"]').waitForExist({ reverse: true, timeout: 5000 });
+}
+
+export async function saveHomeEditor(browser) {
+  await clickControl(browser, await browser.$('[data-testid="home-save"]'), "Сохранить Главную");
+  await browser.$('[data-testid="home-customize"]').waitForDisplayed({ timeout: 5000 });
+}
+
 /** Поле по атрибуту name (в открытом диалоге, если он есть). */
 export async function field(browser, name) {
   // Вложенная форма может содержать одноимённое поле. Ищем в верхнем диалоге

@@ -54,17 +54,6 @@ jobs:
           else
             npx tauri build --bundles nsis --config src-tauri/tauri.nokey.conf.json
           fi
-      - name: Окно и содержимое совпадают до и после изменения размера
-        shell: pwsh
-        run: |
-          $binary = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).mainBinaryName
-          ./scripts/windows-webview-layout.ps1 -AppPath "./target/release/$binary.exe" -CaptureDirectory "$env:RUNNER_TEMP/kazna-layout"
-      - uses: actions/upload-artifact@v5
-        if: always()
-        with:
-          name: kazna-windows-window
-          path: ${{ runner.temp }}/kazna-layout/*.png
-          if-no-files-found: ignore
       - uses: actions/upload-artifact@v5
         with:
           name: kazna-windows-installer
@@ -83,6 +72,46 @@ jobs:
         with:
           name: kazna-windows-portable
           path: portable/
+
+  window:
+    name: Окно Kazna x64 · ${{ matrix.platform }}
+    needs: windows
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: Server x64, runner: windows-latest, screenshots: kazna-windows-window }
+          - { platform: Windows 11 ARM64, runner: windows-11-arm, screenshots: kazna-windows11-window }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: kazna-windows-portable
+          path: portable/
+      - name: Окно и содержимое совпадают до и после изменения размера
+        shell: pwsh
+        run: |
+          $name = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).productName
+          ./scripts/windows-webview-layout.ps1 -AppPath "./portable/$name.exe" -CaptureDirectory "$env:RUNNER_TEMP/kazna-layout"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: ${{ matrix.screenshots }}
+          path: ${{ runner.temp }}/kazna-layout/*.png
+          if-no-files-found: warn
+      - uses: actions/download-artifact@v5
+        if: matrix.runner == 'windows-11-arm'
+        with:
+          name: kazna-windows-installer
+          path: target/release/bundle/nsis/
+      - name: Ярлыки и значки установленной Kazna
+        if: matrix.runner == 'windows-11-arm'
+        shell: pwsh
+        run: ./scripts/windows-brand-assets.ps1
 
   installed-candidate:
     name: Установленная Kazna · ${{ matrix.mode }}

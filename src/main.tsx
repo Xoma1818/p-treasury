@@ -10,8 +10,8 @@ import { installSeenSections } from "./lib/motion";
 import { budgetQueryDefaults } from "./lib/queryPolicy";
 import { listenForAmountPrivacy } from "./lib/queries";
 import { installScale } from "./lib/scale";
-import { applyTheme, savedTheme } from "./lib/theme";
-import { savedLook, showLook } from "./lib/look";
+import { applyTheme, savedTheme, showTheme, THEME_KEY } from "./lib/theme";
+import { LOOK_KEY, savedLook, showLook } from "./lib/look";
 import "./styles.css";
 import "./features.css";
 import "./invest.css";
@@ -22,12 +22,21 @@ import "./components/sidebar-navigation.css";
 import "./pulse-shell.css";
 import "./pulse-screens.css";
 
-applyTheme(savedTheme());
 showLook(savedLook());
 
 // Одна и та же страница служит главному окну и окну быстрого ввода.
 const quick = isTauri() && /^quick(?:-\d+)?$/.test(getCurrentWindow().label);
-if (!quick) {
+if (quick) {
+  showTheme(savedTheme());
+  // Окно может оставаться скрытым между вызовами горячей клавишей.
+  // Оно следует за изменениями главного окна, включая восстановление настроек.
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== localStorage) return;
+    if (event.key === LOOK_KEY || event.key === null) showLook(savedLook());
+    if (event.key === THEME_KEY || event.key === null) showTheme(savedTheme());
+  });
+} else {
+  applyTheme(savedTheme());
   installScale();
   installSeenSections();
 }

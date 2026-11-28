@@ -27,7 +27,7 @@ test("Баланс и сценарий покупки в иенах исполь
   assert.equal(error, null);
   await browser.refresh();
   await waitText(browser, "main h1", /Главная/);
-  await openSettings(browser, "appearance");
+  await openSettings(browser, "general");
   const fine = await browser.$('[data-testid="fine-card"]');
   await fine.waitForExist({ timeout: 5000 });
   if (!(await browser.execute((card) => card.open, fine))) await fine.$("summary").click();

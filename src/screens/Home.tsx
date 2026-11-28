@@ -1,11 +1,10 @@
 import { AGGREGATE_STALE_MS } from "../lib/queryPolicy";
-import { CrashGuard } from "../components/Crash";
-import { ChevronDown, ChevronRight, ChevronUp, GripVertical } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useModules } from "../lib/modules";
 import { GoalsCard } from "../components/Goals";
 import { SubscriptionsCard } from "../components/Subscriptions";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CbrButton } from "../components/CbrButton";
 import { accountLook, LookMark } from "../components/CategoryMark";
 import { CushionCard } from "../components/Cushion";
@@ -20,12 +19,13 @@ import { TxnTable } from "../components/TxnTable";
 import { api } from "../lib/api";
 import { addDays, formatDate, monthTitle, today } from "../lib/dates";
 import { useAccounts, useBudget, useMonthOf, useSettings } from "../lib/queries";
-import { DEFAULT_LAYOUT, HOME_BLOCKS, moveBlock, parseLayout, placeBefore, toggleBlock, toggleHalf, toSetting, withOverspendSlot, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { parseLayout, toSetting, type HomeBlock, type HomeLayout } from "../lib/homeLayout";
+import { HomeCardGrid, HomeLayoutTools } from "../components/HomeCards";
+import { currentBudgetGeneration, withBudgetWrite, watchBudgetGeneration } from "../lib/uiPrefs";
 import { useAction } from "../lib/useAction";
 import { SpendCard } from "../components/SpendCard";
 import { ErrorText } from "../components/Modal";
-import { useMoveNotice } from "../components/MoveNotice";
-import { homeBlock, spendAccount } from "../lib/directDrag";
+import { spendAccount } from "../lib/directDrag";
 import { useUi } from "../lib/store";
 import { ScreenTitle } from "../components/SectionIcon";
 import { Hint } from "../components/Hint";
@@ -41,6 +41,15 @@ import type { HomePeriodKind } from "../lib/api";
 import "./homeOverview.css";
 
 export function Home() {
+  const generation = useSyncExternalStore(watchBudgetGeneration, currentBudgetGeneration);
+  const lastBudget = useRef(generation);
+  if (generation !== null) lastBudget.current = generation;
+  return lastBudget.current === null
+    ? <section className="screen wide home-screen" aria-busy="true"><ScreenTitle id="home" /></section>
+    : <BudgetHome key={lastBudget.current} generation={lastBudget.current} replacing={generation === null} />;
+}
+
+function BudgetHome({ generation, replacing }: { generation: number; replacing: boolean }) {
   const modules = useModules();
   const date = today();
   const [cbrUsed, setCbrUsed] = useState(false);
@@ -62,12 +71,17 @@ export function Home() {
   const syncVault = useAction(api.vaultSync);
   const recent = useQuery({ queryKey: ["transactions", "recent"], queryFn: () => api.listTransactions({ limit: 8 }), staleTime: AGGREGATE_STALE_MS });
   const accounts = useAccounts().data ?? [];
-  const { showTransactions, go, openSettings } = useUi();
-  const [editing, setEditing] = useState(false);
+  const { showTransactions, go, openSettings, homeEditorRequested, clearHomeEditorRequest } = useUi();
+  const [draft, setDraft] = useState<{ layout: HomeLayout; baseline: string } | null>(null);
+  const editing = draft !== null;
+  const [announcement, setAnnouncement] = useState("");
+  const openButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
   const [overspendSlot, setOverspendSlot] = useState<HTMLDivElement | null>(null);
   const [explain, setExplain] = useState<ExplainKind | null>(null);
   const settings = useSettings().data;
-  const layout = parseLayout(settings?.home_layout);
+  const layout = draft?.layout ?? parseLayout(settings?.home_layout);
   // Р2: плитки доходов и расходов — за месяц, неделю или с зарплаты.
   const homeKind: HomePeriodKind = settings?.home_period === "week" || settings?.home_period === "payday" ? settings.home_period : "month";
   const week = useFine().week;
@@ -90,18 +104,40 @@ export function Home() {
     enabled: !!custom,
   }).data;
   const setSetting = useAction(api.setSetting);
-  const changeLayout = useAction((l: HomeLayout) => api.setSetting("home_layout", toSetting(l)), undefined, { singleSubmit: true });
-  const saveLayout = changeLayout.run;
-  const notice = useMoveNotice();
-  const editableOrder = layout.order.filter(modules.blockOn);
-  const reorderBlock = (block: HomeBlock, next: HomeLayout) => {
-    const updated = next.order.filter(modules.blockOn);
-    return notice.confirm(changeLayout.runAsync(next), `«${HOME_BLOCKS[block]}» — позиция ${updated.indexOf(block) + 1} из ${updated.length}.`);
+  const finishEditing = (message: string) => {
+    setDraft(null);
+    setAnnouncement(message);
+    requestAnimationFrame(() => openButton.current?.focus({ preventScroll: true }));
   };
-  const stepBlock = (block: HomeBlock, delta: number) => {
-    void reorderBlock(block, moveBlock(layout, block, delta, editableOrder)).catch(() => {});
+  const save = useAction((l: HomeLayout, baseline: string) => withBudgetWrite(generation, async () => {
+    const current = (await api.getSettings()).home_layout;
+    if (toSetting(parseLayout(current)) !== baseline) {
+      throw new Error("Раскладку изменили во время редактирования. Отмените правки и откройте редактор заново.");
+    }
+    await api.setSetting("home_layout", toSetting(l));
+  }), () => finishEditing("Раскладка Главной сохранена."), { singleSubmit: true, networkMode: "always" });
+  const updateDraft = (next: HomeLayout, message: string) => {
+    setDraft(current => current && { ...current, layout: next });
+    save.setError(null);
+    setAnnouncement(message);
   };
-  const half = (b: HomeBlock) => !!layout.half?.includes(b);
+  const startEditing = () => {
+    if (!settings || currentBudgetGeneration() !== generation) return;
+    const current = parseLayout(settings.home_layout);
+    setDraft({ layout: current, baseline: toSetting(current) });
+    save.setError(null);
+    setAnnouncement("");
+  };
+  useEffect(() => {
+    if (homeEditorRequested && settings) {
+      clearHomeEditorRequest();
+      if (!editing) startEditing();
+    }
+  }, [homeEditorRequested, settings, editing, clearHomeEditorRequest]);
+  useEffect(() => {
+    if (editing) cancelButton.current?.focus({ preventScroll: true });
+  }, [editing]);
+  const edit = editing ? { busy: save.busy, update: updateDraft } : null;
   const monthName = period ? monthTitle(period.month).toLowerCase() : "";
   // В плитках месяц без года: так подпись умещается в строку и суммы стоят на одном уровне.
   const monthShort = monthName.replace(/ \d{4}$/, "");
@@ -120,7 +156,6 @@ export function Home() {
     }
   };
   const visible = (block: HomeBlock) => modules.blockOn(block) && !layout.hidden.includes(block);
-  const displayOrder = editing ? editableOrder : withOverspendSlot(layout.order.filter(visible));
   const limitBlock = (["tiles", "plans", "summary"] as const).find(visible);
   const budgetToday = budget?.id ? (
     <div className="home-budget-today">
@@ -263,15 +298,14 @@ export function Home() {
             </div>
           </div>
     ),
-    checks: <ChecksCard budget={budget} overspendSlot={editing ? null : overspendSlot} />,
+    checks: <ChecksCard budget={budget} overspendSlot={overspendSlot} />,
     unusual: <UnusualCard />,
     cushion: <CushionCard />,
     ahead: <AheadCard />,
     invest: <InvestCard />,
     templates: <TemplatesCard />,
     spend: <SpendCard />,
-    main: (
-          <div className="columns home">
+    accounts: (
             <div className="card">
               <h2>
                 Счета
@@ -300,6 +334,8 @@ export function Home() {
                 ))}
               </ul>
             </div>
+    ),
+    recent: (
             <div className="card">
               <h2 data-txn-focus tabIndex={-1}>
                 Последние операции
@@ -307,7 +343,6 @@ export function Home() {
               </h2>
               {recent.data && <TxnTable items={recent.data.items} compact />}
             </div>
-          </div>
     ),
     plans: (
           <div className="columns home-bottom">
@@ -386,16 +421,19 @@ export function Home() {
   };
 
   return (
-    <section className="screen wide home-screen">
+    <section className="screen wide home-screen" inert={replacing} aria-busy={replacing || undefined}>
       <div className="screen-head home-screen-head">
         <ScreenTitle id="home" />
         {editing ? (
-          <button className="btn primary" onClick={() => setEditing(false)} data-testid="home-customize">
-            Готово
-          </button>
+          <div className="home-actions">
+            <button type="button" className="btn" ref={cancelButton} disabled={save.busy} data-testid="home-cancel"
+              onClick={() => finishEditing("Изменения отменены.")}>Отмена</button>
+            <button type="button" className="btn primary" ref={saveButton} disabled={save.busy} aria-busy={save.busy} data-testid="home-save"
+              onClick={() => save.run(draft.layout, draft.baseline)}>{save.busy ? "Сохраняем…" : "Сохранить"}</button>
+          </div>
         ) : (
           <div className="home-actions">
-            <button type="button" className="btn" onClick={() => setEditing(true)} data-testid="home-customize">
+            <button type="button" className="btn" ref={openButton} disabled={!settings} onClick={startEditing} data-testid="home-customize">
               Настроить Главную
             </button>
             <AddMenu />
@@ -403,8 +441,11 @@ export function Home() {
         )}
       </div>
 
-      <MonthReviewBanner />
-      {backup?.reminderDue && (
+      {edit && <HomeLayoutTools layout={layout} edit={edit} saveButton={saveButton} />}
+      {editing && <ErrorText error={save.error} />}
+      <span className="sr-only" role="status" data-testid="move-result" aria-atomic="true">{announcement}</span>
+      {!editing && <MonthReviewBanner />}
+      {!editing && backup?.reminderDue && (
         <div className="card banner warn" data-testid="backup-reminder">
           <span>
             Резервной копии не было больше месяца.{" "}
@@ -423,7 +464,7 @@ export function Home() {
           </button>
         </div>
       )}
-      {vault?.verifyError && (
+      {!editing && vault?.verifyError && (
         <div className="card banner warn" data-testid="verify-warning">
           <span>
             Последняя копия не прошла проверку восстановления.{" "}
@@ -442,60 +483,7 @@ export function Home() {
         </div>
       )}
 
-      {editing && (
-        <p className="hint home-edit-hint">
-          Перетащите карточку мышью или двигайте стрелками; «Половина» ставит две карточки в ряд, «Скрыть» убирает карточку с Главной, «Показать» возвращает. Список карточек есть и в Настройках.{" "}
-          <button className="link" disabled={changeLayout.busy} onClick={() => saveLayout(DEFAULT_LAYOUT)}>
-            Вернуть по умолчанию
-          </button>
-        </p>
-      )}
-      <ErrorText error={changeLayout.error} />
-      {notice.status}
-      <div className="home-grid">
-      {displayOrder.map((b) =>
-          b === "overspend" ? (
-            <div key={b} ref={setOverspendSlot} className="home-overspend-slot" />
-          ) : editing ? (
-            <div
-              key={b}
-              className={["home-block", "editing", half(b) && "half", layout.hidden.includes(b) && "hidden-block"].filter(Boolean).join(" ")}
-              data-testid="home-block"
-              data-block={b}
-              tabIndex={-1}
-              data-insert-before=""
-              {...(!changeLayout.busy ? homeBlock.source(b) : {})}
-              {...homeBlock.target((from) => !changeLayout.busy && editableOrder.includes(from) && from !== b && editableOrder[editableOrder.indexOf(from) + 1] !== b,
-                (from) => reorderBlock(from, placeBefore(layout, from, b, editableOrder)))}
-            >
-              <div className="home-block-bar">
-                <GripVertical className="grip" size={16} aria-hidden />
-                <b>{HOME_BLOCKS[b]}</b>
-                <span className="spacer" />
-                <button className="icon-btn" aria-label={`Выше: ${HOME_BLOCKS[b]}`} disabled={changeLayout.busy || editableOrder[0] === b} onClick={() => stepBlock(b, -1)}>
-                  <ChevronUp size={16} />
-                </button>
-                <button className="icon-btn" aria-label={`Ниже: ${HOME_BLOCKS[b]}`} disabled={changeLayout.busy || editableOrder.at(-1) === b} onClick={() => stepBlock(b, 1)}>
-                  <ChevronDown size={16} />
-                </button>
-                {!layout.hidden.includes(b) && (
-                  <button className="link" data-testid="home-half" disabled={changeLayout.busy} onClick={() => saveLayout(toggleHalf(layout, b))} title="Две половинные карточки встают в один ряд">
-                    {half(b) ? "Во всю ширину" : "Половина"}
-                  </button>
-                )}
-                <button className="link" disabled={changeLayout.busy} onClick={() => saveLayout(toggleBlock(layout, b))}>
-                  {layout.hidden.includes(b) ? "Показать" : "Скрыть"}
-                </button>
-              </div>
-              {!layout.hidden.includes(b) && <div className="home-block-body"><CrashGuard card={HOME_BLOCKS[b]}>{blocks[b]}</CrashGuard></div>}
-            </div>
-          ) : (
-            <div key={b} className={half(b) ? "home-block half" : "home-block"} data-block={b}>
-              <CrashGuard card={HOME_BLOCKS[b]}>{blocks[b]}</CrashGuard>
-            </div>
-          ),
-        )}
-      </div>
+      <HomeCardGrid layout={layout} childrenByBlock={blocks} overspendRef={setOverspendSlot} edit={edit} />
       {explain && (explain === "free" || explain === "balance" || (tileFrom && tileTo)) && (
         <ExplainDialog kind={explain} on={date} from={tileFrom ?? date} to={tileTo ?? date} onClose={() => setExplain(null)} />
       )}
