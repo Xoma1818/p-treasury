@@ -42,4 +42,7 @@ export async function run(b,{assert,proof,act,btn,value,nav,wait,close,read,fina
   mark("263:12","Сохранить план месяца 23%, вернуть общий план","Снова общий 17%",await plan());
   await nav("Главная");await planOpen();await close("Убрать план");assert.ok(!(await plan()).mode);
   mark("268:14","Убрать общий план","Режим плана пуст",await plan());
+  await act('[data-testid="invest-calc-open"]');await wait('[role="dialog"]',/Калькулятор/);await close("Закрыть");
+  assert.equal(await b.$('[role="dialog"]').isExisting(),false);
+  mark("425:10","Закрыть калькулятор инвестиций","Калькулятор закрыт, возврат в Главную",await b.$("main h1").getText());
 }

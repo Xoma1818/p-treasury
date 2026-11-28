@@ -12,7 +12,7 @@ function proof(file,points,action,expected,actual) {
   for (const point of points.split(" ")) actions.push({id:files[file]+":"+point,action,expected,actual:JSON.stringify(actual),status:"pass",evidence:"https://github.com/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID+" (finance-"+kind+"/evidence.json)"});
   json("evidence.json",actions);
 }
-const act=async(sel)=>{step="нажатие "+sel;await clickControl(b,b.$(sel),sel)};
+const act=async(sel)=>{step="нажатие "+sel;await clickControl(b,await b.$(sel),sel)};
 const btn=async(label,dialog=false)=>{step=label;await click(b,label,dialog?'//*[@role="dialog"]':"")};
 const value=async(name,v)=>{step=name+"="+v;await fill(b,name,v)};
 const select=async(name,v)=>{step=name+"="+v;await b.$('[role="dialog"] [name="'+name+'"]').selectByAttribute("value",v)};

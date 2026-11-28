@@ -22,5 +22,5 @@ export async function run(b,{assert,proof,act,value,select,nav,wait,close,read,e
  await wait('[data-testid="chip-tag"]',new RegExp(tags[0].name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
  const tag=await b.$('[data-testid="chip-tag"]').getText();await shot("tag-filter");
  mark("109:14","Открыть сумму доходов с тегом","Открыты операции с ожидаемым тегом",{title:await b.$("main h1").getText(),tag});
- await nav("Главная");await edit();await close("Убрать с Главной");assert.deepEqual(await titles(),before.filter(x=>x!==a));mark("251:16","Убрать выбранный показатель","Другие показатели и их порядок сохранены",await titles());
+ await nav("Главная");await edit();await close("Убрать с Главной");assert.deepEqual(await titles(),before.filter(x=>x!==a));mark("251:14","Убрать выбранный показатель","Другие показатели и их порядок сохранены",await titles());
 }
