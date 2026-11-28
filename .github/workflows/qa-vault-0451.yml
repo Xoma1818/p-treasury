@@ -1,0 +1,47 @@
+name: Проверка файлов и резервных копий Kazna 0.45.1
+on:
+  push:
+    branches: [codex/qa-0451-vault-proof]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [files, backup, transfer, places]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - shell: pwsh
+        run: ./scripts/setup-windows-test-driver.ps1
+      - name: Публичный EXE и контрольная сумма
+        shell: pwsh
+        run: |
+          $rel=Invoke-RestMethod 'https://api.github.com/repos/Xoma1818/p-treasury-releases/releases/tags/v0.45.1'
+          $asset=$rel.assets | Where-Object name -eq 'Kazna_0.45.1_x64-portable.zip'
+          $zip=Join-Path $env:RUNNER_TEMP 'published.zip'
+          Invoke-WebRequest $asset.browser_download_url -OutFile $zip
+          if ('sha256:'+(Get-FileHash $zip).Hash.ToLowerInvariant() -ne $asset.digest) {throw 'Неверная контрольная сумма ZIP'}
+          $out=Join-Path $env:RUNNER_TEMP 'published'
+          Expand-Archive -LiteralPath $zip -DestinationPath $out
+          $exe=(Get-ChildItem $out -Filter 'Kazna.exe' -File -Recurse).FullName
+          if ((Get-Item $exe).VersionInfo.ProductVersion -ne '0.45.1') {throw 'Неверная версия'}
+          "PTREASURY_BIN=$exe" | Out-File -Append $env:GITHUB_ENV
+          Write-Host "$($asset.digest), EXE $((Get-FileHash $exe).Hash), Windows $([Environment]::OSVersion.Version)"
+      - name: Кнопки, системные диалоги и содержимое SQLite
+        run: node e2e/qa-vault-0451.mjs ${{ matrix.group }}
+      - if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: vault-${{ matrix.group }}
+          path: ${{ runner.temp }}/vault-evidence/
+          if-no-files-found: warn

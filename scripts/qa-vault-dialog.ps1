@@ -1,0 +1,65 @@
+# Operate the real Win32 Common Item Dialog on a dedicated test desktop.
+param([ValidateSet('folder','open','save','cancel','explorer')][string]$Mode, [string]$PathValue)
+$ErrorActionPreference='Stop'
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Dedicated GitHub Windows runner required' }
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms
+$tree = [System.Windows.Automation.TreeScope]
+$ae = [System.Windows.Automation.AutomationElement]
+$root = $ae::RootElement
+function Find-Id($item, $id) {
+    $filter = [System.Windows.Automation.PropertyCondition]::new($ae::AutomationIdProperty, $id)
+    $item.FindFirst($tree::Descendants,$filter)
+}
+if ($Mode -eq 'explorer') {
+    $shell = New-Object -ComObject Shell.Application
+    $deadline=(Get-Date).AddSeconds(18)
+    do {
+        foreach ($win in $shell.Windows()) {
+            try {
+                if ([IO.Path]::GetFullPath($win.Document.Folder.Self.Path) -eq [IO.Path]::GetFullPath($PathValue)) {
+                    Write-Output "Explorer opened requested folder"
+                    $win.Quit()
+                    exit 0
+                }
+            } catch { }
+        }
+        Start-Sleep -Milliseconds 200
+    } until ((Get-Date) -gt $deadline)
+    throw 'Explorer did not show the requested vault'
+}
+$filter = [System.Windows.Automation.PropertyCondition]::new($ae::ClassNameProperty,'#32770')
+$deadline=(Get-Date).AddSeconds(22)
+do {
+    $dlg = $root.FindAll($tree::Children,$filter) | Where-Object {
+        (Get-Process -Id $_.Current.ProcessId -ErrorAction SilentlyContinue).ProcessName -eq 'Kazna'
+    } | Select-Object -First 1
+    if ($dlg) { break }
+    Start-Sleep -Milliseconds 130
+} until ((Get-Date) -gt $deadline)
+if (!$dlg) {throw 'No File Dialog belonging to Kazna on the desktop'}
+Write-Output ("Native {0}: {1}" -f $Mode,$dlg.Current.Name)
+$confirm = Find-Id $dlg '1'
+$cancel = Find-Id $dlg '2'
+if ($Mode -eq 'cancel') {
+    $cancel.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    exit 0
+}
+if ($Mode -eq 'folder') {
+    $dlg.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('^l')
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.Clipboard]::SetText($PathValue)
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 450
+} else {
+    $entry=Find-Id $dlg '1148'
+    if (!$entry) { $entry = Find-Id $dlg '1001' }
+    if (!$entry) { throw 'File name entry not found' }
+    $entry.SetFocus()
+    [System.Windows.Forms.Clipboard]::SetText($PathValue)
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 120
+}
+$confirm.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
