@@ -1,11 +1,12 @@
 # Kazna — состояние проекта
 
-Сверено 26 ноября 2026 года. Здесь хранится точка продолжения. Порядок работы описан в [регламенте команды](work-plan.md), постоянные ограничения продукта — в [решениях владельца](decisions.md).
+Сверено 27 ноября 2026 года. Здесь хранится точка продолжения. Порядок работы описан в [регламенте команды](work-plan.md), постоянные ограничения продукта — в [решениях владельца](decisions.md).
 
 | Где | Что подтверждено |
 |---|---|
-| Рабочая версия «Пульса» | Открыт [PR №133 с редизайном Kazna 0.43.0](https://github.com/Xoma1818/p-treasury/pull/133) по [задаче №132](https://github.com/Xoma1818/p-treasury/issues/132). На итоговой сборке в Windows 11 прошли 24 сценария приёмки и 28 штатных оконных тестов. [Отчёт и три снимка экранов](testing/pulse-0.43.0.md) · [Проверки PR](https://github.com/Xoma1818/p-treasury/pull/133/checks). |
-| Текущий выпуск и основная ветка | [Kazna 0.42.8](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.42.8) опубликована и вошла в `main`. На Windows 11 подтверждено [обновление с 0.42.1 до 0.42.8](https://github.com/Xoma1818/p-treasury/actions/runs/45745769803). |
+| Текущий выпуск и основная ветка | [Kazna 0.43.0 «Пульс»](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.43.0) опубликована 27 ноября в 01:39 МСК. [PR №133](https://github.com/Xoma1818/p-treasury/pull/133) вошёл в `main`. Тег `v0.43.0` указывает на [коммит слияния](https://github.com/Xoma1818/p-treasury/commit/56d4e44a99deaaab97e0667c3541f0918b19dba6). [Релизная сборка](https://github.com/Xoma1818/p-treasury/actions/runs/45904361125) завершилась успешно. |
+| Проверка 0.43.0 | В опубликованном выпуске сверены SHA-256 всех четырёх файлов, подпись установщика ключом приложения и версия x64-программы в переносном архиве. [Канал обновлений](https://github.com/Xoma1818/p-treasury-releases/releases/latest/download/latest.json) на момент проверки указывает на 0.43.0. На кандидате в Windows 11 прошли 24 сценария приёмки и 28 штатных тестов. [Отчёт и три снимка](testing/pulse-0.43.0.md) · [Итоговые проверки PR](https://github.com/Xoma1818/p-treasury/pull/133/checks). |
+| Обновление 0.42.8 → 0.43.0 | В Windows 11 ARM64 установленная x64-версия обновилась через «Настройки → О программе» и сама открыла новое окно. Сверены все 7 операций вымышленного бюджета, остатки 3 счетов и все 48 настроек. Содержимое 53 таблиц совпало также в резервной копии перед установкой. [Отчёт со снимками](testing/in-app-update-0.42.8-to-0.43.0.md) · [Прогон Windows 11](https://github.com/Xoma1818/p-treasury/actions/runs/45909468120). |
 | Опубликованные версии | Актуальный установщик и файлы обновления — на [странице последнего выпуска](https://github.com/Xoma1818/p-treasury-releases/releases/latest). Для [0.41.4](https://github.com/Xoma1818/p-treasury-releases/releases/tag/v0.41.4) проверены четыре опубликованных файла, подпись установщика и адреса обновления Windows. |
 | Основная ветка | Изменения программы 0.42.0 вошли в `main` 24 ноября. [Повторный запуск №117](https://github.com/Xoma1818/p-treasury/pull/117) · [Исправления №119](https://github.com/Xoma1818/p-treasury/pull/119) · [Оформление №120](https://github.com/Xoma1818/p-treasury/pull/120) · [Коммит программы](https://github.com/Xoma1818/p-treasury/commit/8ff093f68f28ddd0db6705595d896e36c82da589). Состав семи ролей и правила передачи проекта — в [№118](https://github.com/Xoma1818/p-treasury/pull/118). |
 | Исправление повторного запуска | [№117, версия 0.41.5](https://github.com/Xoma1818/p-treasury/pull/117). Код приложения проверен на дереве [469f05a1](https://github.com/Xoma1818/p-treasury/commit/469f05a1d0e8d8a4a2544068f5f8d342a6db44cc). На Windows 11 прошли восемь сценариев запуска. Зелёные [проверки ядра и интерфейса](https://github.com/Xoma1818/p-treasury/actions/runs/45246301903), [Linux E2E](https://github.com/Xoma1818/p-treasury/actions/runs/45246301921) и [сборка установщика](https://github.com/Xoma1818/p-treasury/actions/runs/45246301898). Результаты проверки функций в одном окне — в [отдельном отчёте](testing/manual-0.41.5.md). Исправление вошло в общий состав 0.42.0. |
@@ -14,7 +15,7 @@
 
 ## Ближайшая работа
 
-OTTO проверяет внешний вид и движение в переносной сборке 0.43.0. После решения владельца о слиянии применяется [порядок выпуска](releasing.md).
+Задача [№132 «Пульс»](https://github.com/Xoma1818/p-treasury/issues/132) закрыта при слиянии PR №133. Текущая очередь ведётся в [открытых задачах проекта](https://github.com/Xoma1818/p-treasury/issues?q=is%3Aissue+is%3Aopen).
 
 ## История приёмки 0.42
 
