@@ -21,6 +21,7 @@ async function audit(theme,route){
     let measured=0;
     for(const n of document.querySelectorAll("nav *,main *,[role=dialog] *,[role=listbox] *")){
       if(!n.getClientRects().length||getComputedStyle(n).visibility!=="visible")continue;
+      if(n.closest("details:not([open])")&&!n.closest("summary"))continue;
       const text=Array.from(n.childNodes).filter(c=>c.nodeType===3).map(c=>c.textContent).join("").trim();
       if(!text||!/[а-яёA-Z0-9₽]/iu.test(text))continue;
       const css=getComputedStyle(n),family=css.fontFamily.split(",")[0].replace(/"/g,"");
@@ -73,6 +74,9 @@ try{
     for(const topic of ["general","notifications","appearance","controls","data","about"]){
       await openSettings(b,topic);await audit(theme,"Настройки/"+topic);
     }
+    const details=await b.$('[data-testid="about-details"]');
+    if(await details.getAttribute("open")===null)await clickControl(b,await details.$("summary"),"Технические сведения");
+    await details.$("dd").waitForDisplayed();await audit(theme,"О программе/Технические сведения");
     for(const id of ["hotkeys-open","open-palette"]){
       await clickControl(b,await b.$('[data-testid="'+id+'"]'),id);
       await b.$("[role=dialog]").waitForDisplayed();await audit(theme,id);
