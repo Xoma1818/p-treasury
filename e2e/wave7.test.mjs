@@ -5,7 +5,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { holdCommands } from "./hold-commands.mjs";
-import { start, stop, openSection, openSettings, click, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
+import { start, stop, openSection, openSettings, click, clickControl, fill, choose, save, setDate, waitText, waitContent, waitCount, money, openFilters, openMore } from "./app.mjs";
 
 const pad = (n) => String(n).padStart(2, "0");
 const now = new Date();
@@ -142,7 +142,7 @@ test("Главная, «Необычно в этом месяце»: карто�
   assert.ok(rows <= 3, `не больше трёх строк, а их ${rows}`);
   if (rows > 0) {
     assert.match(text, /на \d+ % (больше|меньше) обычного|раньше не было/);
-    await (await browser.$('[data-testid="unusual-row"]')).click();
+    await clickControl(browser, await browser.$('[data-testid="unusual-row"] .qw-main b'), "Категория с необычными расходами");
     await browser.$('//main//h1[normalize-space()="Операции"]').waitForDisplayed({ timeout: 5000 });
     // Фильтр «категория за месяц»: даты с 1-го числа этого месяца.
     const from = await (await browser.$('[name="dateFrom"]')).getValue().catch(() => "");

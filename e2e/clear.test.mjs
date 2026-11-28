@@ -129,7 +129,8 @@ test("Enter в последних операциях открывает форм
   await browser.refresh();
   await browser.$(recent).waitForDisplayed();
   const before = await snapshot();
-  await clickControl(browser, await browser.$(recent), "Последняя операция");
+  // WebKitGTK наводится на ячейку внутри строки; щелчок по дате всплывает в TR.
+  await clickControl(browser, await browser.$(recent + " td.date"), "Дата последней операции");
   await browser.$(editor).waitForDisplayed();
   await browser.keys("Escape");
   await browser.$(editor).waitForExist({ reverse: true });

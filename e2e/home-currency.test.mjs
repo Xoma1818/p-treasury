@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { start, stop, openSection, openSettings, choose, click, fill, money, save, waitText } from "./app.mjs";
+import { start, stop, openSection, openSettings, choose, click, clickControl, fill, money, save, waitText } from "./app.mjs";
 
 test("Баланс и сценарий покупки в иенах используют целые единицы валюты", async (t) => {
   // Настройка «Кодом» хранится также в профиле окна, отдельно от учебной базы.
@@ -35,7 +35,8 @@ test("Баланс и сценарий покупки в иенах исполь
   await openSection(browser, "Главная");
   await waitText(browser, '[data-testid="explain-balance"]', money("12 345 JPY"));
   await waitText(browser, '[data-testid="home-free"]', money("12 345 JPY"));
-  await browser.$('[data-testid="explain-balance"]').click();
+  await clickControl(browser, await browser.$('[data-testid="explain-balance"] .money'), "Сумма баланса в иенах");
+  await browser.$('[data-testid="explain"][data-kind="balance"]').waitForDisplayed();
   await waitText(browser, '[data-testid="explain-row"][data-status="in"]', money("12 345 JPY"));
   await waitText(browser, '[data-testid="explain-total"]', money("12 345 JPY"));
   await browser.keys("Escape");
