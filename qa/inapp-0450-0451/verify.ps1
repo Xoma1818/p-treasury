@@ -146,8 +146,11 @@ if ($Stage -eq 'prepare') {
 $prepared = Read-Report 'prepared'
 $exe = $prepared.exe
 if ($Stage -in 'before','after') {
-    & (Join-Path $PSScriptRoot 'shortcuts.ps1') -Exe $exe -Phase $Stage -Evidence $evidence
+    # Keep the diagnostic Shell COM and icon-extraction process outside the installation lifetime.
+    & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'shortcuts.ps1') -Exe $exe -Phase $Stage -Evidence $evidence
+    if($LASTEXITCODE){throw "Shortcut verification failed at $Stage"}
     if ($Stage -eq 'before') {
+        $ui=Start-Job -FilePath (Join-Path $PSScriptRoot 'observe-setup.ps1') -ArgumentList $evidence
         # Наблюдатель фиксирует процессы. Ни установщик, ни новое окно он не запускает.
         $trace = Start-Job -ArgumentList $evidence, $env:TEMP, $prepared.targetInstallerBytes -ScriptBlock {
             param($evidence, $tempPath, $expectedBytes)
@@ -184,6 +187,8 @@ if ($Stage -in 'before','after') {
     } finally {
         if ($Stage -eq 'before') {
             [IO.File]::WriteAllText((Join-Path $evidence 'observation-complete'),'')
+            $null=Wait-Job $ui -Timeout 3
+            Receive-Job $ui -ErrorAction Continue
             $null = Wait-Job $trace -Timeout 5
             Receive-Job $trace -ErrorAction Continue
         }
