@@ -115,6 +115,50 @@ test("предупреждение бюджета объясняет причи�
   assert.equal(focused, "limit", "курсор в лимите категории");
 });
 
+test("Enter в последних операциях открывает форму один раз и возвращает фокус без записи", async (t) => {
+  await openSection(browser, "Главная");
+  const recent = '[data-block="recent"] [data-testid="txn-row"]';
+  const editor = '[role="dialog"] form.txn-editor';
+  const snapshot = () => invoke("list_transactions", { filter: { limit: 8 } });
+  const account = (await invoke("list_accounts", { includeArchived: false })).find(a => a.name === "Карта");
+  const category = (await invoke("list_categories", { includeArchived: false })).find(c => c.name === "Общепит");
+  await invoke("create_transaction", {
+    input: { type: "expense", date: today, accountId: account.id, amount: 3725, categoryId: category.id, toAccountId: null, toAmount: null, payee: "Учебная покупка", note: null },
+    eventId: null,
+  });
+  await browser.refresh();
+  await browser.$(recent).waitForDisplayed();
+  const before = await snapshot();
+  await clickControl(browser, await browser.$(recent), "Последняя операция");
+  await browser.$(editor).waitForDisplayed();
+  await browser.keys("Escape");
+  await browser.$(editor).waitForExist({ reverse: true });
+
+  await browser.execute(() => {
+    window.__observeRowEnter = new AbortController();
+    window.__rowEnterSubmits = 0;
+    document.addEventListener("submit", (event) => {
+      if (event.target.matches("form.txn-editor")) window.__rowEnterSubmits++;
+    }, { capture: true, signal: window.__observeRowEnter.signal });
+    document.querySelector('[data-testid="home-all-transactions"]').focus();
+  });
+  t.after(() => browser.execute(() => {
+    window.__observeRowEnter.abort();
+    delete window.__observeRowEnter;
+    delete window.__rowEnterSubmits;
+  }));
+  await browser.keys("Tab");
+  const rowFocused = () => browser.execute(selector => document.activeElement === document.querySelector(selector), recent);
+  assert.ok(await rowFocused());
+  await browser.keys("Enter");
+  await browser.$(editor).waitForDisplayed();
+  assert.equal(await browser.execute(() => window.__rowEnterSubmits), 0, "Enter не отправил только что открытую форму");
+  await browser.keys("Escape");
+  await browser.$(editor).waitForExist({ reverse: true });
+  await browser.waitUntil(rowFocused, { timeout: 3000, timeoutMsg: "фокус не вернулся к открытой строке" });
+  assert.deepEqual(await snapshot(), before);
+});
+
 test("займ: «было → станет» перед сохранением новой ставки", async () => {
   await openSection(browser, "Займы и долги");
   await click(browser, "Калькулятор");

@@ -133,7 +133,10 @@ export function TxnTable({
           open({ mode: "edit", txn: t, wholeReceipt: r.kind === "receipt" });
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && e.target === e.currentTarget) open({ mode: "edit", txn: t, wholeReceipt: r.kind === "receipt" });
+          if (e.key !== "Enter" || e.target !== e.currentTarget) return;
+          // В WebView2 непогашенный Enter продолжает ввод уже в открывшейся форме.
+          e.preventDefault();
+          if (!e.repeat && !e.nativeEvent.isComposing) open({ mode: "edit", txn: t, wholeReceipt: r.kind === "receipt" });
         }}
         onMouseDown={(e) => {
           if (e.button === 0) contextRow.current = null;
