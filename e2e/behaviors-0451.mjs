@@ -53,13 +53,13 @@ async function rules(){
  await press('[data-testid="rule-history-open"]');await b.$('[data-testid="rule-history-select"]').waitForDisplayed();
  check("60:20","Открыть предпросмотр",1,(await b.$$('[data-testid="rule-history-select"]')).length);
  await press('[data-testid="rule-history-select"]');check("135:20","Выбрать строку для изменения",true,await b.$('[data-testid="rule-history-apply"]').isEnabled());
- await api("update_transaction",{id,input:{...input,note:"параллельная правка"}});
+ await api("update_transaction",{id,input:{...input,amount:1527,note:"параллельная правка"}});
  await press('[data-testid="rule-history-apply"]');await b.$('button=Обновить предпросмотр').waitForDisplayed();
  check("166:8","Не перезаписать изменённую после предпросмотра строку",["Касса Дубрава","параллельная правка"],[(await tx()).payee,(await tx()).note]);
  await click(b,"Обновить предпросмотр",dialog);await b.waitUntil(async()=>!(await b.$('[data-testid="rule-history-select"]').isSelected()));
  check("163:45","Обновить устаревший предпросмотр",false,await b.$('[data-testid="rule-history-apply"]').isEnabled());
  await press('[data-testid="rule-history-select"]');await press('[data-testid="rule-history-apply"]');await b.waitUntil(async()=>(await tx()).payee==="Лавка");
- check("166:8","Применить правило, сохранить сумму и заметку",["Лавка",1525,"параллельная правка"],[(await tx()).payee,(await tx()).amount,(await tx()).note]);
+ check("166:8","Применить правило, сохранить сумму и заметку",["Лавка",1527,"параллельная правка"],[(await tx()).payee,(await tx()).amount,(await tx()).note]);
  await click(b,"Закрыть",dialog);await closed();check("165:8","Закрыть предпросмотр",false,await b.$('[role="dialog"]').isExisting());
  await press('//*[@data-testid="category-item"][.//span[normalize-space()="Учебные покупки"]]//button[normalize-space()="Изменить"]');
  await press('button[aria-label="Убрать «Дубрава»"]');await b.waitUntil(async()=>(await api("list_rules")).every(x=>x.pattern!=="Дубрава"));
