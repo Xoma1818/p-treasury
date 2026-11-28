@@ -1,0 +1,61 @@
+name: Действия настроек опубликованной Kazna 0.45.1
+on:
+  push:
+    branches: [codex/verify-preferences-0451]
+permissions:
+  contents: read
+jobs:
+  stress:
+    name: Изменение настроек и сохранение после перезапуска
+    runs-on: windows-11-arm
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: c0ae374230803075940256924c2c604c06865f86
+          path: old-fixture
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - run: npm ci --no-audit --no-fund
+      - name: Драйвер для WebView2 одноразовой Windows 11
+        shell: pwsh
+        run: ./scripts/setup-windows-test-driver.ps1
+      - name: Публичная версия, отдельная база и независимый эталон
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $budget=New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'preferences-budget')
+          $evidence=New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'preferences-proof')
+          $r=Invoke-RestMethod 'https://api.github.com/repos/Xoma1818/p-treasury-releases/releases/tags/v0.45.1'
+          $a=$r.assets | Where-Object name -eq 'Kazna_0.45.1_x64-portable.zip'
+          $zip=Join-Path $env:RUNNER_TEMP $a.name
+          curl.exe --fail --silent --show-error --location --retry 3 $a.browser_download_url --output $zip
+          if($LASTEXITCODE -ne 0 -or "sha256:$((Get-FileHash $zip).Hash.ToLowerInvariant())" -ne $a.digest){throw 'Проверить архив релиза'}
+          $folder=Join-Path $env:RUNNER_TEMP 'public-bin'
+          Expand-Archive -LiteralPath $zip -DestinationPath $folder
+          $exe=Get-Item (Join-Path $folder 'Kazna_0.45.1_portable/Kazna.exe')
+          if($exe.VersionInfo.ProductVersion -notmatch '^0\.45\.1(\.0)?$'){throw 'Версия программы отличается'}
+          $info=[ordered]@{version=$exe.VersionInfo.ProductVersion;exe=(Get-FileHash $exe).Hash;source=$a.browser_download_url;archiveDigest=$a.digest;os=(Get-CimInstance Win32_OperatingSystem).Caption}
+          $info|ConvertTo-Json|Set-Content (Join-Path $evidence.FullName 'binary.json')
+          "PTREASURY_BIN=$($exe.FullName)" >> $env:GITHUB_ENV
+          python old-fixture/qa/inapp-0440-0450/fixture.py seed . (Join-Path $budget.FullName 'budget.db')
+          if($LASTEXITCODE -ne 0){throw 'Подготовка начального бюджета'}
+      - name: Валюты, курсы, уведомления, палитры, акценты и управление
+        shell: pwsh
+        run: node e2e/preferences-0451.mjs (Join-Path $env:RUNNER_TEMP 'preferences-budget') (Join-Path $env:RUNNER_TEMP 'preferences-proof')
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: public-0451-preferences
+          path: ${{ runner.temp }}/preferences-proof/
+          if-no-files-found: error
