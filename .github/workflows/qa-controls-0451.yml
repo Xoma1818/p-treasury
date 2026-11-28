@@ -1,4 +1,4 @@
-name: Публичная Kazna 0.45.1 и действия в окне
+name: Проверки строк сценария и форм Kazna 0.45.1
 on:
   push:
     branches: [codex/qa-0451-control-proof]
@@ -46,12 +46,13 @@ jobs:
           $out=New-Item -Force -ItemType Directory $env:KAZNA_CONTROLS_OUT
           $files=@(Get-ChildItem e2e -Filter '*.test.mjs' -File | Sort-Object Name)
           $selected=@(for($i=${{ matrix.batch }};$i -lt $files.Count;$i+=4){$files[$i].FullName})
+          node e2e/instrument-controls.mjs
           node --test --test-concurrency=1 @selected | Tee-Object -FilePath (Join-Path $out.FullName batch.tap)
           exit $LASTEXITCODE
       - if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: actions-${{ matrix.batch }}
+          name: verified-actions-${{ matrix.batch }}
           path: ${{ runner.temp }}/controls/
           if-no-files-found: warn
 

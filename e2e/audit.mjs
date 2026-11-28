@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 const output=process.env.KAZNA_CONTROLS_OUT;
 let test='подготовка';
-const active=new Set();
+const active=new Set();export const mark=(line,phase)=>{if(output)appendFileSync(join(output,file+'.marks'), JSON.stringify({test,line,phase,t:Date.now()})+'\n');};
 const file=basename(process.argv[1]);
 beforeEach(t=>{test=t.name;});
 afterEach(async t=>{for(const b of active)await drain(b,t.name);});
@@ -18,16 +18,16 @@ function hook(){
  const shot=()=>({screen:term(document.querySelector('main h1')),dialog:term([...document.querySelectorAll('[role=dialog]')].at(-1)?.querySelector('h2,h3,[role=heading]')),tabs:[...document.querySelectorAll('[aria-selected=true]')].map(term).slice(0,8),alert:term(document.querySelector('[role=alert],.error')),toast:term(document.querySelector('[data-testid=undo-bar]')),counts:[...document.querySelectorAll('main tbody')].slice(0,4).map(x=>x.rows.length)});
  const find=(el,p)=>el?.[Object.keys(el).find(k=>k.startsWith(p))];
  const observe=event=>{
-  const el=event.target.closest?.('button,summary,a[href],[role=button],[role=tab],[role=menuitem],input,select,[tabindex],tr[data-testid]');
+  const el=event.type==='submit'?event.target:event.target.closest?.('button,summary,a[href],[role=button],[role=tab],[role=menuitem],input,select,[tabindex],tr[data-testid]');
   if(!el)return;
   let fiber=find(el,'__reactFiber$');
-  const props=find(el,'__reactProps$')||{};
+  const props=find(el,'__reactProps$')||{}; const chain=[];for(let n=el;n&&chain.length<7;n=n.parentElement){const p=find(n,'__reactProps$')||{};if(p.onClick||p.onSubmit||p.onChange||n.tagName==='FORM'){chain.push({tag:n.tagName,id:get(n),handler:strip(p.onClick||p.onChange||p.onSubmit).slice(0,1536),form:strip(p.onSubmit).slice(0,1536)});}}
   let component='';for(let f=fiber;f;f=f.return){if(typeof f.type==='function'){component=f.type.name;break;}}
-  const signature=strip(event.type==='change'?props.onChange:props.onClick);
-  const elState=()=>({pressed:el.getAttribute('aria-pressed'),selected:el.getAttribute('aria-selected'),expanded:el.getAttribute('aria-expanded'),checked:el.checked,open:el.tagName==='SUMMARY'?el.parentElement?.open:undefined});const seq=++sequence; const record={before:elState(),type:event.type,screen:term(document.querySelector('main h1')),tag:el.tagName,id:get(el),aria:el.getAttribute('aria-label'),title:el.title,name:el.name||'',label:term(el),role:el.getAttribute('role'),scope:get(el.parentElement?.closest('[data-testid]')),component,signature:signature.slice(0,1536),trusted:event.isTrusted,from:shot()};
+  const signature=strip(event.type==='submit'?props.onSubmit:event.type==='change'?props.onChange:props.onClick);
+  const elState=()=>({pressed:el.getAttribute('aria-pressed'),selected:el.getAttribute('aria-selected'),expanded:el.getAttribute('aria-expanded'),checked:el.checked,open:el.tagName==='SUMMARY'?el.parentElement?.open:undefined});const seq=++sequence; const record={wall:Date.now(),chain,inputType:el.type,form:strip(find(el.form,'__reactProps$')?.onSubmit).slice(0,1536),before:elState(),type:event.type,screen:term(document.querySelector('main h1')),tag:el.tagName,id:get(el),aria:el.getAttribute('aria-label'),title:el.title,name:el.name||'',label:term(el),role:el.getAttribute('role'),scope:get(el.parentElement?.closest('[data-testid]')),component,signature:signature.slice(0,1536),trusted:event.isTrusted,from:shot()};
   store.push(record);setTimeout(()=>{if(sequence!==seq)return;record.to=shot();if(el.isConnected)record.after=elState();},80);
  };
- document.addEventListener('click',observe,true);document.addEventListener('change',observe,true);
+ document.addEventListener('submit',observe,true);document.addEventListener('click',observe,true);document.addEventListener('change',observe,true);
  window.addEventListener('error',e=>store.push({type:'error',message:e.message}));
  window.addEventListener('unhandledrejection',e=>store.push({type:'rejection',message:String(e.reason)}));
 }
