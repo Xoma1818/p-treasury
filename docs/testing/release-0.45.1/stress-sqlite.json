@@ -1,0 +1,11 @@
+{
+  "finalTransactions": 160007,
+  "balances": {
+    "019a0000-0000-7000-8000-000000000001": 2571184751,
+    "019a0000-0000-7000-8000-000000000002": -22098143,
+    "019a0000-0000-7000-8000-000000000003": 5694
+  },
+  "orderedTransactionHash": "8fe0bb66323e151c7a861ed094d638a854d0535865827fada5c32baabdf01d79",
+  "integrity": "ok",
+  "foreignKeyViolations": 0
+}
