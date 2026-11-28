@@ -1,40 +1,59 @@
 param([Parameter(Mandatory)][int]$OwnerPid,[Parameter(Mandatory)][string]$Path,[ValidateSet("accept","cancel")][string]$Mode="accept")
 $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Disposable runner required'}
-$root=[IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP 'kazna-file-output')) + [IO.Path]::DirectorySeparatorChar
-if(![IO.Path]::GetFullPath($Path).StartsWith($root,[StringComparison]::OrdinalIgnoreCase)){throw 'Outside synthetic fixture'}
+$rootFolder=[IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP 'kazna-file-output')) + [IO.Path]::DirectorySeparatorChar
+$PathValue=[IO.Path]::GetFullPath($Path)
+if(!$PathValue.StartsWith($rootFolder,[StringComparison]::OrdinalIgnoreCase)){throw 'Outside synthetic fixture'}
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class PickerOwner {
- [DllImport("user32")] public static extern IntPtr GetAncestor(IntPtr hwnd,uint mode);
- [DllImport("user32")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
- public static int Id(IntPtr hwnd) {uint pid;GetWindowThreadProcessId(GetAncestor(hwnd,3),out pid);return (int)pid;}
+$ae=[System.Windows.Automation.AutomationElement]
+$tree=[System.Windows.Automation.TreeScope]
+$root=$ae::RootElement
+Add-Type -Path (Join-Path $PSScriptRoot 'QaDialogWindows.cs')
+$exe=[IO.Path]::GetFullPath($env:PTREASURY_BIN)
+$processIds=@(Get-CimInstance Win32_Process -Filter "Name='Kazna.exe'" | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath,$exe,[StringComparison]::OrdinalIgnoreCase) -and $_.CommandLine.Contains('files-budget') } | ForEach-Object ProcessId)
+if($processIds.Count -ne 1){throw "Expected a single fixture Kazna.exe; got $($processIds.Count), initial PID $OwnerPid"}
+$deadline=(Get-Date).AddSeconds(22)
+do {
+    $windows = @([KaznaDialogWindows]::All())
+    $raw = $windows | Where-Object {
+        $_.ClassName -eq '#32770' -and ($_.ProcessId -in $processIds -or $_.OwnerId -in $processIds -or $_.Title -match 'Open|Save|Folder|Select|Browse')
+    } | Select-Object -First 1
+    if ($raw) {
+        $dlg=$ae::FromHandle($raw.Handle)
+        Write-Output ("Win32 dialog PID {0}, owner {1}, title {2}" -f $raw.ProcessId,$raw.OwnerId,$raw.Title)
+        break
+    }
+    Start-Sleep -Milliseconds 130
+} until ((Get-Date) -gt $deadline)
+if (!$dlg) {
+    $windows | Select-Object ProcessId,OwnerId,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+    $root.FindAll($tree::Children,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current | Select-Object ProcessId,ClassName,Name } | ConvertTo-Json -Compress | Write-Output
+    throw 'No File Dialog belonging to Kazna on the desktop'
 }
-'@
-$desktop=[Windows.Automation.AutomationElement]::RootElement
-$desc=[Windows.Automation.TreeScope]::Descendants
-$all=[Windows.Automation.Condition]::TrueCondition
-function ById([string]$id){[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty,$id)}
-$until=[DateTime]::UtcNow.AddSeconds(35)
-do{
- $dialog=$null
- foreach($w in $desktop.FindAll([Windows.Automation.TreeScope]::Children,$all)){
-  if($w.Current.ClassName -eq '#32770' -and ($w.Current.ProcessId -eq $OwnerPid -or [PickerOwner]::Id([IntPtr]$w.Current.NativeWindowHandle) -eq $OwnerPid)){$dialog=$w;break}
- }
- if(!$dialog){Start-Sleep -Milliseconds 120}
-}while(!$dialog -and [DateTime]::UtcNow -lt $until)
-if(!$dialog){throw "Kazna PID $OwnerPid did not show a native file dialog"}
-$title=$dialog.Current.Name
-if($Mode -eq 'accept'){
- $editor=$dialog.FindFirst($desc,(ById '1001'))
- if(!$editor){$hostEl=$dialog.FindFirst($desc,(ById 'FileNameControlHost'));if($hostEl){$editor=$hostEl.FindFirst($desc,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Edit))}}
- if(!$editor){throw "File name box missing: $title"}
- $editor.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($Path)
+Write-Output ("Native {0}: {1}" -f $Mode,$dlg.Current.Name)
+if ($raw.ProcessId -notin $processIds -and $raw.OwnerId -notin $processIds) {throw 'Dialog not owned by the test executable'}
+[void][KaznaDialogWindows]::SetForegroundWindow($raw.Handle)
+$actionId = if ($Mode -eq 'cancel') {2} else {1}
+if ($Mode -eq 'cancel') {
+    [KaznaDialogWindows]::Action($raw.Handle,2,$false)
+} else {
+    $end = (Get-Date).AddSeconds(4)
+    do {
+        $entry=[KaznaDialogWindows]::FileNameEntry($raw.Handle)
+        if ($entry -ne [IntPtr]::Zero) {break}
+        Start-Sleep -Milliseconds 120
+    } until ((Get-Date) -gt $end)
+    if ($entry -eq [IntPtr]::Zero -or ![KaznaDialogWindows]::TypeName($entry,$PathValue)) {
+        [KaznaDialogWindows]::Controls($raw.Handle) | Select-Object ID,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+        throw 'Native filename textbox could not accept value'
+    }
+    Start-Sleep -Milliseconds 180
+    [KaznaDialogWindows]::Action($raw.Handle,1,$false)
 }
-$btnId=if($Mode -eq 'accept'){'1'}else{'2'}
-$ok=$dialog.FindFirst($desc,(ById $btnId))
-if(!$ok){throw "Native button missing: $btnId"}
-$ok.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
-[pscustomobject]@{window=$title;action=$Mode;file=[IO.Path]::GetFileName($Path)}|ConvertTo-Json -Compress
+for ($attempt=0; $attempt -lt 4; $attempt++) {
+    Start-Sleep -Milliseconds 550
+    if (![KaznaDialogWindows]::IsWindowVisible($raw.Handle)) { Write-Output 'Dialog closed'; exit 0 }
+    [KaznaDialogWindows]::Action($raw.Handle,$actionId,$true)
+}
+[KaznaDialogWindows]::Controls($raw.Handle) | Select-Object ID,ClassName,Title | ConvertTo-Json -Compress | Write-Output
+throw 'Native Common Item Dialog remained open'

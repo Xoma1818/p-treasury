@@ -8,6 +8,7 @@ from pathlib import Path
 from xml.etree.ElementTree import fromstring
 from pypdf import PdfReader
 
+sys.stdout.reconfigure(encoding="utf-8")
 d = Path(sys.argv[1])
 ns = {"x":"http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 with (d/"summary.csv").open(encoding="utf-8-sig", newline="") as f:
