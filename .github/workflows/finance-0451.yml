@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kind: [accounts, goals, figures, invest, empty]
+        kind: [assets, reconcile, planner, pay, exportdebt]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -39,6 +39,8 @@ jobs:
           "PTREASURY_BIN=$exe" | Out-File -Append $env:GITHUB_ENV
           "KAZNA_CONTROLS_OUT=$env:RUNNER_TEMP\controls" | Out-File -Append $env:GITHUB_ENV
           Write-Host "$($asset.digest) EXE $((Get-FileHash $exe).Hash)"
+      - if: matrix.kind == 'exportdebt'
+        run: python -m pip install --disable-pip-version-check pypdf==5.9.0
       - name: Проверить интерфейс и сохранённые значения
         run: node qa/finance-0451/run.mjs ${{ matrix.kind }}
       - if: always()

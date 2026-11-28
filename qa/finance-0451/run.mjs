@@ -7,7 +7,7 @@ const kind=process.argv[2], dir=process.env.KAZNA_CONTROLS_OUT;
 mkdirSync(dir,{recursive:true});
 const actions=[], json=(name,val)=>writeFileSync(join(dir,name),JSON.stringify(val,null,2));
 let b, step="запуск";
-const files={Accounts:"src/screens/Accounts.tsx",Figures:"src/components/Figures.tsx",Goals:"src/components/Goals.tsx",Invest:"src/components/Invest.tsx"};
+const files={...Object.fromEntries(["PayForm","LoanPlanner","ExportDialog","Editors"].map(x=>[x,"src/screens/debts/"+x+".tsx"])),...Object.fromEntries(["Assets","ReconcileAccount"].map(x=>[x,"src/components/"+x+".tsx"])),Debts:"src/screens/Debts.tsx",Accounts:"src/screens/Accounts.tsx",Figures:"src/components/Figures.tsx",Goals:"src/components/Goals.tsx",Invest:"src/components/Invest.tsx"};
 function proof(file,points,action,expected,actual) {
   for (const point of points.split(" ")) actions.push({id:files[file]+":"+point,action,expected,actual:JSON.stringify(actual),status:"pass",evidence:"https://github.com/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID+" (finance-"+kind+"/evidence.json)"});
   json("evidence.json",actions);
