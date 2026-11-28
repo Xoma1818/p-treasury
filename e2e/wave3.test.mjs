@@ -454,10 +454,11 @@ test("своя Главная: скрыть карточку, перестави
   assert.equal(await browser.$("main .home-block").getAttribute("data-block"), "reminders");
   await click(browser, "Настроить Главную");
   await tap('[data-testid="home-cards-default"]');
-  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "quick", { timeout: 5000 });
+  await browser.waitUntil(async () => (await browser.$('[data-testid="home-block"]').getAttribute("data-block")) === "tiles", { timeout: 5000 });
   await saveHomeEditor(browser);
-  // По умолчанию (0.21) — пять основных карточек; шаблонов среди них нет.
-  await browser.waitUntil(async () => (await browser.$$("main .home-block")).length === 5, { timeout: 5000, timeoutMsg: "по умолчанию не пять карточек" });
+  await browser.$('.home-grid > [data-block="tiles"].half [data-testid="month-income"]').waitForExist();
+  const firstBlocks = await browser.execute(() => [...document.querySelectorAll('.home-grid > [data-block]')].slice(0, 3).map((el) => el.dataset.block));
+  assert.deepEqual(firstBlocks, ["tiles", "accounts", "recent"]);
   assert.equal(await browser.$('//main//h2[normalize-space()="Шаблоны"]').isExisting(), false);
   // Настройки открывают тот же редактор и каталог.
   await openSettings(browser, "appearance");
