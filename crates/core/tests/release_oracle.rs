@@ -158,7 +158,17 @@ fn available_money_budget_and_nonfinancial_screens() {
  let f=budget_core::free_money::until_income(c,"2026-11-15").unwrap();
  check("free/balance before pending payments",227255,f.liquid);check("free/known spending before salary",15000,f.payments_total);check("free/reserved",7011,f.reserved_total);
  check("free/days before salary",8,f.days);check("free/after planned spending and reserve",205244,f.free);check("free/daily",205244/8,f.per_day);
- let month=calendar::month(c,"2026-11","2026-11-15").unwrap();check("calendar/planned income",50000,month.planned_income);check("calendar/planned expense",15000,month.planned_expense);check("calendar/factual expense",7312,month.expense);
+ // The Calendar labels its plan as open debt payments and priced reminders.
+ // Give the reminders different amounts from the standalone planned postings.
+ for (kind,when,amount,category) in [("income","2026-11-24T13:00",46543,&inc),("expense","2026-11-25T13:00",21234,&food)] {
+    let reminder=budget_core::reminders::ReminderInput {
+        title:format!("План {kind}"),start_at:when.into(),repeat:"once".into(),
+        amount:Some(amount),txn_type:Some(kind.into()),account_id:Some(card.clone()),
+        category_id:Some(category.clone()),..Default::default()
+    };
+    budget_core::reminders::create(c,&reminder).unwrap();
+ }
+ let month=calendar::month(c,"2026-11","2026-11-15").unwrap();check("calendar/planned income from reminders",46543,month.planned_income);check("calendar/planned expense from reminders",21234,month.planned_expense);check("calendar/factual expense",7312,month.expense);
  let n=budget_core::notes::create(c,&budget_core::notes::NoteInput{body:"Числовой контроль".into(),date:Some("2026-11-15".into()),transaction_id:Some(spent),..Default::default()}).unwrap();
  check("notes/linked entry present",1,budget_core::notes::list(c,&Default::default()).unwrap().iter().filter(|x|x.id==n).count() as i64);
  settings::set(c,"home_layout",r#"{"v":3,"preset":"overview"}"#).unwrap();
@@ -167,7 +177,7 @@ fn available_money_budget_and_nonfinancial_screens() {
 #[test]
 fn three_payment_amortization_by_hand() {
  // Differential 12% yearly, three monthly periods. Principal 100001 cents:
- // 33334,33334,33333 OR 33333,33333,33335 depending on cents convention.
+ // Two equal principal payments round to 33334, followed by a residual of 33333.
  // Independently recompute each interest from outstanding, payment identity,
  // and final closure; annuity expects rounded scheduled payment from formula.
  for model in ["annuity","differentiated"] {
@@ -177,7 +187,7 @@ fn three_payment_amortization_by_hand() {
    let mut balance=100001;let r=1.01f64;let std_payment=(100001f64*0.01/(1.0-r.powi(-3))).round() as i64;
    for (ix,row) in dd.schedule.iter().enumerate(){
       let interest=(balance+50)/100;check(&format!("loan/{model}/{ix}/interest"),interest,row.interest_part);
-      let principal=if ix==2{balance}else if model=="annuity"{std_payment-interest}else{100001/3};
+      let principal=if ix==2{balance}else if model=="annuity"{std_payment-interest}else{33334};
       check(&format!("loan/{model}/{ix}/principal"),principal,row.principal_part);
       check(&format!("loan/{model}/{ix}/payment"),principal+interest,row.payment);
       balance-=principal;check(&format!("loan/{model}/{ix}/closing"),balance,row.balance_after);
