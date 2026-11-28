@@ -1,3 +1,4 @@
+import { connect as controlsConnect, disconnect as controlsDisconnect } from './audit.mjs';
 // Запуск настоящего окна приложения через tauri-driver (WebDriver) для сквозных тестов.
 // Каждый вызов start() открывает приложение с чистой папкой данных.
 import { createHash } from "node:crypto";
@@ -192,6 +193,7 @@ export async function start(dataDir = mkdtempSync(join(tmpdir(), "p-treasury-e2e
   // карточки, поэтому включаем их (как у пользователя, который их включил);
   // `homeDefaults: true` оставляет Главную как после установки.
   if (WIN) windowsSessions.set(browser, { driver, bin: resolve(bin) });
+  await controlsConnect(browser);
   if (!homeDefaults) await showAllHomeCards(browser);
   return { browser, dataDir };
 }
@@ -241,6 +243,7 @@ export async function showAllHomeCards(browser) {
 
 export async function stop(browser) {
   try {
+    await controlsDisconnect(browser);
     await browser?.deleteSession();
   } finally {
     if (WIN) {
