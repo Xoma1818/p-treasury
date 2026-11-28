@@ -1,5 +1,5 @@
 import * as H from "./qa-finance-helpers.mjs";
-const {assert,b:unused}=H;
+const {assert}=H;
 const {one,read,cmd,op,ym,day,hit,has,gone,seen,push,fill,tab,refresh,phase,journal}=H;
 const log=(ids,a,e,v)=>H.mark("screens/Forecast",ids,a,e,v);
 export async function scenarios(){

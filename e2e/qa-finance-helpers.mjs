@@ -55,12 +55,18 @@ export const seen=async (selector,regex)=>await waitText(b,selector,regex,10000)
 export const money=(n)=>new RegExp(String(n).split("").map(x=>x.replace(/[.*+?^$|(){}\[\]\\]/g,"\\$&")).join("[\\s\\u00a0]*"));
 export async function journal(names) {
   await has("//main//h1[normalize-space()='Операции']");
+  const visibleRows=()=>b.execute(()=>[...document.querySelectorAll('[data-testid="txn-row"]')].filter(r=>r.offsetHeight>0).map(r=>r.innerText));
   await b.waitUntil(async()=>{
-    const rows=await b.$$('[data-testid="txn-row"]');
-    const texts=await Promise.all(rows.map(r=>r.getText()));
-    return texts.length===names.length && names.every(n=>texts.some(t=>t.includes(n)));
+    const texts=await visibleRows();
+    if (texts.length!==names.length) return false;
+    for (const name of names) {
+      const ix=texts.findIndex(t=>t.includes(name));
+      if (ix<0) return false;
+      texts.splice(ix,1);
+    }
+    return true;
   },{timeout:10000,timeoutMsg:"Expected exact journal "+names.join("/")});
-  return (await Promise.all((await b.$$('[data-testid="txn-row"]')).map(r=>r.getText()))).map(x=>x.replace(/\s+/g," ")).join(" | ");
+  return (await visibleRows()).map(s=>s.replace(/\s+/g," ")).join(" | ");
 }
 export function mark(file,ids,action,expected,actual) {
   for(const at of ids.split(" "))records.push({id:"src/"+file+".tsx:"+at,action,expected,actual:String(actual),status:"pass",

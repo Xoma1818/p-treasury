@@ -6,6 +6,7 @@ export async function homeActions(){
  for(const m of [-3,-2,-1]) await op("expense",day(ym(m)),"Питание",20000,"Старый магазин");
  await op("expense",day(ym()),"Питание",350000,"Покупка QA");
  const other=await op("expense",current,"Прочие расходы",733,"Без категории QA");
+ await cmd("create_asset",{input:{name:"Учебная вещь",kind:"other",currencyCode:"RUB",value:5000,date:day(ym(-2)),note:null}});
  await H.budget(ym(),{"Питание":100000,"Жильё":500000,"Транспорт":410000});
  let pair;
  for(let i=0;i<7;i++){
@@ -66,8 +67,8 @@ export async function homeActions(){
  });
  await phase("net-worth",async()=>{
    await tab("Главная");await hit('[data-testid="home-net-worth-spark"]');await has('[data-testid="networth-report"]');
-   const expected=1000000-3*20000-350000-733-2*(100+101+102+103+104+105+106);
+   const expected=1000000-3*20000-350000-733-2*(100+101+102+103+104+105+106)+5000;
    await seen('[data-testid="networth-last"]',H.money((expected/100).toFixed(2).replace(".",",")));
-   log("380:4","Мини-график капитала → отчёт","1000000 − 60000 − 350000 − 733 − 1442 коп.",await H.text('[data-testid="networth-last"]'));
+   log("380:4","Мини-график капитала → отчёт","587825 коп. денег + 5000 коп. имущества",await H.text('[data-testid="networth-last"]'));
  });
 }

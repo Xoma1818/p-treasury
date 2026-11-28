@@ -16,10 +16,11 @@ export async function extras(){
    H.mark("components/Subscriptions","47:8","Открыть платежи одной подписки","Три списания по 19,99 ₽",await journal([merchant,merchant,merchant]));
  });
  await phase("tags",async()=>{
-   await tab("Отчёты");await push("По тегу");await (await H.el('[name="reportTag"]')).selectByVisibleText("Метка QA");
+   const tagId=one("SELECT id FROM tags WHERE name='Метка QA'");
+   await tab("Отчёты");await push("По тегу");await (await H.el('[name="reportTag"]')).selectByAttribute("value",tagId);
    await seen('[data-testid="tag-expense"]',H.money("27,76"));await hit('[data-testid="tag-expense"] button');
    H.mark("components/Tags","180:14","Расходы тега → журнал","19,99 + 7,77 = 27,76 ₽",await journal([merchant,"Попутная покупка"]));
-   await tab("Отчёты");await push("По тегу");await (await H.el('[name="reportTag"]')).selectByVisibleText("Метка QA");
+   await tab("Отчёты");await push("По тегу");await (await H.el('[name="reportTag"]')).selectByAttribute("value",tagId);
    const button='//*[@data-testid="tag-cat"]//button[contains(.,"Питание")]';await hit(button);
    H.mark("components/Tags","205:22","Строка категории тега","Только продуктовая подписка текущего месяца",await journal([merchant]));
  });
