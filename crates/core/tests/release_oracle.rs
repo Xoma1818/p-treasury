@@ -141,3 +141,46 @@ fn fixed_forecast_and_currency_edges(){
  check("FX/missing historical rate",1,currencies::convert(c,101,"USD","RUB","2026-02-01").unwrap().is_none() as i64);
 }
 
+#[test]
+fn available_money_budget_and_nonfinancial_screens() {
+ let mut db=Storage::open_in_memory().unwrap();let c=db.conn();categories::seed_defaults(c).unwrap();
+ let card=account(c,"Карта","debit","RUB",234567);let food=cat(c,"Питание");let inc=cat(c,"Прочие доходы");
+ let spent=post(c,"expense","2026-11-01",&card,7312,Some(&food),None,"Магазин");
+ let p=post(c,"expense","2026-11-19",&card,15000,Some(&food),None,"Будущий платёж");
+ let salary=post(c,"income","2026-11-23",&card,50000,Some(&inc),None,"Будущий доход");
+ for id in [&p,&salary]{c.execute("UPDATE transactions SET status='planned' WHERE id=?1",[id]).unwrap();}
+ let id=goals::create(c,&goals::GoalInput{name:"Резерв".into(),target:10000,currency_code:"RUB".into(),account_id:Some(card.clone()),deadline:None,reserve:true}).unwrap();
+ goals::deposit(c,&id,"2026-11-01",7011).unwrap();
+ let budget=budgets::create(db.conn_mut(),"2026-11",false).unwrap();let c=db.conn();budgets::set_limit(c,&budget,&food,Some(55000)).unwrap();
+ let b=budgets::get(c,"2026-11","2026-11-15").unwrap();let line=b.lines.iter().find(|l|l.category_id==food).unwrap();
+ check("budget/food limit",55000,line.limit);check("budget/food actual excluding planned outflow",7312,line.actual);check("budget/food remaining",47688,line.remaining);
+ check("budget/available per day incl today",47688/16,b.safe_to_spend_today.unwrap());
+ let f=budget_core::free_money::until_income(c,"2026-11-15").unwrap();
+ check("free/balance before pending payments",227255,f.liquid);check("free/known spending before salary",15000,f.payments_total);check("free/reserved",7011,f.reserved_total);
+ check("free/days before salary",8,f.days);check("free/after planned spending and reserve",205244,f.free);check("free/daily",205244/8,f.per_day);
+ let month=calendar::month(c,"2026-11","2026-11-15").unwrap();check("calendar/planned income",50000,month.planned_income);check("calendar/planned expense",15000,month.planned_expense);check("calendar/factual expense",7312,month.expense);
+ let n=budget_core::notes::create(c,&budget_core::notes::NoteInput{body:"Числовой контроль".into(),date:Some("2026-11-15".into()),transaction_id:Some(spent),..Default::default()}).unwrap();
+ check("notes/linked entry present",1,budget_core::notes::list(c,&Default::default()).unwrap().iter().filter(|x|x.id==n).count() as i64);
+ settings::set(c,"home_layout",r#"{"v":3,"preset":"overview"}"#).unwrap();
+ check("settings and notes/no monetary journal mutation",227255,accounts::balance(c,&card,None).unwrap());
+}
+#[test]
+fn three_payment_amortization_by_hand() {
+ // Differential 12% yearly, three monthly periods. Principal 100001 cents:
+ // 33334,33334,33333 OR 33333,33333,33335 depending on cents convention.
+ // Independently recompute each interest from outstanding, payment identity,
+ // and final closure; annuity expects rounded scheduled payment from formula.
+ for model in ["annuity","differentiated"] {
+   let mut db=Storage::open_in_memory().unwrap();categories::seed_defaults(db.conn()).unwrap();
+   let loan:debts::DebtInput=serde_json::from_value(json!({"direction":"borrowed","counterparty":"Тест","currencyCode":"RUB","principal":100001,"issueDate":"2026-01-01","rateBp":1200,"repaymentType":model,"termMonths":3,"firstPaymentDate":"2026-02-01","interestMethod":"monthly"})).unwrap();
+   let id=debts::create(db.conn_mut(),&loan).unwrap();let dd=debts::get(db.conn(),&id,"2026-01-01").unwrap();check(&format!("loan/{model}/rows"),3,dd.schedule.len() as i64);
+   let mut balance=100001;let r=1.01f64;let std_payment=(100001f64*0.01/(1.0-r.powi(-3))).round() as i64;
+   for (ix,row) in dd.schedule.iter().enumerate(){
+      let interest=(balance+50)/100;check(&format!("loan/{model}/{ix}/interest"),interest,row.interest_part);
+      let principal=if ix==2{balance}else if model=="annuity"{std_payment-interest}else{100001/3};
+      check(&format!("loan/{model}/{ix}/principal"),principal,row.principal_part);
+      check(&format!("loan/{model}/{ix}/payment"),principal+interest,row.payment);
+      balance-=principal;check(&format!("loan/{model}/{ix}/closing"),balance,row.balance_after);
+   }
+ }
+}
