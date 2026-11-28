@@ -1,0 +1,52 @@
+name: Обновление из установленной Kazna 0.44.0 до 0.45.0
+on:
+  push:
+    branches: [codex/verify-inapp-0440-0450]
+permissions:
+  contents: read
+
+jobs:
+  update:
+    name: Windows 11 ARM64 · публичный канал x64
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - run: npm ci --no-audit --no-fund
+      - name: Драйвер для установленного WebView2
+        run: ./scripts/setup-windows-test-driver.ps1
+      - name: Общедоступный канал, установка 0.44.0 и учебная база
+        run: ./qa/inapp-0440-0450/verify.ps1 prepare
+      - name: Предложение 0.45.0 и нажатие «Обновить» в установленной 0.44.0
+        run: ./qa/inapp-0440-0450/verify.ps1 before
+      - name: Регистрация 0.45.0 и самостоятельный перезапуск
+        run: ./qa/inapp-0440-0450/verify.ps1 restart
+      - name: Данные в окне установленной 0.45.0
+        run: ./qa/inapp-0440-0450/verify.ps1 after
+      - name: Операции, остатки, раскладка и предустановочная копия
+        run: ./qa/inapp-0440-0450/verify.ps1 verify
+      - name: Отчёт в журнале и сводке запуска
+        if: always()
+        run: ./qa/inapp-0440-0450/verify.ps1 summary
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: kazna-inapp-0440-0450
+          path: ${{ runner.temp }}/kazna-inapp-0440-0450/evidence
+          if-no-files-found: warn
+          retention-days: 14
